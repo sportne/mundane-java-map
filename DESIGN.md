@@ -52,7 +52,7 @@ design task; there are no empty speculative design files.
 | G1 | [First map slice](design/G1-first-map-slice.md) | G1-001 approved |
 | G2 | [Symbols and vector graphics](design/G2-symbols-and-vector-graphics.md) | G2-001 through G2-007 approved |
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
-| G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-003 approved |
+| G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -91,6 +91,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Reject out-of-domain Web Mercator coordinates and make query-envelope clipping an explicit result. | Strict feature transforms expose invalid data, while bounded viewport intersection remains usable without silent latitude repair or unsafe generic corner projection. |
 | 2026-07-12 | Require Level 1 raster sources to match the display CRS. | Painting a cross-CRS raster as one transformed rectangle would masquerade as nonlinear warping that G4/G6 do not implement. |
 | 2026-07-12 | Compose legacy and lazy source content through one explicit AWT binding. | A source must keep bounded cursor, CRS, cancellation, report, and ownership behavior instead of masquerading as the existing snapshot `Layer`. |
+| 2026-07-12 | Atomically arbitrate staged source success, known failure, and cancellation before publication. | Exactly one terminal outcome owns payload, availability, and report publication, so a cross-thread cancel cannot produce success-after-cancel or two terminal diagnostics. |
 | 2026-07-12 | Keep a concise project design index and gate-oriented detailed design files. | Scoped reading and review remain fast while one entry point preserves cross-gate principles, decisions, and traceability. |
 
 ## Task design traceability
@@ -118,3 +119,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G4-001 | Synchronous feature/raster contracts, immutable records/IDs, canonical attributes, raster grid math, limits, cancellation, reports, and explicit ownership | Approved |
 | G4-002 | Immutable CRS metadata, explicit direct-operation registry, strict Web Mercator/envelopes, display integration, and same-CRS raster boundary | Approved |
 | G4-003 | Common/feature source contracts, packed multipart geometry, linear in-memory queries, explicit AWT bindings, staged CRS-safe rendering, interaction, reports, and ownership | Approved |
+| G4-004 | Raster contracts/accounting, exact visible cell windows, procedural nearest source, matching-CRS binding, direct AWT conversion, atomic publication, and G4 closeout | Approved |

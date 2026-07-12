@@ -1072,13 +1072,24 @@ reattachment. Removed owned bindings become permanently closed and close their s
 failure is reported and thrown after commit without rollback. Calling `close()` on an attached binding
 is a lifecycle error; an unattached owned binding remains caller-closeable after failed attachment.
 
-For a source operation, a binding atomically publishes one fresh `CancellationSource` before query
-planning and clears that exact instance in `finally`. `cancelCurrentOperation()` is the sole method in
-this AWT surface permitted from another thread: it returns true and idempotently signals the currently
-published token, or false when no operation is active. It never cancels a future operation and mutates
-no Swing state. Snapshot bindings always return false. All other binding/view lifecycle follows the
-EDT and external-serialization rules. This is a bounded cancellation handoff, not an executor,
-background loader, callback, or public scheduling framework.
+For a source operation, a binding atomically publishes one private operation state with phase
+`ACTIVE | CANCELLED | SUCCEEDED | FAILED`; its read-only token reports cancellation only in
+`CANCELLED`. `cancelCurrentOperation()` is the sole method in this AWT surface permitted from another
+thread: it changes `ACTIVE` to `CANCELLED` and returns true (also true for an already-cancelled current
+operation), or returns false after a success/failure outcome has won or when no operation is active.
+After complete staging and cleanup, the EDT commits success only with `ACTIVE -> SUCCEEDED` and a
+known terminal failure only with `ACTIVE -> FAILED`. Cancellation, success, and known failure are
+therefore one atomic terminal arbitration: exactly one wins, and the winning phase determines the
+payload/availability/report transaction. A cancellation winner discards a staged success or failure,
+retains only bounded warnings already encountered, and appends exactly one terminal
+`SOURCE_CANCELLED`; the losing failure remains available only as the exception cause or a suppressed
+debugging aid. A failure winner publishes its exact terminal report, and a later cancel returns false.
+The terminal state remains published until the EDT commits the corresponding payload and report, then
+clears that exact state in `finally`; queued report listeners still drain at the established operation
+boundary after graphics disposal. A thread that read an old state cannot affect a future operation.
+Snapshot bindings always return false. All other binding/view lifecycle follows the EDT and external-
+serialization rules. This is a bounded cancellation handoff, not an executor, background loader,
+callback, or public scheduling framework.
 
 G4-003 makes MapView's approved `AutoCloseable` behavior concrete. Permanent idempotent close releases
 borrowed/snapshot claims, closes owned bindings in reverse order, clears tool/interaction/report state,
@@ -1197,3 +1208,295 @@ architecture-test module, followed by the normal quality gate and whitespace che
 the upper end of the intended size because it delivers the complete feature half of the already
 approved G4 decision through one real render/hit/lifecycle slice; splitting it into class cards would
 delay observable behavior without creating a safer ownership boundary.
+
+### Raster source window rendering slice (G4-004)
+
+#### Raster-half contract delivery and accounting
+
+G4-004 implements only the remaining raster-specific values from G4-001:
+`RasterSourceMetadata`, `RasterWindow`, `RasterRequestLimits`, `RasterSourceLimits`, `RasterRequest`,
+`RgbaPixelBuffer` and its builder, `RasterRead`, and `RasterSource`. They reuse G4-003's source
+identity, diagnostics, exceptions, cancellation, report, binding, and MapView lifecycle. There is no
+generic source superclass, pixel hierarchy, decoder contract, image format, or I/O module.
+
+Core adds the raster-specific counterpart to feature accounting:
+
+```text
+RasterRequestAccounting(
+    String sourceId,
+    RasterRequestLimits effectiveLimits,
+    CancellationToken cancellation)
+
+  validateWindow(RasterSourceMetadata metadata, RasterWindow window)
+  chargeSourcePixels(long pixels)
+  validateOutput(int width, int height) -> long outputPixels
+  chargeIntermediateBytes(long bytes)
+  chargePublishedBytes(long bytes)
+  checkpoint()
+```
+
+The helper is public for later JDK-only format modules, operation-local, externally serialized, and
+retains only the immutable limits plus read-only token. All counts are cumulative and checked before
+acceptance. `validateWindow` distinguishes structurally invalid values (already rejected by value
+construction) from a source-relative window outside `[0,width) x [0,height)`, which produces
+`RASTER_WINDOW_OUT_OF_RANGE` with exactly decimal `column`, `row`, `width`, `height`, `rasterWidth`,
+and `rasterHeight` context. Output validation checks each configured dimension, checked pixel product,
+the configured output-pixel limit, and the hard requirement that one Java array can address the
+result. Other ceilings use the existing `SOURCE_LIMIT_EXCEEDED` shape.
+
+`checkpoint` maps a requested cancellation to `SOURCE_CANCELLED`. The helper performs only constant-
+time arithmetic; source/converter loops still checkpoint before work/allocation, at least per row,
+within 4,096 primitive pixels, and immediately before transfer/publication. It does not allocate a
+buffer or infer decoder cost. A concrete operation explicitly charges what it owns.
+
+For the procedural source below, the strict source-window area is charged as source pixels examined,
+and the final packed array is charged once as four intermediate bytes and independently as four
+published payload bytes per output pixel. Before MapView starts that read, a separate accounting
+instance verifies the complete known render path: four bytes per published packed pixel plus four
+bytes per AWT ARGB pixel equals eight cumulative intermediate bytes, while published source payload
+remains four. This independent preflight bounds the later AWT copy without sharing a mutable source
+counter.
+
+#### Exact grid edges and visible source window
+
+The axis-aligned grid model approved in G4-001 remains the complete G4 placement model. Core exposes
+one stateless final utility used immediately by MapView and later by axis-aligned sources:
+
+```text
+RasterGridWindows.visibleWindow(
+    RasterSourceMetadata metadata,
+    Envelope visibleDisplayBounds) -> Optional<RasterWindow>
+
+RasterGridWindows.mapBounds(
+    RasterSourceMetadata metadata,
+    RasterWindow window) -> Envelope
+```
+
+Both methods reject null arguments with the parameter-named `NullPointerException`. An absent or
+non-positive-area `metadata.mapBounds`, or a `mapBounds` window not wholly contained in the metadata
+dimensions, is an `IllegalArgumentException` naming the failed precondition. These are direct core-
+utility programmer errors, not source diagnostics. A checked edge calculation that is non-finite or
+outside its stored axis boundaries is an `ArithmeticException` before a result is built. Only
+`RasterSource.read` maps a structurally valid but source-relative out-of-range request to the stable
+`RASTER_WINDOW_OUT_OF_RANGE` report.
+
+The utility introduces no grid object, affine transform, reprojection, cache, or renderer. Edge zero
+and the final edge return the stored metadata boundary exactly. An interior column edge `c` uses one
+checked, overflow-safe convex interpolation at ratio `c / width` from west/minimum x to east/maximum
+x; row edge `r` uses the same function at `r / height` from north/maximum y to south/minimum y. Every
+caller, including `mapBounds` and the searches below, uses these exact edge functions. Pixel cells are
+therefore row-major from the north-west.
+
+`visibleWindow` first intersects the finite viewport/display envelope with raster bounds. An empty or
+zero-width/zero-height intersection returns empty; touching only an exterior edge or point has no
+paintable area and issues no read. For a positive intersection it does not invert or renormalize a
+coordinate. Monotone binary searches over the exact edge functions select the minimum contiguous
+window spanning every cell with positive overlap:
+
+- `startColumn` is the first cell whose right edge is strictly greater than the intersection minimum
+  x; `endColumn` is the first edge index whose edge is greater than or equal to the intersection
+  maximum x.
+- `startRow` is the first cell whose south edge is strictly less than the intersection maximum y;
+  `endRow` is the first edge index whose descending edge is less than or equal to the intersection
+  minimum y.
+
+The strict comparisons preserve `nextUp`/`nextDown` distinctions without an epsilon. If adjacent grid
+edges collapse to one representable `double`, their zero-area cells are skipped at an outer fence and
+may appear only inside the returned window between positive-area cells; they never cause an extra
+positive-area boundary cell to be selected. An exact interior edge returned by `mapBounds` is compared
+to the identical edge value in `visibleWindow`, so a distinct outer fence is not shifted by rounding;
+collapsed leading or trailing zero-area cells are deterministically trimmed rather than treated as
+visible. Binary-search indexes and checked `long` window arithmetic avoid dimension/product overflow.
+Tests cover exact and immediately adjacent edge values, collapsed adjacent edges, partial cells, one-
+cell rasters, full bounds, outside/touching queries, row inversion, and huge valid dimensions.
+
+This is view planning, not request repair. A direct `RasterSource.read` accepts only a wholly
+contained `RasterWindow`; it never clips. `mapBounds` returns the complete selected cell-edge envelope,
+which can extend by one partial cell beyond the visible envelope and is clipped only by the existing
+component clip.
+
+For this correctness slice, MapView sets request output width and height exactly equal to the selected
+source-window width and height. Every selected source cell is represented once before the final
+fixed-nearest Java2D screen scaling. A window that exceeds the effective output/allocation limits
+fails with the normal structured limit report; G4 does not silently reduce resolution. Screen-sized
+subsampling, proportional output planning, and configurable interpolation begin in G6-003.
+
+#### Procedural synthetic raster source
+
+Core supplies one allocation-free-at-open source:
+
+```text
+SyntheticRasterSource.open(
+    SourceIdentity identity,
+    int width,
+    int height,
+    Optional<Envelope> mapBounds,
+    Optional<CrsMetadata> crs,
+    RasterSourceLimits limits) -> SyntheticRasterSource
+
+SyntheticRasterSource.open(
+    SourceIdentity identity,
+    int width,
+    int height,
+    Envelope mapBounds,
+    CrsMetadata crs) -> SyntheticRasterSource
+```
+
+It captures immutable metadata/limits, has empty opening diagnostics, and allocates no complete source
+grid. The opaque pixel at absolute source `(column,row)` is exactly:
+
+```text
+red   = column & 0xff
+green = row & 0xff
+blue  = (column ^ row) & 0xff
+alpha = 0xff
+rgba  = (red << 24) | (green << 16) | (blue << 8) | alpha
+```
+
+Absolute indexes make row direction, subwindow origin, and resampling observable without a public
+pixel-generator abstraction. Alpha conversion is separately exercised with a small test source; the
+production procedural source needs no configurable transparency/failure hook.
+
+`read` validates source lifecycle, non-null token, tighter limits, strict window, complete window-area
+charge, output shape, four-byte intermediate/payload charges, and cancellation before creating one
+single-use `RgbaPixelBuffer.Builder`. It applies the approved pixel-center nearest formula independently
+on x and y using checked `long`; for every output cell it samples the absolute source indexes and sets
+one packed value. Exact half-cell ties choose right/bottom. It checkpoints per output row and within
+4,096 generated pixels. Success checks cancellation once more, transfers the builder array, and returns
+the exact requested window, dimensions, and empty report. Failure/cancellation discards the builder;
+the still-open source remains reusable. Source close is idempotent, makes later reads lifecycle
+failures, and has no fake cleanup failure, thread, file, grid, or cache.
+
+#### Matching-CRS raster binding
+
+The final tagged AWT host gains working raster variants only now:
+
+```text
+MapLayerBinding.borrowedRaster(
+    String layerId, String name, RasterSource source)
+
+MapLayerBinding.ownedRaster(
+    String layerId, String name, RasterSource source)
+```
+
+G4 raster bindings are opaque at layer level: pixel alpha is honored, while configurable global
+opacity remains G6-003 presentation state and is never part of a G4 request. The existing single-view
+claim, duplicate binding/source-instance rejection, transactional candidate validation, current-
+operation cancellation, borrowed reuse, owned reverse close, failed-close reporting, and permanent
+MapView close rules apply unchanged.
+
+A renderable attachment requires present map bounds. Absence produces terminal
+`RASTER_MAP_BOUNDS_MISSING` with the binding source ID, empty location, empty context, and bounded
+message text; the public grid utility is not invoked. Attachment also requires a present recognized
+CRS, exact equality with its canonical registry definition, and exact equality with the view's display
+CRS. The identity operation strictly validates the whole bounds against that CRS domain before a
+claim. Missing, unknown, or fabricated definitions retain their approved CRS failures; a different
+recognized source/display definition uses `CRS_RASTER_WARP_UNSUPPORTED`, even when the registry has a
+point projection. Geographic and projected tests therefore use separate EPSG:4326 and EPSG:3857
+identity-display views. The raster never passes through the map-coordinate CRS and is never stretched
+across a nonlinear transform.
+
+Raster bounds participate directly in mixed `fitToData` without a read because they already use the
+display CRS. Missing bounds cannot occur after attachment. Fit, source reports, candidate rollback,
+retained binding identity, removal, and close preserve the G4-003 transaction/event rules.
+
+#### Direct AWT conversion and atomic paint publication
+
+Only paint operations read a raster binding. Public hit tests, hover moves, click selection,
+programmatic selection, and tool routing do not read pixels. A raster is visual base content and never
+produces a `MapHit`, hover, or selection; `setSelection` rejects a raster binding ID. It is deliberately
+transparent to feature hit traversal even when opaque, so applications wanting conventional visual/
+hit order place rasters below selectable vectors.
+
+During paint, a positive visible intersection creates one strict window/request. Empty intersection
+opens no read, is a clean available result, and clears the prior operation report. Before invoking the
+source, MapView validates the anticipated combined packed-plus-AWT allocation described above against
+the effective limits. A successful `RasterRead` must return the exact requested window/output shape;
+a mismatch is a source implementation `IllegalStateException` and retains whole-pass failure behavior,
+not a hostile-input diagnostic.
+
+AWT extracts the exact scalar conversion already used by G2 raster icons into one package-private
+helper and wires one final buffer converter directly into MapView. It creates a fresh
+`BufferedImage.TYPE_INT_ARGB`, obtains its owned `DataBufferInt`, and fills that one array from bounded
+`RgbaPixelBuffer.rgbaAt` reads using exactly:
+
+```text
+argb = (rgba >>> 8) | (rgba << 24)
+```
+
+The shift truncation yields `0xAARRGGBB`; no color-model inference, `setRGB` copy, reflection,
+registration, or consumer-visible AWT value is involved. Conversion uses the binding operation token
+and the approved checkpoints. After conversion, the EDT proposes success with the atomic
+`ACTIVE -> SUCCEEDED` transition. If cancellation already won, it discards the image and commits the
+bounded read warnings followed by exactly one terminal `SOURCE_CANCELLED`; if success wins, a later
+cancel returns false and the complete image/report transaction may be committed.
+
+Published painting uses a disposable child, preserves the component clip, explicitly selects
+nearest-neighbor interpolation and `AlphaComposite.SrcOver`, and maps image edges
+`[0,outputWidth] x [0,outputHeight]` to the selected window's exact screen-edge rectangle with a finite
+double affine transform. The single opaque Java2D draw is not checked for cancellation after
+publication because pixels are already committed. Pixel alpha composes once and neither source buffer
+nor image is retained after the pass.
+
+The report and availability commit follows the winning operation phase. `SUCCEEDED` replaces that
+binding's report with `RasterRead.diagnostics`; a clean report clears prior state. A caught
+`SourceException` proposes `FAILED` only after deterministic read cleanup; one whose terminal code is
+`SOURCE_CANCELLED` instead proposes `CANCELLED`. If ordinary failure wins, its exact bounded terminal
+report is committed. If cancellation wins the race, the failure's terminal error is not published:
+bounded warnings encountered before it are retained, one `SOURCE_CANCELLED` is appended, and the
+original exception is retained only as cause/suppressed debugging detail. Both terminal phases mark
+the raster unavailable, skip its entire draw, and allow later base bindings to paint. Thus no report
+or availability change is visible before the success/failure/cancellation arbitration, and no
+operation publishes two terminal diagnostics. Availability recovery retains the one-full-repaint
+rule. Unexpected source runtime, contract, conversion, or Java2D failures abort the pass under existing
+renderer behavior. Raster and vector bindings otherwise paint in their declared base order, followed
+globally by hover, selection, and measurement.
+
+#### Verification and Native Image boundary
+
+API tests cover metadata optional states, strict windows and checked ends, requests/tightening,
+dimensions/products, pixel-buffer row-major access/copies/equality, builder single transfer, read
+shape/reports, and source lifecycle contracts. Core tests cover accounting one-less/equal/one-more and
+overflow; grid-utility null/missing-bounds/uncontained-window/arithmetic failures; exact interior-edge
+round trips; `nextUp`/`nextDown` fences; collapsed adjacent edges; positive-area/touching rules;
+procedural full/subwindows; absolute pattern; arbitrary up/down nearest sampling and ties;
+cancellation at every checkpoint; failure discard/reuse; and close.
+
+AWT tests cover raster factory/claim/rollback/duplicate/ownership behavior; missing bounds; missing,
+unknown, fabricated, mismatched, and matching CRS; separate geographic/projected views; exact combined
+allocation preflight; read/window/shape assertions; packed RGBA-to-ARGB including alpha; clipping,
+north/south orientation, fixed nearest scaling, mixed base order, no raster hit/read from interaction,
+selection rejection, fit without read, clean empty intersection, warning/recovery/terminal reports,
+the exact empty-location/empty-context missing-bounds diagnostic, later-layer continuation,
+success-versus-cancel and failure-versus-cancel races with each possible winner, single terminal report
+publication, and reverse close. Offscreen assertions use controlled regions and tolerant colors rather
+than whole-image platform identity.
+
+Architecture tests keep raster contracts/accounting/grid/source free of `java.desktop`, confine the
+direct converter and Java2D values to AWT, and reject image codecs, decoder/renderer discovery,
+executors, background loading, retained raster images, caches, format modules, or affine/warp
+abstractions. G4-004 adds no specialized or Native Image lane: the path is JDK-only and explicitly
+constructed, while G6-005 and G8 own actual encoded/native raster evidence.
+
+#### G4 design closeout
+
+G4 closes with exactly two synchronous format-neutral source interfaces: one bounded feature cursor
+and one all-or-nothing raster read. They share immutable identity, diagnostics, limits, cancellation,
+reports, and ownership, but not a generic source superclass or unrelated query model. Core has one
+linear immutable feature source, one procedural raster source, and only the two typed accounting
+helpers plus direct CRS/grid algorithms required by those working slices.
+
+AWT composes existing snapshot layers and the two source kinds through one final tagged
+`MapLayerBinding`; no lazy source pretends to be `Layer`, and no consumer can add an unrenderable
+variant. MapView remains synchronous and EDT-confined, with one narrow atomic cancellation handoff,
+one terminal success/failure/cancellation arbitration, one ordered base stack, and the existing hover/
+selection/measurement passes. Explicit CRS operations permit direct feature transforms while baseline
+rasters require the display CRS; there is no guessed CRS, chained operation, raster warp, async loader,
+retained viewport result, cache, decoder registry, affine placeholder, or empty I/O module.
+
+The gate-level review confirms that common source foundations must land in G4-003 before G4-004, so
+the raster task dependency is intentionally sequential. It also corrects G4-004's stale
+clip-or-reject/resource/registration wording and G6-003's request-opacity/clipping wording before
+implementation. Those are planning corrections, not additional G4 behavior. This is the simplest
+design that keeps parsers and pixels toolkit-neutral while making source failure, resource ownership,
+CRS, cancellation, and Swing publication explicit enough for the concrete G5/G6 formats.
