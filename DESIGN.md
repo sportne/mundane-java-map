@@ -780,6 +780,164 @@ seeds transform, clip, composite, paint, and stroke on the parent and proves the
 painting. Basic compatibility features continue to render through the legacy branch. Hit testing,
 line endpoints, raster icons, catalogs, registry extension, and caching remain later tasks.
 
+### Line endpoints and hatch fills (G2-004)
+
+#### Solid line and fill values
+
+G2-004 completes the three Level 1 geometry roles with these immutable API values:
+
+- `SolidLineSymbol.of(SymbolStroke stroke, Optional<Symbol> startMarker,
+  Optional<Symbol> endMarker, double opacity)`; marker options must have `MARKER` role, including a
+  marker composite, and cannot be legacy values;
+- `SolidFillSymbol.of(Rgba fill, Optional<Symbol> outline, double opacity)`; an outline must have
+  `LINE` role, including a line composite;
+- `HatchFillSymbol.of(HatchPattern pattern, SymbolStroke stroke, SymbolLength spacing,
+  SymbolRotationMode rotationMode, Optional<Symbol> outline, double opacity, int maxSegments)`.
+
+The renderer slots are respectively `io.github.mundanej.map.symbol.solid-line`,
+`io.github.mundanej.map.symbol.solid-fill`, and `io.github.mundanej.map.symbol.hatch-fill`, exposed by
+each final class's `RENDERER_KEY`. Convenience factories omit endpoints/outline and use the hatch
+default limit of 8,192 generated segments per feature. The explicit limit must be positive. Hatch
+spacing and stroke width are independently unit-bearing and positive; overlap is allowed when stroke
+is wider than spacing. A hatch has a transparent background, so a solid background is expressed by a
+role-homogeneous fill composite with `SolidFillSymbol` first rather than another hatch field.
+
+Line opacity applies to its centerline and endpoint markers; each endpoint symbol then applies its own
+and any nested composite opacity. Fill opacity applies to its interior/hatches and owned outline; the
+outline's own opacity follows. Solid polygon fill remains even-odd. A fill outline reuses the same line
+symbol renderer on each closed ring, suppressing endpoint markers at every nesting level.
+
+The closed dispatcher adds the three exact role/key/type branches. A line composite draws each
+complete child line—including its endpoints—before the next child, so casing order is explicit. A fill
+composite similarly draws each complete fill and outline in child order. Wrong roles, keys, or value
+types retain the existing fail-fast symbol codes.
+
+#### Centerlines and endpoint orientation
+
+The AWT line renderer projects each coordinate once, creates one open screen-coordinate path per line
+part, and draws it with round cap/join after converting `SymbolStroke` through the validated viewport
+basis. Its internal input is an ordered list of parts even while `LineStringGeometry` supplies one;
+future multipart geometry can reuse the renderer without changing public symbol contracts. Endpoint
+markers are evaluated independently for every non-empty part. A solid line is part-major: for each
+part in geometry order it paints centerline, start marker, then end marker before advancing, so
+arrowheads cover that part's caps and later parts overlay earlier parts. A line composite is
+child-major: its first child processes every part before the next child begins, preserving declared
+casing order across multipart overlaps.
+
+`mundane-map-core` provides
+`LineTangents.outwardScreenBearings(CoordinateSequence screenCoordinates, String featureId,
+int partIndex)` returning the immutable
+`LineEndpointBearings(OptionalDouble startBearingDegrees, OptionalDouble endBearingDegrees)` value.
+It compares projected screen coordinate pairs with primitive `==`, so signed zeros are equal and NaN
+is impossible by construction, then skips repeated coordinates. The start bearing points from the
+first following distinct coordinate toward the first coordinate; the end bearing points from the last
+preceding distinct coordinate toward the last. If all coordinates coincide, both optionals are empty
+and configured endpoints and the zero-length centerline part are skipped without attempting a
+transform or relying on platform hairline behavior. This structural case is not a renderer failure or
+source diagnostic in G2. Any overflow while subtracting otherwise finite projected coordinates uses
+`SYMBOL_TRANSFORM_NON_FINITE` before `atan2`, with fixed `featureId`, decimal `partIndex`, `endpoint`,
+and `quantity=line-tangent-delta` context.
+
+The tangent method rejects a blank feature ID or negative part index as programmer input; part indexes
+follow the geometry's declared order from zero.
+
+Core adds `SymbolTransforms.markerAtScreenBearing(Envelope viewBox, MarkerPlacement placement,
+Coordinate endpointScreen, MapScreenBasis basis, double outwardBearingDegrees)`, identical to normal
+marker placement except that the supplied tangent bearing replaces the usual screen/map rotation base
+and the placement's configured clockwise degrees are added once. Size, anchor, unit conversion,
+offset, finite checks, and opacity are otherwise unchanged; the stored rotation mode does not add a
+second base while the marker is auto-oriented. This override flows through marker composites. The
+built-in east-pointing arrow's nominal path tip lands exactly on an endpoint when its marker placement
+uses `EAST` anchor and zero offset. With a configured offset it lands at the endpoint plus the converted
+offset, and a centered marker stroke may paint beyond the nominal tip. Screen/map offsets remain in
+their documented coordinate axes rather than tangent-local axes.
+
+#### Bounded hatch layout
+
+`HatchPattern` has exactly `FORWARD_DIAGONAL`, `BACKWARD_DIAGONAL`, and `CROSS_DIAGONAL`. In y-down
+screen coordinates, forward diagonal `/` has base bearing 315 degrees, backward diagonal `\` has 45
+degrees, and cross emits both. Screen-relative patterns use that display bearing and a lattice anchored
+at screen origin. Map-relative patterns add the x-basis bearing and anchor the lattice at projected
+world origin transformed through the viewport, so orientation and phase follow map navigation.
+Spacing independently follows its declared unit: screen-pixel spacing stays visually constant, while
+map-unit spacing changes with zoom.
+
+All four combinations are supported deliberately:
+
+| Rotation mode | Spacing unit | Observable lattice behavior |
+| --- | --- | --- |
+| Screen-relative | Screen pixel | Screen angle, screen-origin phase, and pixel spacing stay fixed while geometry pans/zooms below. |
+| Screen-relative | Map unit | Screen angle and screen-origin phase stay fixed; pixel spacing expands/contracts with zoom. |
+| Map-relative | Screen pixel | Angle and transformed-world-origin phase follow map navigation; separation remains constant in pixels. |
+| Map-relative | Map unit | Angle, transformed-world-origin phase, and separation all follow map navigation and scale. |
+
+Tests cover each combination rather than treating rotation mode and spacing unit as coupled enums.
+
+AWT intersects the polygon's transformed screen bounds with the viewport rectangle and any inherited
+graphics clip before asking core for work. An empty intersection produces no segments.
+`HatchLayouts.cover(HatchPattern pattern, Envelope bounds, Coordinate latticeOrigin,
+double orientationBaseBearing, double spacingPixels, int maxSegments, String featureId)` receives that
+finite rectangle and all work policy in one call. Core adds 315 degrees for forward, 45 degrees for
+backward, or emits both for cross. The result is immutable `HatchSegments`
+backed by packed doubles `x1,y1,x2,y2` per segment, with `segmentCount()`, `x1(segmentIndex)`,
+`y1(...)`, `x2(...)`, `y2(...)`, and a defensive `toArray()` copy.
+
+For unit direction `d = (cos(angle), sin(angle))` and normal `n = (-d.y, d.x)`, core projects the four
+rectangle corners relative to the lattice origin onto `n`. Integer lattice indices run from
+`ceil(minProjection / spacing)` through `floor(maxProjection / spacing)`. Before allocation, the
+algorithm computes both orientation counts and checks finite arithmetic, an exactly representable
+non-negative total, `4 * total` array size, and the shared feature budget. Only after that preflight
+does it allocate once. Each infinite lattice line is intersected with the rectangle by a parametric
+slab calculation; corner-only zero-length intersections are omitted but still count conservatively
+toward the preflight budget. Cross diagonal emits forward first and backward second.
+
+If the required count cannot be represented or exceeds `maxSegments`, layout allocates nothing and
+throws the stable symbol code `HATCH_SEGMENT_LIMIT_EXCEEDED`. Its context always has exactly
+`featureId`, `pattern`, `requiredSegments`, `maxSegments`, and `countKind=candidate`. The required value
+is the conservative total candidate lattice-line count across both cross orientations before
+corner-only omissions, encoded as a decimal signed-long value or the stable string `overflow` when it
+cannot be represented. `pattern` is the enum name and `maxSegments` is decimal. A total whose packed
+`4 * count` length exceeds a Java array also uses that limit code and the same keys. Any other derived
+non-finite coordinate or transform uses `SYMBOL_TRANSFORM_NON_FINITE`. There is no truncation because
+partial patterns would vary with iteration order and hide unsafe input.
+
+#### Clipped hatch and outline painting
+
+The AWT hatch renderer builds one even-odd screen path containing polygon exterior and holes, creates
+a child graphics context, intersects its existing clip with that path, and draws only the bounded core
+segments. The child clip makes holes and the outer boundary transparent without constructing polygon
+boolean operations in API/core. Pattern stroke uses the same round `SymbolStroke`, alpha, unit
+conversion, and graphics-state isolation as vector markers.
+
+After disposing the clipped hatch context, an optional outline renders on a fresh child without the
+interior clip; otherwise half of a centered boundary stroke would be lost. Solid fill similarly paints
+the even-odd interior first and its outline second. Closed-ring context suppresses all endpoint markers
+but preserves line/composite order and opacity. Rings are passed as one ordered closed-part list:
+exterior first, then holes in declared order. A solid outline processes rings in that order; a
+composite outline is child-major, so each child processes every ring before the next child starts.
+Invalid polygon topology is neither repaired nor reinterpreted here.
+
+#### Verification and migration
+
+Core tests cover outward start/end bearings, signed-zero and leading/trailing repeats, all-coincident
+lines, fixed overflow context, endpoint bearing overrides, all four hatch mode/unit combinations,
+exact lattice indices, corner tangencies, packed copies, finite/overflow checks, shared cross limits,
+fixed diagnostic keys/sentinel, and just-below/at/above-limit cases. API tests cover role validation,
+defensive option/list ownership, units, opacity, defaults, and invalid limits.
+
+Offscreen tests cover screen- and map-unit line widths, composite casing order, independently optional
+start/end markers, arrow-tip anchoring, repeated points, endpoint offsets/rotation/opacity, all three
+hatches, every rotation/spacing combination across pan and zoom, translucent composites, clipping,
+polygon holes, part-major leaf order, child-major composite/outline order, and stable over-limit
+failure without allocation. Assertions use interior samples, tolerant bounds, and geometry invariants
+rather than whole images.
+
+The basic viewer migrates points to stroked vector-circle markers, routes to `SolidLineSymbol`, and
+regions to `SolidFillSymbol` with a line outline, preserving G1 appearance and labels while exercising
+the new feature `symbol()` accessor. Separate compatibility tests retain deprecated `FeatureStyle`
+through the Level 1 `0.x` policy. Dashes, textures, gradients, polygon repair, raster icons, hit
+testing, and render caches remain out of scope.
+
 ## Projection pipeline
 
 ```text
@@ -897,6 +1055,7 @@ out of this gate.
 | 2026-07-12 | Use logical screen pixels or projected map units for Level 1 symbol measurements. | The two explicit units cover stable UI marks and zoom-scaled cartography without implying geographic distance. |
 | 2026-07-12 | Store vector paths as packed opcodes and ordinates with fixed even-odd fill. | The complete Level 1 command set stays toolkit-neutral, compact, deterministic, and directly convertible to Java2D. |
 | 2026-07-12 | Compute marker placement as a toolkit-neutral affine result before AWT painting. | One tested transform order keeps anchors, units, offsets, and rotation identical across current and future renderers. |
+| 2026-07-12 | Generate hatch lines only over the clipped screen extent with an explicit per-feature budget. | A simple packed lattice plus Java2D polygon clip preserves holes while bounding allocation and work. |
 
 ## Task design traceability
 
@@ -912,3 +1071,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-001 | Symbol roles, renderer keys, placement units, transforms, composition, and style migration | Approved |
 | G2-002 | Packed vector paths, normalized built-in markers, Java2D conversion, and first render slice | Approved |
 | G2-003 | Immutable placement/stroke values, core marker transforms, AWT painting, and composites | Approved |
+| G2-004 | Solid line/fill values, endpoint tangents, bounded hatch layout, clipping, and migration | Approved |
