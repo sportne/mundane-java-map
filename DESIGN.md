@@ -462,6 +462,153 @@ The G2-001 HITL checkpoint is maintainer approval of this interface boundary, th
 anchors, transform order, rotation modes, composition rules, and deliberate `FeatureStyle` migration
 before production work begins in G2-002.
 
+### Toolkit-neutral vector paths and built-in markers (G2-002)
+
+#### Packed path value
+
+`VectorPath` is an immutable sequence of commands with two packed arrays: one `byte[]` opcode per
+command and one `double[]` containing all operands in command order. The public `VectorPathCommand`
+enum fixes the encoding and arity:
+
+| Command | Operands | Meaning |
+| --- | ---: | --- |
+| `MOVE_TO` | 2 | Start a subpath at x, y. |
+| `LINE_TO` | 2 | Add a straight segment to x, y. |
+| `QUADRATIC_TO` | 4 | Add control x/y and end x/y. |
+| `CUBIC_TO` | 6 | Add first control, second control, and end x/y. |
+| `CLOSE` | 0 | Close the current subpath to its move point. |
+
+The value clones both factory inputs. Its minimal read surface is `commandCount()`,
+`commandAt(commandIndex)`, `ordinateCount()`, and `ordinateAt(globalOrdinateIndex)`, plus
+`toCommandArray()` and `toOrdinateArray()` defensive copies. Ordinates use one global flat index;
+sequential consumers keep a cursor and advance it by `commandAt(i).arity()`. Raw opcode bytes and
+mutable storage are never exposed. Equality, hash code, and string form are content-based.
+`coordinateEnvelope()` is the conservative finite envelope of every move/end/control coordinate, not
+the exact extrema of Bezier curves. Counts and that envelope are cached. There is no object per
+segment, linked node, Java2D type, or implicit path parser.
+
+`VectorPath.of(VectorPathCommand[], double...)` is the exact packed factory and validates command
+arity before reading operands. A small `VectorPath.Builder` supplies fluent `moveTo`, `lineTo`,
+`quadraticTo`, `cubicTo`, and `close` methods, then delegates to the same validation. The builder is a
+single-owner construction aid, not a symbol value: `build()` makes defensive packed copies and closes
+the builder only after validation succeeds. Later mutation or a second successful build fails with
+`IllegalStateException`; a failed build leaves the builder usable so the caller can add a missing
+segment. A rejected mutation validates before appending and leaves the prior builder state unchanged.
+`VectorPathCommand.arity()` is public, while the private byte encoding uses an explicit command/code
+switch rather than enum ordinal and is not a persistence format.
+
+Path validation is a deterministic state machine:
+
+- all operands are finite and the first command is `MOVE_TO`;
+- a move starts one active subpath; another move is allowed only after the prior subpath contains at
+  least one drawing segment, whether open or closed;
+- line, quadratic, and cubic commands require an active, not-yet-closed subpath;
+- close requires at least one drawing segment, may occur once, and leaves only a later move legal;
+- build requires at least one drawing segment and consumes exactly the arity sum—neither missing nor
+  trailing ordinates are accepted.
+
+Open subpaths are valid because cross-format paths and later SVG profiles may need strokes. Under the
+fixed Level 1 even-odd fill rule, an open subpath is strokable but contributes no fill until explicitly
+closed. Programmer input failures use field-naming `NullPointerException`, `IllegalArgumentException`,
+or `IllegalStateException`; they are not source-data diagnostics.
+
+#### Vector marker value and normalized built-ins
+
+`VectorMarkerSymbol.filledScreen(VectorPath path, Envelope viewBox, Rgba fill, double sizePixels,
+double opacity)` is the exact G2-002 factory. `Envelope` is reused as the toolkit-neutral view-box
+value; the symbol exposes its path, view box, fill, opacity, and a transitional
+`screenSizePixels()` read accessor so the separate AWT module can render this slice. G2-003 replaces
+that accessor with the canonical public `placement()` value in the same pre-1.0 source-migration
+window; callers migrate to `placement().size()`, while the `filledScreen` factory signature remains
+stable. The factory creates centered, square, screen-relative, zero-offset, zero-rotation output.
+Every path coordinate and control point must fall inside the finite positive-area view box, and every
+subpath must be closed, making the nominal marker rectangle a real bound and avoiding Java2D's
+implicit closure of open fill paths. General `VectorPath` values may remain open for later strokes.
+G2-003 keeps this factory while adding the general placement and optional stroke representation
+approved above; its fill pass includes only closed subpaths.
+
+The built-in vector-marker renderer slot is `(MARKER,
+io.github.mundanej.map.symbol.vector-marker)`, exposed by the immutable
+`VectorMarkerSymbol.RENDERER_KEY`. The closed dispatcher resolves that exact role/key pair and then
+requires the exact final `VectorMarkerSymbol` value class; a different value claiming the key reports
+`SYMBOL_RENDERER_VALUE_MISMATCH` before any cast or paint.
+
+`BuiltInMarker` in `mundane-map-api` is the stable enum `CIRCLE`, `SQUARE`, `TRIANGLE`, `DIAMOND`,
+`CROSS`, `X`, `STAR`, and `ARROW`. `BuiltInMarkers` in `mundane-map-core` has the exact public surface
+`viewBox()`, `path(BuiltInMarker)`, and
+`filledScreen(BuiltInMarker, Rgba, double sizePixels, double opacity)`. `path` returns the reusable
+immutable value and `filledScreen` delegates to `VectorMarkerSymbol.filledScreen`; neither exposes
+cached arrays. Every shape uses the common view box
+`[-0.5, -0.5, 0.5, 0.5]`, local x right, local y down, and a closed filled silhouette:
+
+Every built-in has one contour, starts at its north-most vertex (west-most on a tie), proceeds
+clockwise as seen in y-down local space, and ends with one `CLOSE`. Polygonal markers do not repeat the
+start coordinate before close. The circle's fourth cubic necessarily ends at its move coordinate to
+complete the final curved quarter, then uses `CLOSE` to record explicit contour closure. Generated
+trigonometric values use `StrictMath`; results within `1e-15` of zero are stored as positive zero. The
+exact construction is:
+
+- circle starts `(0, -0.5)` and uses four clockwise cubic arcs through east, south, west, and north.
+  With `c = 0.5 * 4 * (sqrt(2) - 1) / 3`, the first controls are `(c, -0.5)` and `(0.5, -c)`; the
+  remaining controls are their quarter-turns. Its commands are move, four cubics, close.
+- square visits north-west, north-east, south-east, south-west. Triangle visits `(0, -0.5)`,
+  `(0.5, 0.5)`, `(-0.5, 0.5)`. Diamond visits north, east, south, west.
+- cross has arm half-width `h = 1/6` and visits `(-h,-0.5)`, `(h,-0.5)`, `(h,-h)`, `(0.5,-h)`,
+  `(0.5,h)`, `(h,h)`, `(h,0.5)`, `(-h,0.5)`, `(-h,h)`, `(-0.5,h)`, `(-0.5,-h)`, `(-h,-h)`.
+- X applies the y-down clockwise transform `x' = s * (x - y) / sqrt(2)`,
+  `y' = s * (x + y) / sqrt(2)`, with `s = 3 / (2 * sqrt(2))`, to the cross vertices, then cyclically
+  starts the unchanged clockwise sequence at its north-most/west-most transformed vertex.
+- star emits ten vertices at angles `-90 + 36 * i` degrees, alternating radius `0.5` for even `i` and
+  `0.2` for odd `i`.
+- arrow visits `(0.1,-0.4)`, `(0.5,0)`, `(0.1,0.4)`, `(0.1,0.15)`, `(-0.5,0.15)`,
+  `(-0.5,-0.15)`, `(0.1,-0.15)`.
+
+Shape constants are defined once in core and tested for closure, view-box containment, symmetry,
+orientation, and stable command structure. Consumers select a named enum rather than depending on raw
+coordinate constants. These names are marker identities only; the immutable named symbol catalog is
+introduced in G2-005.
+
+#### Java2D conversion and rendering slice
+
+`mundane-map-awt` owns one package-private converter from `VectorPath` to a package-private pair of
+fresh `Path2D.Double` values with `WIND_EVEN_ODD`: `strokePath` contains every subpath, while
+`fillPath` contains only subpaths terminated by an explicit `CLOSE`. The converter records each
+subpath's command range and materializes it into the fill path only after seeing close; Java2D therefore
+cannot implicitly fill an open contour. It maps move/line/quadratic/cubic/close directly, preserves
+subpath order, and performs no coordinate-axis flip because marker-local y already points down. It
+does not cache Java2D values or expose them outside AWT; G7 decides caching from evidence. A mixed
+open/closed path test proves stroke includes both contours and fill includes only the closed one.
+
+The closed G2 dispatcher has the exact legacy slot `(LEGACY_GEOMETRY,
+io.github.mundanej.map.symbol.legacy-feature-style)` exposed by `FeatureStyle.RENDERER_KEY`, and gains
+the vector-marker slot defined above. For a point vector marker it projects the feature coordinate, maps the marker
+view box to the centered nominal screen square, fills through the converted even-odd path using color
+alpha multiplied by symbol opacity, and returns the nominal rectangle for the existing point-label
+step. Line and polygon features continue through the compatibility branch until G2-004. Unknown keys,
+wrong roles, and wrong value shapes use the G2-001 fail-fast codes; there is still no extensible
+registry in this task.
+
+The basic viewer remains on the compatibility value where that is required to preserve its outlined
+G1 point appearance. New vector-marker test fixtures use `Feature.symbol()` and the fill-only factory.
+Offscreen tests render every built-in through a real `Feature`, `InMemoryLayer`, and `MapView` with a
+blank feature name; they assert tolerant actual paint extents and shape-specific inside/outside regions,
+not that a silhouette occupies every edge of its nominal rectangle. A separate package-private layout
+test asserts the numeric nominal rectangle and label-baseline calculation without depending on font
+rasterization.
+
+Rendering tests also cover color-alpha times symbol-opacity blending over a known background, zero
+opacity leaving the background untouched, the legacy `FeatureStyle` point retaining both fill and
+outline, `SYMBOL_RENDERER_NOT_REGISTERED` for an unknown custom key, and
+`SYMBOL_RENDERER_VALUE_MISMATCH` for a custom marker claiming the built-in vector key. Converter tests
+inspect `PathIterator` command kinds, operands, conservative bounds, mixed subpaths, close segments,
+and even-odd winding independently of map rendering. API tests cover global index access, defensive
+copies, content equality, every state-machine rejection, failed-build recovery, and successful-builder
+consumption.
+
+G2-002 adds no SVG parser, general path boolean operation, public Java2D adapter, renderer registry,
+composition, placement transform, or cache. Its observable result is one toolkit-neutral packed path
+model and all eight built-ins rendering through the same real map path.
+
 ## Projection pipeline
 
 ```text
@@ -577,6 +724,7 @@ out of this gate.
 | 2026-07-12 | Verify the existing first map slice without replacing its contracts. | Deeper event, geometry, viewport, rendering, example, and native evidence should precede new abstractions. |
 | 2026-07-12 | Replace geometry-dependent `FeatureStyle` with role-specific symbols during `0.x`. | One explicit toolkit-neutral portrayal model is simpler and more extensible than parallel legacy and symbol state. |
 | 2026-07-12 | Use logical screen pixels or projected map units for Level 1 symbol measurements. | The two explicit units cover stable UI marks and zoom-scaled cartography without implying geographic distance. |
+| 2026-07-12 | Store vector paths as packed opcodes and ordinates with fixed even-odd fill. | The complete Level 1 command set stays toolkit-neutral, compact, deterministic, and directly convertible to Java2D. |
 
 ## Task design traceability
 
@@ -590,3 +738,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G0-002 | Module graph, architecture enforcement, prohibited mechanisms, and exception policy | Approved |
 | G1-001 | First-slice geometry, viewport, rendering, interaction, example, and native verification | Approved |
 | G2-001 | Symbol roles, renderer keys, placement units, transforms, composition, and style migration | Approved |
+| G2-002 | Packed vector paths, normalized built-in markers, Java2D conversion, and first render slice | Approved |
