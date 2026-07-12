@@ -53,7 +53,7 @@ design task; there are no empty speculative design files.
 | G2 | [Symbols and vector graphics](design/G2-symbols-and-vector-graphics.md) | G2-001 through G2-007 approved |
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
-| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-003 approved |
+| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-004 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -127,3 +127,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G5-001 | Exact 2D shapes, sidecar/recovery rules, DBF schema/value profile, encodings, PRJ recognition, limits, diagnostics, lifecycle, and fixtures | Approved |
 | G5-002 | Static opener/options/limits, component snapshot, bounded positional SHP null/point/multipoint source, module/publication wiring, viewer, and lifecycle evidence | Approved |
 | G5-003 | Packed SHX preflight, exact SHP cross-check, missing/ignored fallback, indexed cursor equivalence, and lifecycle evidence | Approved |
+| G5-004 | Shared bounded multipart decoding, exact PolyLine validation, packed singular/multipart mapping, and viewer evidence | Approved |

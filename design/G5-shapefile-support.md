@@ -1052,3 +1052,211 @@ run once with a valid SHX and once without one, proving equal fit/render behavio
 opening reports, and file release. No bundled corpus, UI index control, random-record example, or
 spatial performance claim is added. G5-003 validation runs the focused format and viewer checks, the
 normal gate, and whitespace; corpus, fuzz, native, and performance lanes remain later owners.
+
+### PolyLine multipart slice (G5-004)
+
+#### Slice boundary and private type graph
+
+G5-004 replaces only the staged `profile=polyline` branch: a valid SHP header type `3` becomes a
+current supported type and publishes its validated header XY box as the conservative source extent.
+Header type `5` remains staged as `profile=polygon`; all Z/M and MultiPatch codes remain permanently
+unsupported. A type-3 file still accepts exact four-byte null records, while every non-null record
+must have shape code `3` under G5-002's existing record-type check.
+
+The public `Shapefiles`, `ShapefileOpenOptions`, `ShapefileLimits`, `FeatureSource`, query, metadata,
+and viewer command surfaces do not change. All new implementation peers remain package-private in
+`io.github.mundanej.map.io.shapefile`:
+
+```text
+ShpMultipartReader -> validated ShpMultipartPayload
+PolylineDecoder    -> LineStringGeometry | MultiLineStringGeometry
+```
+
+`ShpMultipartReader` owns the common PolyLine/Polygon prefix, count, part-table, coordinate, bounds,
+and cancellation mechanics through a two-phase private boundary. `preflight(...)` uses fixed scratch
+only and returns scalar-only `ShpMultipartPlan` values: counts, exact byte positions/size, validated
+record box, and the exact internal `minimumCoordinatesPerPart` (two for PolyLine, four for Polygon).
+The shape decoder computes and prospectively charges common arrays plus its own complete output/
+classifier copies. Only after that succeeds does `materialize(plan, ...)` allocate/fill common arrays
+and return a cursor-confined `ShpMultipartPayload` owning one canonical packed `double[]`, one
+fencepost `int[]`, the record box, and exact coordinate envelope. Arrays are read-only until API
+factories defensively copy them and are visible only to same-package decoders in that operation.
+
+This split lets `PolylineDecoder` reserve line geometry copies, while G5-005 reserves polygon
+classifier/repacking/geometry copies, without callbacks, a decoder registry, a polygon switch inside
+the reader, or a later accounting-policy rewrite. The reader validates only common counts, spans,
+finite coordinates, bounds, and canonical packed storage. `PolylineDecoder` separately rejects a
+wholly degenerate part and maps the payload to G4 geometry. G5-004 adds no ring policy, generic binary-
+parser framework, or empty future helper.
+
+This task depends only on G5-002 and is independently testable with SHP-only fixtures. If G5-003 has
+already landed, its sequential and indexed cursor paths dispatch the same validated frame to
+`PolylineDecoder`; indexed record-number/length revalidation still occurs before payload dispatch.
+If it has not landed, G5-004 neither references nor anticipates an SHX type. One integrator resolves
+the shared cursor switch when the parallel changes meet; SHX is not a prerequisite for PolyLine
+correctness.
+
+#### Exact record layout and preflight
+
+After G5-002 has validated the record frame, charged the physical record, recorded it as examined,
+read shape code `3`, and established the header/record type match, the payload is exactly:
+
+```text
+content bytes 0..3                              little-endian shape code 3
+content bytes 4..35                             little-endian Xmin, Ymin, Xmax, Ymax
+content bytes 36..39                            little-endian signed NumParts
+content bytes 40..43                            little-endian signed NumPoints
+content bytes 44..(44 + 4 * NumParts - 1)       NumParts little-endian signed point-start indexes
+content bytes (44 + 4 * NumParts)..end          NumPoints little-endian X/Y pairs
+exact content bytes                              44 + 4 * NumParts + 16 * NumPoints
+```
+
+The decoder uses this deterministic order:
+
+1. Require at least the 44-byte prefix and read it completely. Require positive `NumParts`, then
+   apply the configured `parts` ceiling; require positive `NumPoints`, then apply the configured
+   `points` ceiling.
+2. Check that `NumParts + 1`, `2 * NumPoints`, and every byte/array expression fits checked `long`
+   arithmetic and Java array capacity. Require `NumPoints >= 2 * NumParts`; this aggregate test is
+   only a necessary line-part preflight, not a substitute for reading the table.
+3. Derive `44 + 4 * NumParts + 16 * NumPoints` with checked arithmetic and require exact equality to
+   the declared content size. No tail, implicit Z/M values, or partial coordinate payload is accepted.
+4. Validate the record box in Xmin, Ymin, Xmax, Ymax order and return the scalar-only preflight plan.
+   `PolylineDecoder` adds the common parser arrays and its exact immutable line-geometry copies,
+   prospectively charges the complete variable total, and passes the accepted plan back for
+   materialization before the first variable allocation.
+5. Allocate the private fencepost array, stream each part start in source order, and validate/store it.
+   The first start is exactly zero; later starts are strictly increasing; every start is below
+   `NumPoints`; and every adjacent span, including the last span ending at the appended `NumPoints`
+   fence, contains at least two coordinate pairs.
+6. Allocate one packed parser coordinate array and stream source-ordered pairs. Canonicalize signed
+   zero, reject the first non-finite or out-of-box ordinate (record box before file box), compute the
+   exact envelope. Accepted duplicate vertices remain in the packed array unchanged apart from
+   signed-zero canonicalization.
+7. Require the computed coordinate envelope to remain inside both record and file boxes (already
+   established point-by-point). `PolylineDecoder` then scans each fence span and rejects a part with no
+   pair distinct from its canonical first pair, constructs the immutable API geometry, applies the inclusive query-
+   envelope test only now, and publishes through G5-002's unchanged ID, accounting, cancellation, and
+   cursor-state sequence.
+
+Thus framing/type failures retain G5-002 precedence. When present, G5-003's current indexed-length
+comparison also precedes this decoder. Inside the decoder, prefix/count/limit/capacity/derived-size
+failures precede record-box, part-table, and coordinate failures in the order above. A filtered
+PolyLine is still fully decoded and validated, so a malformed record outside the requested envelope
+cannot be hidden by either its declared record box or the query. The reader never uses header or
+record bounds to skip payload work.
+
+The table and coordinate arrays are validated as they are filled; the phrase "before allocation" in
+the planning card means counts, derived sizes, Java capacities, configured limits, and the complete
+prospective allocation charge precede variable allocation. It does not require a redundant first
+pass over hostile bytes. Every value read into an allocated array is validated before that array is
+published, and a failure releases the cursor's operation state without exposing a partial payload.
+
+#### Packed storage, line semantics, and accounting
+
+The file's `NumParts` starts become one fencepost array of length `NumParts + 1`; the final element is
+exact `NumPoints`. No per-part coordinate array, list, point object, or copied slice is created. For
+one part, `PolylineDecoder` constructs `LineStringGeometry` over the one immutable
+`CoordinateSequence`. For more than one part it calls
+`MultiLineStringGeometry.of(sequence, fenceposts)`, preserving part and vertex order. That G4 factory
+clones the offsets, so the parser's private offsets can be discarded; it never bridges adjacent parts.
+
+Each part has at least two entries and at least two distinct canonical coordinate pairs. The decoder
+compares every later pair with the part's first pair using exact primitive equality after signed-zero
+canonicalization. A part consisting solely of `(x, y), (x, y)` or more repetitions is rejected;
+`A, A, B`, `A, B, B`, and nonconsecutive repeated vertices are accepted and retained. G5-004 makes no
+claim about line simplicity, self-intersection, repeated edges, direction, or zero-length interior
+segments.
+
+The cursor's fixed reusable prefix scratch grows from 40 to 44 bytes and retains the existing
+record-header and 16-byte coordinate scratch; a four-byte part-start scratch may share the prefix
+backing region. Fixed capacities are charged once when the cursor is created. After prefix preflight,
+the prospective variable charge is exact:
+
+- `4 * (NumParts + 1)` bytes for the parser fenceposts;
+- `16 * NumPoints` bytes for the parser ordinates;
+- another `16 * NumPoints` bytes for `CoordinateSequence`'s defensive clone; and
+- for multipart only, another `4 * (NumParts + 1)` bytes for the immutable multiline offset clone.
+
+Checked cumulative addition against `parserAllocationBytes` occurs before the parser fencepost
+allocation; equality succeeds and plus one fails. The `parts` and `points` limit checks occur before
+hard Java-capacity checks, matching G5-002's configurable-limit precedence. No allocation is refunded
+after a malformed table, filtered result, or failure. G4 query accounting independently charges the
+eventual immutable geometry only for a returned record.
+
+Cancellation is checked before and after the prefix, every part-table read, and every coordinate
+read; immediately before the variable-allocation charge and each allocation; within validation loops
+at no more than 4,096 primitive integers/ordinates; at every part fence; during the line-specific
+degeneracy scan at the same cadence; before API construction; and
+before current-record publication. A custom token throwable propagates after cleanup. A malformed
+record terminates that cursor without resynchronization, releases its slot and operation arrays once,
+and leaves the externally serialized source reusable for a fresh cursor. Source/cursor close, short
+reads, thrown I/O, same-size mutation limitations, and final size rechecks remain exactly G5-002's.
+
+#### PolyLine diagnostics
+
+The first applicable condition below wins after the shared G5-002/G5-003 frame checks. Locations use
+the trusted expected record ordinal, zero-based part index, and absolute SHP byte offset. Context keys
+are exactly those shown and are emitted in G4 lexical order; no coordinate value or malformed bytes
+are copied.
+
+| Condition | Code | Location | Context |
+| --- | --- | --- | --- |
+| Declared PolyLine content is shorter than its prefix | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `actualBytes=<declared>`, `expectedBytes=44`, `reason=truncatedPrefix` |
+| Prefix read reaches EOF after frame preflight | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, first missing payload byte | `actualBytes=<content bytes read>`, `expectedBytes=44`, `reason=truncatedPayload` |
+| `NumParts` is zero or negative | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=partCount` |
+| `NumParts` exceeds `parts` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=parts`, `maximum=<limit>`, `requested=<count>`, `scope=shapefileCursor` |
+| `NumPoints` is zero or negative | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, `contentStart + 40` | `reason=pointCount` |
+| `NumPoints` exceeds `points` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 40` | `limit=points`, `maximum=<limit>`, `requested=<count>`, `scope=shapefileCursor` |
+| Fencepost array cannot fit after configured limits pass | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=arrayCapacity` |
+| Ordinate array cannot fit after configured limits pass | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 40` | `reason=arrayCapacity` |
+| `NumPoints` is below checked `2 * NumParts` | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, `contentStart + 40` | `reason=insufficientPoints` |
+| Declared content differs from the checked derived size | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `actualBytes=<declared>`, `expectedBytes=<derived>`, `reason=unexpectedSize` |
+| Prospective variable storage exceeds the allocation ceiling | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=parserAllocationBytes`, `maximum=<limit>`, `requested=<cumulative bytes after charge>`, `scope=shapefileCursor` |
+| Record-box ordinate is non-finite | `SHAPEFILE_COORDINATE_NON_FINITE` | `shp`, expected record, offending box field | `axis=x|y` |
+| Record box is unordered | `SHAPEFILE_BOUNDS_MISMATCH` | `shp`, expected record, first offending box field | `bounds=record` |
+| Part-start read reaches EOF | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, first missing payload byte | `actualBytes=<content bytes read>`, `expectedBytes=<derived>`, `reason=truncatedPayload` |
+| First part start is not zero | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, part 0, its table field | `reason=firstNotZero` |
+| Later part start is not greater than its predecessor | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, offending part, its table field | `reason=notIncreasing` |
+| Part start is at or beyond `NumPoints` | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, offending part, its table field | `reason=outOfRange` |
+| Adjacent fenceposts leave fewer than two entries | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, short part, its table field | `reason=tooShort` |
+| Coordinate read reaches EOF | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, first missing payload byte | `actualBytes=<content bytes read>`, `expectedBytes=<derived>`, `reason=truncatedPayload` |
+| Coordinate ordinate is non-finite | `SHAPEFILE_COORDINATE_NON_FINITE` | `shp`, expected record, offending ordinate field | `axis=x|y` |
+| Coordinate is outside record or file box | `SHAPEFILE_BOUNDS_MISMATCH` | `shp`, expected record, first offending ordinate field | `bounds=record|file` |
+| A complete part has fewer than two distinct pairs | `SHAPEFILE_PART_TABLE_INVALID` | `shp`, expected record, degenerate part, its table field | `reason=degenerate` |
+
+For the last part, `tooShort` is located at its own stored start field even though the synthetic final
+fence is `NumPoints`; part `i`'s table field is exact `contentStart + 44 + 4 * i`. Duplicate starts
+select `notIncreasing`; a negative later start also selects `notIncreasing` before `outOfRange`, while
+a positive start at or above `NumPoints` selects `outOfRange`. Record-box checks precede table checks,
+and within the coordinate stream finiteness, record containment, then file containment precede the
+later PolyLine-specific degeneracy scan. Existing shared I/O, cancellation, record-length, and limit
+report shapes are not duplicated or widened.
+
+The signed 32-bit part/point fields cannot overflow these checked `long` expressions: even both at
+`Integer.MAX_VALUE` produce at most 42,949,672,984 derived content bytes. Checked arithmetic remains
+mandatory for consistency, but maximum counts reach configured limits, Java-array capacity,
+derived-size mismatch, or cumulative allocation-limit handling rather than an unreachable decoder-
+specific `reason=overflow`.
+
+#### Evidence and viewer behavior
+
+Independent byte fixtures cover one part, several parts, interleaved nulls, exact part/vertex order,
+signed-zero equivalence, accepted interior/consecutive duplicates, self-crossing lines, and a wholly
+degenerate part. Boundary matrices exercise prefix/count/derived-size arithmetic, parts/points/
+allocation minus-equal-plus-one, Java capacities, every table reason, short table/coordinate reads,
+non-finite fields, conservative and violated boxes, cancellation checkpoints, cursor failure/reuse,
+and the exact diagnostics above. Source integration pins `record:<ordinal>` identity, singular versus
+multipart fencepost mapping, full validation before filtering, stable order, and absence of per-part
+objects. A type-5 header remains staged and a type-5 record in a type-3 file remains a record mismatch.
+
+The unchanged `shapefile-viewer <path.shp> <EPSG:4326|EPSG:3857>` command uses its existing explicit
+line symbol. A temporary SHP-only type-3 fixture contains a null, one single-part line, and one
+multipart line. Query tests assert both geometry values; offscreen tests sample each visible part and
+the background gap that would be painted by an erroneous bridge, then verify metadata fit and file
+release. Tests do not compare a complete image or bundle a corpus. When G5-003 is present, one paired
+valid-SHX fixture additionally proves indexed/sequential decoder equivalence; the core G5-004 fixture
+and task dependency remain SHX-independent.
+
+G5-004 validation runs the focused format and viewer checks, the normal gate, and whitespace. It does
+not run corpus, render-regression, native, fuzz, or performance lanes owned by later tasks.

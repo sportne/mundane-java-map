@@ -12,12 +12,15 @@ viewer.
 
 ## Context
 
-G5-002 establishes SHP framing, record identity, diagnostics, and sequential iteration. G4 provides
-the format-neutral multipart geometry representation.
+G5-001 fixes the supported PolyLine profile. G5-002 establishes SHP framing, record identity,
+diagnostics, and sequential iteration. G4-003 provides packed singular and multipart line geometry.
+G5-003 may compose through the same private decoder but is not a prerequisite for this sidecar-free
+slice.
 
 ## Scope
 
-- Polyline record decoding in `modules/mundane-map-io-shapefile`
+- Package-private shared multipart framing and PolyLine decoding in
+  `modules/mundane-map-io-shapefile`
 - Multipart feature mapping and viewer rendering
 - Hand-built fixtures covering one and several parts
 
@@ -25,33 +28,42 @@ the format-neutral multipart geometry representation.
 
 - Polygon ring/hole interpretation, DBF attributes, Z/M ordinates, and line editing
 - Simplification or clipping optimizations
+- Public format/source APIs, public parser types, SHX behavior, and per-part object models
 
 ## Acceptance criteria
 
-- Polyline record bounds, part count, point count, part-index table, coordinate payload, and declared
-  content length are validated before allocation.
+- Header type `3` is accepted while type `5` remains staged; existing frame, type, and optional-index
+  validation order is preserved before PolyLine payload dispatch.
+- The exact `44 + 4 * parts + 16 * points` content size, positive counts, configured limits, checked
+  arithmetic, Java capacities, and complete prospective allocation charge are validated before
+  variable allocation; table and coordinate values are validated before publication.
 - Empty, descending, duplicate, and out-of-range part starts follow the approved profile and produce
   record-level diagnostics rather than unchecked exceptions.
 - A whole part with fewer than two distinct coordinate pairs is rejected; consecutive duplicate
-  vertices in an otherwise non-degenerate part are accepted and retained.
+  vertices and structurally valid self-crossing lines are accepted and retained.
 - Single- and multipart lines preserve source part order and use packed primitive coordinate
-  storage.
-- Non-finite ordinates and envelope/payload disagreements are handled by one documented policy.
+  storage, with fencepost offsets and no bridge between parts.
+- Non-finite ordinates, signed zero, record/file bounds, and envelope/payload disagreements follow the
+  exact validation and diagnostic order in the G5 design.
 - The source returns stable record identity and the viewer renders every valid part without joining
   unrelated parts.
 - Limits are checked with overflow-safe arithmetic. A malformed geometry terminates that cursor after
   cleanup; the reader neither resynchronizes nor skips ahead, and the otherwise open source remains
   reusable under the G4 failure contract.
-- Public geometry/source changes, if any, are immutable and documented.
+- The shared multipart reader and PolyLine decoder remain package-private in the existing single
+  package; no public API changes.
 
 ## Required tests
 
-- Hand-built single-part, multipart, rejected whole-part zero length, accepted interior duplicate
-  vertices, signed-zero-equivalent vertices, and boundary-count fixtures.
+- Hand-built single-part, multipart, null-interleaved, rejected whole-part zero length, accepted
+  interior duplicate/self-crossing, signed-zero-equivalent, and boundary-count fixtures.
 - Negative tests for truncated part tables/payloads, invalid part starts, non-finite coordinates,
-  count overflow, and declared-length mismatch.
-- Feature-source integration and offscreen viewer-render tests that assert part topology rather than
-  platform-specific pixels.
+  every exact diagnostic reason, maximum signed counts, Java-array capacity, cumulative-allocation
+  overflow/limit handling, and declared-length mismatch.
+- Cancellation, cursor cleanup/source reuse, full-validation-before-query, and singular/multipart
+  mapping tests. When G5-003 is present, also prove indexed/sequential decoder equivalence.
+- Feature-source integration and offscreen viewer-render tests that assert visible parts and an
+  unpainted inter-part gap rather than platform-specific pixels.
 
 ## Validation
 
@@ -63,5 +75,6 @@ git diff --check
 
 ## Notes
 
-Keep format decoding separate from AWT rendering. Coordinate arrays should be validated once and
-published only through immutable views.
+Keep format decoding separate from AWT rendering. Use the G5 design's private `ShpMultipartReader`
+and `PolylineDecoder`; validate every value as it enters packed storage and publish only through the
+immutable G4 geometry factories. G5-005 reuses the framing reader but owns all polygon semantics.
