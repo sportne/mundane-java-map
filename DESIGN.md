@@ -609,6 +609,177 @@ G2-002 adds no SVG parser, general path boolean operation, public Java2D adapter
 composition, placement transform, or cache. Its observable result is one toolkit-neutral packed path
 model and all eight built-ins rendering through the same real map path.
 
+### Symbol placement and composition (G2-003)
+
+#### Final placement values
+
+G2-003 adds the final immutable values in `mundane-map-api`:
+
+- `SymbolUnit`: `SCREEN_PIXEL` or `MAP_UNIT`;
+- `SymbolSize(width, height, unit)`, with positive finite dimensions and `square(...)` conveniences;
+- `SymbolLength(value, unit)`, with one positive finite magnitude;
+- `SymbolAnchor`: `CENTER`, `NORTH`, `NORTH_EAST`, `EAST`, `SOUTH_EAST`, `SOUTH`, `SOUTH_WEST`,
+  `WEST`, or `NORTH_WEST`;
+- `SymbolRotationMode`: `SCREEN_RELATIVE` or `MAP_RELATIVE`;
+- `MarkerPlacement(size, anchor, offsetX, offsetY, rotationDegrees, rotationMode)`.
+
+Offsets are finite and use `size.unit()`. Rotation is reduced modulo 360 into `[0, 360)`, and both
+negative and positive zero become positive zero, so equivalent rotations have equal values. Offsets
+and opacity similarly canonicalize negative zero. `MarkerPlacement.centeredScreen(sizePixels)` is the
+migration target for G2-002's factory. Nulls, non-positive dimensions/lengths, and non-finite numbers
+fail during value construction.
+
+`SymbolStroke(color, width)` is the one reusable Level 1 stroke value. Absence, represented by
+`Optional.empty()`, means no stroke; a present width is always positive. Stroke unit is independent of
+marker size unit, allowing a map-sized marker with a stable screen-pixel outline or the converse
+without changing placement semantics. Cap and join remain fixed round as approved in G2-001.
+
+`VectorMarkerSymbol.of(path, viewBox, fill, Optional<SymbolStroke>, placement, opacity)` becomes the
+canonical factory and exposes all six values. The existing `filledScreen(...)` factory delegates to
+it, and the transitional `screenSizePixels()` accessor is removed; this is the planned pre-1.0 source
+migration to `placement()`. Fill uses only explicitly closed subpaths, stroke uses every subpath, and
+view-box containment still applies to all endpoints and controls.
+
+#### Toolkit-neutral placement math
+
+`mundane-map-core` exposes only the cross-module implementation values needed by AWT and later G3
+hit testing:
+
+```text
+MapScreenBasis.of(Coordinate xUnitScreenDelta, Coordinate yUnitScreenDelta)
+MarkerTransform: read-only coefficients plus nominalScreenBounds
+SymbolTransforms.marker(Envelope viewBox, MarkerPlacement placement,
+                        Coordinate featureScreen, MapScreenBasis basis) -> MarkerTransform
+SymbolTransforms.screenLength(SymbolLength length, MapScreenBasis basis) -> double
+```
+
+`MapScreenBasis` is a final immutable class with a validating public `of` factory and read access to
+the two vectors, determinant, uniform scale, and x-axis screen bearing. The vectors must be finite and
+non-zero. Their determinant must be finite and negative, preserving projected y-up to screen-y-down
+orientation. After normalizing each vector, their dot product must be within `1e-12` of zero and their
+lengths must differ by no more than `1e-12` relative. G2 therefore supports the rotation plus uniform
+scale with screen-axis reversal that `MapViewport` actually supplies and rejects positive-determinant
+orientation, anisotropic scale, and shear with a field-naming `IllegalArgumentException`; raster affine
+transforms remain a separate G6 concern.
+
+The scalar screen pixels per map unit is `sqrt(abs(determinant))`. Map-unit offsets still use the full
+linear combination `offsetX * xBasis + offsetY * yBasis`; map-unit width, height, and stroke width use
+that one scalar. Under map-relative rotation, local y-down is perpendicular clockwise from the x-basis
+bearing. Screen-unit measurements use their values directly in logical pixels. The same scalar policy
+therefore remains valid for G2-004 line strokes because a similarity transform scales every line
+normal equally.
+
+`MarkerTransform` maps vector view-box coordinates directly to final screen coordinates:
+
+```text
+screenX = m00 * localX + m01 * localY + m02
+screenY = m10 * localX + m11 * localY + m12
+```
+
+Anchor fractions `(ax, ay)` are exactly: north-west `(0,0)`, north `(0.5,0)`, north-east `(1,0)`, west
+`(0,0.5)`, center `(0.5,0.5)`, east `(1,0.5)`, south-west `(0,1)`, south `(0.5,1)`, and south-east
+`(1,1)`. Let the view box be `(vx, vy, vw, vh)`, converted nominal dimensions be `(w, h)`, and the
+converted feature-plus-offset anchor be `(px, py)`. For a path coordinate `(x, y)`:
+
+```text
+u = (x - vx) * w / vw - ax * w
+v = (y - vy) * h / vh - ay * h
+screenX = px + cos(theta) * u - sin(theta) * v
+screenY = py + sin(theta) * u + cos(theta) * v
+```
+
+This is the clockwise matrix in y-down screen coordinates. `theta` is the normalized screen bearing
+converted to radians: configured rotation for screen-relative placement or the x-basis
+`atan2(deltaY, deltaX)` plus configured rotation for map-relative placement. `StrictMath` supplies the
+trigonometric operations. With `sx = w / vw`, `sy = h / vh`,
+`tx = -vx * sx - ax * w`, and `ty = -vy * sy - ay * h`, the stored coefficients are:
+
+```text
+m00 = cos(theta) * sx          m01 = -sin(theta) * sy
+m10 = sin(theta) * sx          m11 =  cos(theta) * sy
+m02 = px + cos(theta) * tx - sin(theta) * ty
+m12 = py + sin(theta) * tx + cos(theta) * ty
+```
+
+AWT constructs `AffineTransform(m00, m10, m01, m11, m02, m12)` in that Java constructor order. The
+axis-aligned nominal screen bounds are derived inside core from the four transformed view-box corners
+and exclude stroke.
+
+`MapScreenBasis.of` checks determinant, vector normalization, relative scale, and derived basis scale;
+any zero, non-finite, overflowed, or unsupported result is a field-naming `IllegalArgumentException`,
+even when the two input vectors were individually finite. After a valid basis exists, every converted
+dimension, offset product/sum, angle result, coefficient, transformed corner, and screen stroke width
+is checked before constructing a public coordinate, envelope, AWT transform, or stroke. Overflow at
+that stage throws the symbol exception code `SYMBOL_TRANSFORM_NON_FINITE` with the failed quantity in
+context. A screen stroke width must also remain positive and finite after conversion to Java2D's
+`float`; a value above `Float.MAX_VALUE` uses the same stable failure instead of reaching
+`BasicStroke`. No incidental Java2D exception defines this contract.
+
+`MarkerTransform` is a final immutable public core class because AWT and G3 need to read the same
+coefficients and nominal bounds. Its constructor is package-private; only `SymbolTransforms` can
+create the coefficient/bounds pair, so callers cannot manufacture inconsistent state.
+
+`MapView` derives the basis without a CRS assumption: project the feature once, transform that point
+and points one projected unit along x and y through `MapViewport`, then subtract the anchor screen
+coordinate. The current viewport produces `(1 / worldUnitsPerPixel, 0)` and
+`(0, -1 / worldUnitsPerPixel)`; core tests also inject a valid rotated basis. Singular,
+positive-determinant, anisotropic, sheared, or non-finite bases are programmer/configuration errors in
+this gate, not source diagnostics.
+
+#### AWT marker painting
+
+The AWT vector renderer converts the core coefficients to an `AffineTransform` and creates a
+screen-coordinate `Shape` from each converted fill/stroke path. It does not install the marker scale
+on the caller's `Graphics2D`, so an independently converted screen- or map-unit `SymbolStroke` width
+is not scaled twice. Stroke width in screen coordinates is its logical-pixel value or its map-unit
+value converted by `SymbolTransforms.screenLength`, using the same uniform basis scale as marker
+dimensions and later line strokes.
+
+Each renderer operates on a child graphics context and disposes it in `finally`. It sets round
+`BasicStroke`, color, and `AlphaComposite.SRC_OVER` only on that child. Effective composite/symbol
+opacity remains a floating-point multiplier until Java2D combines it with color alpha; the renderer
+does not pre-round an alpha channel. Fill precedes stroke. Zero effective opacity skips painting but
+still computes nominal bounds for the independent point-label layout.
+
+#### Ordered composites
+
+`CompositeSymbol.of(List<? extends Symbol> children, double opacity)` defensively copies a non-empty
+list, recursively rejects null, legacy, roleless, multi-role, and mixed-role children, and stores the
+inferred role. Its renderer key is the reserved
+`io.github.mundanej.map.symbol.composite`. Equality preserves nested structure and declared order.
+
+The closed dispatcher adds the composite role/key branch and renders children first-to-last against
+the same feature and geometry. It passes `parentEffectiveOpacity * composite.opacity()` into each
+child, which then multiplies its own opacity. It applies no group placement or flattening. Marker-child
+nominal bounds are unioned for the one feature label even when a child or parent has zero opacity;
+opacity affects paint, not layout. A nested composite therefore changes only grouping, equality,
+diagnostic context, and opacity multiplication.
+
+This slice exercises marker composites because solid line and fill symbols arrive in G2-004. The
+contract already permits those roles, but the closed dispatcher reports their renderer keys as
+unregistered until the matching working behavior exists. `FeatureStyle` remains valid only directly
+on a feature and is rejected from every composite.
+
+#### Verification boundary
+
+API tests cover canonical rotation, both unit values, nine anchors, finite offsets, optional stroke,
+opacity, equality, list copying, nested order, and every invalid value/composite. Core tests assert the
+six transform coefficients and nominal bounds for every anchor, both units, offsets, non-square view
+boxes, screen/map rotations, a valid rotated similarity basis, and zoom changes. Negative tests cover
+zero, positive-determinant, anisotropic, sheared, and non-finite bases plus overflow in every derived
+transform or stroke-width stage, asserting `SYMBOL_TRANSFORM_NON_FINITE` where public inputs were
+individually valid and the basis had already passed validation. A separate boundary case proves that
+finite basis vectors whose determinant overflows fail `MapScreenBasis.of` with
+`IllegalArgumentException`, not the post-basis symbol code.
+
+Offscreen AWT tests prove screen-sized markers remain constant while map-sized markers scale with
+zoom, screen-relative marks remain display-fixed while map-relative marks follow a synthetic basis,
+fill/stroke ordering, independent stroke units, overlapping composite draw order, nested alpha
+multiplication, transparent layout, and the unchanged `filledScreen` factory. A graphics-state test
+seeds transform, clip, composite, paint, and stroke on the parent and proves they are unchanged after
+painting. Basic compatibility features continue to render through the legacy branch. Hit testing,
+line endpoints, raster icons, catalogs, registry extension, and caching remain later tasks.
+
 ## Projection pipeline
 
 ```text
@@ -725,6 +896,7 @@ out of this gate.
 | 2026-07-12 | Replace geometry-dependent `FeatureStyle` with role-specific symbols during `0.x`. | One explicit toolkit-neutral portrayal model is simpler and more extensible than parallel legacy and symbol state. |
 | 2026-07-12 | Use logical screen pixels or projected map units for Level 1 symbol measurements. | The two explicit units cover stable UI marks and zoom-scaled cartography without implying geographic distance. |
 | 2026-07-12 | Store vector paths as packed opcodes and ordinates with fixed even-odd fill. | The complete Level 1 command set stays toolkit-neutral, compact, deterministic, and directly convertible to Java2D. |
+| 2026-07-12 | Compute marker placement as a toolkit-neutral affine result before AWT painting. | One tested transform order keeps anchors, units, offsets, and rotation identical across current and future renderers. |
 
 ## Task design traceability
 
@@ -739,3 +911,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G1-001 | First-slice geometry, viewport, rendering, interaction, example, and native verification | Approved |
 | G2-001 | Symbol roles, renderer keys, placement units, transforms, composition, and style migration | Approved |
 | G2-002 | Packed vector paths, normalized built-in markers, Java2D conversion, and first render slice | Approved |
+| G2-003 | Immutable placement/stroke values, core marker transforms, AWT painting, and composites | Approved |
