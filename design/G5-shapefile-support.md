@@ -386,8 +386,10 @@ production representations:
 
 Owned schema/list/map strings and entries use the same table. A transferred array is charged once per
 owned occurrence; a second copy charges again. Shared enum singletons, the private static encoding
-lookup strings, diagnostic storage (bounded independently), caller-owned paths/options, and JDK channel
-objects are excluded. As in G4, fixed immutable carrier headers and their scalar reference fields have
+lookup strings, diagnostic storage (bounded independently), caller-owned options, JDK `Path` values
+(whether caller-supplied or derived), and JDK channel objects are excluded. Derived paths are resource
+descriptors rather than retained parser payload and are discarded after component selection. As in G4,
+fixed immutable carrier headers and their scalar reference fields have
 no object-size charge; every separately owned string, scalar payload, primitive array, and container
 slot reachable through them is charged by the table. Direct buffers and object-per-point/part/index/
 classifier structures are not permitted. Ring bounds, signed areas, source indexes, candidate indexes,
@@ -476,3 +478,359 @@ The G5-001 HITL checkpoint approves exactly this 2D/Z-M policy, optional-sidecar
 substitution, encoding precedence/fallback, PRJ recognizers, and default limits before G5-002 begins.
 Later task designs may choose class/package decomposition and algorithms that preserve these outcomes;
 they do not reopen the format profile.
+
+## Working SHP source
+
+### Point/multipoint sequential slice (G5-002)
+
+#### Public format surface
+
+G5-002 creates the format module only with a working file-backed source. Its entire public package
+`io.github.mundanej.map.io.shapefile` contains three final immutable/directly constructed types:
+
+```text
+Shapefiles
+  open(SourceIdentity identity,
+       Path shpPath,
+       ShapefileOpenOptions options) -> FeatureSource
+  open(SourceIdentity identity,
+       Path shpPath,
+       ShapefileOpenOptions options,
+       CancellationToken cancellation) -> FeatureSource
+
+ShapefileOpenOptions
+  defaults()
+  featureSourceLimits() -> FeatureSourceLimits
+  shapefileLimits() -> ShapefileLimits
+  crsOverride() -> Optional<CrsDefinition>
+  withFeatureSourceLimits(FeatureSourceLimits) -> ShapefileOpenOptions
+  withShapefileLimits(ShapefileLimits) -> ShapefileOpenOptions
+  withCrsOverride(CrsDefinition) -> ShapefileOpenOptions
+  withoutCrsOverride() -> ShapefileOpenOptions
+
+ShapefileLimits
+  defaults()
+  maximumComponentBytes() -> long
+  withMaximumComponentBytes(long) -> ShapefileLimits
+  maximumPhysicalRecords() -> long
+  withMaximumPhysicalRecords(long) -> ShapefileLimits
+  maximumRecordBytes() -> long
+  withMaximumRecordBytes(long) -> ShapefileLimits
+  maximumParts() -> long
+  withMaximumParts(long) -> ShapefileLimits
+  maximumPoints() -> long
+  withMaximumPoints(long) -> ShapefileLimits
+  maximumTopologyComparisons() -> long
+  withMaximumTopologyComparisons(long) -> ShapefileLimits
+  maximumDbfFields() -> long
+  withMaximumDbfFields(long) -> ShapefileLimits
+  maximumDbfFieldWidth() -> long
+  withMaximumDbfFieldWidth(long) -> ShapefileLimits
+  maximumCpgBytes() -> long
+  withMaximumCpgBytes(long) -> ShapefileLimits
+  maximumPrjBytes() -> long
+  withMaximumPrjBytes(long) -> ShapefileLimits
+  maximumDecodedTextCharacters() -> long
+  withMaximumDecodedTextCharacters(long) -> ShapefileLimits
+  maximumParserAllocationBytes() -> long
+  withMaximumParserAllocationBytes(long) -> ShapefileLimits
+```
+
+The no-token opener delegates with `CancellationToken.none()`. The opening token is operation-local,
+polled throughout opening, and never retained by the source. The facade returns the format-neutral
+`FeatureSource`; Level 1 has no public concrete parser/source subtype, record-address API, component
+path object, shape enum, or reader SPI. A consumer already holds its immutable options, so no format-
+specific limit getter is added to the returned source.
+
+`ShapefileLimits` lands complete with the twelve approved ceilings and exact defaults from G5-001:
+component bytes, physical records, record bytes, parts, points, topology comparisons, DBF fields,
+field width, CPG bytes, PRJ bytes, decoded text characters, and parser allocation bytes. The final
+class uses private construction, `defaults()`, value equality, bounded `toString`, and the exact
+`long` accessors/withers above. One scalar type keeps prospective arithmetic uniform even where a hard
+format or Java-array ceiling is lower. Each wither requires a positive value; the type has no builder,
+map of string knobs, unlimited sentinel, or system-property defaults. G5-002 enforces component bytes,
+physical records, record bytes, points, and parser allocation. Other fields are validated/stored now
+because the approved one-value profile is the shared
+parallel G5 boundary, but their Javadocs name the task in which input begins to exercise them.
+
+`ShapefileOpenOptions` is likewise a private-constructor immutable value with value equality. Defaults
+combine G4's default `FeatureSourceLimits`, `ShapefileLimits.defaults()`, and absent override. A CRS
+override is a `CrsDefinition`, which by construction is a recognized geographic/projected definition;
+the format stores recognized metadata with that definition and no invented PRJ provenance. MapView
+still verifies that the supplied definition is exactly registered. G5-006 may add a `DbfEncoding`
+wither/private field without invalidating these factories; no inactive encoding value lands now.
+
+Null public inputs use parameter-named `NullPointerException`. A path with no final filename or without
+ASCII-case-insensitive `.shp`, a non-positive limit-wither argument, or another unsuitable direct
+option uses `IllegalArgumentException` before path probes. Hostile files, cancellation, and I/O use G4
+`SourceException` reports. Every public type has complete Javadocs and no path appears in its
+`toString`.
+
+#### Module, publication, and package graph
+
+The implementation task adds these real projects together:
+
+```text
+modules/mundane-map-io-shapefile
+  api -> mundane-map-api
+  implementation -> mundane-map-core
+
+examples/shapefile-viewer
+  implementation -> mundane-map-api, mundane-map-core,
+                    mundane-map-awt, mundane-map-io-shapefile
+```
+
+The format module receives one entry in G0's authoritative project inventory: JDK-only runtime,
+Level 1, published, and native-targeted. The example receives one support entry: checked,
+non-published, and outside the production/native-runtime graph. Settings parity, checked/published
+inputs, dry-run artifact output, architecture-test input, Level 1 release membership, and native-
+target inputs are derived from those entries; no secondary root list or allowlist is edited. The
+example is not added to the native-smoke application until G5-010. `publicationDryRun` must stage the
+format POM, JAR, sources, and Javadocs with only API/core project dependencies and no AWT/external
+runtime dependency.
+
+The only implementation packages created are those with behavior in this slice: one shared package-
+private opener/source/cursor support area and `internal.shp` parsing. Future ownership is reserved but
+empty packages/classes are not created: `internal.shx` belongs to G5-003,
+`internal.shp.polyline` to G5-004, `internal.dbf`/`internal.cpg` to G5-006, and `internal.prj` to
+G5-007. Those tasks add behavior behind the same explicit facade. One integrator owns edits to the
+shared opener, source, cursor switch, authoritative inventory entries, and diagnostic encounter order;
+logical parallelism does not make those shared files path-safe.
+
+Derived architecture checks treat the format inventory entry as Level 1/native-targeted, permit only
+API/core/JDK dependencies, and reject `java.desktop`, AWT/Swing, service/discovery metadata,
+reflection, dynamic proxies, serialization, JNI, `Unsafe`, internal JDK APIs, memory mapping, and
+format-to-example dependencies. No generic I/O-module abstraction is introduced.
+
+#### Component snapshot and opening transaction
+
+Production uses one fixed package-private JDK file-access boundary for existence probes,
+`Files.isSameFile`, opening a positional read channel, size, and close. It is explicitly constructed by
+`Shapefiles`, is not configurable in public options, and has only a test implementation for identity,
+short-read, I/O, and cleanup-failure evidence. This narrow resource seam is not a provider or plugin
+interface.
+
+Opening is a single transaction:
+
+1. Validate public arguments, then check cancellation before any allocation, probe, or I/O.
+2. Snapshot the exact caller SHP path and the finite lower/upper SHX, DBF, CPG, PRJ sibling pairs from
+   G5-001 in that order. Missing required SHP wins before sidecar ambiguity. For each pair, one present
+   candidate is selected, aliases collapse only after `isSameFile`, and two distinct/undecidable
+   candidates terminate with `SHAPEFILE_COMPONENT_AMBIGUOUS` before a channel opens. Check
+   cancellation immediately before and after every existence probe and `isSameFile` call.
+3. Open only the caller's SHP, capture its size, enforce `componentBytes`, charge/read the fixed header,
+   and validate it as below. Check cancellation immediately before and after open, size, and every
+   positional read.
+4. A valid header type 3 or 5 terminates with staged `SHAPEFILE_PROFILE_NOT_IMPLEMENTED`; permanent
+   unsupported header types use `SHAPEFILE_SHAPE_TYPE_UNSUPPORTED`.
+5. After a valid current header, the first discovered sidecar in SHX, DBF, CPG, PRJ order terminates
+   with staged `SHAPEFILE_PROFILE_NOT_IMPLEMENTED`. Its bytes are never opened or parsed. An override
+   cannot conceal a discovered PRJ.
+6. Perform a final cancellation check and transfer the channel to the source only after every stage
+   succeeds. Failure closes an acquired channel once; close failure is suppressed under the original
+   throwable/report cause and does not create a second terminal diagnostic. Cleanup itself never polls
+   cancellation or abandons a close because cancellation has become requested.
+
+The staged diagnostic has the component and otherwise only a byte offset for SHP header type (`32`).
+Its exact context is `profile=polyline|polygon|shx|dbf|cpg|prj`. Component ambiguity has empty context;
+the lower/upper choice is already fixed by the component and no filename is copied. A clean sidecar-
+free G5-002 source has an empty opening report and absent schema. It does not pre-emit missing SHX/DBF
+warnings or a placeholder empty DBF schema: G5-003 and G5-006 begin those approved policies. This
+staged behavior is an explicit 0.x delivery boundary, not the final G5 component policy.
+
+Opening cancellation uses `SOURCE_CANCELLED`. Missing SHP uses `SHAPEFILE_COMPONENT_MISSING`; other
+Component probe and SHP open/read/size failures use `SHAPEFILE_IO_FAILED` with the exact bounded I/O
+vocabulary below. Opening allocation uses the `shapefileOpen` logical table from G5-001 and includes
+every fixed/scratch buffer even when later
+discarded. A successful source retains only the channel, captured size/header values, immutable
+metadata/limits, and empty opening report—never the token or a header byte buffer.
+
+#### Fixed SHP header
+
+One exact 100-byte read validates fields at their physical offsets:
+
+- big-endian file code `9994` at 0 and five zero reserved words at 4, 8, 12, 16, and 20;
+- non-negative big-endian word length at 24, checked to an even byte count equal to the captured size,
+  at least 100 and within `componentBytes`;
+- little-endian version `1000` at 28 and shape type at 32;
+- accepted current types 0, 1, and 8; staged types 3 and 5; every other type permanently unsupported;
+- finite little-endian XY bounds at 36, 44, 52, and 60, canonicalized for signed zero and ordered; and
+- raw bytes 68 through 99 consumed but never decoded as Z/M doubles.
+
+Type zero requires all four canonical XY bounds equal positive zero and publishes absent extent. Type
+1 or 8 publishes the validated conservative XY box. Feature count and schema are absent. The optional
+source CRS is the exact override. Header validation does not scan records to prove an all-null file,
+count features, shrink an extent, or inspect payloads.
+
+Header diagnostics use the exact condition table below; `shapeType` is deliberately not a
+`SHAPEFILE_HEADER_INVALID` field because every integer type is current, staged, or unsupported.
+Raw coordinate/header bits and paths never enter context.
+
+#### Positional source and cursor state
+
+The package-private source implements G4's exact `FeatureSource` state and owns one positional channel
+for its lifetime. It requires external serialization, allows one live cursor, and never mutates shared
+channel position. A cursor owns a checked `long nextOffset` beginning at 100, expected positive ordinal
+beginning at one, query/token, fresh format/query counters, small heap scratch buffers, and current
+record. A new cursor always restarts at 100; no parser state/cache survives an operation.
+
+Before claiming the cursor slot, `openCursor` checks source/query/token, cancellation, tighter query
+limits, and `channel.size() == capturedSize`. Because schema is absent, `ALL` and `NONE` yield empty
+attributes and dynamic-schema `ONLY` may omit every requested name. A size change terminates with the
+same file-length diagnostic before payload I/O. Same-size external mutation is unsupported snapshot
+behavior; fields are still validated as read, but the source does not hash or lock the file.
+
+`advance()` invalidates current and loops over physical records until one publishes or exact EOF is
+reached:
+
+1. Check cancellation. If `nextOffset == capturedSize`, recheck channel size, enter `EXHAUSTED`,
+   release the slot, and return false. Fewer than eight remaining bytes is record-length failure.
+2. Read the eight-byte big-endian header positionally. The on-disk number must equal the expected
+   ordinal; content words convert with checked arithmetic to at least four bytes wholly contained in
+   the captured file and within `recordBytes`.
+3. Once that trusted frame exists, prospectively charge `physicalRecords`, call
+   `FeatureQueryAccounting.recordExamined()`, and advance the expected next offset. An unframeable
+   header does not count; null, filtered, and later-invalid payloads do.
+4. Read the little-endian shape code. Null must have exactly four content bytes and skips cleanly. A
+   non-null code must exactly equal the accepted header; any supported-other, Z/M, or MultiPatch code
+   is `SHAPEFILE_RECORD_TYPE_MISMATCH`.
+5. Decode/validate the complete Point or MultiPoint payload, build immutable geometry/record, then
+   apply the inclusive query-envelope predicate. A filtered record is discarded only after full
+   validation.
+6. For a match, use exact ID `record:<ordinal>`, empty name/attributes, call `recordReturned` with zero
+   retained-container slots, check cancellation immediately before setting current, publish, and
+   return true.
+
+Point content is exactly 20 bytes and contains X/Y at content offsets 4/12. Both are finite,
+signed-zero canonicalized, and inside the main header extent. MultiPoint content is exactly
+`40 + 16 * pointCount` checked bytes: finite/ordered/canonical record bounds at offsets 4..35, positive
+little-endian count at 36, then source-ordered XY pairs. The count and `2 * count` must fit
+`points`/Java arrays/allocation limits before allocation. Every coordinate is finite, canonical, inside
+the record box, and its computed exact envelope is inside both record and main boxes. Record boxes may
+be conservatively larger.
+
+For an accepted MultiPoint, the executable order is: require at least the 40-byte declared prefix;
+read that prefix; require a positive count; enforce `points` and Java-array capacity; compute and match
+the exact derived content size; preflight allocation; then validate the record box and coordinate
+payload. Reading a box is not acceptance: non-finite/order/containment checks occur only at that final
+validation stage, so an earlier count or size failure wins deterministically.
+
+The reader uses reusable fixed heap buffers for headers/prefixes and a 16-byte coordinate scratch,
+never a whole-record byte array. MultiPoint uses one packed `double[]`; because the existing immutable
+`CoordinateSequence` defensively copies it, both arrays are prospectively charged before construction,
+then the parser array is released. No zero-copy API or object-per-point representation is added merely
+to save this known bounded copy. Record ID strings and every other parser-owned value use the approved
+logical charge table.
+
+Cancellation is checked before/after every channel operation, between records, within coordinate loops
+at no more than 4,096 primitive units, and before publication. Exact positional short read before the
+captured boundary is `SHAPEFILE_RECORD_LENGTH_INVALID`; another `IOException` is
+`SHAPEFILE_IO_FAILED`. At successful exhaustion the second size check prevents appended data from
+being silently ignored. Failure/cancellation enters its distinct cursor terminal state, invalidates
+current, releases buffers and the source slot once, and leaves the source/channel reusable. Repeated
+advance/current then follows G4 lifecycle errors. Early/repeated cursor close is safe and never closes
+the source channel.
+
+Source close first transitions closed, closes a live cursor, then its channel once, aggregating cleanup
+failure under `SOURCE_CLOSE_FAILED` exactly as G4 specifies. Metadata, limits, and reports survive.
+There is no full-file read, mapping, direct buffer, finalizer, `Cleaner`, background work, prefetch, or
+hidden cache.
+
+#### Exact malformed-input and I/O diagnostics
+
+The first applicable row wins. The table defines exact context key/value sets; publication order is
+always G4's lexicographic key order, regardless of explanatory order below. `-` means empty context.
+Decimal counters/sizes are bounded by G4's scalar formatting rules.
+
+| Condition | Code | Location | Context |
+| --- | --- | --- | --- |
+| Required SHP is absent at the initial snapshot | `SHAPEFILE_COMPONENT_MISSING` | component `shp` | - |
+| Two sidecar case variants are distinct or identity is undecidable | `SHAPEFILE_COMPONENT_AMBIGUOUS` | affected component | - |
+| Captured SHP size is below 100 | `SHAPEFILE_HEADER_INVALID` | `shp`, byte 0 | `field=headerSize`, `expectedBytes=100`, `actualBytes=<captured size>` |
+| Header read reaches EOF before 100 bytes despite the captured size | `SHAPEFILE_HEADER_INVALID` | `shp`, first missing byte | `field=truncated`, `expectedBytes=100`, `actualBytes=<bytes read>` |
+| File code or one reserved word is invalid | `SHAPEFILE_HEADER_INVALID` | `shp`, first failing field | `field=fileCode|reserved` |
+| Signed header file-length word is negative | `SHAPEFILE_HEADER_INVALID` | `shp`, byte 24 | `field=fileLength`, `reason=negative` |
+| Header-declared file length differs from captured open size | `SHAPEFILE_FILE_LENGTH_MISMATCH` | `shp`, byte 24 | `declaredBytes=<header bytes>`, `actualBytes=<captured bytes>` |
+| Version is not 1000 | `SHAPEFILE_HEADER_INVALID` | `shp`, byte 28 | `field=version` |
+| Staged header type | `SHAPEFILE_PROFILE_NOT_IMPLEMENTED` | `shp`, byte 32 | `profile=polyline|polygon` |
+| Permanently unsupported header type | `SHAPEFILE_SHAPE_TYPE_UNSUPPORTED` | `shp`, byte 32 | `shapeType=<decimal>` |
+| Header XY value is non-finite, unordered, or nonzero for type zero | `SHAPEFILE_HEADER_INVALID` | `shp`, first failing XY field | `field=bounds`, `reason=nonFinite|unordered|nonZeroNull` |
+| Channel size at cursor open/exhaustion differs from captured open size | `SHAPEFILE_FILE_LENGTH_MISMATCH` | `shp`, byte 24 | `declaredBytes=<captured bytes>`, `actualBytes=<current channel bytes>` |
+| Fewer than eight captured bytes remain for a record header | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=truncatedHeader`, `expectedBytes=8`, `actualBytes=<remaining bytes>` |
+| Record-header positional read reaches EOF despite eight captured bytes | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=truncatedHeader`, `expectedBytes=8`, `actualBytes=<bytes read>` |
+| On-disk record number differs from the expected ordinal | `SHAPEFILE_RECORD_NUMBER_INVALID` | `shp`, expected record, record start | `expected=<ordinal>`, `actual=<on-disk decimal>` |
+| Content word count is below two | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=invalidWords`, `actualWords=<decimal>` |
+| Checked record-end arithmetic overflows | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=overflow` |
+| Declared content extends beyond captured EOF | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=outOfFile`, `declaredBytes=<content bytes>`, `remainingBytes=<after header>` |
+| Declared content exceeds configured `recordBytes` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `recordStart + 4` | `limit=recordBytes`, `maximum=<limit>`, `requested=<declared content bytes>`, `scope=shapefileCursor` |
+| Shape-code positional read reaches EOF inside a captured frame | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, content start | `reason=truncatedPayload`, `expectedBytes=4`, `actualBytes=<content bytes read>` |
+| Null payload has the wrong exact byte count | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=unexpectedSize`, `expectedBytes=4`, `actualBytes=<declared content bytes>` |
+| Non-null record type differs from the accepted header type | `SHAPEFILE_RECORD_TYPE_MISMATCH` | `shp`, expected record, content start | `expected=<header type>`, `actual=<record type>` |
+| Accepted Point payload has the wrong exact byte count | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=unexpectedSize`, `expectedBytes=20`, `actualBytes=<declared content bytes>` |
+| Point positional read reaches EOF after its accepted type/size | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, first missing payload byte | `reason=truncatedPayload`, `expectedBytes=20`, `actualBytes=<content bytes read>` |
+| Accepted MultiPoint payload is shorter than its 40-byte prefix | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=truncatedPrefix`, `expectedBytes=40`, `actualBytes=<declared content bytes>` |
+| MultiPoint prefix read reaches EOF after its declared-size preflight | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, first missing payload byte | `reason=truncatedPayload`, `expectedBytes=40`, `actualBytes=<content bytes read>` |
+| MultiPoint count is zero or negative | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=pointCount` |
+| MultiPoint count exceeds configured `points` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=points`, `maximum=<limit>`, `requested=<count>`, `scope=shapefileCursor` |
+| MultiPoint ordinate count cannot fit a Java array after configured limits pass | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=arrayCapacity` |
+| Checked MultiPoint derived-size arithmetic overflows | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=overflow` |
+| MultiPoint payload differs from the checked size derived from its count | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=unexpectedSize`, `expectedBytes=<derived content bytes>`, `actualBytes=<declared content bytes>` |
+| Prospective Point allocation exceeds `parserAllocationBytes` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, content start | `limit=parserAllocationBytes`, `maximum=<limit>`, `requested=<prospective bytes>`, `scope=shapefileCursor` |
+| Prospective MultiPoint allocation exceeds `parserAllocationBytes` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=parserAllocationBytes`, `maximum=<limit>`, `requested=<prospective bytes>`, `scope=shapefileCursor` |
+| MultiPoint coordinate read reaches EOF after count/size/allocation preflight | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, first missing payload byte | `reason=truncatedPayload`, `expectedBytes=<derived content bytes>`, `actualBytes=<content bytes read>` |
+| Point/MultiPoint coordinate or record-box ordinate is non-finite | `SHAPEFILE_COORDINATE_NON_FINITE` | `shp`, expected record, offending eight-byte field | `axis=x|y` |
+| Record box is unordered, coordinate is outside record/file box, or computed envelope is outside either | `SHAPEFILE_BOUNDS_MISMATCH` | `shp`, expected record, first offending box/ordinate field | `bounds=record|file` |
+
+An opaque JDK operation that throws `NoSuchFileException`, `AccessDeniedException`,
+`ClosedChannelException`, or another `IOException` maps `causeKind` respectively to `notFound`,
+`accessDenied`, `closed`, or `other`; subclass matching follows that order. It produces
+`SHAPEFILE_IO_FAILED` with the affected component and exact context keys `causeKind=<token>` and
+`operation=probe|open|size|read` in that lexical order. A known requested read position is the byte
+offset; otherwise the byte offset is absent. `isSameFile` failure is the already specified component
+ambiguity instead. Opening cleanup failure is suppressed beneath the primary failure, and ordinary
+source close uses G4's `SOURCE_CLOSE_FAILED`, so neither creates a second format diagnostic.
+
+Limit/cancellation codes and context remain the G4/G5-001 shared shapes. Record locations always use
+the trusted expected physical ordinal, never an invalid raw record number; byte offsets are absolute
+within component `shp`. No raw coordinate value/bits, path, localized I/O text, or malformed payload
+is copied. This slice has no successful cursor warning: diagnostics are empty or one terminal error.
+
+#### Record evidence
+
+Focused fixtures are independently written byte-level test builders, not production parsing helpers.
+They cover header fields/endian/size; arbitrary ignored Z/M bits; signed zeros; empty/all-null type 0;
+Point/MultiPoint with interleaved nulls; IDs/order/query filtering; conservative/rejected boxes; every
+staged/permanent/mismatched type; zero/negative/overflow counts; exact/short/overlong payloads;
+applicable format and G4 limits at minus/equal/plus one; allocation of both coordinate arrays;
+cancellation at each checkpoint; cursor/source states and reuse; channel mutation; I/O/close cleanup;
+and exact diagnostics. Path fixtures cover lower/upper/mixed-case names, same-file hard-link aliases,
+distinct ambiguity, staged priority, and a valid-header sidecar failure that proves channel cleanup.
+The alias test is required in the Linux lane and conditional only where the filesystem genuinely cannot
+create a hard link; distinct ambiguity remains cross-platform.
+
+#### Runnable viewer and observable slice
+
+The example command is explicit and has no file chooser or CRS guess:
+
+```text
+shapefile-viewer <path.shp> <EPSG:4326|EPSG:3857>
+```
+
+Argument count/key validation happens before Swing scheduling. The exact key resolves through an
+explicit Level 1 `CrsRegistry`; the definition becomes the source override, while the view uses
+EPSG:4326 map coordinates and EPSG:3857 display. The example supplies constant source/layer identity,
+explicit built-in marker/line/fill symbols, and an owned feature binding. A sidecar-free supplied SHP
+is required in this slice; discovered PRJ still stages rather than being hidden by the CLI override.
+
+A package-visible `createMapView(Path, CrsDefinition)` opens the source, attaches it transactionally,
+fits metadata extent, and returns a view that owns the source and must be closed. The helper owns the
+source until `ownedFeature` succeeds; that unattached binding owns it after factory transfer; and the
+view owns the binding only after successful installation. On failure the helper closes whichever of
+source, unattached binding, or view owns the chain at that exact stage. Permanent window teardown calls
+`MapView.close()` on the EDT. A test-authored temporary MultiPoint/Null fixture proves
+argument loading, fit, the real source query, tolerant offscreen marker rendering, and file release.
+There is no bundled production corpus, format code in AWT, or viewer-specific parser path.
+
+G5-002 implementation validation runs the new module/example checks, the existing normal gate,
+publication dry run, and whitespace. Native, corpus, fuzz, and performance evidence remain their
+separate later tasks.
