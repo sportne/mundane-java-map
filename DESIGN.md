@@ -1837,6 +1837,247 @@ mixed-button drags, and stale release/click isolation. A no-tool fixture repeats
 observer behavior. Hit testing, selection, hover state, measurement, editing, touch/multitouch, custom
 cursor images, global event interception, and background callback execution remain out of scope.
 
+### Symbol-aware hit testing and single selection (G3-002)
+
+#### Query and identity values
+
+Hit testing is a screen-space query over the same immutable layer/feature snapshots and paint order as
+one `MapView` pass. The public API adds only stable identity values:
+
+```text
+MapHit(String layerId, String featureId)
+
+MapHitResults implements Iterable<MapHit>
+  of(List<MapHit>)
+  size()
+  hits()
+  topmost() -> Optional<MapHit>
+
+FeatureSelection(String layerId, String featureId)
+```
+
+IDs are non-blank and otherwise preserved exactly, matching the existing `Feature` and
+`InMemoryLayer` domain; no hit or selection constructor strips, normalizes, or changes case. Results
+defensively copy their ordered hits, preserve value equality and iteration order, and never retain a
+`Layer`, `Feature`, geometry, symbol, AWT shape, or view. `MapHitResults.of` declares its input to be
+topmost-first, rejects a null entry or duplicate `(layerId, featureId)` pair with a field-naming
+argument error, and otherwise preserves caller order; empty input is valid. `topmost` is the first list
+element. `FeatureSelection` is the same stable pair as a distinct semantic value rather than an alias
+for a past query result.
+
+`MapView.hitTest(screenX, screenY, tolerancePixels)` requires finite screen coordinates and a finite
+non-negative tolerance. A query center outside the current logical component rectangle returns empty;
+inside, effective tolerance is capped at the component diagonal because a larger disk cannot reach
+additional visible paint. This accepts every finite non-negative caller value without allowing it to
+overflow a stroke or allocate a tolerance-sized buffer. The query footprint is a logical-pixel disk
+clipped to the exact half-open component domain `[0,width) x [0,height)`. A footprint contributes only
+where it intersects that domain after fill, stroke, hatch, transform, and interpolation-support
+expansion; clipping a centerline or nominal marker bounds is not sufficient.
+
+Every paint, public hit query, click-selection operation, `setSelection` call, and selection read
+captures one private immutable `ViewContentSnapshot` on the EDT. Capture copies the installed layer
+list, calls each layer's `id()` and `features()` exactly once, copies each ordered feature list, and
+validates all captured elements and IDs. Layer IDs must be unique in a view and feature IDs unique
+within their layer. The operation then reuses that one snapshot for selection reconciliation,
+traversal, and any selection update; it never re-reads a mutable third-party `Layer` mid-operation.
+Viewport, projection, and renderer-registry snapshots are likewise fixed once for a hit or paint pass.
+
+`setLayers` first copies the candidate list and captures and validates its complete content without
+changing view state. It reconciles the current selection against that candidate snapshot, then assigns
+the list and reconciled selection together and requests one repaint. A capture or validation failure
+leaves both prior fields unchanged. Later operations repeat capture because a valid `Layer` may expose
+a newer immutable feature snapshot after installation. A duplicate, blank, or null captured identity
+or element is a field-naming programmer-state failure, not a source diagnostic.
+
+Layers and features are visited last-to-first, exactly reversing paint order. Once any painted part of
+a feature hits, one `MapHit` is appended and traversal advances to the preceding feature. Composite
+symbol children and owned sub-symbols are themselves visited in reverse paint order and stop at their
+first matching leaf. Thus child order affects which leaf proves the feature hit without producing
+duplicate feature results; the first public result is always the topmost visible feature.
+
+#### Toolkit-neutral screen geometry predicates
+
+`ScreenGeometryHits` in `mundane-map-core` is a stateless final utility with these public predicates:
+
+```text
+pointWithin(px, py, qx, qy, radius) -> boolean
+polylineWithin(CoordinateSequence screen, boolean closed,
+               qx, qy, radius) -> boolean
+filledPolygonWithin(CoordinateSequence exterior,
+                    List<CoordinateSequence> holes,
+                    qx, qy, tolerance) -> boolean
+convexQuadWithin(double[] screenXy8, qx, qy, tolerance) -> boolean
+```
+
+All inputs are finite and radii/tolerances non-negative; the quad array is defensively unnecessary
+because it is consumed synchronously but must contain exactly eight ordinates. The implementation uses
+primitive loops and no per-segment objects. Point/segment comparison scales operands before dot/cross
+products and compares normalized distances, avoiding squared-distance overflow. A zero-length segment
+becomes a point test. `polylineWithin` is the union of round segment capsules, which exactly matches
+Level 1's fixed round caps/joins; `closed` adds the final-to-first segment and has no endpoints.
+
+`filledPolygonWithin` first treats any ring boundary within tolerance as hit, then applies an even-odd
+ray crossing across the exterior and all holes. Consequently exterior and hole boundaries are
+inclusive, a point deeper than tolerance inside a hole is excluded, and a point just outside the
+exterior or just inside a hole may hit the nearby visible fill when tolerance is positive. Ring
+orientation is irrelevant. Repeated coordinates and zero-length edges are legal; malformed rings and
+repair remain outside this task. `convexQuadWithin` is point-in-quad plus minimum edge distance and is
+used for transformed raster sample support. Extreme finite-coordinate tests prove that no NaN,
+infinite intermediate, or division by a zero-length segment changes a result.
+
+AWT projects each geometry coordinate to screen once per feature query and builds packed
+`CoordinateSequence` values for these predicates. Centerline hit radius is
+`screenStrokeWidth / 2 + tolerance`; checked addition that exceeds the maximum useful component
+distance saturates to that distance. The generic segment predicate treats a zero-length segment as a
+point, but line-symbol orchestration follows G2-004: it skips repeated coordinates while finding real
+segments and treats an all-coincident part as unpainted and therefore non-hittable. Polygon fill and
+each visible exterior/hole outline are evaluated independently, so holes stay empty while a configured
+ring stroke remains selectable.
+
+These core predicates operate on the unbounded logical screen plane. Their result is final when the
+whole query disk is inside the component. When that disk touches a component edge, AWT must apply the
+post-paint-footprint clip described below before accepting a candidate; an unbounded predicate is only
+a rejection/broad-phase result in that case.
+
+#### Renderer-owned symbol footprints
+
+The hit contract is the ideal logical painted footprint before antialiasing, device-pixel sampling,
+color-model conversion, or destination compositing. It uses the model's double-precision transforms,
+mathematical round stroke caps/joins, even-odd fills, generated hatch segments, and interpolation
+supports. Modeled alpha is tested before conversion to Java2D `float` or an integer destination: an
+effective product equal to zero has no footprint and every positive product does. This deterministic
+contract deliberately does not promise that a hit corresponds to a non-background device pixel on
+every platform, and it requires no raster readback.
+
+G3-002 adds one source-compatible default to the existing AWT extension interface:
+
+```text
+AwtSymbolRenderer
+  ...existing supports/render methods...
+  default hitTest(Symbol value, AwtSymbolHitContext context) -> false
+```
+
+Co-locating the optional hit method with the explicitly registered renderer keeps one role/key/value
+compatibility check and avoids a second global registry. Every built-in overrides it. A custom renderer
+that does not opt in is deterministically non-hittable; MapView never guesses from nominal bounds or
+discovers a tester. Lookup, `supports`, and dishonest-value failures retain the G2 stable codes before
+hit testing.
+
+`AwtSymbolHitContext` is callback-scoped and parallels the read-only render context: role, feature ID,
+original feature geometry, current render geometry, projection/viewport snapshots, inherited opacity,
+closed-ring state, optional endpoint bearing, optional marker anchor, validated `MapScreenBasis`, query
+point/tolerance, source-to-screen conversion, a defensive `Rectangle2D componentClip()` representing
+the exact half-open logical component domain, and
+`hitChild(Symbol child, double opacityMultiplier)`. Public child traversal is same-role and retains the
+derived context. Package-private endpoint-marker and closed-ring-outline transitions mirror G2-005's
+render transitions exactly. The context exposes no `Graphics`, `MapView`, selection mutation, registry
+mutation, or parent context and must not be retained.
+
+`visibleShapeHit(Shape logicalPaintFootprint)` is the canonical AWT edge helper. It intersects the
+already filled or stroke-expanded footprint with `componentClip()` first and only then tests the
+query disk, including logical footprint and clip boundaries under the declared half-open maximum-edge
+rule. It uses Java2D path/area geometry, never device raster readback. Built-in vector, legacy, hatch,
+and line renderers use their unbounded analytic fast path only when the query disk is wholly inside the
+component; at an edge they pass the same final fill or `BasicStroke.createStrokedShape` used to define
+paint to this helper. Raster candidates similarly pass each final transformed support quad. A fully
+outside footprint therefore cannot hit through a discarded part of the disk, while any partially
+visible fill, stroke, or pixel support remains eligible. A custom renderer's `hitTest` contract has the
+same clipping requirement and may use this public helper rather than reproduce it.
+
+The same modeled effective-opacity product used for logical paint gates hits. A
+symbol/composite/owner opacity or paint/pixel alpha of zero contributes no footprint; any positive
+product does. Traversal rules are:
+
+- marker composites test last/top child first;
+- vector markers test visible stroke before visible fill, using the same transformed `Path2D`; stroke
+  uses its actual screen width plus twice the tolerance, while filled closed contours use containment
+  plus a round boundary expansion for positive tolerance;
+- line composites test last child first; within each open part, end marker, start marker, then
+  centerline reverse the G2 paint order, while closed-ring contexts suppress endpoints recursively;
+- solid fills test their outline before their visible even-odd interior; hatch fills test outline then
+  the actually generated/clipped hatch segments and have no implicit background; and
+- fill composites test last complete fill/outline child first.
+
+Legacy point, line, and polygon styles retain equivalent circle, round-centerline, even-odd fill, and
+ring-stroke tests through the Level 1 compatibility window. The G1 convenience point label is an
+annotation, not part of a symbol footprint; text does not make an otherwise transparent feature
+hittable before the later label system defines text hit policy.
+
+#### Raster alpha footprint
+
+Raster icons do not fall back to their nominal rectangle. `MarkerTransform` gains a checked
+screen-to-local inverse used only after its already-validated non-singular forward transform. For
+`NEAREST`, each source pixel with alpha greater than zero contributes the half-open pixel cell
+`[x,x+1) x [y,y+1)` within the half-open image domain. For `BILINEAR`, that sample contributes its open
+triangular-kernel support `(x-0.5,x+1.5) x (y-0.5,y+1.5)`, intersected with the half-open image domain;
+the union of positive-sample supports is exactly where modeled interpolated alpha can be positive.
+
+Zero tolerance tests the inverse-mapped query point directly in those half-open/open source supports,
+so a zero-weight bilinear boundary is not a hit and each nearest cell includes its `x,y` edges while
+excluding its `x+1,y+1` edges. For positive tolerance, each support's closure becomes a screen convex
+quad and `convexQuadWithin` tests distance to that closure; equality with the positive radius is
+included. This explicit boundary convention avoids depending on Java2D's device-pixel tie breaking
+while preserving the logical interpolation footprint away from measure-zero edges.
+
+The inverse transform maps the query's screen bounding square to a conservative local range, expanded
+by one source pixel for bilinear support and clamped with checked `long` arithmetic. The tester scans
+only candidate rows/pixels, reads packed alpha directly, and exits on the first hit. Its deterministic
+worst case is the icon's existing `MAX_PIXELS`, with no new allocation proportional to tolerance or
+image size. G7 may optimize from evidence; G3 does not introduce an alpha pyramid, cache, or platform
+raster readback.
+
+#### Selection state and click behavior
+
+`MapView` owns `Optional<FeatureSelection> selection()` and explicit
+`setSelection(FeatureSelection)`/`clearSelection()` methods. Programmatic set requires the exact IDs to
+exist uniquely in its one captured content snapshot; absence is a field-naming
+`IllegalArgumentException`. It applies the selection against that same snapshot rather than reading a
+layer again. Validation and existence checking occur before comparing with stored state, so setting the
+same value is a no-op only when it remains valid in that snapshot. `clearSelection()` never consults
+layer content: it clears the stored immutable pair directly and therefore still succeeds when an
+unrelated mutable layer is invalid or throws. Clearing empty state is a no-op. Any real change requests
+one repaint, although G3-003 supplies the first visual overlay and change listeners.
+
+Selection is reconciled from the operation's content snapshot before paint or hit traversal and before
+`selection()` returns, and transactionally during `setLayers`. Removing the selected layer or feature
+clears it; replacing objects under the same IDs or reordering them preserves it. This is ID continuity
+only—no geometry/attribute/source-version matching is inferred. Duplicate IDs fail as above rather
+than choosing an arbitrary selection. Reconciliation during an already scheduled paint does not queue
+a redundant repaint; external reads and hit operations that discover and clear stale state request one.
+
+After the G3-001 router passes an unmodified, non-popup, single primary `CLICK` with no buttons down,
+including a passed clean-idle click when no tool is installed, MapView captures content once and
+performs the hit traversal with public constant
+`DEFAULT_SELECTION_TOLERANCE_PIXELS = 4.0`. The topmost hit becomes selection and an empty result clears
+it against that same snapshot. Selection updates before a passed compatibility click listener is
+notified, so observers can read the new state. A consumed/quarantined click, modified click, auxiliary
+click, or multi-click does not change selection. Pan and wheel behavior remain unchanged.
+
+#### Verification boundary
+
+API tests cover non-blank exact ID preservation including surrounding whitespace, null/duplicate hit
+rejection, declared topmost order, immutable results, one-hit-per-feature behavior, topmost access,
+selection equality, and all tolerance/query input boundaries. Core tests cover points, open/closed
+segments, round endpoints, repeated/zero-length segments, even-odd rings, holes, exact boundaries,
+positive tolerance on either side, convex quads, and extreme finite operands.
+
+AWT tests cover all eight built-in vector markers, fill/stroke alpha combinations, every placement
+anchor/unit/rotation mode, raster row/alpha holes under nearest and bilinear interpolation, marker/line/
+fill composites, endpoint order, cased lines, solid fills, all hatches, outlines, polygon holes, legacy
+styles, custom renderer opt-in/default-false behavior, reverse layer/feature/child order, component-edge
+clipping with fully outside-near-edge and partially visible fill/stroke/icon footprints, positive
+modeled alpha, and fully transparent features. Raster cases distinguish exact nearest half-open edges
+and zero-weight bilinear boundaries at zero tolerance from closure distance at positive tolerance,
+including an opaque sample beside transparent neighbors. Interaction tests cover no-tool and
+active-tool passed clicks versus consumed primary clicks, empty clear,
+modified/multi-click no-op, listener observation order, programmatic set/no-op/clear, same-ID
+replacement, removal invalidation, duplicate-ID failures, same-value validation, and successful direct
+clear while another layer accessor fails. A deliberately changing `Layer` proves each paint, hit,
+click, set/read, and `setLayers` transaction uses one feature-list snapshot and that a failed candidate
+install leaves prior view and selection state intact. Direct iteration is deliberate; spatial
+indexing, multi-selection, visual overlays, hover, label hits, editing, and source-version persistence
+remain out of scope.
+
 ## Native Image
 
 Native-targeted code avoids reflection, runtime scanning, dynamic proxies, Java serialization,
@@ -1894,6 +2135,7 @@ out of this gate.
 | 2026-07-12 | Verify rendering through invariant-based headless scenarios in a separate lane. | Tolerant bounds, regions, and ordering catch material regressions without promising cross-platform pixel identity or burdening the normal gate. |
 | 2026-07-12 | Prove native symbol resources with one exact test-owned raw RGBA file and Java 21 resource metadata. | A fixed literal lookup and exact inclusion rule exercise the native boundary without inventing a production loader, decoder, or discovery mechanism. |
 | 2026-07-12 | Route toolkit-neutral tool events through one session-aware core state machine before AWT defaults. | Explicit capture, cancellation, quarantine, and cursor ownership preserve navigation while preventing stale gestures from crossing tool lifetimes. |
+| 2026-07-12 | Use screen-space analytic predicates and renderer-owned hit methods for visible symbol footprints. | Sharing placement and paint traversal keeps hit order deterministic while allowing explicitly registered custom renderers to opt in without toolkit leakage or guessed bounds. |
 
 ## Task design traceability
 
@@ -1914,3 +2156,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-006 | Runnable symbol gallery, named visual checkpoint, portable render scenarios, and separate lane | Approved |
 | G2-007 | Exact icon resource metadata, shared native symbol smoke, stable probes, and G2 closeout | Approved |
 | G3-001 | Toolkit-neutral tool events/context, session router, capture/quarantine, and AWT navigation order | Approved |
+| G3-002 | Screen-space geometry predicates, renderer-owned symbol footprints, deterministic topmost hits, and single selection | Approved |
