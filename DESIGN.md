@@ -51,7 +51,7 @@ design task; there are no empty speculative design files.
 | G0 | [Build and architecture](design/G0-build-and-architecture.md) | G0-001 through G0-002 approved |
 | G1 | [First map slice](design/G1-first-map-slice.md) | G1-001 approved |
 | G2 | [Symbols and vector graphics](design/G2-symbols-and-vector-graphics.md) | G2-001 through G2-007 approved |
-| G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-003 approved |
+| G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-002 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
@@ -83,6 +83,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Route toolkit-neutral tool events through one session-aware core state machine before AWT defaults. | Explicit capture, cancellation, quarantine, and cursor ownership preserve navigation while preventing stale gestures from crossing tool lifetimes. |
 | 2026-07-12 | Use screen-space analytic predicates and renderer-owned hit methods for visible symbol footprints. | Sharing placement and paint traversal keeps hit order deterministic while allowing explicitly registered custom renderers to opt in without toolkit leakage or guessed bounds. |
 | 2026-07-12 | Keep hover/selection transactions in MapView and report paint presence from the existing render result. | Full invalidation and in-pass presence avoid a speculative core state machine, duplicate bounds traversal, and presentation-dependent identity state before G7 evidence. |
+| 2026-07-12 | Bind Level 1 distance strategies to an exact map CRS and keep measurement state in one uncaptured tool. | Reusing metre/degree CRS declarations, semantic command routing, and a concrete AWT paint pass avoids duplicate unit, input, overlay, and state frameworks. |
 | 2026-07-12 | Use synchronous feature cursors and raster reads that return unstyled, independently owned values. | One explicit pull boundary preserves source order, resource ownership, and parser/presentation separation without streams, reactive APIs, or background work. |
 | 2026-07-12 | Use bounded warning reports and unchecked structured terminal source failures. | Stable diagnostics, typed limits, and cooperative cancellation stay observable through cursors and Swing rendering without format exceptions or checked-failure adapters leaking across modules. |
 | 2026-07-12 | Expose latest per-layer source reports and make MapView explicitly closeable. | Deferred EDT report delivery and permanent explicit close make asynchronous paint failures and transferred source ownership observable without treating reversible Swing detachment as disposal. |
@@ -112,5 +113,6 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G3-001 | Toolkit-neutral tool events/context, session router, capture/quarantine, and AWT navigation order | Approved |
 | G3-002 | Screen-space geometry predicates, renderer-owned symbol footprints, deterministic topmost hits, and single selection | Approved |
 | G3-003 | Immutable interaction events, hover probes, overlay symbols, logical paint presence, full invalidation, and ordered rendering | Approved |
+| G3-004 | CRS-bound metre results, planar/great-circle strategies, semantic undo/user cancel, tool-owned state, concrete AWT overlay, and G3 closeout | Approved |
 | G4-001 | Synchronous feature/raster contracts, immutable records/IDs, canonical attributes, raster grid math, limits, cancellation, reports, and explicit ownership | Approved |
 | G4-002 | Immutable CRS metadata, explicit direct-operation registry, strict Web Mercator/envelopes, display integration, and same-CRS raster boundary | Approved |

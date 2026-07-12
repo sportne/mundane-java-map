@@ -16,8 +16,8 @@ silently required to handle capture or lifecycle cancellation.
 `PRIMARY = 1`, `MIDDLE = 2`, and `SECONDARY = 3`; larger positive numbers represent auxiliary buttons
 without adding toolkit types or collapsing their identity. `MapInputModifier` is the fixed enum
 `SHIFT`, `CONTROL`, `ALT`, `META`, and `ALT_GRAPH`. `MapToolCancelReason` is
-`TOOL_REPLACED`, `TOOL_CLEARED`, `FOCUS_LOST`, `VIEW_DISABLED`, `VIEW_REMOVED`, or
-`POINTER_EXITED`, or `POINTER_STATE_LOST`.
+`TOOL_REPLACED`, `TOOL_CLEARED`, `FOCUS_LOST`, `VIEW_DISABLED`, `VIEW_REMOVED`,
+`POINTER_EXITED`, `POINTER_STATE_LOST`, or `USER_CANCEL`.
 
 The immutable event has this canonical shape:
 
@@ -105,9 +105,11 @@ tool but suppress defaults; a nonmatching release does not end capture, and the 
 it after the callback. Before another non-cancel event is routed, omission of the captured button from
 reconciled `buttonsDown` is state loss except for its own changed `RELEASE`; the router produces one
 `POINTER_STATE_LOST` cancel and suppresses that raw event. Wheel input remains independent during
-capture only while its button remains down and zooms only when the tool returns `PASS`. A `CANCEL`
-result is ignored except that `CAPTURE` remains illegal. Null results or cursor intents and capture at
-another event type use the callback-failure path below.
+capture only while its button remains down and zooms only when the tool returns `PASS`. A lifecycle or
+external-unavailability `CANCEL` result is ignored. For `CANCEL(USER_CANCEL)`, `PASS` permits the
+host's prior Escape behavior and `CONSUME` suppresses it after cancellation; `CAPTURE` is illegal for
+every cancel. Null results or cursor intents and capture at another event type use the callback-failure
+path below.
 
 The router reads `cursorIntent()` after successful activation and after a successful non-cancel event
 only when the same session remains installed and the host is available. It never reads the old tool's
@@ -152,10 +154,11 @@ RouteOutcome(boolean suppressDefault, boolean captured, MapCursorIntent cursorIn
 ```
 
 Lifecycle arguments named `*Cancel` must be `CANCEL` events with the corresponding reason; an event is
-ignored only for first activation or a same-instance no-op. `cancelInteraction` accepts only an
-external cancel reason and coalesces as described below. Every accepted event sequence must exceed the
-router's prior sequence; an out-of-order or reused sequence fails before callbacks and leaves state
-unchanged. `MapView` does not expose the router.
+ignored only for first activation or a same-instance no-op. `cancelInteraction` accepts an
+external-unavailability reason or `USER_CANCEL`; their distinct resume and coalescing behavior is
+described below. Every accepted event sequence must exceed the router's prior sequence; an
+out-of-order or reused sequence fails before callbacks and leaves state unchanged. `MapView` does not
+expose the router.
 
 Ignoring the cancellation callback on first activation does not mean inheriting an existing gesture.
 MapView clears its pending navigation anchor whenever the active-tool identity changes, including the
@@ -171,21 +174,24 @@ and its original failure is rethrown with cleanup failure suppressed. If old can
 deactivation fails, cleanup still runs, the old tool is left inactive, the new tool is not activated,
 and the first failure is rethrown with later cleanup failures suppressed.
 
-A tool may request one replacement or clear operation from inside its pointer callback; a reentrant
-host focus/enable/removal transition similarly queues one external cancel. The router waits for the
-callback to unwind and validates its non-null/legal result. On success it discards that result, applies
-the pending lifecycle operation before any old cursor lookup or default handling, and suppresses the
-triggering event. Repeated external cancels coalesce; a second explicit replacement/clear request and
-replacement from activation/cancellation/deactivation callbacks are programmer-state errors. Recursive
-pointer dispatch is likewise rejected. These rules avoid a stale callback installing capture or a
-cursor after its tool has been replaced.
+A reentrant host call to `MapView.setActiveTool` or `clearActiveTool` may queue one replacement or
+clear operation during a pointer or command callback; a reentrant host focus/enable/removal transition
+similarly queues one external cancel. The callback context itself exposes no lifecycle mutation. The
+router waits for the callback to unwind and validates its non-null/legal result. On success it discards that
+result, applies the pending lifecycle operation before any old cursor lookup or default handling, and
+suppresses the triggering event. Repeated external cancels coalesce; a second explicit
+replacement/clear request and replacement from activation/cancellation/deactivation callbacks are
+programmer-state errors. Recursive pointer or command dispatch is rejected, including pointer from
+command, command from pointer, and same-kind recursion. These rules avoid a stale callback installing
+capture or a cursor after its tool has been replaced.
 
-Pointer dispatch order inside the router is callback, result validation, pending-operation handling,
-then cursor lookup only when the same session remains. If the callback throws or its result is null or
-illegal, an explicit pending replacement/clear is discarded and that callback failure wins. A pending
-host cancellation still performs its non-callback state cleanup because the view really became
-unavailable, but it does not recursively invoke the tool that just failed. If a valid callback has a
-pending operation, the operation runs and the old cursor is never queried.
+Pointer and command dispatch order inside the router is callback, result validation,
+pending-operation handling, then cursor lookup only when the same session remains. If the callback
+throws or its result is null or illegal, an explicit pending replacement/clear is discarded and that
+callback failure wins. A pending host cancellation still performs its non-callback state cleanup
+because the view really became unavailable, but it does not recursively invoke the tool that just
+failed. If a valid callback has a pending operation, the operation runs and the old cursor is never
+queried. Pointer-only button/capture cleanup remains confined to pointer dispatch.
 
 Throwing or null `cursorIntent()` during activation is an activation failure and follows the existing
 best-effort-deactivate rule. During ordinary routing it is a dispatch failure with the same quarantine
@@ -233,6 +239,9 @@ cancellation signals coalesce until `resume()` or the next accepted pointer even
 loss followed by removal from double-canceling one interaction. `POINTER_STATE_LOST` follows the same
 path for an inconsistent captured or dragged sequence. Replacement and clear always deliver their
 lifecycle cancel even after external cancellation because they also end the activation session.
+`USER_CANCEL` performs the same gesture cleanup and quarantine but represents an available host: it
+does not arm or coalesce unavailability, and a successful callback immediately refreshes the
+installed tool's cursor.
 
 #### AWT routing and navigation order
 
@@ -742,3 +751,302 @@ keys match.
 Architecture tests keep event/symbol values AWT-free and reject any second registry or discovery path.
 Tooltips, accessibility, multi-selection, editing handles, animation, thematic styles, generalized
 visibility, render caching, narrow dirty bounds, and performance claims remain out of scope.
+
+### Distance strategies and measurement tool (G3-004)
+
+#### CRS-bound distance values and strategies
+
+Level 1 exposes distance in one canonical unit instead of adding a second unit hierarchy beside
+G4's `CrsUnit`. The toolkit-neutral API surface is:
+
+```text
+DistanceResult(double metres)
+  plus(DistanceResult other) -> DistanceResult
+
+DistanceStrategy
+  coordinateCrs() -> CrsDefinition
+  distance(Coordinate start, Coordinate end) -> DistanceResult
+
+MeasurementPhase = EMPTY | MEASURING | COMPLETE
+
+MeasurementState
+  phase() -> MeasurementPhase
+  vertexCount() -> int
+  vertex(int index) -> Coordinate
+  packedVertices() -> defensive double[]
+  preview() -> Optional<Coordinate>
+  committedDistance() -> DistanceResult
+  lastCommittedSegmentDistance() -> Optional<DistanceResult>
+  previewSegmentDistance() -> Optional<DistanceResult>
+  displayedDistance() -> DistanceResult
+```
+
+`DistanceResult` requires a finite non-negative metre value and canonicalizes either signed zero to
+positive zero. `plus` adds in encounter order and fails before returning if the sum is non-finite;
+there is no saturation, unit conversion, negative sentinel, or implicit formatting policy in this
+public numeric value. Nulls and structurally invalid direct arguments use ordinary Java argument
+failures.
+
+`MeasurementState` is an immutable snapshot. It owns one packed primitive coordinate array, clones
+input and output, uses value equality, and never retains a tool, view, strategy, layer, or AWT value.
+`EMPTY` has no vertices, preview, or segment distances and a zero total. `MEASURING` has at least one
+vertex; a preview and its distance are either both present or both absent. `COMPLETE` has at least two
+vertices and no preview. A last committed segment is present exactly when at least two vertices are
+present. The committed total is the ordered sum of committed segments and excludes the preview.
+`displayedDistance` is the checked committed total plus the preview segment when present, otherwise
+the committed total.
+
+Core supplies exactly two explicit factories for Level 1:
+
+```text
+DistanceStrategies.planarMetres(CrsDefinition projectedCrs) -> DistanceStrategy
+DistanceStrategies.epsg4326GreatCircle(CrsDefinition geographicCrs) -> DistanceStrategy
+```
+
+The planar factory requires a recognized projected definition whose x/y axes are
+`EASTING/METRE` and `NORTHING/METRE`; the geographic factory requires exact equality with the
+canonical registered EPSG:4326 definition, including axes and domain. A fabricated same-name
+definition is not accepted. Each returned strategy retains that immutable exact definition, and a
+measurement tool verifies it equals `MapToolContext.mapCrs()` during activation. A mismatch uses the
+existing `CrsException`/`CrsProblem` with `CRS_DEFINITION_MISMATCH` and bounded `expectedCrs` and
+`actualCrs` context. Missing and unknown source metadata are not measurement states: a successfully
+constructed `MapView` already has a recognized map CRS, and source binding owns those G4 diagnostics.
+No `LinearUnit`, metadata resolver, measurement diagnostic type, or numeric-range CRS guess is added.
+
+For EPSG:3857, planar distance is the Euclidean distance between projected metre coordinates. It is
+explicitly projected-coordinate distance, not an ellipsoidal ground-distance correction; Web
+Mercator scale distortion is documented in the public factory Javadoc and example. Future projected
+CRSs with other units wait for G10-007 rather than acquiring a conversion table here.
+
+#### Deterministic numeric policy
+
+The planar strategy validates both coordinates against its exact CRS domain and evaluates
+`StrictMath.hypot(end.x - start.x, end.y - start.y)`. The geographic strategy validates longitude and
+latitude against the full EPSG:4326 domain, with x as longitude east and y as latitude north under
+G4's visualization convention. A coordinate-domain failure retains the existing
+`CRS_COORDINATE_OUT_OF_DOMAIN` shape; a non-finite calculated result uses
+`CRS_TRANSFORM_NON_FINITE`. Strategy construction and use never translate those failures into a
+source diagnostic unless a later source boundary is the caller.
+
+The geographic result is a spherical great-circle distance with radius exactly
+`6_371_008.8` metres. That is the average Earth radius `6 371.008 771 4 km` published in
+[ITU-R P.1511-3](https://www.itu.int/dms_pubrec/itu-r/rec/p/R-REC-P.1511-3-202408-I%21%21PDF-E.pdf),
+rounded once to the nearest decimetre as the library constant. It is not presented as an ellipsoidal
+geodesic.
+
+Core uses `StrictMath` throughout. It converts latitude and longitude differences to radians,
+normalizes longitude difference with `atan2(sin(delta), cos(delta))`, evaluates the haversine term,
+clamps only accumulated floating-point drift to `[0, 1]`, and obtains the central angle as
+`2 * atan2(sqrt(a), sqrt(1 - a))`. This keeps identical, antimeridian, near-antipodal, and exact
+antipodal inputs finite without wrapping the stored coordinates or introducing a branch to a second
+algorithm. Signed zero is normalized only in the result.
+
+The measurement tool computes a candidate segment and checked candidate cumulative/displayed total
+before mutating its arrays or publishing a preview. It retains cumulative totals alongside its packed
+vertices so Backspace restores the exact prior total rather than subtracting and accumulating drift.
+Zero-length segments are valid.
+Numeric tests use an absolute/relative tolerance of
+`max(1e-6 metre, abs(expectedMetres) * 1e-12)` for calculated reference distances; zero and declared
+boundary cases are asserted separately.
+
+#### One bounded command extension to the tool router
+
+Backspace is a semantic tool command, not a raw toolkit key in the pointer event. The API adds:
+
+```text
+MapToolCommand = DELETE_BACKWARD
+MapToolCommandEvent(long sequence, MapToolCommand command)
+
+MapTool
+  default onMapToolCommand(MapToolCommandEvent event, MapToolContext context) -> PASS
+
+MapToolRouter
+  routeCommand(MapToolCommandEvent event, MapToolContext context) -> RouteOutcome
+```
+
+Command sequence numbers share the owning `MapView`'s strictly increasing event sequence. Command
+routing uses the same installed session, callback guard, pending replacement/clear handling, failure
+and cursor rules as pointer routing, including cross-kind recursive-dispatch rejection and applying a
+queued host lifecycle operation before cursor/default handling. It does not change button, capture,
+release-candidate, or quarantine state. `PASS` permits the host's prior key behavior and `CONSUME`
+suppresses it; `CAPTURE` is illegal. There is no arbitrary key code, typed character, modifier set,
+global key listener, key registry, or general shortcut manager.
+
+`MapToolCancelReason` adds `USER_CANCEL`. Escape is deliberately not a second command: it constructs
+the normal `CANCEL(USER_CANCEL)` event from the latest bounded event sample and enters the router's
+existing interaction-cancellation path. Unlike focus/disable/removal unavailability, user cancel
+ends and quarantines any current gesture but leaves the host available, the tool installed, and the
+router immediately ready; after a successful callback it refreshes that same tool's cursor. User
+cancel is not coalesced with a prior Escape. Its validated `PASS`/`CONSUME` result becomes the route
+outcome's `suppressDefault`, augmented when a capture or MapView navigation gesture was actually
+ended; cancellation cleanup has already occurred either way. With no installed tool, it passes unless
+it ended a navigation gesture. Failure leaves the tool installed, applies the existing
+default-cursor/quarantine behavior, and propagates.
+
+`MapView.processKeyBinding` considers only an unmodified pressed Backspace or Escape while the
+component is enabled, displayable, and focused. Backspace is routed only with an installed tool;
+Escape is routed with an installed tool or live MapView navigation gesture. A suppressed outcome
+returns handled; a passed outcome, including no tool, empty measurement, or no live gesture,
+delegates to `super.processKeyBinding` and preserves any application/LAF binding. Releases, modified
+keystrokes, and all other keys delegate unchanged. This stays component-local and needs no new
+`MapToolContext` mutation method.
+
+These additions correct one omission in G3-001: its prose allowed a callback-queued clear/replacement
+without exposing such a context capability. G3-004 does not add one merely for measurement; public
+MapView replacement/clear remains host-owned, and command callbacks follow the router's already
+specified pending host-lifecycle rules.
+
+#### Tool-owned measurement state and event order
+
+`MeasurementTool` is one final public AWT tool because the only demonstrated host and painter are
+Swing. It owns the supplied `DistanceStrategy`, packed committed vertices, cumulative totals,
+optional preview, phase, and its cached immutable `MeasurementState`. `MapView` does not mirror those
+fields. `state()` returns the cached immutable snapshot for painting, tests, and application status
+display. The tool has a configurable vertex limit with default `10_000`, requires a limit of at least
+two, and allocates/grows only up to that value. Adding the vertex that reaches the limit completes the
+path automatically.
+
+One mutable tool instance may be installed in only one `MapView` at a time. As part of its existing
+concrete measurement integration, MapView performs a package-private identity claim before router
+activation and releases it in `finally` after deactivation or failed activation. A claim held by a
+different view fails before either router callback or view state changes; setting the same instance
+again in its owner remains the router's normal identity no-op. This local owner field is not public,
+is not a global manager or registry, and is never used as measurement state. After release, the
+cleared tool may be installed in another view.
+
+Activation first verifies the strategy's exact coordinate CRS against the callback context, then
+retains no context. `cursorIntent()` is always `CROSSHAIR`. Deactivation clears all state
+idempotently. Replacement and explicit tool clear therefore remove the measurement and its overlay.
+Focus loss, pointer exit, disable/removal, and pointer-state loss receive their existing cancellation
+reason, clear only a transient preview, and preserve committed vertices so the installed tool can
+resume. `USER_CANCEL` clears a non-empty measurement, returns `CONSUME`, and leaves the tool active;
+at `EMPTY` it returns `PASS` without repaint so the prior Escape binding can run. Every real state
+change requests one ordinary full repaint; repeated equal preview samples and no-op clears do not.
+
+The pointer policy is exact:
+
+- every `MOVE` is consumed while the tool is active; with at least one vertex in `MEASURING`, a
+  present map coordinate becomes the preview after checked distance calculation, while an empty map
+  coordinate clears an existing preview; a move in `EMPTY` or `COMPLETE` changes no measurement;
+- an unmodified, non-popup primary `CLICK` is consumed even when its map coordinate is empty; a
+  count-one click appends its present coordinate, first clearing a completed path when necessary;
+- a click count greater than one appends nothing and changes `MEASURING` to `COMPLETE` only when at
+  least two vertices exist; Swing's ordinary count-one then count-two double-click sequence therefore
+  adds the endpoint once and completes without a duplicate zero-length endpoint;
+- a next count-one click after completion starts a fresh path; zero-length vertices intentionally
+  added by separate count-one clicks remain valid;
+- `PRESS`, `DRAG`, `RELEASE`, `WHEEL`, popup clicks, modified clicks, and non-primary clicks pass;
+  any button press clears the transient preview before passing, but the tool never returns `CAPTURE`;
+- `DELETE_BACKWARD` consumes and removes the last vertex when one exists, clears preview, and changes
+  `COMPLETE` back to `MEASURING`; removing the sole vertex produces `EMPTY`; at `EMPTY` it passes so
+  any prior Swing binding remains available.
+
+A missing optional map coordinate is ordinary domain-boundary behavior, never a warning. It cannot
+add a vertex or preview, but the qualifying move/click is still consumed so hover or selection is not
+changed accidentally. Releases, lifecycle events, primary-drag pan, and wheel zoom remain routable in
+screen space. Passed primary press/drag/release retains G3-001 navigation, and passed wheel retains
+cursor-centered zoom. Measurement never captures, so the verification case proves absence of capture
+rather than exercising a capture path.
+
+G3-003's existing host ordering applies without a second state machine. A consumed measurement move
+clears hover through the host's ordinary rule; a consumed measurement click leaves selection
+unchanged. The tool does not read or mutate either state. Other passed input follows the existing
+hover, selection, compatibility-listener, pan, and zoom order.
+
+#### Concrete AWT measurement pass
+
+Measurement painting extends the one captured MapView paint transaction in this fixed order:
+
+```text
+source features -> hover overlay -> selection overlay -> measurement overlay
+```
+
+At paint start, MapView includes the active `MeasurementTool`'s one immutable state snapshot with its
+existing content, CRS operation, viewport, interaction, and renderer snapshots. Only an active
+measurement tool contributes. The renderer never calls back into the live tool during traversal.
+Measurement coordinates are in `mapCrs`, not display CRS; each vertex is transformed with the same
+captured map-to-display operation and viewport used by that paint.
+
+The AWT-private `MeasurementOverlayRenderer` draws committed segments with a fixed solid line,
+preview with a fixed dashed line, and fixed logical-pixel vertex marks. The current segment label is
+the preview segment when present, otherwise the last committed segment in either `MEASURING` or
+`COMPLETE`; it is absent only before a second vertex. The total badge always formats
+`displayedDistance`, so it includes the checked preview segment while previewing and otherwise shows
+the committed total. A high-contrast white casing, opaque crimson line/vertex outline, white vertex
+fill, and black text on a translucent white background are package-private constants. G11-002 may
+introduce a theming decision later; G3 adds no public measurement style, scene graph, overlay SPI,
+renderer registry, or label-placement engine.
+
+Each vertex and segment is transformed independently. An absent endpoint skips that segment and is
+never bridged to the next representable point. Before Java2D draw calls, each finite segment is
+clipped analytically to the component rectangle expanded only by the fixed stroke/mark allowance, so
+extreme but valid projected coordinates cannot create an extent-sized allocation or unbounded
+rasterizer input. Java2D's component clip remains the final device boundary. Labels are emitted only
+when their anchor is representable and intersect the component; the total badge uses fixed component
+inset when any vertex exists.
+
+Distance text is an AWT-private presentation detail. `Locale.ROOT`, no grouping, and
+`BigDecimal.valueOf` with `RoundingMode.HALF_UP` produce exactly one decimal and `m` below 1,000
+metres, or two decimals and `km` at and above 1,000 metres. Unit selection occurs before rounding, so
+the boundary is stable. Public numeric results remain independent of this Level 1 display choice.
+Font glyph pixels are not a rendering contract: tests assert the separately formatted text, path and
+mark geometry, bounded paint regions, layering/color presence, and background outside the actual
+overlay rather than whole-image or glyph identity.
+
+Measurement graphics are not features. They do not use source logical-paint presence, cannot be hit
+or selected, never create synthetic features, and retain no source identity. Every state change uses
+G3-003's conservative full-component invalidation; no retained overlay bounds or cache is introduced
+before G7 evidence.
+
+#### Example, verification, and Native Image boundary
+
+`examples/measurement-viewer` is created only with working behavior. Its public headless factory
+constructs a tabbed content panel with two already-configured identity-CRS views: an EPSG:3857 metre
+coordinate-plane example using `planarMetres`, and an EPSG:4326 longitude/latitude example using the
+great-circle strategy. Each view owns its own measurement tool. Switching tabs does not mutate a
+view's CRS or strategy. Copy in the planar tab states that its result follows projected coordinate
+metres and is not corrected for Web Mercator ground-scale distortion.
+
+API tests cover distance/state invariants, defensive packed storage, phase consistency, equality,
+checked committed/preview totals, the command value, and the new cancel reason. Core tests cover
+projected metre factory validation, exact strategy CRS, Euclidean segments, great-circle radius,
+quarter-equator, antimeridian, poles, identical points, exact/near antipodes, zero segments, domain
+failures, ordered accumulation, and the stated tolerances. Router tests cover command sequence/order,
+PASS/CONSUME, illegal capture, callback/pending-lifecycle failures, cursor refresh, and available-host
+user cancel.
+
+AWT tests cover present/empty moves, add, zero-length add, count-one/count-two completion, triple-click
+stability, new measurement after complete, Backspace in every phase, Escape with no tool and with
+empty/non-empty state, replacement, cross-view claim/reuse, external cancellation/resume, vertex
+limit, failure-before-mutation, no capture, pan/wheel coexistence, focus and `processKeyBinding`
+fallback, hover clearing, selection preservation, and EDT confinement.
+Offscreen tests prove independent-segment clipping, missing transform endpoints, fixed paint order,
+full invalidation, non-hittable overlays, every phase's current-segment/committed-plus-preview total,
+exact private formatting, and tolerant color/geometry invariants. The example test builds both tabs on
+the EDT without a frame, checks their exact map CRS and strategy pairing, and paints representative
+states offscreen.
+
+The task's focused future implementation command includes the new example test, followed by the
+normal quality gate. G3-004 does not create a separate specialized lane and requires no manual
+checkpoint; G8-002 owns manual example review. The algorithms use JDK-only values and `StrictMath`,
+and the command/measurement paths use explicit construction with no reflection or resources. G8-001
+adds representative planar, geographic, state, and AWT measurement behavior to its aggregate native
+scenario rather than creating task-specific metadata here.
+
+#### G3 design closeout
+
+G3 closes with one core session router, one MapView-owned hover/selection transaction, screen-space
+hit predicates that share explicit symbol renderers, and one tool-owned measurement state painted by
+a concrete AWT pass. Pointer, semantic command, lifecycle, hover, selection, and measurement ordering
+now compose without a second router, generalized input framework, duplicate unit model, overlay
+registry, measurement manager, synthetic feature, or capture gesture.
+
+The cross-gate review makes three implementation-plan corrections explicit. G3-001 follows G4-002
+because its approved context and optional event coordinates use the CRS contracts; G4-002 owns the
+existing pointer/MapView optional-conversion migration but not not-yet-created G3 tool types. G3-003
+keeps hover/selection state in MapView, full invalidation, complete `(layerId, featureId)` identity,
+and exact `PRESENT`/`EMPTY`/`UNKNOWN` eligibility instead of the older task-card state-machine,
+bounds, feature-ID-only, and undefined hidden-content wording. G3-004 follows G3-003 and G4-002,
+reuses `CrsUnit`, treats missing coordinates as ordinary, proves it does not capture, and adds the
+bounded command/AWT integration described above. These corrections change stale planning language,
+not the intent of any approved prior design.

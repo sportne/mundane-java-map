@@ -866,17 +866,18 @@ discovery mechanisms, AWT/parser/adapter types, and an unsafe default envelope p
 AWT compatibility integration in G4-002 covers canonical 4326 and 3857 identity-view construction
 without a `Projection`, retained non-identity projection convenience construction, exact map/display
 accessors, and present map coordinates inside the inverse domain. It also starts from the existing
-800-by-600, 100,000-units-per-pixel viewport and routes
-move/click/press/drag/release/cancel samples at points outside each display-domain edge with an empty
-map coordinate. Those samples still clear hover, complete capture, pan/zoom when passed, and reach
-compatibility observers without a source report, clamped coordinate, or callback failure. G4-003 and
-G4-004 extend this evidence to feature- and raster-source bindings.
+800-by-600, 100,000-units-per-pixel viewport and routes moved/clicked pointer samples plus legacy
+pan/wheel navigation at points outside each display-domain edge with an empty map coordinate. Those
+samples retain finite screen coordinates, continue passed screen-space navigation, and reach
+compatibility observers without a source report, clamped coordinate, or callback failure. G3-001
+later applies the same optional conversion contract to its new press/drag/release/cancel tool events;
+G4-003 and G4-004 extend the evidence to feature- and raster-source bindings.
 
 Strict inverse domains cannot be introduced while leaving the current always-present pointer value in
-AWT. Before production implementation, the G4-002 task card must therefore add the affected
-`MapPointerEvent`, G3 tool/context contracts, `MapView` constructors/conversions, AWT tests, and
-`:modules:mundane-map-awt:test` to its Scope/Required tests/Validation. This is a necessary integration
-part of projection hardening, not a feature expansion into G4-003 source rendering.
+AWT. G4-002 therefore owns the affected existing `MapPointerEvent`, `MapView`
+constructors/conversions, AWT tests, and AWT test validation. G3-001 depends on that completed boundary
+and owns its not-yet-created tool/context contracts. This is necessary integration work, not a feature
+expansion into G4-003 source rendering.
 
 Arbitrary WKT, authority-axis negotiation, datum shifts, operation chaining, non-monotonic
 densification, antimeridian splitting, additional projections/units, raster warping, and PROJ remain

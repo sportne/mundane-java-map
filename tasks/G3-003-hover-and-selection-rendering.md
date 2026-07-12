@@ -19,9 +19,10 @@ symbol values.
 
 ## Scope
 
-- Immutable hover/selection event values and listener contracts in `mundane-map-api`.
-- State transitions in `mundane-map-core` where toolkit-neutral.
-- Hover tracking, repaint invalidation, and overlay painting in `mundane-map-awt`.
+- Toolkit-neutral immutable hover/selection events, listeners, and overlay symbol values in
+  `mundane-map-api`.
+- MapView-owned hover/selection transitions, full repaint invalidation, logical source-paint
+  presence, and overlay painting in `mundane-map-awt`.
 - Event-order and offscreen rendering tests plus public Javadocs.
 
 ## Out of scope
@@ -32,8 +33,8 @@ symbol values.
 
 ## Acceptance criteria
 
-- Pointer movement emits enter/leave or old/new hover transitions only when the topmost feature ID
-  changes; repeated movement over the same feature is silent.
+- Pointer movement emits old/new hover transitions only when the complete topmost
+  `(layerId, featureId)` key changes; repeated movement over the same key is silent.
 - Pointer exit, layer replacement, disabled interaction, and view disposal clear hover exactly once.
 - Selection listeners observe programmatic and click-driven old/new state in deterministic order,
   including clear and selected-content removal.
@@ -41,16 +42,20 @@ symbol values.
   contract.
 - Default hover and selection overlays are visually distinct, configurable through immutable
   toolkit-neutral symbols, and painted after source content without modifying source feature state.
-- Overlay bounds account for stroke/symbol expansion so state changes repaint all affected pixels.
-- Hidden, removed, or fully non-painted features cannot leave a stale overlay.
+- Every real interaction-state or overlay-symbol change requests one conservative full-component
+  repaint, including old content after removal; no speculative retained-bounds protocol is added.
+- `PRESENT` source paint permits an overlay; `EMPTY`, `UNKNOWN`, removed content, or content skipped
+  by the source pass suppresses that overlay without erasing the stable identity state implicitly.
 
 ## Required tests
 
-- State-machine tests for enter, unchanged move, transition, exit, removal, and clear sequences.
+- MapView state tests for enter, unchanged move, cross-layer same-feature-ID transition, exit,
+  removal, and clear sequences.
 - Listener add/remove/duplicate/mutation tests and EDT assertions.
 - Offscreen tests showing source pixels remain unchanged outside overlays and hover/selection draw in
   the documented order.
-- Repaint-region tests for large strokes, offsets, and rotated symbols.
+- Repaint-manager tests proving full-component invalidation for large strokes, offsets, rotated
+  symbols, and removed old content.
 
 ## Validation
 
@@ -64,4 +69,3 @@ git diff --check
 
 Store stable layer/feature keys rather than mutable renderer objects. Overlay defaults should remain
 small and deterministic; richer theming belongs to Level 2.
-

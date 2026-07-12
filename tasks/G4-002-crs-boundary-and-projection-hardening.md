@@ -22,7 +22,9 @@ metadata that can preserve an unknown definition without pretending it is transf
 - Immutable CRS metadata and projection-boundary contracts in `mundane-map-api`.
 - Explicit CRS/projection registry, EPSG:4326 identity behavior, hardened Web Mercator, and envelope
   validation in `mundane-map-core`.
-- Focused API/core tests and affected public Javadocs.
+- Existing `MapPointerEvent` optional map coordinates plus `MapView` CRS-aware constructors,
+  accessors, conversions, and legacy navigation integration in `mundane-map-awt`.
+- Focused API/core/AWT tests and affected public Javadocs.
 
 ## Out of scope
 
@@ -47,6 +49,8 @@ metadata that can preserve an unknown definition without pretending it is transf
 - Envelope projection validates axis/domain bounds, degenerate extents, and non-finite intermediate
   results before allocation or rendering.
 - Existing ordinary EPSG:4326/Web Mercator round trips remain accurate within documented tolerances.
+- Existing moved/clicked pointer events preserve finite screen coordinates and expose an empty map
+  coordinate outside the strict inverse domain without suppressing passed screen-space navigation.
 
 ## Required tests
 
@@ -55,11 +59,14 @@ metadata that can preserve an unknown definition without pretending it is transf
 - Projection tests at ordinary points, world edges, poles, invalid longitude/latitude, projected
   limits, degenerate envelopes, and overflow cases.
 - Structured diagnostic tests for missing, mismatched, unknown, and clipped/out-of-domain CRS input.
+- AWT tests for identity and non-identity view construction, optional pointer conversion at every
+  domain edge, and unchanged passed pan/zoom behavior. G3-001 later applies the same optional contract
+  to its not-yet-created tool events and context.
 
 ## Validation
 
 ```bash
-./gradlew :modules:mundane-map-api:test :modules:mundane-map-core:test --console=plain
+./gradlew :modules:mundane-map-api:test :modules:mundane-map-core:test :modules:mundane-map-awt:test --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
 ```
@@ -68,4 +75,3 @@ git diff --check
 
 Keep registry construction explicit and JDK-only. Preserve raw unknown definitions only within the
 approved text limit; retention is not recognition and must not trigger reflection or optional tools.
-

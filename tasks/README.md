@@ -120,10 +120,10 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G3-001 — Tool lifecycle and navigation routing](G3-001-tool-lifecycle-and-navigation-routing.md) | Proposed | AFK | G1-001 | Add deterministic active-tool and pointer routing without breaking navigation. |
+| [G3-001 — Tool lifecycle and navigation routing](G3-001-tool-lifecycle-and-navigation-routing.md) | Proposed | AFK | G4-002 | Add deterministic active-tool and pointer routing without breaking navigation. |
 | [G3-002 — Symbol-aware hit testing and selection](G3-002-symbol-aware-hit-testing-and-selection.md) | Proposed | AFK | G3-001, G2-005 | Select the deterministic topmost feature with pixel-tolerant geometry tests. |
 | [G3-003 — Hover and selection rendering](G3-003-hover-and-selection-rendering.md) | Proposed | AFK | G3-002 | Add stable hover/selection state and non-destructive visual feedback. |
-| [G3-004 — Distance strategies and measurement tool](G3-004-distance-strategies-and-measurement-tool.md) | Proposed | AFK | G3-001, G4-002 | Measure planar or recognized-geographic paths through an interactive tool. |
+| [G3-004 — Distance strategies and measurement tool](G3-004-distance-strategies-and-measurement-tool.md) | Proposed | AFK | G3-003, G4-002 | Measure planar or recognized-geographic paths through an interactive tool. |
 
 ### G4 — Source contracts and CRS boundaries
 
