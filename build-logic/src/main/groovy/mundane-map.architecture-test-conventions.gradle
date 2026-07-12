@@ -1,0 +1,8 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+}
+
+dependencies {
+    testImplementation libs.findLibrary('archunit-junit5').get()
+}
+

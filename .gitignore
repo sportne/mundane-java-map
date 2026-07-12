@@ -1,0 +1,33 @@
+# Gradle and compiled output
+.gradle/
+**/build/
+**/bin/
+out/
+
+# IDE and editor metadata
+.idea/
+.vscode/
+.fleet/
+*.iml
+.classpath
+.project
+.settings/
+*.swp
+*.swo
+*~
+
+# Local work areas and transient output
+scratch/
+*.log
+*.tmp
+
+# JVM diagnostics
+*.jfr
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

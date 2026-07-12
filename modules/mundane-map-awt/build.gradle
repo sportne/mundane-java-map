@@ -1,0 +1,12 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    api project(':modules:mundane-map-core')
+}
+
+description = 'Swing and Java2D map component.'
+

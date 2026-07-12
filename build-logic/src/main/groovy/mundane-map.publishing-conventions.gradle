@@ -1,0 +1,36 @@
+plugins {
+    id 'maven-publish'
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            pom {
+                name.set(providers.provider { project.name })
+                description.set(providers.provider { project.description ?: project.name })
+                url.set('https://github.com/sportne/mundane-java-map')
+                licenses {
+                    license {
+                        name = 'BSD 3-Clause License'
+                        url = 'https://opensource.org/license/bsd-3-clause'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'sportne'
+                    }
+                }
+                scm {
+                    url = 'https://github.com/sportne/mundane-java-map'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'releaseDryRun'
+            url = rootProject.layout.buildDirectory.dir('release-dry-run/maven')
+        }
+    }
+}

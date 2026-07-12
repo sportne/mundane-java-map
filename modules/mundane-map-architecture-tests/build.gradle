@@ -1,0 +1,12 @@
+plugins {
+    id 'mundane-map.architecture-test-conventions'
+}
+
+dependencies {
+    testImplementation project(':modules:mundane-map-api')
+    testImplementation project(':modules:mundane-map-core')
+    testImplementation project(':modules:mundane-map-awt')
+}
+
+description = 'Architecture and dependency-boundary tests.'
+

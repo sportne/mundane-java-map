@@ -1,0 +1,96 @@
+plugins {
+    id 'java-library'
+    id 'jacoco'
+    id 'checkstyle'
+    id 'com.diffplug.spotless'
+    id 'com.github.spotbugs'
+    id 'net.ltgt.errorprone'
+}
+
+def javaRelease = providers.gradleProperty('map.javaRelease').map(Integer::parseInt).getOrElse(21)
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(javaRelease)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+dependencies {
+    testImplementation platform(libs.findLibrary('junit-bom').get())
+    testImplementation libs.findLibrary('junit-jupiter').get()
+    testRuntimeOnly libs.findLibrary('junit-platform-launcher').get()
+    errorprone libs.findLibrary('errorprone-core').get()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = javaRelease
+    options.encoding = 'UTF-8'
+    options.compilerArgs.addAll(['-Xlint:all', '-Werror'])
+    options.errorprone.disableWarningsInGeneratedCode.set(true)
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform {
+        excludeTags 'slow', 'native-image', 'manual'
+    }
+    testLogging {
+        events 'failed'
+        exceptionFormat 'full'
+    }
+}
+
+checkstyle {
+    toolVersion = libs.findVersion('checkstyle').get().requiredVersion
+    configDirectory = rootProject.file('config/checkstyle')
+}
+
+spotless {
+    java {
+        target 'src/**/*.java'
+        googleJavaFormat()
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+    groovyGradle {
+        target '*.gradle', 'src/**/*.gradle'
+        greclipse()
+    }
+}
+
+spotbugs {
+    toolVersion = libs.findVersion('spotbugs').get().requiredVersion
+    excludeFilter = rootProject.file('config/spotbugs/exclude.xml')
+}
+
+jacoco {
+    toolVersion = libs.findVersion('jacoco').get().requiredVersion
+}
+
+tasks.named('test') {
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+tasks.named('jacocoTestReport') {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.60
+            }
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('jacocoTestCoverageVerification')
+}
+

@@ -1,0 +1,7 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+description = 'Public geometry, feature, layer, projection, style, and event contracts.'
+

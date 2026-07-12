@@ -1,0 +1,20 @@
+plugins {
+    id 'org.graalvm.buildtools.native'
+}
+
+graalvmNative {
+    metadataRepository {
+        enabled = false
+    }
+    binaries {
+        main {
+            imageName = project.name
+            fallback = false
+            buildArgs.add('--no-fallback')
+        }
+        test {
+            buildArgs.add('--no-fallback')
+        }
+    }
+}
+

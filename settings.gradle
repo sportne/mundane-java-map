@@ -1,0 +1,41 @@
+pluginManagement {
+    def offlineRepoPath = providers.gradleProperty('map.offlineRepo').orNull
+
+    includeBuild 'build-logic'
+
+    repositories {
+        if (offlineRepoPath != null && !offlineRepoPath.isBlank()) {
+            maven { url = uri(offlineRepoPath) }
+        } else {
+            gradlePluginPortal()
+            mavenCentral()
+        }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+dependencyResolutionManagement {
+    def offlineRepoPath = providers.gradleProperty('map.offlineRepo').orNull
+
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        if (offlineRepoPath != null && !offlineRepoPath.isBlank()) {
+            maven { url = uri(offlineRepoPath) }
+        } else {
+            mavenCentral()
+        }
+    }
+}
+
+rootProject.name = 'mundane-java-map'
+
+include ':modules:mundane-map-api'
+include ':modules:mundane-map-core'
+include ':modules:mundane-map-awt'
+include ':modules:mundane-map-architecture-tests'
+include ':modules:mundane-map-native-tests'
+include ':examples:basic-viewer'
+

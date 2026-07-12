@@ -1,0 +1,17 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+    id 'mundane-map.native-image-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.nativeimage.NativeSmokeMain'
+}
+
+description = 'Offscreen GraalVM Native Image compatibility smoke application.'
+

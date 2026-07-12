@@ -1,0 +1,84 @@
+plugins {
+    id 'base'
+}
+
+group = 'io.github.mundanej'
+version = providers.gradleProperty('map.version').getOrElse('0.1.0-SNAPSHOT')
+
+allprojects {
+    group = rootProject.group
+    version = rootProject.version
+}
+
+def checkedProjects = [
+    ':modules:mundane-map-api',
+    ':modules:mundane-map-core',
+    ':modules:mundane-map-awt',
+    ':modules:mundane-map-architecture-tests',
+    ':modules:mundane-map-native-tests',
+    ':examples:basic-viewer',
+]
+
+def publishedProjects = [
+    ':modules:mundane-map-api',
+    ':modules:mundane-map-core',
+    ':modules:mundane-map-awt',
+]
+
+tasks.register('checkAll') {
+    group = 'verification'
+    description = 'Runs JVM checks across all included projects.'
+    dependsOn checkedProjects.collect { "${it}:check" }
+}
+
+tasks.register('qualityGate') {
+    group = 'verification'
+    description = 'Runs the normal local and CI quality gate.'
+    dependsOn 'checkAll'
+    dependsOn checkedProjects.collect { "${it}:spotlessCheck" }
+    dependsOn checkedProjects.collect { "${it}:javadoc" }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('qualityGate')
+}
+
+tasks.register('nativeSmoke') {
+    group = 'verification'
+    description = 'Builds and executes the offscreen GraalVM Native Image smoke application.'
+    dependsOn ':modules:mundane-map-native-tests:nativeRun'
+}
+
+tasks.register('cleanReleaseDryRun', Delete) {
+    group = 'publishing'
+    delete layout.buildDirectory.dir('release-dry-run')
+}
+
+tasks.register('publicationDryRun') {
+    group = 'publishing'
+    description = 'Stages published modules in a local Maven repository.'
+    dependsOn tasks.named('cleanReleaseDryRun')
+    dependsOn publishedProjects.collect {
+        "${it}:publishAllPublicationsToReleaseDryRunRepository"
+    }
+}
+
+gradle.projectsEvaluated {
+    publishedProjects.each { projectPath ->
+        project(projectPath).tasks.matching {
+            it.name == 'publishAllPublicationsToReleaseDryRunRepository'
+        }.configureEach {
+            mustRunAfter rootProject.tasks.named('cleanReleaseDryRun')
+        }
+    }
+}
+
+tasks.register('printPublishedArtifacts') {
+    group = 'help'
+    description = 'Prints the planned public Maven coordinates.'
+    doLast {
+        println "io.github.mundanej:mundane-map-api:${project.version}"
+        println "io.github.mundanej:mundane-map-core:${project.version}"
+        println "io.github.mundanej:mundane-map-awt:${project.version}"
+    }
+}
