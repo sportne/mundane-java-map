@@ -1543,6 +1543,300 @@ without opening a window, then inspects the public layer contents and proves tha
 line, and polygon geometry reached the configured view. Layer or feature counts alone are not
 sufficient evidence of the documented example slice.
 
+### Tool lifecycle and navigation routing (G3-001)
+
+#### Toolkit-neutral event values
+
+G3 keeps the existing `MapPointerEvent`/`MapPointerListener` pair as the small `MOVED` and `CLICKED`
+compatibility observer. Tools receive the separate, complete `MapToolEvent`; observer code is not
+silently required to handle capture or lifecycle cancellation.
+
+`MapPointerButton` is an immutable non-negative numeric value with named constants `NONE = 0`,
+`PRIMARY = 1`, `MIDDLE = 2`, and `SECONDARY = 3`; larger positive numbers represent auxiliary buttons
+without adding toolkit types or collapsing their identity. `MapInputModifier` is the fixed enum
+`SHIFT`, `CONTROL`, `ALT`, `META`, and `ALT_GRAPH`. `MapToolCancelReason` is
+`TOOL_REPLACED`, `TOOL_CLEARED`, `FOCUS_LOST`, `VIEW_DISABLED`, `VIEW_REMOVED`, or
+`POINTER_EXITED`, or `POINTER_STATE_LOST`.
+
+The immutable event has this canonical shape:
+
+```text
+MapToolEvent(
+    long sequence,
+    Type type,
+    double screenX,
+    double screenY,
+    Coordinate mapCoordinate,
+    MapPointerButton button,
+    Set<MapPointerButton> buttonsDown,
+    Set<MapInputModifier> modifiers,
+    int clickCount,
+    double wheelRotation,
+    boolean popupTrigger,
+    Optional<MapToolCancelReason> cancelReason)
+
+Type = PRESS | DRAG | RELEASE | MOVE | CLICK | WHEEL | CANCEL
+```
+
+`sequence` is positive and strictly increasing within one `MapView`; overflow fails before dispatch
+rather than wrapping. Screen ordinates, the source-map coordinate, and wheel rotation are finite.
+Collections are defensive immutable copies with no nulls, and `MapPointerButton.NONE` is forbidden
+inside `buttonsDown`. Modifiers may be present on every type. All other invariants are total:
+
+| Type | Changed button | Post-event `buttonsDown` | Click count | Wheel | Popup | Cancel reason |
+| --- | --- | --- | ---: | ---: | --- | --- |
+| `PRESS` | non-`NONE` | contains changed button | `>= 0` | `0` | either | empty |
+| `DRAG` | `NONE` | non-empty | `0` | `0` | false | empty |
+| `RELEASE` | non-`NONE` | excludes changed button | `>= 0` | `0` | either | empty |
+| `MOVE` | `NONE` | empty | `0` | `0` | false | empty |
+| `CLICK` | non-`NONE` | excludes changed button | `> 0` | `0` | either | empty |
+| `WHEEL` | `NONE` | any valid set | `0` | any finite value | false | empty |
+| `CANCEL` | `NONE` | any valid set | `0` | `0` | false | present |
+
+`buttonsDown` is the host-reported complete physical snapshot, not merely buttons whose presses this
+view observed. The AWT adapter enumerates the JDK 21-supported button masks 1 through 20 with
+`InputEvent.getMaskForButton` against `getModifiersEx()`; the changed press is then added and changed
+release removed to normalize platform transition differences. Thus a secondary/auxiliary button held
+before pointer entry still prevents sole-button capture, while no `MouseInfo`, global listener, or
+timing guess is used. Another toolkit using the public router must provide the same complete-snapshot
+semantics.
+
+AWT maps the five keyboard modifiers explicitly and copies precise wheel rotation, click count, and
+popup-trigger. A `MOUSE_DRAGGED` event with no physical button, or `MOUSE_MOVED` with a physical button,
+is not used to construct an invalid event; it causes `POINTER_STATE_LOST` cancellation and is
+suppressed. A cancellation uses the current raw sample when available, otherwise the last successfully
+converted sample; before any real sample, it uses the component center converted through the current
+viewport and projection. Effective dimensions are always at least one, so cancellation never needs
+nullable or non-finite coordinates.
+
+#### Tool, result, cursor, and context contracts
+
+The API surface is deliberately four small types:
+
+```text
+MapTool
+  default onActivate(MapToolContext context)
+  MapToolResult onMapToolEvent(MapToolEvent event, MapToolContext context)
+  default onDeactivate(MapToolContext context)
+  default cursorIntent() -> MapCursorIntent.DEFAULT
+
+MapToolResult = PASS | CONSUME | CAPTURE
+MapCursorIntent = DEFAULT | CROSSHAIR | HAND | MOVE
+
+MapToolContext
+  layers() -> immutable ordered List<Layer>
+  mapToScreen(Coordinate sourceMap) -> Coordinate
+  screenToMap(double screenX, double screenY) -> Coordinate
+  requestRepaint()
+```
+
+`CAPTURE` is valid only from a `PRESS` when no capture exists and `buttonsDown` contains exactly the
+changed non-`NONE` button; it implies consumption. A second/nested capture or capture during a chorded
+press is a programmer-state error. `PASS` permits remaining MapView behavior and `CONSUME` suppresses
+it. While capture exists, all press/drag/release/click events are still delivered to the same active
+tool but suppress defaults; a nonmatching release does not end capture, and the matching release ends
+it after the callback. Before another non-cancel event is routed, omission of the captured button from
+reconciled `buttonsDown` is state loss except for its own changed `RELEASE`; the router produces one
+`POINTER_STATE_LOST` cancel and suppresses that raw event. Wheel input remains independent during
+capture only while its button remains down and zooms only when the tool returns `PASS`. A `CANCEL`
+result is ignored except that `CAPTURE` remains illegal. Null results or cursor intents and capture at
+another event type use the callback-failure path below.
+
+The router reads `cursorIntent()` after successful activation and after a successful non-cancel event
+only when the same session remains installed and the host is available. It never reads the old tool's
+intent after cancellation or a pending lifecycle operation; `resume()` performs its separately defined
+lookup. A tool may therefore change its EDT-confined cursor state during an ordinary callback without a
+cursor mutation method. The accessor must otherwise be side-effect-free and deterministic for the
+tool's current state.
+
+Context values are callback-scoped snapshots. The layer list, projection, and viewport used by its
+coordinate conversions are the same pre-navigation snapshots used to build the event. A repaint
+request delegates to the host's ordinary coalescing repaint and does not paint synchronously. The
+context exposes no `MapView`, AWT value, layer mutation, viewport mutation, registry, cursor setter, or
+overlay renderer, and must not be retained after a callback. Selection and measurement overlays add
+their own bounded contracts in G3-003/G3-004 rather than speculating here.
+
+Tools may keep their own EDT-confined interaction state. They must make `onDeactivate` safe after a
+partially failed activation and release any tool-owned state idempotently. Toolkit cursors are not
+public: AWT maps the four intents only to predefined default, crosshair, hand, and move cursors.
+
+#### One toolkit-neutral router
+
+`MapToolRouter` in `mundane-map-core` is the single call-thread-confined state machine used by
+`MapView` and available to another toolkit without Swing dependencies. It owns the active tool by
+identity, activation session, captured button/press sequence, last physical button snapshot, quarantined
+buttons, release candidate, one-following-click suppression, cancellation arming, and pending
+lifecycle operation. Its minimal
+surface is:
+
+```text
+activeTool() -> Optional<MapTool>
+captured() -> boolean
+currentCursorIntent() -> MapCursorIntent
+setActiveTool(MapTool, MapToolEvent replacementCancel, MapToolContext) -> RouteOutcome
+clearActiveTool(MapToolEvent clearCancel, MapToolContext) -> RouteOutcome
+route(MapToolEvent, MapToolContext) -> RouteOutcome
+cancelInteraction(MapToolEvent externalCancel, MapToolContext) -> RouteOutcome
+resume() -> RouteOutcome
+
+RouteOutcome(boolean suppressDefault, boolean captured, MapCursorIntent cursorIntent)
+```
+
+Lifecycle arguments named `*Cancel` must be `CANCEL` events with the corresponding reason; an event is
+ignored only for first activation or a same-instance no-op. `cancelInteraction` accepts only an
+external cancel reason and coalesces as described below. Every accepted event sequence must exceed the
+router's prior sequence; an out-of-order or reused sequence fails before callbacks and leaves state
+unchanged. `MapView` does not expose the router.
+
+Ignoring the cancellation callback on first activation does not mean inheriting an existing gesture.
+MapView clears its pending navigation anchor whenever the active-tool identity changes, including the
+first installation. If any physical button is down then, the router quarantines those buttons and
+isolates their release/click before calling the new tool's activation. No synthetic cancel is delivered
+because no prior tool exists. A first activation with no button down has no quarantine side effect.
+
+Setting the same tool instance again is a no-op. A distinct instance—even if `equals`—replaces the old
+tool in exact order: `CANCEL(TOOL_REPLACED)`, `onDeactivate`, then new `onActivate`. Clearing uses
+`CANCEL(TOOL_CLEARED)` then `onDeactivate`. The old session and capture are cleared before the new
+activation can affect routing. A new activation that fails is best-effort deactivated, left inactive,
+and its original failure is rethrown with cleanup failure suppressed. If old cancellation or
+deactivation fails, cleanup still runs, the old tool is left inactive, the new tool is not activated,
+and the first failure is rethrown with later cleanup failures suppressed.
+
+A tool may request one replacement or clear operation from inside its pointer callback; a reentrant
+host focus/enable/removal transition similarly queues one external cancel. The router waits for the
+callback to unwind and validates its non-null/legal result. On success it discards that result, applies
+the pending lifecycle operation before any old cursor lookup or default handling, and suppresses the
+triggering event. Repeated external cancels coalesce; a second explicit replacement/clear request and
+replacement from activation/cancellation/deactivation callbacks are programmer-state errors. Recursive
+pointer dispatch is likewise rejected. These rules avoid a stale callback installing capture or a
+cursor after its tool has been replaced.
+
+Pointer dispatch order inside the router is callback, result validation, pending-operation handling,
+then cursor lookup only when the same session remains. If the callback throws or its result is null or
+illegal, an explicit pending replacement/clear is discarded and that callback failure wins. A pending
+host cancellation still performs its non-callback state cleanup because the view really became
+unavailable, but it does not recursively invoke the tool that just failed. If a valid callback has a
+pending operation, the operation runs and the old cursor is never queried.
+
+Throwing or null `cursorIntent()` during activation is an activation failure and follows the existing
+best-effort-deactivate rule. During ordinary routing it is a dispatch failure with the same quarantine
+and pending-click behavior as a failed pointer callback; the active tool remains installed. During
+`resume()`, it leaves the installed tool active but the effective cursor at default, rearms external
+cancellation, and propagates. External-cancel state is cleared and quarantined before its tool callback;
+if that callback fails, the cancel remains coalesced, the active tool remains installed, the cursor is
+default, and the original failure propagates. Replacement/clear still attempts deactivation after a
+cancel failure, retaining the first failure and suppressing later cleanup failures.
+
+The router observes every supported raw event even with no active tool. Cancellation, activation,
+replacement, or callback failure moves every physical down button crossing the session boundary to
+quarantine. A release for a quarantined button is swallowed, removes it from quarantine, and arms one
+pending-click token; the corresponding click is swallowed once.
+
+Every ordinary release also leaves a non-suppressing `ReleaseCandidate(button, sequence)` until the
+next non-cancel AWT-derived event. A lifecycle boundary or dispatch failure before that event promotes
+the candidate to the pending-click token—even when it happens after `mouseReleased` returned—covering
+focus/disable/removal and another component-local listener replacing the tool in the release/click gap.
+Session termination or failure during the release promotes it immediately. Without a boundary, the
+normal matching click clears the candidate and is routed normally; any other raw event expires it. A
+promoted token is consumed by its matching immediate click and otherwise expires at the next raw event,
+so it cannot suppress an unrelated later gesture.
+
+Before routing a later event, named/observed button masks reconcile quarantine with physical state. A
+quarantined button absent from `buttonsDown` on a move, wheel, or unrelated fresh press is known to
+have been released outside the component and is removed with any obsolete click token. A fresh press
+of the same quarantined button likewise clears its old quarantine/token before becoming a new gesture.
+A click naming a still-quarantined or token-bearing button is swallowed and clears both. Thus missing
+an off-component release cannot quarantine a button permanently or consume the first click of a later
+fresh gesture.
+
+Because Swing drag events name no changed button, any `DRAG` whose reconciled set still intersects
+quarantine is suppressed as a whole. Other presses/releases are delivered to the tool for observation,
+but capture is legal only for a sole down button and built-in navigation never starts or continues
+while multiple buttons are down. A live multi-button drag can reach the tool once quarantine is empty,
+but never pans; adding a second button clears any pending navigation anchor. These conservative chorded-
+button rules prevent capture and navigation from being armed simultaneously without pretending that a
+Swing drag can be attributed to one of several held buttons.
+
+Focus loss, disable, removal, or an uncaptured pointer exit delivers one cancel to an installed tool,
+clears capture and router/navigation gesture state, quarantines reconciled physical buttons, resets the
+cursor, and leaves the tool installed. Pointer exit does not cancel a captured drag. Repeated external
+cancellation signals coalesce until `resume()` or the next accepted pointer event; this prevents focus
+loss followed by removal from double-canceling one interaction. `POINTER_STATE_LOST` follows the same
+path for an inconsistent captured or dragged sequence. Replacement and clear always deliver their
+lifecycle cancel even after external cancellation because they also end the activation session.
+
+#### AWT routing and navigation order
+
+`MapView` adds explicit `setActiveTool(MapTool)`, `clearActiveTool()`, and `activeTool()` methods,
+using identity and non-null arguments. Construction calls `setFocusable(true)` and installs only
+component-local mouse, mouse-motion, wheel, focus, enabled-property, and add/remove-notify hooks—never
+a global AWT listener. An enabled property transition to false cancels immediately; transition to true
+may resume only after the component is displayable. `removeNotify` cancels before delegating to Swing,
+and `addNotify` resumes after delegation when enabled. Mouse enter resumes after pointer-exit cancel;
+focus gain resumes after focus-loss cancel. Resume applies a tool cursor only while enabled and
+displayable; otherwise the default remains. Swing's normal EDT rule applies to these mutations. Every
+callback and resulting viewport/repaint/cursor mutation is synchronous on the EDT.
+
+On an enabled/displayable button press, MapView calls `requestFocusInWindow()` before it snapshots the
+viewport, constructs the tool event, or invokes the tool. The press is routed even if the asynchronous
+focus request returns false; any later focus transition follows the explicit cancel/resume rules. This
+ordering gives later keyboard-enabled tools a deterministic opportunity to acquire focus without
+making focus a prerequisite for mouse interaction.
+
+For each accepted AWT event, MapView snapshots layers and viewport, converts the toolkit-neutral event,
+routes it to the tool, then performs remaining behavior only when `suppressDefault` is false. A primary
+press begins the existing navigation gesture only when primary is the sole down button. Each sole-
+primary drag applies the delta from the prior raw drag sample, and release ends it. A consumed drag
+still advances that sample so a later passed drag does not jump. Adding another button clears the
+navigation anchor, and a multi-button drag never pans. A captured press never begins navigation, and
+every button-bearing event during capture suppresses navigation. A passed wheel uses the event's
+screen anchor and precise rotation in the existing zoom formula. Tool event coordinates therefore
+always describe the viewport before that event's pan or zoom.
+
+Passed `MOVE` and `CLICK` events are then adapted to the existing observer event and delivered to a
+listener snapshot in registration order. Consumed or quarantined events do not reach compatibility
+listeners. MapView neither synthesizes clicks nor changes the platform click count after a captured
+release; an active tool can consume the later real click if it needs exclusivity. With no active tool,
+no quarantine or promoted click token, and no canceled navigation gesture awaiting cleanup, the router
+is clean-idle and passes, preserving G1 pan, wheel, moved, and clicked behavior. Isolation state still
+suppresses its stale drag/release/click even after the prior tool has been cleared.
+
+After a successful tool callback, MapView applies the returned cursor intent. Cancellation,
+deactivation, unavailable component state, or callback failure applies `Cursor.getDefaultCursor()`.
+A pointer/cursor exception, null result/intent, or invalid result clears capture and navigation state,
+quarantines every currently down button, arms the changed button's immediate-click token when failure
+occurred on release, suppresses defaults, resets the cursor, and propagates without recursively calling
+the failed tool. Explicit pending replacement/clear is discarded; a pending host cancellation still
+marks the component unavailable without another callback. The active tool remains installed for an
+explicit later cancellation or replacement. A captured release clears capture in `finally`, even when
+the callback fails. Every raw release also clears the matching navigation gesture after routing, even
+when consumed, so a tool cannot leave panning armed accidentally.
+
+#### Verification boundary
+
+API tests cover every event-type invariant, finite values, defensive button/modifier sets, arbitrary
+auxiliary button identity, cancellation samples, and the three result/four cursor values. Core tests
+use recording tools to prove identity replacement order, partial-activation cleanup, exception
+suppression, capture legality, captured release, independent wheel consumption, queued replacement,
+external-cancel coalescing/resume, and stale-response rejection. They cover second-button capture
+rejection, nonmatching release during capture, multi-button no-pan outcomes, off-component release mask
+reconciliation, fresh-press recovery, ambiguous quarantined drags, and following-click suppression for
+captured and uncaptured release-triggered replacement, clear, and failure. They also cover first-tool
+activation during a no-tool primary pan and lifecycle promotion of a release candidate after its
+handler returns but before click delivery. Failure matrices exercise pointer result, cursor lookup
+during activation/ordinary event/resume but never cancel, external cancel, and a queued operation
+followed by callback failure, including primary/suppressed exception order.
+
+Swing tests dispatch real press/drag/release/move/click/wheel events on the EDT and assert exact
+tool/default/compatibility-listener order and pre-navigation coordinates. They cover cumulative pan,
+consumed-drag anchor advancement, cursor-centered precise wheel zoom, each cursor mapping, focus loss,
+focus-request-before-press-callback, enabled-property disable/re-enable, add/remove notify, pointer exit
+with and without capture, first activation during an ordinary pan, replacement during and immediately
+after a release callback, release outside/re-entry, unobserved held secondary/auxiliary buttons,
+mixed-button drags, and stale release/click isolation. A no-tool fixture repeats G1 navigation and
+observer behavior. Hit testing, selection, hover state, measurement, editing, touch/multitouch, custom
+cursor images, global event interception, and background callback execution remain out of scope.
+
 ## Native Image
 
 Native-targeted code avoids reflection, runtime scanning, dynamic proxies, Java serialization,
@@ -1599,6 +1893,7 @@ out of this gate.
 | 2026-07-12 | Register AWT symbol renderers by explicit role/key in an instance-owned immutable registry. | Consumers can extend rendering without reflection, discovery, toolkit leakage, or global mutable state. |
 | 2026-07-12 | Verify rendering through invariant-based headless scenarios in a separate lane. | Tolerant bounds, regions, and ordering catch material regressions without promising cross-platform pixel identity or burdening the normal gate. |
 | 2026-07-12 | Prove native symbol resources with one exact test-owned raw RGBA file and Java 21 resource metadata. | A fixed literal lookup and exact inclusion rule exercise the native boundary without inventing a production loader, decoder, or discovery mechanism. |
+| 2026-07-12 | Route toolkit-neutral tool events through one session-aware core state machine before AWT defaults. | Explicit capture, cancellation, quarantine, and cursor ownership preserve navigation while preventing stale gestures from crossing tool lifetimes. |
 
 ## Task design traceability
 
@@ -1618,3 +1913,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-005 | Bounded raster icons, immutable named catalogs, explicit AWT registry, and custom rendering | Approved |
 | G2-006 | Runnable symbol gallery, named visual checkpoint, portable render scenarios, and separate lane | Approved |
 | G2-007 | Exact icon resource metadata, shared native symbol smoke, stable probes, and G2 closeout | Approved |
+| G3-001 | Toolkit-neutral tool events/context, session router, capture/quarantine, and AWT navigation order | Approved |
