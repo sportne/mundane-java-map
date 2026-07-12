@@ -16,6 +16,21 @@
   initial slice.
 - Custom native libraries for performance without benchmark evidence.
 
+## Design principles
+
+- Prefer the smallest explicit model that supports the next observable vertical slice.
+- Introduce an abstraction only for a demonstrated second consumer or a boundary that must remain
+  independent, such as toolkit-neutral public contracts versus Java2D rendering.
+- Give the common embedding path deterministic defaults and few moving parts; keep limits,
+  registries, lifecycle, and advanced policy explicit rather than ambient.
+- Assign every value, resource, cache, and registry one clear owner. Immutability is the default at
+  public boundaries; mutable state remains local and lifecycle-bound.
+- Reuse cross-cutting diagnostics, limits, and cancellation semantics instead of inventing a
+  framework inside each format adapter.
+- Delete or defer an abstraction when its owner, enforcement, or developer benefit cannot be stated
+  plainly. The design should remain as simple as possible, but no simpler than its correctness and
+  safety boundaries require.
+
 ## Dependency policy
 
 Level 1 production modules use only the JDK and other `mundane-map` modules. Build and test tooling
@@ -106,20 +121,102 @@ implemented and their artifact metadata is meaningful.
 ## Module boundaries
 
 ```text
-mundane-map-api
-      ^
-      |
-mundane-map-core
-      ^
-      |
-mundane-map-awt
+mundane-map-core -> mundane-map-api
+mundane-map-awt -> mundane-map-api, mundane-map-core
+mundane-map-io-* -> mundane-map-api [, selected mundane-map-core algorithms]
 ```
 
 - `api` depends on `java.base` only.
 - `core` depends on `api` and `java.base` only.
-- `awt` owns `java.desktop`, Swing, Java2D, pointer wiring, and render caches.
-- I/O modules may depend on `api` and `core`, but never on `awt`.
+- `awt` may depend on `api` and `core`; among production library modules, it alone owns
+  `java.desktop`, Swing, Java2D, pointer wiring, and toolkit render caches. Support projects and
+  consumer examples may use those APIs to exercise the AWT module, but cannot move them into another
+  production boundary.
+- An I/O module is named `mundane-map-io-*` and may depend on `api` and only the specific `core`
+  algorithms it needs. It never depends on `awt` and never exposes toolkit types.
+- An optional Level 2 external integration lives in a separately named adapter module. External
+  dependencies and their types remain inside that adapter and do not enter `mundane-map-api`.
 - Test, native, architecture, and example modules are not published.
+
+The build has one authoritative project inventory with an entry for every included subproject. The
+category describes the architectural dependency boundary, while separate properties record release
+level, publication eligibility, and Native Image policy:
+
+- **JDK-only runtime**: `api`, `core`, `awt`, and each `mundane-map-io-*` module after it provides
+  working behavior and tests. An entry declares Level 1 or Level 2 independently of this category, so
+  a dependency-free Level 2 format such as DTED remains a JDK-only runtime module without joining the
+  Level 1 release. Every Level 1 entry is native-targeted with no per-module opt-out. A Level 2 entry
+  explicitly says whether Native Image is targeted; its native-verification task can change that
+  property without changing the module's category or release level.
+- **Optional adapter**: a Level 2 integration that isolates an external dependency. Its publication
+  and Native Image policies are explicit, and it cannot become part of the Level 1 runtime graph.
+- **Support**: architecture tests, native smoke, performance evidence, examples, and consumer
+  fixtures. Support projects are checked but never published or treated as production dependencies.
+
+The checked-project, published-project, Level 1 release, runtime-dependency, architecture-test, and
+native-target inputs are derived from that inventory rather than maintained as independent lists.
+Settings and the inventory must contain the same included subprojects; configuration fails when a
+project is absent, duplicated, or uncategorized. A production module is registered only with working
+behavior and tests, so this rule does not justify creating empty future modules.
+
+### Executable architecture rules
+
+The normal quality gate enforces boundaries at complementary levels:
+
+1. Resolved production runtime configurations from the project inventory must contain only JDK
+   facilities and explicitly allowed `mundane-map` project artifacts for Level 1. Test and build-tool
+   configurations are not mistaken for runtime dependencies.
+2. Class-file rules enforce package direction, AWT confinement, public-signature purity, and native
+   targeting. Public API types cannot mention core, AWT, format, or external-adapter types.
+3. Direct mechanism checks inspect class access flags and symbolic member references. They reject
+   `ACC_NATIVE` methods and calls to prohibited loading, discovery, serialization, reflection, or
+   native-library APIs. Compiler-emitted `invokedynamic` bootstrap entries are not direct use of
+   `java.lang.invoke` and do not fail the rule; explicit references to `MethodHandle`, `MethodHandles`,
+   or `CallSite` do. `VarHandle` is outside the dynamic-invocation match but is disallowed by default
+   until a task records a concrete concurrency or performance need and adds an exact rule decision.
+4. Resource-tree inspection rejects service-provider descriptors and other declared discovery
+   metadata. It does not reject an explicitly named application resource merely because it is in a
+   JAR.
+5. Positive fixtures demonstrate allowed dependencies. Negative fixtures live in a dedicated
+   architecture-fixture source set whose output is never added to a production, publication, or
+   native runtime. Each rule imports one deliberately violating fixture; forbidden dependency cases
+   use a detached fixture-only configuration, so testing the rule cannot change a published module's
+   dependency graph. A failure names the rule, module, class or dependency, and offending symbol.
+
+Native-targeted Level 1 production code must not directly use:
+
+- reflection APIs, explicit method-handle/call-site APIs, dynamic proxies, or dynamic class loading;
+- `ServiceLoader`, service-provider descriptors, annotation/classpath scanning, or mutable global
+  plugin registries;
+- Java serialization streams or application persistence based on `Serializable`;
+- JNI declarations, `System.load*`, `Runtime.load*`, `Unsafe`, `sun.*`, or `jdk.internal.*` APIs;
+- resource enumeration or implicit discovery. Loading one explicitly named, registered resource is
+  allowed and remains subject to Native Image resource declaration.
+
+Explicit registration means the application or a documented default constructor supplies concrete
+renderers, decoders, projections, or adapters by stable key. A registry is instance-owned and passed
+to the component that uses it; it has no static registration entry point or mutable static holder.
+The architecture test maintains an explicit list of registry contract types and rejects static fields
+of those types plus static mutation methods on them. Registration contract tests cover ownership and
+duplicate-key behavior. These mechanical checks do not claim to infer every indirect global-state
+pattern, which remains part of design and code review. An immutable built-in catalog constant is not
+a mutable registry. Registration never depends on what happens to be present on the classpath.
+
+The Level 1 dependency direction, JDK-only runtime, API purity, AWT/I/O confinement, external-type
+isolation, and prohibited native-targeted mechanisms are non-waivable. Matcher suppressions are
+allowed only for an exact tool false positive that does not authorize direct use of the prohibited
+mechanism. A suppression records the task, module, generated or inherited symbol, reason, and
+narrowest scope, and adds a neighboring negative fixture proving that real direct use still fails.
+Broad package suppressions and silent test exclusions are not permitted. For example, inherited JDK
+behavior such as Swing's serialization ancestry may be excluded from an ancestry matcher, but
+application serialization calls remain prohibited.
+
+### G0 design closeout
+
+The build baseline and architecture enforcement share the single project inventory described above;
+they do not introduce a runtime framework or duplicate module lists. G0 therefore leaves the runtime
+model unchanged while turning its existing boundaries into deterministic build evidence. Future
+gates extend the inventory only when a vertical slice delivers working behavior and tests.
 
 ## Geometry and features
 
@@ -162,6 +259,7 @@ native smoke path; metadata workarounds require a recorded design decision.
 | 2026-07-11 | Keep Native Image outside the default gate. | Native tooling is optional for normal development. |
 | 2026-07-12 | Keep Java 21 bytecode fixed across CI launcher JDKs. | A newer build JDK should test compatibility, not silently raise the consumer baseline. |
 | 2026-07-12 | Make an explicit offline repository the sole resolution source. | Offline evidence must not succeed through hidden public or machine-local fallback. |
+| 2026-07-12 | Enforce Level 1 architecture with explicit allowlists in the normal gate. | Fast dependency, bytecode, and narrow source/resource checks prevent boundaries from becoming advisory. |
 
 ## Task design traceability
 
@@ -172,3 +270,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | Task | Design coverage | Status |
 | --- | --- | --- |
 | G0-001 | Java baseline, repository resolution, normal verification, and publication staging | Approved |
+| G0-002 | Module graph, architecture enforcement, prohibited mechanisms, and exception policy | Approved |
