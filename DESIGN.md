@@ -2078,6 +2078,196 @@ install leaves prior view and selection state intact. Direct iteration is delibe
 indexing, multi-selection, visual overlays, hover, label hits, editing, and source-version persistence
 remain out of scope.
 
+### Hover and selection rendering (G3-003)
+
+#### Immutable change and overlay values
+
+Hover is the current topmost hit, so G3-003 reuses `MapHit` instead of adding a third layer/feature-key
+type. The API module adds these immutable values and functional listeners:
+
+```text
+MapHoverEvent(Optional<MapHit> previous, Optional<MapHit> current)
+MapSelectionEvent(Optional<FeatureSelection> previous,
+                  Optional<FeatureSelection> current)
+
+MapHoverListener.onMapHoverChanged(MapHoverEvent event)
+MapSelectionListener.onMapSelectionChanged(MapSelectionEvent event)
+
+FeatureOverlaySymbols(MarkerSymbol marker, LineSymbol line, FillSymbol fill)
+```
+
+Event optionals are non-null and unequal; at least one side is therefore present. They retain no
+feature, layer, view, renderer, or AWT object. Identity comparison uses the complete exact
+`(layerId, featureId)` pair, so equal feature IDs in different layers still cause a hover transition.
+`FeatureOverlaySymbols` requires the three exact roles, retains only immutable symbol values, has
+value equality, and supplies source-listed `defaultHover()` and `defaultSelection()` factories. It is
+one role bundle rather than a general interaction-theme hierarchy.
+
+`MapView` exposes `hover()`, the existing `selection()`, ordered add/remove methods for both listener
+types, and get/set methods for the hover and selection overlay bundles. Hover has no programmatic
+setter because it represents a pointer-derived hit. Overlay configuration does not alter source
+features and is independent of the selected and hovered keys.
+
+The two defaults remain recognizable when color cannot be distinguished. Hover is a centered
+18-logical-pixel diamond ring and 7-pixel line/polygon outline in translucent amber
+`rgba(255,170,0,176)`. Selection is a centered 14-pixel circle ring and 3-pixel line/polygon outline in
+opaque blue `rgba(0,102,204,255)`. Marker strokes are 4 and 2 pixels respectively; polygon interiors
+are transparent, line endpoints are absent, all measurements use `SCREEN_PIXEL`, and rotations are
+screen-relative. Painting the wider hover treatment first lets it remain visible around the narrower
+selection treatment when both keys match.
+
+#### EDT-confined state and notifications
+
+`MapView` owns `Optional<MapHit> hover` and the existing `Optional<FeatureSelection> selection`; it
+never retains the feature object that produced either. No public core state machine is added. Equality
+transition logic is trivial, while validation against `ViewContentSnapshot`, repaint invalidation,
+listener ordering, and lifecycle are all host/EDT concerns; moving those into core would split one
+atomic Swing transaction across modules without enabling another toolkit.
+
+A private AWT transition operation accepts proposed optionals, compares them with stored state, and
+commits every real change before repaint or callback. It requests one full-component repaint for the
+whole transaction, then enqueues selection notification before hover notification, and finally drains
+a single FIFO. Pointer compatibility listeners run only after a successful drain; an aggregated
+interaction-listener failure propagates first and suppresses that event's later compatibility
+callback. Programmatic setters and clearers complete the same synchronous sequence before returning.
+
+The FIFO prevents a listener-triggered state change from recursively reordering events. Each queued
+event snapshots its relevant listener list at delivery time and visits registrations in order.
+Duplicate listener instances receive duplicate callbacks; removal removes the first identical (`==`)
+registration, and an equal but distinct or absent instance is a no-op. Mutation during a callback
+affects only later queued events. Reentrant state changes take effect immediately and enqueue after the
+current event, so the immutable event—not a later state read—is the authoritative old/new pair.
+
+Runtime exceptions do not roll back committed state or its repaint. Delivery continues to the
+remaining registrations and queued events; the first failure is rethrown after the FIFO drains and
+later distinct failure instances are attached as suppressed in encounter order without attempting
+self-suppression. An `Error` aborts delivery, clears the remaining notification queue, and propagates
+after the guard resets. The queue guard always resets in `finally`. There is no synchronization or
+thread marshalling: mutation and callback use the normal `MapView` EDT contract.
+
+#### Hover lifecycle and operation order
+
+After the G3-001 router passes a button-free `MOVE`, MapView reuses that event's one content, viewport,
+projection, and registry snapshot and performs the G3-002 traversal with public
+`DEFAULT_HOVER_TOLERANCE_PIXELS = 4.0`. Its topmost hit or empty result becomes the proposed hover
+before the compatibility move listener runs. While hover is non-empty, MapView retains only the latest
+finite screen coordinates of such a move as a private `HoverProbe`; it does not retain the hit feature,
+geometry, or symbol. Movement over the same full key updates that probe but is otherwise silent—no
+event and no repaint—even if a different symbol child proved the hit.
+
+Hover is cleared once when the pointer stream can no longer justify it: any button press/drag gesture,
+a consumed or quarantined move or button-bearing event, pointer exit (including during capture), a
+successful pan, zoom, fit, viewport replacement, component resize, transition to disabled,
+`removeNotify`, or `setLayers`. A failed `setLayers` transaction leaves hover unchanged; a successful
+replacement clears it even when the same IDs occur in the candidate snapshot. Re-enable, re-add,
+pointer enter, or tool resume does not synthesize hover—only the next passed button-free move may
+restore it. Focus loss alone does not clear hover while the pointer remains in the component.
+
+Every later content reconciliation that still has a hover probe reruns the G3-002 topmost query at
+those coordinates through the internal snapshot-bound traversal, not the public reconciling method.
+The resulting full key replaces, preserves, or clears hover before overlay painting. This catches
+mutable same-ID geometry/symbol replacement and feature reordering without storing source objects.
+Clearing hover also clears the probe; `setLayers` and viewport/lifecycle invalidation therefore never
+synthesize a new hover without another move.
+
+Selection retains G3-002 ID continuity: same-ID object replacement or reorder preserves it, while
+missing content clears it. Programmatic set, direct clear, click selection, and removal reconciliation
+all route through the transition/notification path. A content operation commits selection and hover
+changes together, requests repaint once, then delivers selection followed by hover. Router or
+lifecycle failures clear hover in host `finally` handling even if their original failure is later
+propagated. That original tool/router/lifecycle failure remains primary; a hover-notification failure
+is attached as suppressed.
+
+Paint, hit, state reads, clicks, and `setLayers` continue to use the one per-operation
+`ViewContentSnapshot` defined in G3-002. When reconciliation first discovers mutable-layer removal
+during painting, it commits state before renderer traversal but defers public listener delivery until
+the child graphics has been disposed. The paint pass uses the captured content and interaction state;
+callback mutations schedule a later pass rather than altering traversal in progress.
+
+#### Renderer-reported logical paint presence
+
+Overlay eligibility needs to distinguish a transparent source from one that actually paints, but it
+does not need a second bounds traversal. G3-003 extends the existing `SymbolRenderResult` with
+toolkit-local enum `AwtLogicalPaintPresence = EMPTY | PRESENT | UNKNOWN`. Existing no-presence
+factories remain source-compatible and produce `UNKNOWN`; overloads require an explicit presence.
+Composite `union` returns `PRESENT` if any child is present, otherwise `UNKNOWN` if any child is
+unknown, otherwise `EMPTY`.
+
+Every built-in reports exact logical presence as part of the render work it already performs. Positive
+modeled fill/stroke/hatch/endpoint paint is `PRESENT`; zero effective opacity, an all-coincident line,
+no generated hatch segment or outline, and a raster icon with no positive-alpha sample are `EMPTY`.
+Composites combine child presence. Legacy geometry follows the same symbol rules and excludes the G1
+convenience label. This is pre-device logical paint presence under G3-002's alpha contract, not a claim
+that a destination pixel changed.
+
+A custom renderer's source-compatible `UNKNOWN` keeps rendering behavior intact but does not prove
+overlay eligibility. It may opt in by returning `PRESENT` or `EMPTY`; a dishonest result is an
+extension-contract violation just like an incorrect hit result. Programmatic selection and hover state
+remain valid identity state regardless of presence. `EMPTY`, `UNKNOWN`, removed content, or content
+skipped by the source pass suppresses only its overlay; `PRESENT` permits it. No registry, render, or
+presence failure rolls state back.
+
+#### Full invalidation and overlay pass
+
+Every real hover, selection, or overlay-bundle change calls ordinary full-component `repaint()` before
+listener delivery. Layer, viewport, resize, enablement, and lifecycle operations already do the same.
+This one conservative region necessarily includes arbitrarily wide strokes, endpoint markers, map-unit
+sizes, offsets, rotations, hatches, antialiasing fringes, and both the old and new location after
+removal. It introduces no public bounds protocol, no duplicate renderer traversal, and no retained
+geometry/render cache before G7 profiling demonstrates that narrow dirty regions matter.
+
+A mutable `Layer` has no change-listener contract in Level 1; its owner must request a full MapView
+repaint after publishing a new immutable feature snapshot. If reconciliation discovers removal or a
+changed hover during a narrower externally initiated paint, the committed state transition schedules
+the required full follow-up repaint. MapView retains only the two current source-presence states so a
+same-key transition between eligible and ineligible overlay paint also schedules one full follow-up;
+it retains no prior feature, geometry, symbol, or screen bounds.
+
+Paint traverses all source content first and retains render presence only for the captured hover and
+selection keys. It then renders a `PRESENT` hover feature's role-matched overlay symbol through the same
+`SymbolRendererRegistry`, followed by eligible selection. Overlay dispatch passes the original
+immutable geometry and feature ID, disables the G1 convenience label, and never constructs a synthetic
+feature, edits the source symbol, changes hit results, or recursively adds another overlay. Overlay
+renderer lookup or rendering failure propagates after source painting and leaves committed interaction
+state intact. Paint `finally` disposes the graphics child and drains any deferred state events; an
+earlier render failure remains primary and a notification failure is attached as suppressed.
+
+The same placement, map-unit conversion, rotations, composites, endpoint rules, hatches, holes,
+opacity, diagnostics, and explicit renderer registration therefore apply unchanged. Overlays never
+participate in hit testing. The default bundles work with `SymbolRendererRegistry.builtIn()`; a custom
+registry must explicitly register every configured overlay renderer, with the existing stable missing
+or value-mismatch diagnostic rather than a hidden built-in fallback.
+
+#### Verification boundary
+
+API tests cover unequal old/new optionals, exact full-key identity, immutable event values, listener
+functional contracts, overlay role validation/equality, and the exact defaults. AWT state tests cover
+enter, unchanged move, cross-layer same-feature-ID transition, empty move, consumed/quarantined move,
+button gesture, pan/zoom/resize, captured exit, failed/successful layer replacement, disable/re-enable,
+remove/re-add, mutable-layer disappearance, same-ID geometry/symbol replacement, topmost reorder, and
+repeated-clear silence.
+
+Selection tests cover programmatic and click changes, same-value silence, direct clear, same-ID
+replacement, removal discovered by reads and paint, selection-before-hover batch order, and
+selection-before-compatibility-click observation. Listener tests cover identity duplicates, mutation,
+FIFO reentrancy, failure aggregation, callback-triggered state changes, compatibility-callback
+suppression after an interaction-listener failure, and EDT execution.
+
+Render-result tests cover `EMPTY`/`PRESENT`/`UNKNOWN` algebra and exact built-in presence for
+positive/zero opacity, all-coincident lines, endpoints, hatches, fully transparent raster icons,
+composites, and legacy label exclusion. A custom renderer's source-compatible result stays `UNKNOWN`
+until it opts in. Repaint-manager tests prove every real transition invalidates the full component for
+large strokes, offsets, rotated/map-unit symbols, and removed old content. Presentation lookup/render
+failure tests prove committed identity state and events are not rolled back.
+
+Offscreen rendering tests compare source-only and overlay passes, prove unchanged pixels outside the
+actual overlay footprint, preserve source feature/symbol equality, omit labels from overlays, keep
+polygon holes unfilled by the defaults, and establish source-then-hover-then-selection order when both
+keys match.
+Architecture tests keep event/symbol values AWT-free and reject any second registry or discovery path.
+Tooltips, accessibility, multi-selection, editing handles, animation, thematic styles, generalized
+visibility, render caching, narrow dirty bounds, and performance claims remain out of scope.
+
 ## Native Image
 
 Native-targeted code avoids reflection, runtime scanning, dynamic proxies, Java serialization,
@@ -2136,6 +2326,7 @@ out of this gate.
 | 2026-07-12 | Prove native symbol resources with one exact test-owned raw RGBA file and Java 21 resource metadata. | A fixed literal lookup and exact inclusion rule exercise the native boundary without inventing a production loader, decoder, or discovery mechanism. |
 | 2026-07-12 | Route toolkit-neutral tool events through one session-aware core state machine before AWT defaults. | Explicit capture, cancellation, quarantine, and cursor ownership preserve navigation while preventing stale gestures from crossing tool lifetimes. |
 | 2026-07-12 | Use screen-space analytic predicates and renderer-owned hit methods for visible symbol footprints. | Sharing placement and paint traversal keeps hit order deterministic while allowing explicitly registered custom renderers to opt in without toolkit leakage or guessed bounds. |
+| 2026-07-12 | Keep hover/selection transactions in MapView and report paint presence from the existing render result. | Full invalidation and in-pass presence avoid a speculative core state machine, duplicate bounds traversal, and presentation-dependent identity state before G7 evidence. |
 
 ## Task design traceability
 
@@ -2157,3 +2348,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-007 | Exact icon resource metadata, shared native symbol smoke, stable probes, and G2 closeout | Approved |
 | G3-001 | Toolkit-neutral tool events/context, session router, capture/quarantine, and AWT navigation order | Approved |
 | G3-002 | Screen-space geometry predicates, renderer-owned symbol footprints, deterministic topmost hits, and single selection | Approved |
+| G3-003 | Immutable interaction events, hover probes, overlay symbols, logical paint presence, full invalidation, and ordered rendering | Approved |
