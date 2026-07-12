@@ -1029,7 +1029,9 @@ examples are ordinary values, not mutable global registries.
 G2-005 deletes the closed dispatcher and replaces it with final immutable
 `SymbolRendererRegistry` in `mundane-map-awt`. It is owned by each `MapView`; there is no setter or
 static mutable holder. `MapView(Projection)` delegates to a constructor that also accepts a registry
-and uses `SymbolRendererRegistry.builtIn()` by default.
+and uses `SymbolRendererRegistry.builtIn()` by default. G4-002 retains those projection convenience
+constructors but replaces the full view configuration with explicit map/display definitions plus a
+CRS registry so an identity view needs no fake projection.
 
 The implementation prerequisite is G2-004, not merely G2-003: the final registry consumes the line,
 fill, and hatch values and replaces their closed-dispatch branches. The existing G2-005 task-card edge
@@ -1071,10 +1073,12 @@ discovery. `supports` must be deterministic, side-effect-free, and non-throwing 
 `Symbol`; a renderer exception is not translated into a misleading registry diagnostic.
 
 `AwtSymbolRenderContext` is a paint-call-scoped facade constructed only by `MapView`. It exposes the
-looked-up `SymbolRole`, feature ID, original `featureGeometry`, current `renderGeometry`, projection
-and viewport snapshots, inherited opacity, closed-ring and optional endpoint-bearing context,
-source-to-screen conversion, validated `MapScreenBasis`, and an optional marker anchor in screen
-coordinates. Root dispatch uses the feature geometry for both geometry accessors. An endpoint marker
+looked-up `SymbolRole`, feature ID, original `featureGeometry`, current `renderGeometry`, source/display
+CRS and directional-operation snapshots, the viewport snapshot, inherited opacity, closed-ring and
+optional endpoint-bearing context, source-to-screen conversion, validated `MapScreenBasis`, and an
+optional marker anchor in screen coordinates. G4-002 replaces the formerly unqualified projection
+snapshot with these endpoint-aware values. Root dispatch uses the feature geometry for both geometry
+accessors. An endpoint marker
 uses the original line as `featureGeometry`, a `PointGeometry` for its source endpoint as
 `renderGeometry`, and the already-projected endpoint as its marker anchor. A fill outline uses the
 original polygon as `featureGeometry`, a `LineStringGeometry` over the selected immutable ring as
@@ -1478,9 +1482,10 @@ or module is justified at the G2 boundary.
 source coordinate -> map projection -> projected world coordinate -> viewport -> screen pixel
 ```
 
-`Projection` owns forward and inverse projection. The first concrete implementation accepts
-longitude/latitude degrees, clamps latitude to the representable Web Mercator limit, and produces
-projected meters. `MapViewport` never interprets a CRS; it owns only projected-world to screen math.
+`Projection` owns forward and inverse projection. The first-slice implementation accepts
+longitude/latitude degrees, currently clamps latitude to the representable Web Mercator limit, and
+produces projected meters; G4-002 replaces that baseline with explicit endpoint CRS metadata and
+strict domain failure. `MapViewport` never interprets a CRS; it owns only projected-world to screen math.
 Screen x increases right, screen y increases down, the projected center maps to the screen center,
 and `worldUnitsPerPixel` is finite and positive.
 
@@ -1530,8 +1535,10 @@ private handlers. A primary-button press/drag/release fixture proves cumulative 
 rotation proves cursor-anchored zoom. Tool/button arbitration is intentionally deferred to G3. A
 component resize preserves center and scale while updating dimensions.
 
-Pointer events cover `MOVED` and `CLICKED`. They retain the originating finite screen coordinates and
-carry the coordinate produced by inverse-projecting the current viewport at that screen position.
+Pointer events cover `MOVED` and `CLICKED`. They retain the originating finite screen coordinates. The
+G1 baseline always carries the inverse-projected coordinate; G4-002 evolves that value to optional so
+an event over finite viewport space outside the projection domain still routes without clamping or
+throwing.
 Callbacks execute synchronously on the event-dispatch thread. Registration is ordered, duplicate
 listener instances receive duplicate callbacks, and removal removes the first identical (`==`)
 registration; an equal but distinct listener or an absent listener is a no-op. A callback iterates
@@ -1566,7 +1573,7 @@ MapToolEvent(
     Type type,
     double screenX,
     double screenY,
-    Coordinate mapCoordinate,
+    Optional<Coordinate> mapCoordinate,
     MapPointerButton button,
     Set<MapPointerButton> buttonsDown,
     Set<MapInputModifier> modifiers,
@@ -1579,9 +1586,13 @@ Type = PRESS | DRAG | RELEASE | MOVE | CLICK | WHEEL | CANCEL
 ```
 
 `sequence` is positive and strictly increasing within one `MapView`; overflow fails before dispatch
-rather than wrapping. Screen ordinates, the source-map coordinate, and wheel rotation are finite.
-Collections are defensive immutable copies with no nulls, and `MapPointerButton.NONE` is forbidden
-inside `buttonsDown`. Modifiers may be present on every type. All other invariants are total:
+rather than wrapping. Screen ordinates, every present map coordinate, and wheel rotation are finite.
+G4-002 makes the map coordinate optional: it is empty when the finite viewport sample lies outside
+the strict display-to-map operation domain or cannot be represented by the current conversion. The
+screen-space event still routes, so hover, capture, release, cancellation, and navigation cannot be
+stranded at a CRS boundary. Collections are defensive immutable copies with no nulls, and
+`MapPointerButton.NONE` is forbidden inside `buttonsDown`. Modifiers may be present on every type. All
+other invariants are total:
 
 | Type | Changed button | Post-event `buttonsDown` | Click count | Wheel | Popup | Cancel reason |
 | --- | --- | --- | ---: | ---: | --- | --- |
@@ -1606,8 +1617,8 @@ popup-trigger. A `MOUSE_DRAGGED` event with no physical button, or `MOUSE_MOVED`
 is not used to construct an invalid event; it causes `POINTER_STATE_LOST` cancellation and is
 suppressed. A cancellation uses the current raw sample when available, otherwise the last successfully
 converted sample; before any real sample, it uses the component center converted through the current
-viewport and projection. Effective dimensions are always at least one, so cancellation never needs
-nullable or non-finite coordinates.
+viewport and map/display operations. Effective dimensions are always at least one; the map coordinate
+may be empty but is never null or non-finite.
 
 #### Tool, result, cursor, and context contracts
 
@@ -1625,8 +1636,10 @@ MapCursorIntent = DEFAULT | CROSSHAIR | HAND | MOVE
 
 MapToolContext
   layers() -> immutable ordered List<Layer>
-  mapToScreen(Coordinate sourceMap) -> Coordinate
-  screenToMap(double screenX, double screenY) -> Coordinate
+  mapCrs() -> CrsDefinition
+  displayCrs() -> CrsDefinition
+  mapToScreen(Coordinate sourceMap) -> Optional<Coordinate>
+  screenToMap(double screenX, double screenY) -> Optional<Coordinate>
   requestRepaint()
 ```
 
@@ -1649,12 +1662,14 @@ lookup. A tool may therefore change its EDT-confined cursor state during an ordi
 cursor mutation method. The accessor must otherwise be side-effect-free and deterministic for the
 tool's current state.
 
-Context values are callback-scoped snapshots. The layer list, projection, and viewport used by its
-coordinate conversions are the same pre-navigation snapshots used to build the event. A repaint
-request delegates to the host's ordinary coalescing repaint and does not paint synchronously. The
-context exposes no `MapView`, AWT value, layer mutation, viewport mutation, registry, cursor setter, or
-overlay renderer, and must not be retained after a callback. Selection and measurement overlays add
-their own bounded contracts in G3-003/G3-004 rather than speculating here.
+Context values are callback-scoped snapshots. The layer list, map/display definitions, directional
+operations, and viewport used by its coordinate conversions are the same pre-navigation snapshots
+used to build the event. Optional conversion is empty only for a domain/unrepresentable coordinate;
+an unexpected projection implementation failure still propagates. A repaint request delegates to the
+host's ordinary coalescing repaint and does not paint synchronously. The context exposes no `MapView`,
+AWT value, layer mutation, viewport mutation, registry, cursor setter, or overlay renderer, and must
+not be retained after a callback. Selection and measurement overlays add their own bounded contracts
+in G3-003/G3-004 rather than speculating here.
 
 Tools may keep their own EDT-confined interaction state. They must make `onDeactivate` safe after a
 partially failed activation and release any tool-owned state idempotently. Toolkit cursors are not
@@ -1791,11 +1806,15 @@ still advances that sample so a later passed drag does not jump. Adding another 
 navigation anchor, and a multi-button drag never pans. A captured press never begins navigation, and
 every button-bearing event during capture suppresses navigation. A passed wheel uses the event's
 screen anchor and precise rotation in the existing zoom formula. Tool event coordinates therefore
-always describe the viewport before that event's pan or zoom.
+always describe the viewport before that event's pan or zoom. A missing optional map coordinate does
+not suppress routing or defaults; screen-space navigation remains available over blank space outside
+the display CRS domain.
 
 Passed `MOVE` and `CLICK` events are then adapted to the existing observer event and delivered to a
-listener snapshot in registration order. Consumed or quarantined events do not reach compatibility
-listeners. MapView neither synthesizes clicks nor changes the platform click count after a captured
+listener snapshot in registration order. G4-002 likewise changes `MapPointerEvent.mapCoordinate` to
+`Optional<Coordinate>`, so compatibility observers receive the event with the same presence/absence
+rather than a clamped coordinate. Consumed or quarantined events do not reach compatibility listeners.
+MapView neither synthesizes clicks nor changes the platform click count after a captured
 release; an active tool can consume the later real click if it needs exclusivity. With no active tool,
 no quarantine or promoted click token, and no canceled navigation gesture awaiting cleanup, the router
 is clean-idle and passes, preserving G1 pan, wheel, moved, and clicked behavior. Isolation state still
@@ -1814,8 +1833,9 @@ when consumed, so a tool cannot leave panning armed accidentally.
 
 #### Verification boundary
 
-API tests cover every event-type invariant, finite values, defensive button/modifier sets, arbitrary
-auxiliary button identity, cancellation samples, and the three result/four cursor values. Core tests
+API tests cover every event-type invariant, finite present values, empty/present map coordinates,
+defensive button/modifier sets, arbitrary auxiliary button identity, cancellation samples, and the
+three result/four cursor values. Core tests
 use recording tools to prove identity replacement order, partial-activation cleanup, exception
 suppression, capture legality, captured release, independent wheel consumption, queued replacement,
 external-cancel coalescing/resume, and stale-response rejection. They cover second-button capture
@@ -1833,8 +1853,9 @@ consumed-drag anchor advancement, cursor-centered precise wheel zoom, each curso
 focus-request-before-press-callback, enabled-property disable/re-enable, add/remove notify, pointer exit
 with and without capture, first activation during an ordinary pan, replacement during and immediately
 after a release callback, release outside/re-entry, unobserved held secondary/auxiliary buttons,
-mixed-button drags, and stale release/click isolation. A no-tool fixture repeats G1 navigation and
-observer behavior. Hit testing, selection, hover state, measurement, editing, touch/multitouch, custom
+mixed-button drags, stale release/click isolation, and events whose map coordinate is empty at each
+strict display-domain edge. A no-tool fixture repeats G1 navigation and observer behavior. Hit testing,
+selection, hover state, measurement, editing, touch/multitouch, custom
 cursor images, global event interception, and background callback execution remain out of scope.
 
 ### Symbol-aware hit testing and single selection (G3-002)
@@ -2776,6 +2797,379 @@ source, synthetic raster source, early cursor close, pre/mid-operation cancellat
 terminal error, source-report delivery, owned/borrowed teardown, and values surviving source close. No
 production format module is created by this decision.
 
+### CRS boundary and projection hardening (G4-002)
+
+#### Coordinate-reference values and tuple convention
+
+Missing, unknown, and recognized coordinate reference systems are three different states. A missing
+CRS remains `Optional<CrsMetadata>.empty()` in G4-001 metadata. Present metadata has this logical
+shape; factories enforce the state invariants rather than exposing an invalid all-optional record
+constructor:
+
+```text
+CrsMetadata
+  recognized(
+      CrsDefinition definition,
+      Optional<String> declaredIdentifier,
+      Optional<String> retainedDefinition)
+  unknown(
+      Optional<String> declaredIdentifier,
+      Optional<String> retainedDefinition)
+
+CrsDefinition(
+    String canonicalIdentifier,
+    CrsKind kind,
+    CrsAxis xAxis,
+    CrsAxis yAxis,
+    Envelope coordinateDomain)
+
+CrsAxis(CrsAxisMeaning meaning, CrsUnit unit)
+CrsKind = GEOGRAPHIC | PROJECTED | UNKNOWN
+CrsAxisMeaning = LONGITUDE | LATITUDE | EASTING | NORTHING
+CrsUnit = DEGREE | METRE
+```
+
+A recognized definition is only `GEOGRAPHIC` or `PROJECTED`; `UNKNOWN` describes metadata with no
+recognized definition, axes, unit, or coordinate domain. Recognized metadata derives its canonical
+identifier, kind, axes, and domain from its definition. Unknown metadata must retain at least one
+non-blank declared identifier or original definition. A declared identifier is exact, case-sensitive,
+at most 256 UTF-16 characters, and need not be canonical. A retained definition is the exact input,
+including case and whitespace, is non-blank when present, and is limited to 16,384 UTF-16 characters.
+It is never trimmed, normalized, parsed by the value, or included raw in a diagnostic. Format readers
+check their byte and character limits before construction and map an oversize value to
+`CRS_RETAINED_DEFINITION_TOO_LONG`; direct invalid construction is an ordinary argument failure.
+
+Definitions and metadata are immutable values with defensive optional/collection ownership. A
+canonical identifier is a non-blank exact registry key of at most 256 characters. Axis/domain
+validation is kind-specific: the Level 1 geographic definition uses longitude/degree then
+latitude/degree, and the projected definition uses easting/metre then northing/metre. Domain bounds
+are finite with positive spans. Additional axis/unit profiles require the evidence and contract review
+in G10-007 rather than arbitrary strings in Level 1.
+
+All public `Coordinate` and `Envelope` tuples use the library's explicit **x/y visualization
+convention**. For the EPSG:4326 profile, x is longitude east and y is latitude north in degrees; for
+EPSG:3857, x is easting and y is northing in metres. This preserves the existing map behavior and is
+an explicit tuple normalization, not a claim that EPSG's authoritative axis ordinal for 4326 is
+longitude first. The [EPSG 4326 definition](https://epsg.org/crs_4326/WGS-84.html) lists latitude then
+longitude, while EPSG 3857 is x/y easting/northing in the
+[EPSG 3857 definition](https://epsg.org/crs_3857/WGS-84-Pseudo-Mercator.html). The registry therefore
+does not alias OGC CRS84 to EPSG:4326; an identifier or format profile with different tuple semantics
+must normalize explicitly at its own boundary.
+
+`CrsMetadata.equals` includes the declared/retained provenance, but transform compatibility does not.
+The registry first validates that a recognized definition exactly equals its canonical registered
+definition, including axes and domain, then compares canonical identifiers. Retaining a different
+alias or WKT spelling therefore cannot create a false mismatch, while fabricating the same canonical
+identifier with different semantics produces `CRS_DEFINITION_MISMATCH`. Two unknown definitions are
+never transform-compatible merely because their retained text happens to match.
+
+The existing `Envelope` invariant is strengthened so each finite max-minus-min span is also finite.
+Its center uses an overflow-safe midpoint once that invariant holds. A union that would create an
+unrepresentable span fails rather than returning an envelope whose later width or center is infinite.
+Point and one-axis-degenerate envelopes remain valid.
+
+#### Projection and directed-operation boundary
+
+`Projection.id()` is removed during `0.x`: a target CRS identifier is not an operation identity, and
+the ordered endpoint definitions already identify the Level 1 operation. The replacement contract is
+explicit and reversible:
+
+```text
+Projection
+  sourceCrs() -> CrsDefinition
+  targetCrs() -> CrsDefinition
+  sourceDomain() -> Envelope
+  targetDomain() -> Envelope
+  project(Coordinate source) -> Coordinate
+  unproject(Coordinate target) -> Coordinate
+  projectEnvelope(Envelope source) -> Envelope
+  unprojectEnvelope(Envelope target) -> Envelope
+```
+
+Operation domains may be narrower than their CRS domains: EPSG:4326 includes the poles, while the
+Web Mercator forward operation does not. Both operation domains must be contained by their endpoint
+CRS domains. Coordinate and envelope methods are strict and required; there is no unsafe default that
+projects four corners for an arbitrary consumer projection. An implementation must validate the
+complete input against the applicable operation domain, validate every intermediate and result as
+finite and within the target domain, and then construct the public value. Null and structurally
+invalid arguments use the ordinary Java argument failures. A domain or numeric operation failure
+throws an unchecked `CrsException` carrying one bounded `CrsProblem(code, message, context)` but no
+source identity or raw definition. Its code, message, context count/key/value limits, ordering, and
+character rules are exactly the G4-001 diagnostic limits, allowing lossless source-boundary mapping.
+An unexpected implementation runtime failure is not relabeled.
+
+Core exposes an immutable directional `CrsOperation`, obtained only from a registry, with:
+
+```text
+CrsOperation
+  sourceCrs() / targetCrs()
+  sourceDomain() / targetDomain()
+  transform(Coordinate) -> Coordinate
+  transformEnvelopeStrict(Envelope) -> Envelope
+  transformQueryEnvelope(Envelope) -> QueryEnvelopeTransform
+
+QueryEnvelopeTransform(
+    QueryEnvelopeStatus status,
+    Optional<Envelope> transformedEnvelope)
+
+QueryEnvelopeStatus = COMPLETE | CLIPPED | OUTSIDE
+```
+
+The operation is a forward, inverse, or identity view over a validated projection; callers never
+branch on direction. Strict envelope transforms are used for feature geometry, source extents, fit,
+and raster placement. They reject any partially out-of-domain input. Query transforms first intersect
+the complete input with the directional source domain using inclusive edges. A disjoint input returns
+`OUTSIDE` and no envelope; a proper intersection returns `CLIPPED` and the transformed intersection;
+an already-contained input returns `COMPLETE`. Touching at one edge or point is a valid degenerate
+intersection, not outside. Clipping is therefore explicit query planning, never repair of a feature,
+pixel coordinate, or direct projection call.
+
+The two Level 1 operations are axis-separable and monotone over their accepted domains, so their
+envelope extrema are exactly the transformed axis bounds. Identity copies the validated envelope;
+Web Mercator transforms the two x bounds and two y bounds independently. No generic densifier,
+sampling tolerance, longitude wrap, or antimeridian split is introduced. G10 projections must provide
+their own conservative envelope rule rather than inheriting four-corner behavior accidentally.
+`ProjectionEnvelopes` is removed once callers use the operation-owned methods.
+
+#### Explicit immutable CRS registry
+
+`CrsRegistry` is an instance-owned immutable core value with a consumed single-use builder:
+
+```text
+CrsRegistry.builder()
+CrsRegistry.builderWithLevel1()
+CrsRegistry.level1()
+
+Builder.registerDefinition(CrsDefinition definition, List<String> exactAliases)
+Builder.registerProjection(Projection projection)
+Builder.build() -> CrsRegistry
+
+CrsRegistry.resolve(String exactKey) -> CrsDefinition
+CrsRegistry.operation(CrsDefinition source, CrsDefinition target) -> CrsOperation
+```
+
+`level1()` returns a fresh immutable registry; immutable built-in definition constants are not a
+mutable registry. The builder defensively copies declaration order and is unusable after `build()`.
+Canonical keys and aliases share one exact case-sensitive namespace with no trimming, case folding,
+Unicode normalization, URI rewriting, or last-wins replacement. A collision is a failure even when
+both entries would resolve to the same definition. Projection registration requires both exact
+endpoint definitions already registered, distinct endpoint IDs, operation domains within the CRS
+domains, and no prior forward or inverse ordered pair. One registered projection supplies its two
+directed operations. The registry synthesizes the one canonical strict identity operation for every
+registered definition; identity is selected by an equal source/target definition and is never modeled
+as a fake `Projection`, registered, or overridden.
+
+The registry resolves only an exact identity or one directly registered projection direction. It
+does not search a graph, chain operations, select by numeric coordinate range, parse WKT, inspect a
+filename, consult a database, load a service, scan the classpath, reflect, or invoke an optional
+adapter. G10-007 must justify another direct projection or isolated adapter. G5-007's explicit PRJ
+recognizers are separate bounded format logic that map only approved WKT profiles to one of these
+canonical definitions; raw WKT strings do not become registry aliases.
+
+The exact built-in keys are:
+
+| Canonical key | Exact aliases |
+| --- | --- |
+| `EPSG:4326` | `urn:ogc:def:crs:EPSG::4326`, `http://www.opengis.net/def/crs/EPSG/0/4326` |
+| `EPSG:3857` | `urn:ogc:def:crs:EPSG::3857`, `http://www.opengis.net/def/crs/EPSG/0/3857` |
+
+`CRS:84`, `OGC:CRS84`, `WGS84`, `EPSG:900913`, `ESRI:102100`, HTTPS/case/whitespace variants, and WKT
+spellings are not aliases. An unknown direct lookup fails with `CRS_REGISTRY_KEY_UNKNOWN`; it never
+manufactures recognized metadata. A format can instead retain the input through
+`CrsMetadata.unknown(...)` after its own bounded recognition attempt.
+
+Registry/configuration failures are `CrsException`, not a fabricated `SourceException`: duplicate
+canonical/alias keys use `CRS_REGISTRY_KEY_DUPLICATE`, duplicate directional pairs use
+`CRS_REGISTRY_TRANSFORM_DUPLICATE`, an unregistered or mismatched endpoint uses
+`CRS_DEFINITION_MISMATCH`, and an absent direct pair uses `CRS_TRANSFORM_UNAVAILABLE`. Context contains
+only bounded exact keys, ordered endpoint IDs, and the conflicting declaration indexes. Two builders
+and their built registries remain isolated, and a component never mutates a supplied registry.
+
+#### Strict EPSG:4326 and Web Mercator behavior
+
+The built-in definitions and projection use these exact closed domains:
+
+| Boundary | Minimum | Maximum |
+| --- | ---: | ---: |
+| EPSG:4326 longitude | -180 degrees | 180 degrees |
+| EPSG:4326 latitude | -90 degrees | 90 degrees |
+| Web Mercator forward latitude | -85.0511287798066 degrees | 85.0511287798066 degrees |
+| EPSG:3857 easting/northing | -20,037,508.342789244 m | 20,037,508.342789244 m |
+
+The radius is exactly 6,378,137 metres and the projected world limit is the stored result of
+`PI * radius`. Forward projection rejects longitude outside `[-180,180]` and latitude outside the
+narrower Mercator domain; it neither wraps longitude nor clamps latitude. Inverse projection rejects
+either projected ordinate outside the conventional square. EPSG:4326 identity accepts its full CRS
+domain, including both poles, and EPSG:3857 identity accepts the full projected square.
+
+Forward x is `radius * radians(longitude)` and forward y is
+`radius * log(tan(PI / 4 + radians(latitude) / 2))`. Inverse longitude is
+`degrees(easting / radius)` and inverse latitude is
+`degrees(atan(sinh(northing / radius)))`. Exact accepted longitude/latitude and projected boundary
+constants map to their exact corresponding stored boundaries; this edge special case avoids a
+one-ULP formula escape and is numeric normalization, not clipping. Other calculated results outside
+the target domain fail. Zero inputs/results are canonicalized to positive zero.
+
+`Math.nextDown(minimum)` and `Math.nextUp(maximum)` fail at every domain edge. Poles fail only for the
+Mercator projection, not 4326 identity. Ordinary forward/inverse geographic round trips are within
+`1e-9` degree per axis, and ordinary inverse/forward projected round trips are within `1e-6` metre per
+axis; exact domain edges are tested separately rather than hidden by those tolerances. Every accepted
+result is finite and within its declared domain.
+
+`MapViewport` remains entirely CRS-neutral, but its numeric invariant becomes strong enough to build
+queries safely. Construction requires the half-width/half-height world spans and all four visible
+world edges to be finite. Screen/world conversions require finite inputs and results. Pan, zoom, fit,
+resize, and visible-envelope calculation validate multiplications, additions, scale, stable midpoint,
+and resulting edges before returning a new value. An unrepresentable navigation/programmer input
+fails before state mutation; it is not silently saturated or misreported as source data. The new
+`visibleWorldEnvelope()` is the only query-bound source and cannot return a non-finite envelope.
+
+#### Map, source, display, and raster boundaries
+
+The three coordinate roles are explicit:
+
+```text
+legacy layer: map-coordinate CRS -> map-to-display operation -> world/display CRS -> MapViewport -> screen
+source feature: source metadata CRS -> direct registry operation -> world/display CRS -> screen
+pointer/tool: screen -> MapViewport -> display-to-map operation -> optional map coordinate
+raster: source metadata CRS == world/display CRS -> MapViewport -> screen
+```
+
+The **map-coordinate CRS** is used by legacy `Layer` values and every present
+`MapPointerEvent.mapCoordinate`/`MapToolEvent.mapCoordinate`. The **world/display CRS** is used by
+`MapViewport`. A source-backed feature layer has its own fixed **source CRS** and transforms directly
+to the display CRS; it is not routed through the map-coordinate CRS. No operation is inferred from a
+coordinate range.
+
+The canonical full view configuration is:
+
+```text
+MapView(
+    CrsRegistry crsRegistry,
+    CrsDefinition mapCrs,
+    CrsDefinition displayCrs)
+```
+
+The constructor resolves and stores immutable map-to-display and display-to-map `CrsOperation`
+snapshots. Equal map/display definitions select the registry's synthesized identity in both
+directions, which is the sole identity-view path used by geographic/projected raster examples. Symbol
+rendering composes orthogonally: once G2-005 is present, the corresponding four-argument overload adds
+`SymbolRendererRegistry`, and this three-argument overload uses its built-in value. G4's coordinate
+configuration therefore does not introduce a task dependency on G2.
+
+`MapView(Projection)` remains the `0.x` convenience constructor for the existing non-identity first
+slice; G2-005 adds the parallel symbol-registry overload when present. They require distinct exact
+endpoints, build a private registry containing those definitions and the explicitly supplied
+projection, then delegate to the canonical constructor. They do not accept or manufacture an identity
+projection. The ambiguous
+`projection()` accessor is removed with `Projection.id()`; `mapCrs()` and `displayCrs()` replace it.
+Internal rendering/context snapshots use the resolved directional operation, so the full constructor
+never has to compare an arbitrary projection object with a synthesized identity. G4-003 adds
+source-backed bindings against the view registry without changing toolkit-neutral source contracts.
+
+`MapView.screenToMap`, `MapView.mapToScreen`, the matching `MapToolContext` methods, and the inverse
+conversion used to construct pointer/tool events return `Optional<Coordinate>`. The value is empty
+when the finite viewport world sample lies outside the display-to-map source domain or a finite
+screen/map result is not representable. The map-to-screen direction is symmetric. A known domain miss
+is not a source diagnostic
+and does not emit repeated warnings as the pointer moves over ordinary blank margin; direct
+`CrsOperation` calls remain strict for callers that require the detailed failure. Unexpected
+projection failures still propagate. Map and display definitions are exposed by the tool context so
+G3-004 can choose a distance strategy explicitly.
+
+Every screen-space event still reaches the tool/router with its finite screen coordinates and optional
+map coordinate. Passed `MOVE`/`CLICK` events reach compatibility observers with the same optional
+value. Capture, release, cancellation, hover clearing, and default pan/zoom therefore continue outside
+the CRS domain; no coordinate is clamped to a world edge and no event is silently suppressed. A tool
+that requires a map coordinate does not add/update a coordinate-dependent value while it is empty but
+must still handle lifecycle events.
+
+Binding validation resolves both source-to-display rendering and display-to-source query operations
+before the view acquires an owned feature source. Missing metadata fails with `CRS_METADATA_MISSING`;
+unknown metadata with `CRS_DEFINITION_UNKNOWN`; a canonical definition unequal to the registered one
+with `CRS_DEFINITION_MISMATCH`; and a recognized pair without a direct operation with
+`CRS_TRANSFORM_UNAVAILABLE`. Direct callers may still query a source in its own coordinate system
+without any CRS; only a view/map operation requires resolution. Retained definition text is
+inspectable metadata but never transform permission.
+
+G4-003 derives each feature query envelope by passing the finite visible display envelope to the
+display-to-source operation's query transform. `COMPLETE` queries normally. `CLIPPED` queries the
+transformed intersection and publishes `CRS_QUERY_ENVELOPE_CLIPPED`; `OUTSIDE` opens no cursor and
+publishes `CRS_QUERY_ENVELOPE_OUTSIDE_DOMAIN`. Both are successful warnings, not terminal failures.
+Feature extents, fit, and every rendered coordinate use strict source-to-display operations. A source
+coordinate or extent outside the operation domain fails that layer operation; it is never projected
+from a clamped substitute.
+
+Level 1 does not pretend that a geographic raster becomes Web Mercator by stretching its transformed
+corner envelope into one Java2D rectangle. That is a nonlinear raster warp, not the point projection
+or affine placement provided by G4/G6. A renderable raster must have bounds and a recognized source CRS
+whose canonical definition equals the display CRS. EPSG:4326 rasters are exercised in a 4326 identity
+view and EPSG:3857 rasters in a 3857 identity display. A different recognized source/display pair uses
+`CRS_RASTER_WARP_UNSUPPORTED` even when a point projection exists; missing/unknown metadata uses the
+same failures as feature binding. World-file rotation/shear remains valid within one CRS. Raster
+warping requires a later explicit bounded vertical slice and is not implied by adding a point
+projection in G10.
+
+This refines two G4-004 phrases before implementation: its geographic/projected placement cases use
+separate matching-CRS views, and source windows remain strictly rejected as G4-001 already decided;
+only MapView's visible query envelope can be clipped. G6-002 follows the same matching-display rule.
+A world file supplies an affine placement but no CRS by itself.
+
+#### Stable diagnostics and verification boundary
+
+Core translates a known `CrsProblem` at a source boundary into exactly one G4-001 diagnostic, adding
+the caller's source ID and optional bounded location while preserving the stable code/context. It does
+not translate nulls, invalid application construction, or unexpected runtime failures. CRS contexts
+use only applicable members of `operation`, `sourceCrs`, `targetCrs`, `expectedCrs`, `actualCrs`,
+`axis`, `value`, `minimum`, and `maximum`; numeric values use locale-independent `Double.toString`.
+Retained definitions and unbounded source text never appear.
+
+The stable source codes are `CRS_METADATA_MISSING`, `CRS_DEFINITION_UNKNOWN`,
+`CRS_DEFINITION_MISMATCH`, `CRS_TRANSFORM_UNAVAILABLE`, `CRS_COORDINATE_OUT_OF_DOMAIN`,
+`CRS_ENVELOPE_OUT_OF_DOMAIN`, `CRS_TRANSFORM_NON_FINITE`, and
+`CRS_RASTER_WARP_UNSUPPORTED`. Successful clipped/outside query warnings use
+`CRS_QUERY_ENVELOPE_CLIPPED` and `CRS_QUERY_ENVELOPE_OUTSIDE_DOMAIN`. Registry and retention codes are
+the configuration/value codes named above; a format source that detects retained text over the bound
+uses `CRS_RETAINED_DEFINITION_TOO_LONG` as its opening error before constructing metadata. A terminal
+projection problem follows G4-001's layer-skip, report, availability, cleanup, and later-layer
+rendering behavior.
+
+The G4-002 implementation runs API/core tests. API tests cover every metadata state and invariant,
+exact retained provenance, maximum/max-plus-one bounds, recognized equality versus compatibility,
+axis/unit/domain profiles, finite envelope spans, stable midpoints, and the bounded `CrsProblem`/
+`CrsException` shape. Registry tests cover both canonical keys and every listed alias, exact
+case/whitespace rejection, unknown keys, all duplicate/collision cases, endpoint validation,
+forward/inverse/identity resolution, direct-only behavior, builder consumption, and isolation.
+
+Projection tests cover ordinary and exact-edge values, each adjacent out-of-domain ULP, poles,
+non-wrapped longitude, huge finite projected input, positive zero, both round-trip tolerances, faulty
+non-finite implementations, strict ordinary/point/one-axis/full-world envelopes, partial/whole domain
+failures, and query `COMPLETE`/`CLIPPED`/`OUTSIDE` including a touching edge. Viewport tests cover
+finite visible envelopes plus overflow in construction, conversion, pan, zoom, fit, resize, and
+midpoint/span arithmetic. Diagnostic tests assert exact code/context and prove raw retained text is
+absent. Architecture tests retain API/core JDK-only purity and reject static mutable CRS registries,
+discovery mechanisms, AWT/parser/adapter types, and an unsafe default envelope projection.
+
+AWT compatibility integration in G4-002 covers canonical 4326 and 3857 identity-view construction
+without a `Projection`, retained non-identity projection convenience construction, exact map/display
+accessors, and present map coordinates inside the inverse domain. It also starts from the existing
+800-by-600, 100,000-units-per-pixel viewport and routes
+move/click/press/drag/release/cancel samples at points outside each display-domain edge with an empty
+map coordinate. Those samples still clear hover, complete capture, pan/zoom when passed, and reach
+compatibility observers without a source report, clamped coordinate, or callback failure. G4-003 and
+G4-004 extend this evidence to feature- and raster-source bindings.
+
+Strict inverse domains cannot be introduced while leaving the current always-present pointer value in
+AWT. Before production implementation, the G4-002 task card must therefore add the affected
+`MapPointerEvent`, G3 tool/context contracts, `MapView` constructors/conversions, AWT tests, and
+`:modules:mundane-map-awt:test` to its Scope/Required tests/Validation. This is a necessary integration
+part of projection hardening, not a feature expansion into G4-003 source rendering.
+
+Arbitrary WKT, authority-axis negotiation, datum shifts, operation chaining, non-monotonic
+densification, antimeridian splitting, additional projections/units, raster warping, and PROJ remain
+out of scope. Native behavior remains ordinary JDK math and explicit object construction with no
+resource/database discovery.
+
 ## Native Image
 
 Native-targeted code avoids reflection, runtime scanning, dynamic proxies, Java serialization,
@@ -2838,6 +3232,9 @@ out of this gate.
 | 2026-07-12 | Use synchronous feature cursors and raster reads that return unstyled, independently owned values. | One explicit pull boundary preserves source order, resource ownership, and parser/presentation separation without streams, reactive APIs, or background work. |
 | 2026-07-12 | Use bounded warning reports and unchecked structured terminal source failures. | Stable diagnostics, typed limits, and cooperative cancellation stay observable through cursors and Swing rendering without format exceptions or checked-failure adapters leaking across modules. |
 | 2026-07-12 | Expose latest per-layer source reports and make MapView explicitly closeable. | Deferred EDT report delivery and permanent explicit close make asynchronous paint failures and transferred source ownership observable without treating reversible Swing detachment as disposal. |
+| 2026-07-12 | Model map, source, and display CRSs explicitly and resolve only registered direct operations. | Endpoint definitions and an instance-owned registry preserve current pointer ergonomics while preventing guessed CRS identity, hidden chaining, or discovery. |
+| 2026-07-12 | Reject out-of-domain Web Mercator coordinates and make query-envelope clipping an explicit result. | Strict feature transforms expose invalid data, while bounded viewport intersection remains usable without silent latitude repair or unsafe generic corner projection. |
+| 2026-07-12 | Require Level 1 raster sources to match the display CRS. | Painting a cross-CRS raster as one transformed rectangle would masquerade as nonlinear warping that G4/G6 do not implement. |
 
 ## Task design traceability
 
@@ -2861,3 +3258,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G3-002 | Screen-space geometry predicates, renderer-owned symbol footprints, deterministic topmost hits, and single selection | Approved |
 | G3-003 | Immutable interaction events, hover probes, overlay symbols, logical paint presence, full invalidation, and ordered rendering | Approved |
 | G4-001 | Synchronous feature/raster contracts, immutable records/IDs, canonical attributes, raster grid math, limits, cancellation, reports, and explicit ownership | Approved |
+| G4-002 | Immutable CRS metadata, explicit direct-operation registry, strict Web Mercator/envelopes, display integration, and same-CRS raster boundary | Approved |
