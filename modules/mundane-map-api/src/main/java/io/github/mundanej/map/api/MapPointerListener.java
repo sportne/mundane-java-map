@@ -6,4 +6,3 @@ public interface MapPointerListener {
     /** Handles an event on the Swing event-dispatch thread. */
     void onMapPointerEvent(MapPointerEvent event);
 }
-

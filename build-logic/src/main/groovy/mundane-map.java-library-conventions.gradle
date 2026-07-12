@@ -18,10 +18,10 @@ java {
 }
 
 dependencies {
-    testImplementation platform(libs.findLibrary('junit-bom').get())
-    testImplementation libs.findLibrary('junit-jupiter').get()
-    testRuntimeOnly libs.findLibrary('junit-platform-launcher').get()
-    errorprone libs.findLibrary('errorprone-core').get()
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.platform.launcher
+    errorprone libs.errorprone.core
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -37,19 +37,19 @@ tasks.withType(Test).configureEach {
     }
     testLogging {
         events 'failed'
-        exceptionFormat 'full'
+        exceptionFormat = 'full'
     }
 }
 
 checkstyle {
-    toolVersion = libs.findVersion('checkstyle').get().requiredVersion
+    toolVersion = libs.versions.checkstyle.get()
     configDirectory = rootProject.file('config/checkstyle')
 }
 
 spotless {
     java {
         target 'src/**/*.java'
-        googleJavaFormat()
+        googleJavaFormat().aosp()
         removeUnusedImports()
         trimTrailingWhitespace()
         endWithNewline()
@@ -57,16 +57,17 @@ spotless {
     groovyGradle {
         target '*.gradle', 'src/**/*.gradle'
         greclipse()
+        leadingTabsToSpaces(4)
     }
 }
 
 spotbugs {
-    toolVersion = libs.findVersion('spotbugs').get().requiredVersion
+    toolVersion = libs.versions.spotbugs.get()
     excludeFilter = rootProject.file('config/spotbugs/exclude.xml')
 }
 
 jacoco {
-    toolVersion = libs.findVersion('jacoco').get().requiredVersion
+    toolVersion = libs.versions.jacoco.get()
 }
 
 tasks.named('test') {
@@ -93,4 +94,3 @@ tasks.named('jacocoTestCoverageVerification') {
 tasks.named('check') {
     dependsOn tasks.named('jacocoTestCoverageVerification')
 }
-

@@ -5,4 +5,3 @@ public interface Geometry {
     /** Returns the geometry envelope in source-coordinate units. */
     Envelope envelope();
 }
-

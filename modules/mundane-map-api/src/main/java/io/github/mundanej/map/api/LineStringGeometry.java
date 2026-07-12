@@ -17,4 +17,3 @@ public record LineStringGeometry(CoordinateSequence coordinates) implements Geom
         return coordinates.envelope();
     }
 }
-

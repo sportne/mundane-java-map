@@ -36,7 +36,8 @@ class MapViewportTest {
 
     @Test
     void fitContainsEnvelopeCornersInsidePadding() {
-        MapViewport viewport = MapViewport.fit(500, 300, new Envelope(0.0, 0.0, 1000.0, 200.0), 25.0);
+        MapViewport viewport =
+                MapViewport.fit(500, 300, new Envelope(0.0, 0.0, 1000.0, 200.0), 25.0);
 
         Coordinate minimum = viewport.worldToScreen(new Coordinate(0.0, 0.0));
         Coordinate maximum = viewport.worldToScreen(new Coordinate(1000.0, 200.0));
@@ -45,4 +46,3 @@ class MapViewportTest {
         assertEquals(475.0, maximum.x(), TOLERANCE);
     }
 }
-

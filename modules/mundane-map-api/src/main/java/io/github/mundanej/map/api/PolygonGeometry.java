@@ -32,4 +32,3 @@ public record PolygonGeometry(CoordinateSequence exterior, List<CoordinateSequen
         }
     }
 }
-

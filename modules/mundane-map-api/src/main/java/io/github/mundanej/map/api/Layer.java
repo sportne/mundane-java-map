@@ -17,4 +17,3 @@ public interface Layer {
     /** Returns the source-coordinate envelope when the layer is non-empty. */
     Optional<Envelope> envelope();
 }
-

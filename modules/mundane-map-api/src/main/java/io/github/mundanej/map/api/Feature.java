@@ -13,7 +13,7 @@ public record Feature(
     /** Creates a feature and defensively copies its attributes. */
     public Feature {
         id = requireText(id, "id");
-        name = Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(name, "name");
         Objects.requireNonNull(geometry, "geometry");
         attributes = Map.copyOf(Objects.requireNonNull(attributes, "attributes"));
         Objects.requireNonNull(style, "style");
@@ -27,4 +27,3 @@ public record Feature(
         return value;
     }
 }
-

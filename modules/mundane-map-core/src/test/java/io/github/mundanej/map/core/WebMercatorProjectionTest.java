@@ -26,4 +26,3 @@ class WebMercatorProjectionTest {
         assertEquals(WebMercatorProjection.MAX_LATITUDE, restored.y(), 1.0e-9);
     }
 }
-

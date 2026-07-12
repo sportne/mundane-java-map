@@ -16,7 +16,8 @@
         <module name="UnusedImports"/>
         <module name="NeedBraces"/>
         <module name="OneStatementPerLine"/>
-        <module name="EmptyLineSeparator"/>
+        <module name="EmptyLineSeparator">
+            <property name="allowNoEmptyLineBetweenFields" value="true"/>
+        </module>
     </module>
 </module>
-

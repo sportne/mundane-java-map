@@ -24,4 +24,3 @@ public record Rgba(int red, int green, int blue, int alpha) {
         }
     }
 }
-

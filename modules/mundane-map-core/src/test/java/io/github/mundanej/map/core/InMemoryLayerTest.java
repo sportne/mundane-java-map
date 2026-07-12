@@ -38,4 +38,3 @@ class InMemoryLayerTest {
                 FeatureStyle.point(Rgba.rgb(1, 2, 3), 5.0));
     }
 }
-

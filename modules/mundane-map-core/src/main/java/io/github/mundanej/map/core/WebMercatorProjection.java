@@ -35,9 +35,9 @@ public final class WebMercatorProjection implements Projection {
         Objects.requireNonNull(projected, "projected");
         double longitude = Math.toDegrees(projected.x() / EARTH_RADIUS_METERS);
         double latitude =
-                Math.toDegrees(2.0 * Math.atan(Math.exp(projected.y() / EARTH_RADIUS_METERS))
-                        - Math.PI / 2.0);
+                Math.toDegrees(
+                        2.0 * Math.atan(Math.exp(projected.y() / EARTH_RADIUS_METERS))
+                                - Math.PI / 2.0);
         return new Coordinate(longitude, latitude);
     }
 }
-

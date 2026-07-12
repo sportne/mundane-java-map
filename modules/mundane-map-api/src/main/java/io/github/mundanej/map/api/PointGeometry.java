@@ -14,4 +14,3 @@ public record PointGeometry(Coordinate coordinate) implements Geometry {
         return Envelope.at(coordinate);
     }
 }
-

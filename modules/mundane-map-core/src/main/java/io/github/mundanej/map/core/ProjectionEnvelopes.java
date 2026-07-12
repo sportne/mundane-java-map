@@ -15,9 +15,15 @@ public final class ProjectionEnvelopes {
         Objects.requireNonNull(source, "source");
         Coordinate first = projection.project(new Coordinate(source.minX(), source.minY()));
         Envelope result = Envelope.at(first);
-        result = result.union(Envelope.at(projection.project(new Coordinate(source.minX(), source.maxY()))));
-        result = result.union(Envelope.at(projection.project(new Coordinate(source.maxX(), source.minY()))));
-        return result.union(Envelope.at(projection.project(new Coordinate(source.maxX(), source.maxY()))));
+        result =
+                result.union(
+                        Envelope.at(
+                                projection.project(new Coordinate(source.minX(), source.maxY()))));
+        result =
+                result.union(
+                        Envelope.at(
+                                projection.project(new Coordinate(source.maxX(), source.minY()))));
+        return result.union(
+                Envelope.at(projection.project(new Coordinate(source.maxX(), source.maxY()))));
     }
 }
-

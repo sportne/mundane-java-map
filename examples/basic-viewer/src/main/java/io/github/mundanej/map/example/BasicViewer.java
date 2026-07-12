@@ -70,12 +70,7 @@ public final class BasicViewer {
                         "",
                         new LineStringGeometry(
                                 CoordinateSequence.of(
-                                        -71.4128,
-                                        41.8240,
-                                        -71.0589,
-                                        42.3601,
-                                        -71.8023,
-                                        42.2626)),
+                                        -71.4128, 41.8240, -71.0589, 42.3601, -71.8023, 42.2626)),
                         Map.of("kind", "route"),
                         FeatureStyle.line(Rgba.rgb(190, 45, 45), 3.0));
 
@@ -85,16 +80,8 @@ public final class BasicViewer {
                         "",
                         new PolygonGeometry(
                                 CoordinateSequence.of(
-                                        -72.05,
-                                        41.65,
-                                        -70.75,
-                                        41.65,
-                                        -70.75,
-                                        42.55,
-                                        -72.05,
-                                        42.55,
-                                        -72.05,
-                                        41.65)),
+                                        -72.05, 41.65, -70.75, 41.65, -70.75, 42.55, -72.05, 42.55,
+                                        -72.05, 41.65)),
                         Map.of("kind", "region"),
                         FeatureStyle.polygon(
                                 Rgba.rgb(45, 110, 65), new Rgba(70, 170, 95, 55), 2.0));
@@ -114,4 +101,3 @@ public final class BasicViewer {
                 FeatureStyle.point(Rgba.rgb(28, 108, 184), 10.0));
     }
 }
-

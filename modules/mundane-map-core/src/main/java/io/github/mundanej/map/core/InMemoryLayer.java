@@ -59,4 +59,3 @@ public final class InMemoryLayer implements Layer {
         return value;
     }
 }
-

@@ -21,4 +21,3 @@ public record MapPointerEvent(Type type, double screenX, double screenY, Coordin
         }
     }
 }
-

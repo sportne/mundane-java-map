@@ -15,7 +15,8 @@ class ArchitectureRulesTest {
                     .resideInAPackage("..map.api..")
                     .should()
                     .dependOnClassesThat()
-                    .resideInAnyPackage("java.awt..", "javax.swing..", "..map.core..", "..map.awt..");
+                    .resideInAnyPackage(
+                            "java.awt..", "javax.swing..", "..map.core..", "..map.awt..");
 
     @ArchTest
     static final ArchRule CORE_STAYS_TOOLKIT_NEUTRAL =
@@ -40,4 +41,3 @@ class ArchitectureRulesTest {
                             "java.io.ObjectOutputStream",
                             "java.net.URLClassLoader");
 }
-

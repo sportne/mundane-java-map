@@ -78,15 +78,7 @@ class MapViewTest {
                         "",
                         new PolygonGeometry(
                                 CoordinateSequence.of(
-                                        -71.1,
-                                        42.2,
-                                        -70.9,
-                                        42.2,
-                                        -70.9,
-                                        42.4,
-                                        -71.1,
-                                        42.4,
-                                        -71.1,
+                                        -71.1, 42.2, -70.9, 42.2, -70.9, 42.4, -71.1, 42.4, -71.1,
                                         42.2)),
                         Map.of(),
                         FeatureStyle.polygon(
@@ -94,4 +86,3 @@ class MapViewTest {
         return new InMemoryLayer("sample", "Sample", List.of(polygon, line, point));
     }
 }
-

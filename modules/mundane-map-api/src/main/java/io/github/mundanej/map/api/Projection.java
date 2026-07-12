@@ -11,4 +11,3 @@ public interface Projection {
     /** Converts projected world coordinates back to source coordinates. */
     Coordinate unproject(Coordinate projected);
 }
-

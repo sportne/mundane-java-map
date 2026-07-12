@@ -14,4 +14,3 @@ class BasicViewerTest {
         assertEquals(5, map.layers().getFirst().features().size());
     }
 }
-

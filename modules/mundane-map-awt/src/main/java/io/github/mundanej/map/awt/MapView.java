@@ -37,9 +37,10 @@ import javax.swing.JComponent;
 /**
  * A lightweight Swing map component for projected vector features.
  *
- * <p>Mutation and listener callbacks follow the normal Swing event-dispatch-thread contract.
+ * <p>Mutation and listener callbacks follow the normal Swing event-dispatch-thread contract. Swing
+ * serialization is inherited for framework compatibility and is not a persistence format.
  */
-@SuppressWarnings("serial") // Swing is Serializable; this component intentionally is not a persistence format.
+@SuppressWarnings("serial")
 public final class MapView extends JComponent {
     private static final long serialVersionUID = 1L;
     private static final int DEFAULT_WIDTH = 800;
@@ -94,7 +95,8 @@ public final class MapView extends JComponent {
         Envelope projected = null;
         for (Layer layer : layers) {
             if (layer.envelope().isPresent()) {
-                Envelope next = ProjectionEnvelopes.project(projection, layer.envelope().orElseThrow());
+                Envelope next =
+                        ProjectionEnvelopes.project(projection, layer.envelope().orElseThrow());
                 projected = projected == null ? next : projected.union(next);
             }
         }
@@ -269,7 +271,8 @@ public final class MapView extends JComponent {
     }
 
     private void firePointer(MapPointerEvent.Type type, double screenX, double screenY) {
-        MapPointerEvent event = new MapPointerEvent(type, screenX, screenY, screenToMap(screenX, screenY));
+        MapPointerEvent event =
+                new MapPointerEvent(type, screenX, screenY, screenToMap(screenX, screenY));
         List<MapPointerListener> snapshot = List.copyOf(pointerListeners);
         for (MapPointerListener listener : snapshot) {
             listener.onMapPointerEvent(event);

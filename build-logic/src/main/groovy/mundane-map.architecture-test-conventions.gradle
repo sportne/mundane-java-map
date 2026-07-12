@@ -3,6 +3,5 @@ plugins {
 }
 
 dependencies {
-    testImplementation libs.findLibrary('archunit-junit5').get()
+    testImplementation libs.archunit.junit5
 }
-

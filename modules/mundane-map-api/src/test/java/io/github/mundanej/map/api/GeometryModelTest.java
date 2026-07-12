@@ -51,8 +51,7 @@ class GeometryModelTest {
     void polygonCopiesItsHoleList() {
         CoordinateSequence exterior =
                 CoordinateSequence.of(0.0, 0.0, 5.0, 0.0, 5.0, 5.0, 0.0, 5.0, 0.0, 0.0);
-        CoordinateSequence hole =
-                CoordinateSequence.of(1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 1.0);
+        CoordinateSequence hole = CoordinateSequence.of(1.0, 1.0, 2.0, 1.0, 2.0, 2.0, 1.0, 1.0);
         List<CoordinateSequence> holes = new java.util.ArrayList<>();
         holes.add(hole);
         PolygonGeometry polygon = new PolygonGeometry(exterior, holes);
@@ -60,5 +59,17 @@ class GeometryModelTest {
 
         assertEquals(1, polygon.holes().size());
     }
-}
 
+    @Test
+    void pointerEventRetainsItsTypeAndCoordinates() {
+        Coordinate mapCoordinate = new Coordinate(-71.0, 42.0);
+
+        MapPointerEvent event =
+                new MapPointerEvent(MapPointerEvent.Type.CLICKED, 120.0, 80.0, mapCoordinate);
+
+        assertEquals(MapPointerEvent.Type.CLICKED, event.type());
+        assertEquals(120.0, event.screenX());
+        assertEquals(80.0, event.screenY());
+        assertEquals(mapCoordinate, event.mapCoordinate());
+    }
+}

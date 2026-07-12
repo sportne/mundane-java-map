@@ -96,4 +96,3 @@ public final class CoordinateSequence {
         return "CoordinateSequence" + Arrays.toString(ordinates);
     }
 }
-

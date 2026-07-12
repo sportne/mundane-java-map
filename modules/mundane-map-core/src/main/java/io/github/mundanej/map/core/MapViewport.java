@@ -87,4 +87,3 @@ public record MapViewport(
         return new MapViewport(width, height, center.x(), center.y(), units);
     }
 }
-

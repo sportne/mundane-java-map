@@ -61,4 +61,3 @@ public record Envelope(double minX, double minY, double maxX, double maxY) {
                 Math.max(maxY, other.maxY));
     }
 }
-

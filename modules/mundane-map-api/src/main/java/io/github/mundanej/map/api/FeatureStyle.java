@@ -31,4 +31,3 @@ public record FeatureStyle(Rgba stroke, Rgba fill, double strokeWidth, double po
         return new FeatureStyle(stroke, fill, width, 6.0);
     }
 }
-
