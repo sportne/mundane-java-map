@@ -1293,6 +1293,185 @@ named desktop; it does not justify cross-platform pixel identity. SVG, text/labe
 icon resources, Native Image resources, benchmarks, general snapshot infrastructure, and committed
 screenshots remain out of scope.
 
+### Native symbol-resource smoke (G2-007)
+
+#### One test-owned resource
+
+G2-007 extends the existing `mundane-map-native-tests` application rather than adding a native symbol
+module or a second executable. Its sole new binary resource is
+`/io/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba`: exactly 32 bytes representing a fixed 4 by
+2, top-left-origin, row-major sequence of unpremultiplied R, G, B, A bytes. The packed rows are:
+
+```text
+0xff0000ff  0x00ff00ff  0x0000ffff  0xffffff00
+0xffff00ff  0x00ffffff  0xff00ff80  0x000000ff
+```
+
+The file is hand-authored for this repository, contains no third-party work, and is licensed under the
+root BSD 3-Clause license. Adjacent `symbol-smoke-4x2.rgba.provenance.txt` records that origin and
+license but is not loaded or included in the native image. The fixture is intentionally raw decoded
+pixels: it neither defines a reusable file format nor exercises PNG/JPEG decoding ahead of G6.
+
+A package-private loader in the native smoke application calls
+`NativeSmokeMain.class.getResourceAsStream` with that one absolute literal. Null is a named resource-
+missing failure. It calls `readNBytes(33)`, requires exactly 32 bytes, and packs each four-byte group to
+the G2-005 `0xRRGGBBAA` value using unsigned byte conversion. The 33rd byte is only an over-length
+sentinel; the loader never performs an unbounded read. A package-private fixed-shape decoder performs
+the length and packing step so JVM tests can supply truncated and overlong arrays without changing the
+resource lookup. The stream closes in all paths. There is no resource name parameter, directory
+access, URL enumeration, fallback path, classloader scan, or public loader API.
+
+#### Explicit Java 21 metadata
+
+The test module checks in exactly one
+`META-INF/native-image/io.github.mundanej/mundane-map-native-tests/resource-config.json`, using the
+[GraalVM JDK 21 resource-metadata form](https://www.graalvm.org/jdk21/reference-manual/native-image/metadata/):
+
+```json
+{
+  "resources": {
+    "includes": [
+      {
+        "condition": {
+          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+        },
+        "pattern": "\\Qio/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba\\E"
+      }
+    ]
+  }
+}
+```
+
+The Java 21-specific file is the project baseline; a future toolchain-baseline task may migrate it, but
+G2 does not maintain dual metadata forms. The exact quoted pattern includes only the icon, not its
+directory or provenance file. The application also uses a constant class/resource lookup that the
+Java 21 tool can recognize, but the checked metadata remains the deliberate, reviewable inclusion
+contract. Metadata-repository use stays disabled; no tracing-agent output, reflection, proxy, JNI,
+serialization, bundle, initialization, or broad resource configuration is added.
+
+The native module's JVM test reads the metadata resource and compares it, after line-ending
+normalization, with the approved text block. The architecture suite includes the native support output
+in its prohibited-mechanism scan and verifies that the resource tree has no service descriptor or
+other discovery metadata; its direct-call check permits the one `Class.getResourceAsStream` lookup but
+continues to reject enumeration. Native Image itself validates the JSON schema during `nativeSmoke`;
+no JSON dependency is added merely to test the fixed file.
+
+This architecture work exposes a second planning-card discrepancy: G2-007's Required tests already
+demand architecture coverage, but its Scope names only `mundane-map-native-tests`. Before production
+implementation, that Scope must also name focused tests under
+`modules/mundane-map-architecture-tests`; no production path in that module changes.
+
+#### Shared JVM/native scenario
+
+`NativeSmokeMain.runSmoke()` remains the one assertion-bearing path called by both the JVM unit test
+and `main`. It preserves the G1 EDT bridge: callers off the EDT marshal synchronously, callers already
+on it run directly, and the original failure reaches the caller. It delegates to package-private
+`runScenario(NativeSymbolSmokeScenario)`. The immutable scenario owns the vector path, ordered
+composite, and raster icon and provides defensive `withVectorPath`, `withComposite`, and
+`withRasterPixels` copies for JVM negative controls; the zero-argument path alone loads the declared
+resource and constructs `standard()`. Package-private `NativeSymbolSmokeAssertions` receives the
+scenario, rendered image, and derived anchors, and is the sole assertion implementation used by both
+native execution and mutated JVM cases.
+
+The standard scenario creates one immutable catalog with exactly `vector`, `composite`, and `raster`
+entries and resolves each symbol with `require`. It deliberately requests `absent` and asserts
+`SYMBOL_CATALOG_MISSING` plus exact context `{name=absent}` before continuing. Fixed paint constants
+are opaque vector green `(36,144,94)`, bottom-composite blue `(40,90,210)`, top-composite yellow
+`(245,190,30)`, and opaque white background. Opacity is `1.0` for every symbol.
+
+The vector entry uses view box `[-0.5, -0.5, 0.5, 0.5]` and the exact closed path
+`moveTo(-0.5,0.5)`, `lineTo(-0.5,0)`, `quadraticTo(-0.5,-0.5,0,-0.5)`,
+`cubicTo(0.3,-0.5,0.5,-0.3,0.5,0)`, `lineTo(0.5,0.5)`, `close()`, rendered fill-only at 32 by 32
+logical pixels. The composite places a fill-only 14-pixel yellow diamond above a fill-only 28-pixel
+blue square. The raster entry loads the declared bytes and uses nearest interpolation at an
+aspect-preserving 32 by 16 logical-pixel size. All three are centered, zero-offset, zero-rotation,
+screen-relative marker symbols with blank feature labels.
+
+The Web Mercator projection unprojects projected points `(-64000,0)`, `(0,0)`, and `(64000,0)` to
+create the `vector`, `composite`, and `raster` feature coordinates. The three features enter one
+`InMemoryLayer` and render through a `MapView` constructed with
+`SymbolRendererRegistry.builderWithBuiltIns().build()`. The view is exactly 256 by 128 logical pixels
+and `fitToData(64.0)` must put the anchors within `1e-6` of `(64,64)`, `(128,64)`, and `(192,64)` with
+1,000 projected world units per pixel. The assertions derive actual anchors through the public
+projection and viewport methods after also checking those constants. As in the render-regression lane,
+the EDT scenario disables double buffering and fills a `BufferedImage.TYPE_INT_ARGB` white under
+`AlphaComposite.Src` before painting through a fresh full-image `SRC_OVER` child.
+
+The smoke deliberately keeps assertions smaller than the G2-006 regression framework. For each
+disjoint nominal marker rectangle it requires a non-empty non-background bound contained within that
+rectangle plus two logical pixels. All probes are 3 by 3 regions and use majority classification with
+a fixed per-channel tolerance of 20.
+
+For the vector marker, local points `(-0.32,-0.30)` and `(0.30,-0.31)` must be green: each lies safely
+below its curved boundary but above the corresponding straight chord. Local points `(-0.45,-0.45)`
+and `(0.42,-0.45)` must remain white above the quadratic and cubic boundary. A local point maps to
+`anchor + 32 * (x,y)`. JVM negative controls replace only the quadratic with `lineTo(0,-0.5)` and only
+the cubic with `lineTo(0.5,0)`; each calls the same scenario renderer and assertion helper and must fail
+the respectively named `vector-quadratic` or `vector-cubic` invariant. This proves both curve commands
+affect native-targeted painting rather than merely existing in the packed value.
+
+The composite center must be yellow, while `anchor + (10,10)` must be blue, proving declared top/bottom
+order. For the raster rectangle `[anchorX-16, anchorX+16] x [anchorY-8, anchorY+8]`, source-cell center
+probes are exactly `(anchorX-12,anchorY-4)` red, `(anchorX-12,anchorY+4)` yellow,
+`(anchorX+12,anchorY-4)` white for the transparent cell, and `(anchorX+4,anchorY+4)` within tolerance
+of magenta-over-white `(255,127,255)`. JVM negative controls reverse the two raster rows and reverse
+the composite children; each must fail the unchanged helper.
+
+A failure throws `IllegalStateException` naming `catalog-diagnostic`, `viewport`, `vector-quadratic`,
+`vector-cubic`, `vector-bounds`, `composite-order`, `raster-resource`, `raster-rows`, `raster-alpha`,
+or `raster-bounds`. The executable prints the existing `mundane-map native smoke: OK` line only after
+every assertion passes. It writes no image or temporary file.
+
+#### Lane and HITL checkpoint
+
+The existing Linux `native-image.yml` job continues to invoke only `./gradlew nativeSmoke
+--console=plain`; no second native job or platform claim is introduced. The JVM test remains in the
+normal checked project, while executable construction and execution stay outside `qualityGate`.
+
+The named checkpoint is **G2 native symbol-resource approval**. A maintainer runs the JVM/native module
+tests and `nativeSmoke` on Linux with a GraalVM Java 21 toolchain, reviews the exact metadata and fixture
+provenance, and records reviewer, date, OS/architecture, `java -version`, `native-image --version`,
+command, and pass/fail in the task Notes. Native success on another platform may be recorded as extra
+evidence but does not replace Linux or support a cross-platform claim. Without the toolchain or a
+successful executable run, implementation may be prepared but the implementation task is not
+Complete.
+
+#### Verification boundary
+
+JVM tests exercise the exact resource lookup, length rejection, packing order, catalog diagnostic,
+registry construction, EDT path, render, and all probe failures by focused mutation of test inputs.
+Architecture tests lock the single exact resource declaration and continue to reject discovery and
+prohibited mechanisms. The native executable repeats the unmodified success path. Encoded image
+decoding, production resource loaders, wildcard metadata, resource bundles, caching, Native Image
+performance, and Windows/macOS claims remain out of scope.
+
+### G2 design closeout
+
+The gate retains one toolkit-neutral symbol model with four explicit roles, one packed vector-path
+representation, one placement transform, one immutable named catalog, and one instance-owned AWT
+renderer registry. Concrete marker, line, fill, hatch, composite, and decoded-icon values remain small
+immutable values; they do not form a second scene graph or styling language. Java2D conversion,
+graphics ownership, and consumer render callbacks remain confined to AWT. Cross-role endpoint and
+outline dispatch stays package-private, so the public extension surface remains one renderer interface
+and one same-role child operation rather than parallel role hierarchies.
+
+The gate adds only a working gallery example and a custom test source set, not a reusable gallery
+framework, snapshot product, production resource module, encoded-image decoder, or cache. The native
+slice owns one exact raw fixture and one exact metadata entry. General SVG, file-backed raster sources,
+label layout, hit testing, thematic rules, and performance policy remain at their later boundaries.
+This is the smallest design that supports consumer-defined immutable symbols and renderers while
+keeping built-ins convenient through factories, catalogs, and an explicit preloaded registry.
+
+Two planning corrections are mandatory before production implementation: G2-005 consumes the G2-004
+line/fill renderers and therefore its task metadata must depend on G2-004, and G2-007's Scope must name
+its required architecture-test changes. Apart from those stale entries, the G2 dependency order is
+coherent. G3 can reuse the exact core marker transforms for hit testing without depending on Java2D
+internals, and G6 can reuse `RasterInterpolation` without adopting the test resource loader. G2 defers
+decoded-icon conversion and symbol-render caches; G6-004 owns format-level raster decode/resample
+caches, while G7 owns evidence-driven projected-path and symbol caches plus any higher-level raster
+render cache, integration, and measurement without duplicating the G6 caches. No further abstraction
+or module is justified at the G2 boundary.
+
 ## Projection pipeline
 
 ```text
@@ -1382,6 +1561,12 @@ The native lane remains separate from `qualityGate`. Its absence is reported as 
 than treated as JVM success; when the G1 implementation task is accepted, the named HITL checkpoint
 requires a maintainer with GraalVM to record the native command result.
 
+G2 expands that same entrypoint and shared JVM/native method to the three-feature vector, composite,
+and exact raster-resource scenario defined above; it does not retain a second G1-only executable or
+parallel assertion path. The one Java 21 resource-metadata entry is test-module configuration, not a
+production discovery facility. Later native tasks continue extending representative behavior in this
+single smoke application until G8 assembles the Level 1 release lane.
+
 ### G1 design closeout
 
 G1 adds verification depth, not a second map model. The packed geometry values, immutable viewport,
@@ -1413,6 +1598,7 @@ out of this gate.
 | 2026-07-12 | Generate hatch lines only over the clipped screen extent with an explicit per-feature budget. | A simple packed lattice plus Java2D polygon clip preserves holes while bounding allocation and work. |
 | 2026-07-12 | Register AWT symbol renderers by explicit role/key in an instance-owned immutable registry. | Consumers can extend rendering without reflection, discovery, toolkit leakage, or global mutable state. |
 | 2026-07-12 | Verify rendering through invariant-based headless scenarios in a separate lane. | Tolerant bounds, regions, and ordering catch material regressions without promising cross-platform pixel identity or burdening the normal gate. |
+| 2026-07-12 | Prove native symbol resources with one exact test-owned raw RGBA file and Java 21 resource metadata. | A fixed literal lookup and exact inclusion rule exercise the native boundary without inventing a production loader, decoder, or discovery mechanism. |
 
 ## Task design traceability
 
@@ -1431,3 +1617,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-004 | Solid line/fill values, endpoint tangents, bounded hatch layout, clipping, and migration | Approved |
 | G2-005 | Bounded raster icons, immutable named catalogs, explicit AWT registry, and custom rendering | Approved |
 | G2-006 | Runnable symbol gallery, named visual checkpoint, portable render scenarios, and separate lane | Approved |
+| G2-007 | Exact icon resource metadata, shared native symbol smoke, stable probes, and G2 closeout | Approved |
