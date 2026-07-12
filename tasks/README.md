@@ -78,8 +78,9 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
 
 - G4-003 additionally waits for G2-005/G3-003/G3-004 interaction rendering and owns the common source/AWT
   foundation; G4-004 follows it rather than duplicating shared contracts in a parallel branch.
-- After G5-002, G5-003, G5-004, G5-006, and G5-007 may proceed in reserved parser subpackages;
-  one owner must integrate the shared shapefile facade.
+- After G5-002, G5-003, G5-004, G5-006, and G5-007 may proceed in reserved behavior-specific
+  package-private source files; one owner must integrate the shared shapefile facade, source, cursor,
+  diagnostics, and authoritative project inventory.
 - G5 and G6 may proceed together after G4 once their separate module-registration edits have
   landed.
 - G9-002 and G9-003 may proceed together after G9-001.

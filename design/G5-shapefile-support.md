@@ -99,7 +99,8 @@ feature. Header type `0` is accepted only for an all-null file and exposes absen
 other supported header type, each record is either null or exactly that non-null type; another non-null
 code is terminal `SHAPEFILE_RECORD_TYPE_MISMATCH`.
 
-The 100-byte header requires file code `9994`, version `1000`, zero reserved words, a supported type,
+The 100-byte header requires file code `9994`, version `1000`, five reserved words that are all zero,
+a supported type,
 and checked mixed-endian fields. The non-negative big-endian length in 16-bit words must convert to an
 even byte count equal to the opened file size, at least 100 and no greater than the effective component
 limit. Extra bytes and a short declaration both fail. Header XY bounds are finite and ordered. A type
@@ -589,13 +590,16 @@ example is not added to the native-smoke application until G5-010. `publicationD
 format POM, JAR, sources, and Javadocs with only API/core project dependencies and no AWT/external
 runtime dependency.
 
-The only implementation packages created are those with behavior in this slice: one shared package-
-private opener/source/cursor support area and `internal.shp` parsing. Future ownership is reserved but
-empty packages/classes are not created: `internal.shx` belongs to G5-003,
-`internal.shp.polyline` to G5-004, `internal.dbf`/`internal.cpg` to G5-006, and `internal.prj` to
-G5-007. Those tasks add behavior behind the same explicit facade. One integrator owns edits to the
-shared opener, source, cursor switch, authoritative inventory entries, and diagnostic encounter order;
-logical parallelism does not make those shared files path-safe.
+The three public types and every package-private implementation peer share
+`io.github.mundanej.map.io.shapefile`. Java package-private access does not cross subpackages, and the
+project has no JPMS export boundary that would make public `internal.*` types private to the module.
+Consequently this format does not create misleading `internal.shp`, `internal.shx`, `internal.dbf`,
+`internal.cpg`, or `internal.prj` packages. Behavior remains separated by package-private
+`Shapefile*`/`Shp*`/`Shx*`/`Dbf*`/`Cpg*`/`Prj*` classes and source files in the one package; only the
+three named public types are externally accessible. Future ownership reserves those behavior-specific
+files but creates no empty classes. One integrator owns edits to the shared opener, source, cursor
+switch, authoritative inventory entries, and diagnostic encounter order; logical parallelism does not
+make those shared files path-safe.
 
 Derived architecture checks treat the format inventory entry as Level 1/native-targeted, permit only
 API/core/JDK dependencies, and reject `java.desktop`, AWT/Swing, service/discovery metadata,
@@ -834,3 +838,217 @@ There is no bundled production corpus, format code in AWT, or viewer-specific pa
 G5-002 implementation validation runs the new module/example checks, the existing normal gate,
 publication dry run, and whitespace. Native, corpus, fuzz, and performance evidence remain their
 separate later tasks.
+
+### SHX indexed-address slice (G5-003)
+
+#### Internal index and ownership
+
+G5-003 replaces only the staged `profile=shx` branch behind the existing `Shapefiles` facade. It adds
+no public type, opener overload, feature-count promise, random-record method, query option, or spatial
+index abstraction. Missing or discarded SHX continues through G5-002's sequential source; a valid
+SHX changes only the private way that the same cursor addresses physical records.
+
+One package-private `ShxReader` peer produces an all-or-nothing `ShxIndex` consumed by package-private
+opener/source peers in that same package. The index owns one
+`long[]` in physical entry order. Each element packs the positive raw big-endian offset word in the
+high 32 bits and the positive raw content-length word in the low 32 bits; package-private accessors
+perform checked word-to-byte conversion and never expose the array. Packing the two format integers
+directly avoids an object per entry, a second primitive array, and premature spatial metadata. The
+source owns either this immutable index or no index. No SHX channel, header buffer, entry buffer, file
+token, or partially filled array survives opening.
+
+The valid index is source state, not cursor state. Every cursor starts at entry zero and keeps only an
+entry ordinal in addition to G5-002's existing query/accounting state. Source close applies the normal
+closed-state checks to all later indexed access; there is no index-specific close operation or file
+handle to release. Metadata, the opening report, and already published records remain valid after
+close.
+
+#### SHX opening phase and bounded preflight
+
+The G5-002 opening transaction keeps its component snapshot and validated SHP channel. Immediately
+after SHP header validation, SHX resolution becomes:
+
+1. Check cancellation. If the snapshotted SHX is absent, append one `SHAPEFILE_SHX_MISSING` warning
+   and select the sequential source.
+2. If present, open the selected SHX positionally and capture its size. Reuse the opening
+   transaction's already charged 100-byte scratch buffer after the retained SHP header values have
+   been copied out; that one buffer serves the SHX header, each SHX entry, and each SHP frame read.
+   Check cancellation immediately before and after open, size, and every positional read.
+3. Apply captured-size invariants before inspecting header fields: require at least 100 bytes, no more
+   than `componentBytes`, an exact trailing multiple of eight, and checked derivation of
+   `entryCount = (size - 100) / 8`. These failures are `reason=length` and win over malformed header
+   bytes because no safe complete header/entry layout exists.
+4. Read the complete header and validate fields in physical order: file code, five reserved words,
+   length word against captured size, version, shape type against retained SHP type, then local and
+   cross-file XY bounds. Only after the header succeeds, require `entryCount` to fit the configured
+   `physicalRecords` ceiling, Java array capacity, checked `8 * entryCount` logical-byte charge, and
+   remaining `parserAllocationBytes`; then allocate the packed array.
+5. Stream each eight-byte SHX entry while positionally reading the corresponding eight-byte SHP
+   record frame. Validate the complete ordered address relationship below and fill the packed element
+   only after that entry succeeds.
+6. Require the checked end of the last addressed SHP frame to equal the captured SHP size, then
+   recheck that the SHX channel size still equals its captured size. Check cancellation before/after
+   that size call and immediately before treating the complete array as valid, close the SHX channel,
+   then check cancellation again before transferring the index and still-open SHP channel to the
+   source.
+
+Successful, missing, and recovered-invalid SHX resolution all continue to the existing DBF, CPG, and
+PRJ staged phases in that order. Thus a missing/ignored SHX warning precedes a later staged sidecar
+error and is retained in that terminal report, subject to G4's warning cap. A valid SHX is silent.
+G5-003 does not begin the missing-DBF policy, create a placeholder schema, or inspect another sidecar's
+bytes.
+
+Every SHX-only failure closes and discards its channel, buffers, and complete/partial array, appends
+exactly one `SHAPEFILE_SHX_IGNORED` warning, and selects the unchanged sequential path. This recovery
+includes SHX open/size/read/close I/O, malformed header/length/entry data, an SHX-specific limit or
+allocation preflight failure, and a structural mismatch against SHP. It never also emits
+`SHAPEFILE_IO_FAILED` or `SOURCE_LIMIT_EXCEEDED`. An SHP size/read I/O failure during cross-check is
+still terminal `SHAPEFILE_IO_FAILED` for component `shp`; it is not blamed on SHX. A malformed SHP
+frame encountered only while checking an otherwise readable SHX discards the index with
+`reason=shpMismatch`; the sequential cursor remains the correctness oracle and later reports that SHP
+problem through its normal terminal diagnostic.
+
+An exact positional SHP-frame read that reaches EOF without throwing is malformed framing, not JDK
+I/O: recover with `SHAPEFILE_SHX_IGNORED`, component `shx`, `reason=shpMismatch`, no record number,
+and byte offset at that SHX entry's content-length field. A thrown `IOException` from the SHP channel
+is instead terminal `SHAPEFILE_IO_FAILED`, component `shp`, at the requested SHP frame byte offset,
+with G5-002's lexical `causeKind`, `operation=read` context. The file-access seam exposes an ordinary
+short read/EOF separately from an injected `IOException`, so fault tests pin both branches.
+
+Cancellation is never recovered as an ignored index. It closes/discards SHX state and terminates
+opening with `SOURCE_CANCELLED`, retaining only an earlier warning already encountered. A custom token
+failure propagates unchanged after cleanup. Cleanup never polls cancellation. A close failure below a
+primary cancellation, SHP failure, unexpected throwable, or already selected
+`header|length|entry|shpMismatch` rejection is suppressed and does not replace that primary outcome.
+An SHX close failure after otherwise successful validation is itself recovered as `reason=io` and
+prevents index publication.
+
+#### Header and entry validation order
+
+SHX uses the same exact 100-byte mixed-endian layout as SHP:
+
+- big-endian file code `9994` at byte 0 and five zero reserved words at 4, 8, 12, 16, and 20;
+- a non-negative big-endian word length at 24 whose checked byte value equals the captured SHX size;
+- little-endian version `1000` at 28 and shape type at 32; and
+- finite, ordered little-endian XY bounds at 36, 44, 52, and 60, with signed zero canonicalized before
+  comparison. Raw bytes 68 through 99 are consumed but never decoded or compared.
+
+After captured-size invariants, header fields are checked strictly in their physical order. Invalid
+file code/reserved words or a version other than `1000` is `reason=header`; the non-negative declared
+length is `reason=length` when it disagrees with captured SHX size. Because the retained SHP header
+already has version `1000`, no separate version-mismatch branch exists. Any SHX shape code unequal to
+the retained valid SHP shape code is `reason=shpMismatch`, even if that SHX code would otherwise be
+unsupported. XY values are first checked locally for finiteness/order (`reason=header`) and then their
+canonical box is compared with SHP (`reason=shpMismatch`). An entry-count, Java-capacity, or packed-
+allocation ceiling checked after the complete header is `reason=entry`. SHX has its own declared
+length and it is never compared numerically with the different SHP declared length.
+
+The streamed entries and SHP frames are checked in this exact order for each one-based expected
+ordinal:
+
+1. Read the SHX offset and content-length words as signed big-endian integers; the offset must be
+   positive and the content length must be at least two words, enough for the required shape code.
+2. Convert each word to bytes with checked multiplication by two. The first offset must be exactly 50
+   words (byte 100); later raw offsets must be strictly increasing. Every offset is therefore even,
+   outside the file header, and representable.
+3. Require the converted offset to equal the exact next SHP record-header position derived from the
+   prior validated SHP frame. This equality, rather than a loose in-file range check, rejects gaps,
+   overlap, duplicates, and reordered entries.
+4. At that SHP offset, positionally read exactly eight bytes. Decode only the big-endian SHP content
+   word count; it must be at least two, convert without overflow, end within captured SHP size, and
+   equal the SHX content word count.
+5. Set the next expected SHP position to the checked end of that record and then publish the packed
+   entry into the still-private array.
+
+The preflight deliberately does not validate an SHP record number, shape code, bounds, coordinate,
+part table, or payload. Those remain cursor work, so the indexed and sequential modes share one
+payload decoder and one observable validation order. After the final entry, exact equality between
+the derived next SHP position and SHP EOF proves both entry-count agreement and absence of an
+unindexed trailing frame. An empty SHX is valid only when the SHP ends at byte 100.
+
+The one opening scratch buffer and packed array are cumulatively charged with G5-001's logical
+primitive sizes before their original allocation; reuse never charges the scratch buffer twice. Reads
+use the package-private G5-002 file-access seam; no memory map, direct buffer, full-file byte array,
+prefetch, cache, background scan, or provider is introduced. Cancellation is checked between entries,
+before and after both component reads, before the packed allocation, within controlled loops at no
+more than 4,096 primitive units, and before any opening result is published.
+
+#### Indexed cursor equivalence and mutation behavior
+
+When an index is present, `advance()` still visits every packed entry in ascending physical order and
+performs G5-002's record-examined, null-skip, payload validation, envelope filtering, ID, result-order,
+and query-limit steps unchanged. SHX is not a spatial index and never prunes a viewport query. The
+cursor obtains the next packed offset/length, reads the SHP record header again at that offset, and
+requires the on-disk record number to equal the expected ordinal and its current content length to
+equal the packed value before dispatching to the same Point/MultiPoint decoder. This second validation
+detects same-size file mutation after opening rather than trusting preflight forever.
+
+An indexed record-number disagreement uses G5-002's existing `SHAPEFILE_RECORD_NUMBER_INVALID`. After
+that check, the current content word follows G5-002's exact order: minimum two words, checked byte/end
+arithmetic, captured-file containment, then configured `recordBytes`. Existing framing or
+`SOURCE_LIMIT_EXCEEDED` outcomes win. Only a current length that is structurally valid and bounded is
+compared with the packed length, before physical-record/query charges or payload work. A valid current
+length that differs from the packed index terminates with
+`SHAPEFILE_RECORD_LENGTH_INVALID` at the SHP content-length field and exact context
+`actualBytes=<current>`, `expectedBytes=<packed>`, and `reason=indexMismatch`. A short read or other SHP
+payload/framing problem uses the existing SHP diagnostic. There is no mid-cursor warning, index
+discard, retry, or sequential fallback: retrying after records have been returned could duplicate or
+reorder results. Cursor failure/cancellation releases its slot and buffers while leaving the source
+reusable for a fresh cursor under the same immutable opening snapshot.
+
+The size equality check at cursor open and indexed exhaustion remains mandatory. Missing/ignored SHX
+uses the byte-for-byte G5-002 sequential loop. Valid indexed and sequential fixtures must therefore
+yield identical IDs, geometries, query accounting, physical order, exhaustion behavior, and terminal
+payload diagnostics; their only intentional observable difference is the source opening report.
+
+#### Stable SHX diagnostics
+
+SHX warnings use component `shx`, never copy a path, raw word, raw header value, localized exception
+message, or payload. `SHAPEFILE_SHX_MISSING` has no byte offset and empty context. Every ignored-index
+warning has exactly `reason=io|header|length|entry|shpMismatch`; only `reason=io` also has
+`causeKind=notFound|accessDenied|closed|other`, using G5-002's subclass order. No operation name is
+added to this recovered warning.
+
+The location is the earliest trusted place that selects the reason: byte zero for captured-size
+preflight; the first failing header field for header/length/cross-header failure; or the failing SHX
+entry field for local entry or cross-file mismatch. Failure to read an SHX entry to its captured
+boundary uses the first missing SHX byte. Non-throwing EOF during its corresponding SHP frame read uses
+the SHX content-length field as specified above. A final SHP-EOF/count mismatch uses the byte
+immediately after the last SHX entry. SHX warnings never set `recordNumber`, because preflight
+deliberately has not validated an on-disk SHP record number. SHX I/O uses a known requested byte offset
+when available and otherwise omits it.
+
+A non-throwing SHX header read that reaches EOF before 100 bytes despite captured size at least 100 is
+`SHAPEFILE_SHX_IGNORED`, component `shx`, `reason=length`, at the first missing SHX byte, with no
+record number or `causeKind`. A final SHX size recheck that differs from the captured size has the same
+warning/reason at byte zero. These are structural length failures; only a thrown `IOException` uses
+`reason=io` and `causeKind`.
+
+Reason selection is deterministic: captured-size invariants; header code/reserved, length, version,
+shape equality, local bounds, then bounds equality; entry-count/allocation preflight; local entry
+validity; SHP comparison; and finally the EOF/count check. A recovered warning is part of the
+immutable opening report and is not repeated by every cursor. Later DBF/CPG/PRJ tasks preserve it
+before their own warnings or terminal error.
+
+#### Evidence and viewer behavior
+
+Independent byte-level fixtures cover lower/upper SHX selection; missing SHX; exact empty/one/many
+indexes; first/last legal offsets; all five reserved words; arbitrary ignored Z/M bits; signed-zero
+bounds equality; size and length minus/equal/plus one; trailing bytes; entry count and packed
+allocation minus/equal/plus one; negative/zero/overflow words; duplicate/decreasing/gapped/overlapping
+offsets; SHP content/count/header disagreement; short reads; same-size mutation; and each exact warning
+reason/location/context. Fault-injected tests cover SHX versus SHP I/O classification, cancellation at
+every resource/read/allocation/publication checkpoint, custom-token propagation, close failure,
+partial-open reverse cleanup, and absence of a retained SHX channel or partial array.
+
+Equivalence tests run the same interleaved Null/Point/MultiPoint query with a valid index, no index,
+and every recovered-index category. They compare physical accounting, stable IDs/order, geometry,
+filtering, exhaustion, source reuse, early/repeated cursor close, source close with a live cursor, and
+post-close metadata/report survival. A valid index plus mutated record number/content length proves
+that cursor-time verification terminates without fallback or duplicate publication.
+
+The existing `shapefile-viewer` command and CRS argument remain unchanged. Its temporary fixture is
+run once with a valid SHX and once without one, proving equal fit/render behavior, empty versus missing
+opening reports, and file release. No bundled corpus, UI index control, random-record example, or
+spatial performance claim is added. G5-003 validation runs the focused format and viewer checks, the
+normal gate, and whitespace; corpus, fuzz, native, and performance lanes remain later owners.
