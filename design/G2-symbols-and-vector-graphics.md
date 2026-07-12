@@ -1205,6 +1205,24 @@ prohibited mechanisms. The native executable repeats the unmodified success path
 decoding, production resource loaders, wildcard metadata, resource bundles, caching, Native Image
 performance, and Windows/macOS claims remain out of scope.
 
+### Multipart geometry dispatch refinement (G4-003)
+
+G4-003 adds multipart geometry without widening the renderer SPI. Root dispatch retains the original
+multipart value as `featureGeometry`. A built-in `CompositeSymbol` is invoked once with that geometry,
+so its children remain child-major across all components. Before invoking any non-composite leaf
+renderer, package-private dispatch derives one singular component as `renderGeometry`: a point for
+each multipoint coordinate, a line string for each multiline part, or a polygon for each multipolygon
+component. Custom leaf renderers therefore continue to receive the singular role geometry available
+in G2 and need no multipart type switch.
+
+Same-role child recursion retains the current multipart or singular render geometry. Leaf component
+dispatch preserves declaration order for paint and reverses it for hit testing. Marker basis/anchor is
+derived independently per point, endpoint transitions apply independently per line part, and closed-
+ring transitions apply independently to every polygon ring. Results and logical paint presence union
+across components; the complete feature still contributes at most one hit identity. This one internal
+decomposition point preserves composite casing order without exposing a geometry visitor, component
+renderer registry, or synthetic public feature.
+
 ### G2 design closeout
 
 The gate retains one toolkit-neutral symbol model with four explicit roles, one packed vector-path

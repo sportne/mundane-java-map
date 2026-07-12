@@ -602,8 +602,9 @@ Projection
 Operation domains may be narrower than their CRS domains: EPSG:4326 includes the poles, while the
 Web Mercator forward operation does not. Both operation domains must be contained by their endpoint
 CRS domains. Coordinate and envelope methods are strict and required; there is no unsafe default that
-projects four corners for an arbitrary consumer projection. An implementation must validate the
-complete input against the applicable operation domain, validate every intermediate and result as
+projects four corners for an arbitrary consumer projection. A projection instance is immutable and
+deterministic for equal input; it cannot consult mutable ambient state. An implementation must
+validate the complete input against the applicable operation domain, validate every intermediate and result as
 finite and within the target domain, and then construct the public value. Null and structurally
 invalid arguments use the ordinary Java argument failures. A domain or numeric operation failure
 throws an unchecked `CrsException` carrying one bounded `CrsProblem(code, message, context)` but no
@@ -883,3 +884,316 @@ Arbitrary WKT, authority-axis negotiation, datum shifts, operation chaining, non
 densification, antimeridian splitting, additional projections/units, raster warping, and PROJ remain
 out of scope. Native behavior remains ordinary JDK math and explicit object construction with no
 resource/database discovery.
+
+### Feature source query and rendering slice (G4-003)
+
+#### Feature-half contract delivery
+
+G4-003 is the first production consumer of the G4-001 decision. It implements the common source
+identity, diagnostic, exception, cancellation, and limit values plus the feature metadata, schema,
+record, query, source, and cursor contracts exactly as approved above. It also applies the canonical
+attribute rules to existing `Feature` construction. Raster-specific metadata, windows, requests,
+pixels, reads, and `RasterSource` remain G4-004 work; that task reuses, rather than duplicates, the
+common values delivered here. No I/O module is created by this in-memory slice.
+
+The reusable core boundary contains one public, final, operation-local `FeatureQueryAccounting`
+helper. It is externally serialized, has no global state, and is constructed from the exact source ID
+and already-resolved effective `FeatureQueryLimits`. Its only state-changing operations are:
+
+```text
+recordExamined()
+recordReturned(FeatureRecord record, int retainedReferenceSlots,
+               CancellationToken cancellation)
+```
+
+Both methods perform checked prospective arithmetic and throw the already specified
+`SOURCE_LIMIT_EXCEEDED` failure before accepting the charge. `recordReturned` derives coordinate,
+offset, attribute, text, and logical-payload charges by exhaustive dispatch over the sealed geometry
+and canonical attribute values; it uses no reflection, object-size estimate, or caller-supplied byte
+claim. While traversing the record, it checks the non-null token before work, at no more than 4,096
+primitive/attribute units, and immediately before accepting the charge. Cancellation therefore fails
+with `SOURCE_CANCELLED` before the record or staging reference is retained. `retainedReferenceSlots`
+is non-negative and charges eight bytes each. A source cursor uses
+zero because it publishes one current value without retaining a result container. MapView uses a
+separate accounting instance with one slot for every record it stages, thereby independently enforcing
+`sum(record logical payload) + 8 * staged record count` without exposing a mutable source counter.
+G5 format modules reuse the same helper after their independent parser-allocation accounting.
+
+Every offset entry and repeated ring-closing coordinate is charged. The helper retains neither token
+nor record; cursor implementations still own checkpoints around filtering, projection, I/O, and
+publication. It is a correctness utility, not a profiler, allocator, query executor, or generic
+budget framework.
+
+#### Packed multipart geometry
+
+`Geometry` becomes sealed to exactly the three existing singular values plus
+`MultiPointGeometry`, `MultiLineStringGeometry`, and `MultiPolygonGeometry`. These remain geometry
+values rather than feature collections; empty geometry and null format records are not manufactured
+as geometry instances.
+
+The packed public shapes are:
+
+```text
+MultiPointGeometry(CoordinateSequence coordinates)
+
+MultiLineStringGeometry
+  of(CoordinateSequence coordinates, int[] partOffsets)
+  ofParts(List<CoordinateSequence> parts)
+  coordinates() -> CoordinateSequence
+  partCount() -> int
+  partOffset(int fenceIndex) -> int
+  partOffsets() -> defensive int[]
+
+MultiPolygonGeometry
+  of(CoordinateSequence coordinates,
+     int[] ringOffsets,
+     int[] polygonRingOffsets)
+  ofPolygons(List<PolygonGeometry> polygons)
+  coordinates() -> CoordinateSequence
+  ringCount() / polygonCount() -> int
+  ringOffset(int fenceIndex) / polygonRingOffset(int fenceIndex) -> int
+  ringOffsets() / polygonRingOffsets() -> defensive int[]
+```
+
+Offsets are fencepost indexes, not byte offsets: line part and polygon ring offsets index coordinate
+pairs, while polygon-ring offsets index rings. Each array begins at zero, is strictly increasing, and
+ends at the exact referenced count. A multiline has at least one part and two coordinates per part. A
+multipolygon has at least one polygon and one ring per polygon; within each polygon the first ring is
+the exterior and later rings are holes. Every ring has at least four coordinates and exact first/last
+closure. The packed factory clones caller arrays before validating the owned copies. Natural-list
+factories check aggregate integer arithmetic before allocation and flatten in declaration order.
+
+All values retain primitive indexed access, immutable value equality, defensive array copies, and one
+precomputed envelope over every coordinate, including hole coordinates. They preserve point, part,
+polygon, and ring order. Orientation, containment, intersection, island inference, repair, and format
+ring classification remain G5 responsibilities. Independently declared multipolygon components paint
+as separate even-odd exterior-plus-hole units; overlap may therefore composite twice and is not
+silently unioned.
+
+Role mapping follows component type: multipoint is `MARKER`, multiline is `LINE`, and multipolygon is
+`FILL`. Marker leaves visit point coordinates in order. Line leaves visit parts without bridging and
+apply start/end markers independently to every part. Fill leaves visit polygons in order and suppress
+line endpoints on every exterior and hole ring. Composite symbols remain child-major across all
+components, so all casing components paint before all inner-line components. Hit traversal reverses
+child and component order but emits at most one `(layerId, featureId)` hit for the record. Logical
+paint presence is the union of component results. The G1 convenience label remains single-point-only;
+G4 does not invent a multipoint label anchor.
+
+#### Immutable in-memory feature source
+
+Core supplies the one concrete source needed for this vertical slice:
+
+```text
+InMemoryFeatureSource.open(
+    SourceIdentity identity,
+    List<FeatureRecord> records,
+    Optional<AttributeSchema> schema,
+    Optional<CrsMetadata> crs,
+    FeatureSourceLimits limits) -> InMemoryFeatureSource
+
+InMemoryFeatureSource.open(SourceIdentity identity,
+                           List<FeatureRecord> records)
+```
+
+The convenience uses absent schema/CRS and the source-listed Level 1 limits. `open` snapshots the
+ordered immutable record references, validates a known schema against every record, rejects a duplicate
+ID before returning a source, computes exact count and union extent once, and exposes empty opening
+diagnostics. A duplicate is the terminal opening failure `SOURCE_DUPLICATE_FEATURE_ID` with exactly
+zero-based `firstIndex` and `duplicateIndex` context. The unbounded-but-valid exact feature ID is not
+copied into bounded diagnostic context or message; the caller already owns the indexed records. Other
+invalid direct schema/value construction is an ordinary field-naming application failure, not
+simulated malformed format input.
+
+The source implements the complete one-live-cursor and close state machine from G4-001 even though it
+owns no external handle. It releases its cursor slot on exhaustion, failure, cancellation, early
+close, or source close exactly once. Returned metadata, records, and reports survive close. Production
+in-memory close cannot fail; explicit conformance fixtures exercise cleanup failure without adding a
+configurable fake-failure switch to the source.
+
+Before acquiring the cursor slot, `openCursor` checks source/query lifecycle, an already-cancelled
+token, tighter-limit validity, and every `ONLY` field against a known schema. Its cursor linearly scans
+the immutable snapshot, calls `recordExamined` before each envelope decision, uses inclusive geometry-
+envelope intersection, projects attributes to `ALL`, `NONE`, or requested order, then calls
+`recordReturned` before publishing the projected record. Dynamic schemas may omit requested fields as
+approved; known schemas cannot. Source order is unchanged. The implementation polls cancellation
+between records, within its controlled coordinate/attribute loops at the 4,096-unit interval, and
+immediately before publication. G7 may replace the scan, but not ordering, accounting, query, or cursor
+semantics.
+
+#### One explicit AWT layer binding
+
+A lazy source is not an implementation of the existing `Layer`: `Layer.features()` means an already
+available snapshot and must never hide a cursor query, I/O, cache, or viewport dependency. AWT instead
+adds one final tagged host object:
+
+```text
+MapLayerBinding implements AutoCloseable
+  snapshot(Layer layer) -> MapLayerBinding
+  borrowedFeature(String layerId, String name, FeatureSource source,
+                  MarkerSymbol marker, LineSymbol line, FillSymbol fill)
+  ownedFeature(String layerId, String name, FeatureSource source,
+               MarkerSymbol marker, LineSymbol line, FillSymbol fill)
+  id() / name()
+  cancelCurrentOperation() -> boolean
+  isClosed() -> boolean
+  close()
+
+MapView
+  setLayerBindings(List<MapLayerBinding> bindings)
+  layerBindings() -> immutable ordered List<MapLayerBinding>
+```
+
+Direct role parameters avoid a second marker/line/fill bundle beside G3's semantically distinct
+overlay bundle. Factories validate exact IDs/names, source openness, non-null role-correct immutable
+symbols, and factory-local state before ownership transfer. View attachment later resolves metadata
+and renderer/CRS compatibility because those depend on that view. G4-004 adds working raster factory
+variants to this same closed host type only when raster behavior exists; consumers cannot implement an
+unrenderable binding variant.
+
+`MapView.setLayers` maps each existing `Layer` through `snapshot` and delegates to the canonical
+setter. Existing set/get behavior is unchanged for that path. `layers()` returns the immutable legacy
+snapshot entries, in relative order, when mixed bindings were installed; new code uses
+`layerBindings()` for the complete ordered stack. Layer IDs are unique across every binding kind.
+Feature IDs remain source-local. Candidate validation rejects one source instance appearing more than
+once in a view, avoiding one-cursor and report ambiguity.
+
+Every binding instance is attachable to at most one live MapView at a time. Candidate list, binding
+state, unique IDs/source identities, source metadata, complete recursive renderer availability for all
+three role symbols, and both direct CRS operations are validated before any new claim. Claims are then
+acquired transactionally; failure releases only claims acquired for that candidate and leaves the old
+view unchanged. A binding retained by object identity is neither reclaimed nor closed. Applications
+that show one borrowed source in two views construct two borrowed bindings and externally serialize
+the source as its contract requires.
+
+Successful replacement commits the new immutable list, reconciles interaction/report state, and
+requests repaint before releasing removed snapshot/borrowed claims and closing removed owned bindings
+in reverse old order. Borrowed/snapshot removal never closes its underlying object and permits later
+reattachment. Removed owned bindings become permanently closed and close their source once. A close
+failure is reported and thrown after commit without rollback. Calling `close()` on an attached binding
+is a lifecycle error; an unattached owned binding remains caller-closeable after failed attachment.
+
+For a source operation, a binding atomically publishes one fresh `CancellationSource` before query
+planning and clears that exact instance in `finally`. `cancelCurrentOperation()` is the sole method in
+this AWT surface permitted from another thread: it returns true and idempotently signals the currently
+published token, or false when no operation is active. It never cancels a future operation and mutates
+no Swing state. Snapshot bindings always return false. All other binding/view lifecycle follows the
+EDT and external-serialization rules. This is a bounded cancellation handoff, not an executor,
+background loader, callback, or public scheduling framework.
+
+G4-003 makes MapView's approved `AutoCloseable` behavior concrete. Permanent idempotent close releases
+borrowed/snapshot claims, closes owned bindings in reverse order, clears tool/interaction/report state,
+and leaves background-only painting. `removeNotify` remains reversible and does none of that work.
+
+#### One query transaction per source and operation
+
+The private `ViewContentSnapshot` becomes an ordered tagged list of legacy snapshots and successfully
+staged source snapshots. It never constructs a public `Feature` from a `FeatureRecord`. A source entry
+retains the original immutable record, binding role symbols, and resolved source/display operations
+only for that MapView operation. The binding list, viewport, registry, CRS operations, selection, and
+hover state are captured before traversal.
+
+Paint, public hit test, hover-producing move, and click selection each query a source binding at most
+once and reuse the result for every later step in that same operation. A consumed tool event that does
+not require a hit opens no cursor. For each required source entry, MapView performs:
+
+```text
+visible display envelope
+  -> display-to-source transformQueryEnvelope
+  -> FeatureQuery(transformed source bounds, AttributeSelection.NONE, no tighter limits)
+```
+
+`COMPLETE` opens normally. `CLIPPED` records `CRS_QUERY_ENVELOPE_CLIPPED` before opening on the
+intersection. `OUTSIDE` opens no cursor and publishes an empty successful/available layer with
+`CRS_QUERY_ENVELOPE_OUTSIDE_DOMAIN`. This is geometry-envelope visibility. A symbol anchored just
+outside the viewport is not queried merely because an offset or wide screen mark could bleed inward;
+G4 adds no guessed custom-renderer padding or full-source fallback. G7 may add evidence-backed query
+padding together with its index/query work without changing the source contract.
+
+MapView requests no attributes, opens exactly one cursor for that source in that operation, drains
+records in source order, and closes the cursor before using the list. Before appending each record it
+uses its independent accounting instance with one retained slot. Query-planning warnings precede
+cursor warnings; a bounded report merge preserves encounter order, the effective warning cap, and
+omitted count. Only successful exhaustion, close, accounting, and a final cancellation checkpoint make
+the staged list available.
+
+Before any pixels or hits from that source layer are evaluated, MapView preflights every staged
+coordinate through the strict source-to-display operation without retaining a projected cache. The
+operation contract is immutable and deterministic for equal input. A known CRS failure is translated
+at this source boundary, discards the whole source entry, and leaves later bindings available. A
+successful renderer may repeat the transform; avoiding that linear work requires G7 evidence rather
+than a premature projected-geometry cache.
+
+Cancellation, `SourceException`, cursor-close failure, staging-limit failure, or known CRS failure
+discards that whole source entry, records its terminal report, marks the layer unavailable, and lets
+later layers continue. No partial source pixels, hits, hover, selection overlay, or retained query list
+escape. Unexpected source runtime failures and symbol-renderer failures keep the existing whole-pass
+failure behavior. Report state commits with the operation; paint callbacks wait until child graphics
+disposal, while non-paint callbacks drain at transaction end.
+
+The complete base stack paints in binding order. Source records paint in cursor order. A raw record is
+dispatched with the role symbol selected from its geometry and original source-to-display operation;
+no parser style, synthetic `Feature`, or mutated record is involved. Hover, selection, and measurement
+remain later global passes. Hit traversal reverses binding and record order. Source overlays reuse the
+original staged geometry and source operation, do not hit-test, and require `PRESENT` source paint just
+like legacy overlays.
+
+#### Interaction, fitting, and report refinements
+
+Viewport-bounded absence is not source-wide absence. A clicked source record uses the binding ID and
+record ID normally. Once selected, that pair persists while the same binding instance remains
+installed even when the record is offscreen or a source query fails; only a currently staged matching
+record can paint its overlay. Removing or replacing the binding clears that source selection, even if
+the replacement reuses both strings. Legacy same-layer/same-feature reconciliation remains unchanged.
+
+Programmatic `setSelection` for a source binding validates the installed binding ID and accepts the
+feature ID as the caller's source-local assertion; it performs no hidden full scan and paints only if a
+later bounded query returns that exact ID. Legacy programmatic selection still requires exact snapshot
+existence. Hover is never asserted: it reflects only the current successful query/hit snapshot, and a
+failed source is skipped so a lower visible record may win. Recovery does not synthesize hover without
+a later passed pointer move.
+
+G3-001's proposed `MapToolContext.layers()` is removed before implementation. A `List<Layer>` cannot
+represent lazy or raster content without hidden I/O, while a legacy-only subset would be misleading;
+none of the designed Level 1 tools consumes it. A future editing slice may add a bounded content-query
+service when it has an actual consumer. The context retains exact map/display CRS, coordinate
+conversion, and repaint capabilities.
+
+`fitToData` snapshots the same binding stack but opens no cursor. Legacy extents transform strictly
+from map to display; present source metadata extents transform strictly from source to display.
+Missing extents are ignored. A known source extent/CRS failure updates that source report and skips its
+extent while other valid bindings still contribute. With no valid extent, fit remains a no-op. Report
+and availability transitions follow the same delivery/repaint rules as query operations.
+
+Opening warnings become a source binding's initial report only after successful attachment. A later
+operation replaces them with its bounded warnings/terminal report or clears them after clean success.
+`sourceReports()` stays ordered by the complete binding stack but contains entries only for source
+bindings. An `OUTSIDE` operation is available empty content with a warning. Every later operation
+retries an unavailable source, so recovery can restore it without a separate reset API.
+
+#### Verification boundary and task corrections
+
+API tests cover the complete common/feature contract set from G4-001, sealed permitted geometry types,
+packed/list multipart factories, offset fences, cardinality, exact closure, order, defensive copies,
+value equality, envelopes including holes, canonical attributes, and every query/diagnostic/limit
+invariant. Core tests cover shared accounting at every boundary/overflow, in-memory open metadata,
+duplicate IDs, schema validation/projection, inclusive filtering, stable order, one-cursor state,
+early/exhausted/failed/cancelled/source close, source reuse, tighter limits, and cancellation polling.
+
+AWT tests cover transactional mixed legacy/source attachment, role/registry/CRS validation, duplicate
+IDs/source instance, claim rollback, borrowed reuse, owned reverse close, failed close after commit,
+per-operation cancellation, `MapView.close`, remove/re-add, opening/query/terminal report ordering,
+availability follow-up, extent fit, and no cursor for missing extent or outside query. Operation tests
+assert one cursor per source per paint/hit/move/click transaction, cursor close before delivery,
+independent staging charges, all-or-nothing CRS preflight, later-layer continuation, no retained
+viewport cache, source selection persistence, programmatic assertion, hover recovery, mixed reverse
+hit order, and source-before-hover-before-selection-before-measurement painting. Offscreen-image tests
+exercise every singular/multipart family, holes, component and composite order, endpoint-per-part,
+single-record hit identity, overlay presence, and the documented symbol-bleed boundary.
+
+Architecture tests keep all common/source/geometry/accounting contracts JDK-only, keep bindings and
+MapView composition in AWT, and reject parser/format/codec/external types, executors, prefetch,
+discovery, retained query caches, or an empty format module. The implementation command includes the
+architecture-test module, followed by the normal quality gate and whitespace check. This task is at
+the upper end of the intended size because it delivers the complete feature half of the already
+approved G4 decision through one real render/hit/lifecycle slice; splitting it into class cards would
+delay observable behavior without creating a safer ownership boundary.

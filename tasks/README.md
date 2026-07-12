@@ -76,7 +76,8 @@ must name supported behavior, limits, malformed-input handling, and stable diagn
 
 Parallel work is safe only after dependencies are satisfied and scopes remain disjoint:
 
-- G4-003 and G4-004 may proceed together after G4-002.
+- G4-003 additionally waits for G2-005/G3-003/G3-004 interaction rendering and owns the common source/AWT
+  foundation; G4-004 follows it rather than duplicating shared contracts in a parallel branch.
 - After G5-002, G5-003, G5-004, G5-006, and G5-007 may proceed in reserved parser subpackages;
   one owner must integrate the shared shapefile facade.
 - G5 and G6 may proceed together after G4 once their separate module-registration edits have
@@ -131,8 +132,8 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 | --- | --- | --- | --- | --- |
 | [G4-001 — Source contract and diagnostic profile](G4-001-source-contract-and-diagnostic-profile.md) | Proposed | HITL | G1-001 | Lock vector/raster query, lifecycle, limits, attributes, and diagnostics contracts. |
 | [G4-002 — CRS boundary and projection hardening](G4-002-crs-boundary-and-projection-hardening.md) | Proposed | AFK | G4-001 | Add explicit CRS metadata/registration and harden Web Mercator boundaries. |
-| [G4-003 — Feature source query rendering slice](G4-003-feature-source-query-rendering-slice.md) | Proposed | AFK | G4-001, G4-002 | Render bounded viewport queries, including multipoint and multipart geometry. |
-| [G4-004 — Raster source window rendering slice](G4-004-raster-source-window-rendering-slice.md) | Proposed | AFK | G4-001, G4-002 | Render synthetic toolkit-neutral raster windows with lifecycle and cancellation. |
+| [G4-003 — Feature source query rendering slice](G4-003-feature-source-query-rendering-slice.md) | Proposed | AFK | G2-005, G3-003, G3-004, G4-001, G4-002 | Render bounded viewport queries, including multipoint and multipart geometry. |
+| [G4-004 — Raster source window rendering slice](G4-004-raster-source-window-rendering-slice.md) | Proposed | AFK | G4-003 | Render synthetic toolkit-neutral raster windows with lifecycle and cancellation. |
 
 ### G5 — Read-only shapefile support
 

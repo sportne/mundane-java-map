@@ -1,7 +1,7 @@
 # G4-004 — Raster Source Window Rendering Slice
 
 Status: Proposed
-Depends on: G4-001, G4-002
+Depends on: G4-003
 Gate: G4
 Type: AFK
 
@@ -13,9 +13,10 @@ diagnostic, and lifecycle contracts, proving the boundary before adding encoded 
 ## Context
 
 No raster model or layer exists today. G4-001 defines `RasterSource`, metadata, raster requests, pixel
-ownership, and cancellation; G4-002 defines recognized CRS behavior. Java2D conversion belongs in
-`mundane-map-awt`, while the source and returned pixel data must remain usable by JDK-only non-AWT
-modules and Native Image.
+ownership, and cancellation; G4-002 defines recognized CRS behavior; G4-003 delivers the shared
+diagnostic, cancellation, limit, binding, report, and MapView lifecycle foundations. Java2D conversion
+belongs in `mundane-map-awt`, while the source and returned pixel data must remain usable by JDK-only
+non-AWT modules and Native Image.
 
 ## Scope
 

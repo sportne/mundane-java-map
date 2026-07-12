@@ -89,7 +89,6 @@ MapToolResult = PASS | CONSUME | CAPTURE
 MapCursorIntent = DEFAULT | CROSSHAIR | HAND | MOVE
 
 MapToolContext
-  layers() -> immutable ordered List<Layer>
   mapCrs() -> CrsDefinition
   displayCrs() -> CrsDefinition
   mapToScreen(Coordinate sourceMap) -> Optional<Coordinate>
@@ -118,9 +117,9 @@ lookup. A tool may therefore change its EDT-confined cursor state during an ordi
 cursor mutation method. The accessor must otherwise be side-effect-free and deterministic for the
 tool's current state.
 
-Context values are callback-scoped snapshots. The layer list, map/display definitions, directional
-operations, and viewport used by its coordinate conversions are the same pre-navigation snapshots
-used to build the event. Optional conversion is empty only for a domain/unrepresentable coordinate;
+Context values are callback-scoped snapshots. The map/display definitions, directional operations,
+and viewport used by its coordinate conversions are the same pre-navigation snapshots used to build
+the event. Optional conversion is empty only for a domain/unrepresentable coordinate;
 an unexpected projection implementation failure still propagates. A repaint request delegates to the
 host's ordinary coalescing repaint and does not paint synchronously. The context exposes no `MapView`,
 AWT value, layer mutation, viewport mutation, registry, cursor setter, or overlay renderer, and must
@@ -358,7 +357,8 @@ clipped to the exact half-open component domain `[0,width) x [0,height)`. A foot
 where it intersects that domain after fill, stroke, hatch, transform, and interpolation-support
 expansion; clipping a centerline or nominal marker bounds is not sufficient.
 
-Every paint, public hit query, click-selection operation, `setSelection` call, and selection read
+For the legacy-layer G3 baseline, every paint, public hit query, click-selection operation,
+`setSelection` call, and selection read
 captures one private immutable `ViewContentSnapshot` on the EDT. Capture copies the installed layer
 list, calls each layer's `id()` and `features()` exactly once, copies each ordered feature list, and
 validates all captured elements and IDs. Layer IDs must be unique in a view and feature IDs unique
@@ -513,8 +513,8 @@ raster readback.
 #### Selection state and click behavior
 
 `MapView` owns `Optional<FeatureSelection> selection()` and explicit
-`setSelection(FeatureSelection)`/`clearSelection()` methods. Programmatic set requires the exact IDs to
-exist uniquely in its one captured content snapshot; absence is a field-naming
+`setSelection(FeatureSelection)`/`clearSelection()` methods. For a legacy layer, programmatic set
+requires the exact IDs to exist uniquely in its one captured content snapshot; absence is a field-naming
 `IllegalArgumentException`. It applies the selection against that same snapshot rather than reading a
 layer again. Validation and existence checking occur before comparing with stored state, so setting the
 same value is a no-op only when it remains valid in that snapshot. `clearSelection()` never consults
@@ -522,12 +522,17 @@ layer content: it clears the stored immutable pair directly and therefore still 
 unrelated mutable layer is invalid or throws. Clearing empty state is a no-op. Any real change requests
 one repaint, although G3-003 supplies the first visual overlay and change listeners.
 
-Selection is reconciled from the operation's content snapshot before paint or hit traversal and before
+Legacy selection is reconciled from the operation's content snapshot before paint or hit traversal and before
 `selection()` returns, and transactionally during `setLayers`. Removing the selected layer or feature
 clears it; replacing objects under the same IDs or reordering them preserves it. This is ID continuity
 only—no geometry/attribute/source-version matching is inferred. Duplicate IDs fail as above rather
 than choosing an arbitrary selection. Reconciliation during an already scheduled paint does not queue
 a redundant repaint; external reads and hit operations that discover and clear stale state request one.
+
+G4-003 extends the private snapshot with bounded lazy-source entries. It does not treat absence from a
+viewport query as source-wide removal, does not represent a source as `Layer`, and defines the
+source-specific programmatic-selection and binding-replacement rules in the
+[G4 source slice](G4-sources-and-crs.md#interaction-fitting-and-report-refinements).
 
 After the G3-001 router passes an unmodified, non-popup, single primary `CLICK` with no buttons down,
 including a passed clean-idle click when no tool is installed, MapView captures content once and
