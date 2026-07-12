@@ -2268,6 +2268,514 @@ Architecture tests keep event/symbol values AWT-free and reject any second regis
 Tooltips, accessibility, multi-selection, editing handles, animation, thematic styles, generalized
 visibility, render caching, narrow dirty bounds, and performance claims remain out of scope.
 
+## Format-neutral sources
+
+### Source contract and diagnostic profile (G4-001)
+
+#### Synchronous source surface
+
+Level 1 has two explicit pull contracts rather than a generic parser/source hierarchy, `Stream`,
+reactive publisher, future, or implicit worker:
+
+```text
+FeatureSource extends AutoCloseable
+  metadata() -> FeatureSourceMetadata
+  limits() -> FeatureSourceLimits
+  openingDiagnostics() -> DiagnosticReport
+  openCursor(FeatureQuery query, CancellationToken cancellation) -> FeatureCursor
+  isClosed() -> boolean
+  close()
+
+FeatureCursor extends AutoCloseable
+  advance() -> boolean
+  current() -> FeatureRecord
+  diagnostics() -> DiagnosticReport
+  isClosed() -> boolean
+  close()
+
+RasterSource extends AutoCloseable
+  metadata() -> RasterSourceMetadata
+  limits() -> RasterSourceLimits
+  openingDiagnostics() -> DiagnosticReport
+  read(RasterRequest request, CancellationToken cancellation) -> RasterRead
+  isClosed() -> boolean
+  close()
+```
+
+Methods execute synchronously on the caller's thread. Sources and cursors require external
+serialization and create no executor, callback thread, prefetcher, or hidden cache. Immutable returned
+values are thread-safe; only cancellation is deliberately cross-thread. `FeatureSource` permits at
+most one live cursor, which is enough for viewport rendering and keeps sequential channels honest.
+Opening a second is a lifecycle `IllegalStateException`, not an adapter-specific behavior.
+
+The base `RasterSource` contract likewise makes no concurrent-call promise. G6-004's concurrent
+identical-request requirement deliberately strengthens the concrete cached image source/decoder; it
+does not retroactively make every synthetic, file, remote, or consumer source thread-safe. That task
+must define read/read and read/close races for its implementation while ordinary callers continue to
+serialize through the interface.
+
+`advance()` moves from `NEW` or `CURRENT` to a new current record and returns true, or releases
+operation resources, enters `EXHAUSTED`, and returns false. Repeated advance after exhaustion returns
+false without I/O. `current()` is valid only after the latest true result and before another advance or
+close; other calls are `IllegalStateException`. A yielded immutable record remains independently valid
+when retained by the consumer. A terminal read failure releases operation resources, enters `FAILED`,
+and throws `SourceException`; later advance/current calls are lifecycle failures. Early and repeated
+close are safe, invalidate current, and never close the parent source. The first cursor close marks the
+cursor `CLOSED`, invalidates current, and releases the source slot before attempting cleanup exactly
+once. If cleanup fails, it throws `SOURCE_CLOSE_FAILED`; its report contains the cursor warnings and
+terminal error. A repeated close is a no-op and never retries cleanup. The parent remains open and may
+service a later cursor, even when direct cursor close reported a cleanup failure.
+
+Exhaustion, terminal failure, cancellation, and the first early close each release the fixed
+one-cursor slot exactly once. Repeated close or exhausted advance cannot release a later cursor's slot.
+
+Source close is idempotent. It marks the source closed before cleanup, closes its live cursor first,
+then its own handles exactly once. The first cleanup failure remains primary and later failures are
+suppressed; a failed close is not retried. Metadata, effective limits, opening diagnostics, and cursor
+diagnostics remain readable after close. Operational source calls and cursor use after explicit/source
+close are `IllegalStateException`. There is no finalizer, `Cleaner`, shutdown hook, or implicit retry.
+When source close invokes cursor close, it continues with its own cleanup after any cursor failure and
+aggregates failures by the same primary/suppressed rule.
+
+Raster reads are all-or-nothing. Success publishes one immutable `RasterRead`; cancellation or failure
+discards the partial buffer and throws. Feature failure does not revoke records already yielded. A
+cancelled/failed cursor releases the source's one-cursor slot, and the still-open source may service a
+later operation. An ordinary `SourceException` from `RasterSource.read` likewise releases every
+operation-owned resource and leaves an open source reusable; retry may fail with the same stable error,
+but only explicit source close makes it permanently closed. After cleanup, an unexpected
+`RuntimeException` or `Error` still propagates unchanged and provides no reuse guarantee, so the caller
+closes the source.
+
+#### Identity, metadata, and unstyled features
+
+`SourceIdentity(id, displayName)` owns a non-blank exact logical ID and a display name that may be
+empty. Both are limited to 256 UTF-16 characters. The ID is supplied by the opener, need only be
+stable within the application, and is never required to contain an absolute path, URI, credential, or
+other sensitive locator. Diagnostics use this ID; component locations identify sidecars/codecs
+separately.
+
+The metadata values are:
+
+```text
+FeatureSourceMetadata(
+  SourceIdentity identity,
+  Optional<Envelope> extent,
+  OptionalLong featureCount,
+  Optional<AttributeSchema> schema,
+  Optional<CrsMetadata> crs)
+
+RasterSourceMetadata(
+  SourceIdentity identity,
+  int width, int height,
+  Optional<Envelope> mapBounds,
+  Optional<CrsMetadata> crs)
+```
+
+Metadata is captured once at successful open and remains immutable after close. A feature extent may
+be conservative; a present feature count is exact, so a source leaves it absent rather than exposing a
+header estimate. It counts exposed `FeatureRecord` values, excluding physical null/deleted/skipped
+format records. Missing CRS is distinct from G4-002's retained unknown CRS. Bounds are expressed in the
+declared source CRS even when that CRS is unknown; without a recognized transform they remain
+metadata, not permission to render. Raster dimensions are positive. The exact baseline raster mapping
+is defined below; affine rotation/shear begins in G6-002 rather than appearing as an empty abstraction
+here.
+
+Format readers yield `FeatureRecord(id, name, geometry, attributes)`, not styled `Feature` values. The
+record uses the existing exact non-blank ID rule, allows an empty display name, and owns immutable
+geometry and ordered attributes. A source-backed layer in G4-003 supplies explicit caller-owned
+marker/line/fill symbols by geometry role. Parsers therefore never choose cartography, and the same
+record can be presented differently without mutation or synthetic parser options.
+
+G4-003 seals `Geometry` to the source-listed API implementations while adding multipoint and multipart
+values. Every permitted geometry is deeply immutable, owns packed primitive coordinates, has stable
+value equality, and returns the same finite envelope for its lifetime. The current open extension
+point is removed during `0.x`: an arbitrary geometry was never renderable through the closed geometry
+dispatch and cannot satisfy immutable-record ownership mechanically.
+
+Within one opened source, every exposed record ID is unique and stable for that source's lifetime;
+repeated queries for the same underlying record return the same exact ID. Adapters derive that
+property structurally where possible (for example from a stable record number) rather than scanning
+the whole source. An encountered duplicate terminates before yielding the duplicate with
+`SOURCE_DUPLICATE_FEATURE_ID`; an in-memory source validates its complete snapshot at construction.
+Uniqueness is source-local—different layers/sources may reuse an ID because interaction identity also
+contains the layer ID.
+
+`Layer` and `InMemoryLayer` remain supported snapshot APIs through Level 1 and are not made to
+materialize a lazy source. G4-003 adds an in-memory source and a source-backed rendering path while
+retaining the existing layer path as a compatibility adapter. Deprecation, if justified, waits for the
+G8 API review. Existing examples' string attributes remain valid.
+
+#### Ordered bounded attributes and queries
+
+`FeatureRecord` and the existing `Feature` preserve the public `Map<String,Object>` shape during
+`0.x`, but their constructors canonicalize one explicit Level 1 value set into a defensive insertion-
+ordered unmodifiable `LinkedHashMap`:
+
+- `String`, `Boolean`, `Long`, finite `Double`, `BigDecimal`, and `LocalDate` are retained;
+- byte, short, and integer become `Long`; finite float becomes `Double`; `BigInteger` becomes
+  `BigDecimal`;
+- `AttributeNull.INSTANCE` is retained and represents a present null independently of a missing key;
+  and
+- an existing `AttributeBytes` is retained, while raw `byte[]` becomes that immutable value-based
+  wrapper, which clones input/output, provides length/index access, and never prints payload contents.
+
+Keys are non-blank, at most 256 UTF-16 characters, preserved exactly, and retain caller iteration
+order. Null values, non-finite floating values, arbitrary `Number` subclasses, every other array,
+collection/map/optional value, mutable value, parser-library object, and external-adapter type are
+rejected before storing anything. Allowed JDK numeric/date values use the exact listed runtime classes
+rather than accepting arbitrary subclasses. Recursive attribute collections remain a later
+GeoJSON-profile decision. `Map.copyOf` is not used because its iteration order is not the schema
+contract.
+
+`AttributeSchema` defensively owns an ordered unique list of
+`AttributeField(name, AttributeType, nullable)`. The type enum exactly matches the canonical set
+(`TEXT`, `LOGICAL`, `INTEGER`, `FLOATING`, `DECIMAL`, `DATE`, `BINARY`); nullability is separate. A
+present schema requires every emitted value to be compatible and every attribute key to be declared.
+Before query projection, an `ALL` record contains every declared field exactly once; a nullable field
+uses `AttributeNull`, while a non-nullable field cannot be null or missing. `ONLY` contains every
+selected field in request order under the same rule, and `NONE` is empty. Absence of a schema permits
+dynamic scalar fields and `AttributeNull`.
+
+```text
+FeatureQuery(
+  Optional<Envelope> sourceBounds,
+  AttributeSelection attributes,
+  Optional<FeatureQueryLimits> tighterLimits)
+
+AttributeSelection = ALL | NONE | ONLY(ordered unique names)
+```
+
+An absent envelope means all records. A present envelope uses inclusive intersection with the feature
+geometry envelope in source coordinates; this is a bounding-box predicate, not exact topology.
+Results retain source record order and are never implicitly sorted. Attribute projection is not a
+filter expression: `ALL` preserves source/schema order, `NONE` emits an empty map, and `ONLY` preserves
+the requested unique name order for values that are present. An unknown requested field against a
+known schema terminates the query with `SOURCE_QUERY_ATTRIBUTE_UNKNOWN`; dynamic schemas may omit a
+requested value on a particular record. `ONLY` requires a non-empty list; callers use `NONE` rather
+than relying on an ambiguous empty projection.
+
+#### Raster window and pixel ownership
+
+```text
+RasterWindow(int column, int row, int width, int height)
+
+RasterRequest(
+  RasterWindow sourceWindow,
+  int outputWidth, int outputHeight,
+  Optional<RasterRequestLimits> tighterLimits)
+
+RasterRead(
+  RasterWindow sourceWindow,
+  RgbaPixelBuffer pixels,
+  DiagnosticReport diagnostics)
+```
+
+When map bounds are present, both spans are positive. Column edges increase east/right from
+`minX` to `maxX`; row edges increase down from `maxY` to `minY`. For metadata width `W`, height `H`,
+column edge `c` is the checked finite interpolation `lerp(minX,maxX,(double)c/W)`, and row edge `r` is
+`lerp(maxY,minY,(double)r/H)`. Thus row zero is the north/top row and a pixel center is at half an edge
+interval. A `RasterRead.sourceWindow()` equals the request window exactly, and its pixel-buffer
+dimensions equal the requested output dimensions exactly.
+
+Windows use non-negative integer grid coordinates and positive dimensions, denote half-open ranges,
+and validate end-coordinate addition in `long`. A source accepts only a window wholly contained by
+its metadata dimensions. It does not clip: out-of-range input terminates with
+`RASTER_WINDOW_OUT_OF_RANGE`, avoiding ambiguous output georeferencing. MapView computes and clamps a
+visible intersection before requesting it; empty intersection issues no request.
+
+G4's baseline resampling is deterministic pixel-center nearest neighbor from the strict source window
+to the positive requested output dimensions. For zero-based output index `o`, source size `S`, and
+output size `D`, the relative source index is exactly
+`floor(((2 * o + 1) * S) / (2 * D))` using checked `long` multiply/add; the half-open rule assigns an
+exact tie to the greater/right-or-bottom cell and the result is necessarily in `[0,S)`. Add the source
+window's column/row to obtain the sample. G6-003 later adds explicit nearest/bilinear control. Opacity
+is a layer/render concern and is not part of a source request.
+
+This explicitly refines stale wording in the G6-003 task card: that task adds only
+`RasterInterpolation` to the immutable `RasterRequest`. Cancellation remains the per-invocation token
+so one request value can be retried, and opacity remains immutable raster-layer/render state so decoded
+pixels and decode/resample cache keys do not vary with composition. The card must be corrected before
+its production task begins; the G4 implementation does not pre-add either field.
+
+`RgbaPixelBuffer` owns positive dimensions and row-major unpremultiplied `0xRRGGBBAA` ints, matching
+G2 raster icons. A copying factory and a single-use builder cover caller-owned and producer-owned
+construction. The builder allocates only after request-limit validation, transfers its array exactly
+once from `build()`, clears its own reference, and rejects all later access. The immutable buffer
+offers bounded `rgbaAt` and a defensive array copy. A successful `RasterRead` and its buffer remain
+valid after request/source close; the source never retains a consumer buffer.
+
+#### Limits and cancellation
+
+Limits are relevant typed values, not a string-key bag or one record containing every future format's
+knobs. The one-cursor rule is a fixed lifecycle invariant, not a tunable limit.
+`FeatureSourceLimits` owns a complete `FeatureQueryLimits`; `RasterSourceLimits` owns a complete
+`RasterRequestLimits`. The Level 1 defaults are:
+
+| Feature-query ceiling | Default |
+| --- | ---: |
+| Records examined | 1,000,000 |
+| Records returned | 100,000 |
+| Coordinates returned | 10,000,000 |
+| Attribute values returned | 1,000,000 |
+| Decoded text characters returned | 16,777,216 |
+| Conservatively owned payload bytes | 268,435,456 |
+| Retained warnings | 256 |
+
+| Raster-request ceiling | Default |
+| --- | ---: |
+| Source-window pixels examined | 67,108,864 |
+| Output width or height | 8,192 |
+| Output pixels | 16,777,216 |
+| Decoded/intermediate bytes | 268,435,456 |
+| Conservatively owned payload bytes | 268,435,456 |
+| Retained warnings | 256 |
+
+All maxima are positive; there is no zero/negative/unlimited sentinel, system-property override, or
+mutable global. A concrete open-options value captures its full effective ceiling and may explicitly
+raise or lower documented defaults. Query/request overrides may only tighten every field; a purported
+increase is `IllegalArgumentException`. Omission inherits the opened ceiling. Format modules compose
+these values with their own typed open limits for input/record bytes, record/part/point/field counts,
+field/text width, dimensions, channels, nesting when applicable, and aggregate allocation. G5/G6 pin
+those format defaults rather than extending a generic map.
+
+Records-examined includes filtered, deleted, null, and recoverably skipped records. Payload accounting
+uses deterministic logical capacity rather than actual heap size, current live-set size, or a
+garbage-collector-dependent estimate. An operation's counter is cumulative: a charge is never removed
+when a value is yielded, filtered, released, or replaced. Each owned occurrence is charged without
+identity deduplication under this fixed table:
+
+| Owned value or slot | Logical byte charge |
+| --- | ---: |
+| `byte` or binary payload element | 1 |
+| `short` or UTF-16 character | 2 |
+| `int`, packed pixel, or part-offset element | 4 |
+| `long`, `double`, or reference slot | 8 |
+| geometry coordinate pair | 16 |
+| map entry | 16 for its two reference slots, plus key/value contents |
+| list entry | 8 for its reference slot, plus separately owned value contents |
+| `AttributeNull` or `Boolean` value | 1 |
+| `Long`, `Double`, or `LocalDate` value | 8 |
+| `BigDecimal` value | 4 for scale plus `max(1, ceil(abs(unscaled).bitLength / 8))` |
+
+Every record occurrence charges twice the UTF-16 length of its ID and name, its packed geometry
+coordinates and part offsets, and each attribute map entry, key, and value. A `String` attribute
+charges twice its UTF-16 length and `AttributeBytes` charges its exact length. A feature query charges
+that complete owned content once for every record it constructs for publication, even if an
+implementation happens to reuse an equal immutable value; previously yielded records continue to
+count. Operation-owned containers add their reference-slot charges separately, so G4-003's AWT staging
+list adds eight bytes per staged record but does not charge the record contents a second time merely
+for retaining the same instance. Object headers, alignment, implementation collection capacity, and
+diagnostics are deliberately excluded; diagnostics have independent hard bounds and warning caps.
+
+Format-specific aggregate-allocation counters use the same primitive and reference-slot charges for
+parser-owned arrays, buffers, strings, and containers, including intermediate values later filtered or
+discarded. They are separate from query payload, so a format can bound hostile parsing work without
+changing the format-neutral returned-value contract. For a raster read, decoded/intermediate bytes are
+the cumulative logical capacity of every project- or decoder-owned primitive/reference buffer created
+or transferred during that invocation, charged once immediately before allocation or ownership
+transfer. This includes an injected decoder's Java2D backing array and the final RGBA array when it is
+produced through decode/resample. Conservatively owned raster payload independently charges four times
+the output pixel count for the published `RgbaPixelBuffer`; overlap between these two ceilings is
+intentional. Metadata and open-time values are outside per-operation counters and remain constrained by
+their typed open limits and fixed value bounds.
+
+Every prospective charge and count uses checked multiplication and addition before seek, slice,
+decode, builder creation, transfer, or publication. Arithmetic overflow records `requested` as
+`Long.MAX_VALUE` and fails before the allocation or transfer. Otherwise the exact prospective
+cumulative value is compared to the effective maximum; equality is accepted and maximum plus one is
+rejected. Exceeding a ceiling discards the current partial result and terminates with
+`SOURCE_LIMIT_EXCEEDED` and exactly `scope`, `limit`, `requested`, and `maximum` context. Previously
+yielded feature records remain valid.
+
+`CancellationToken` is a read-only functional value with `isCancellationRequested()` and singleton
+`none()`. `CancellationSource` owns an `AtomicBoolean`, exposes one token, and has monotonic idempotent
+`cancel()`. It has no listener, interrupt, future, or executor. Sources poll before any I/O or large
+allocation, between records/stages, at least once per raster output row, within project-controlled
+byte/text/coordinate/pixel loops at no more than 4,096 primitive units, and immediately before
+publication. Already-cancelled input performs no I/O or allocation.
+
+Opaque JDK operations such as one blocking channel read or `ImageIO` decode are checked immediately
+before and after but cannot promise an internal 4,096-unit checkpoint or latency bound. G6's injected
+decoder boundary exposes bounded stages/regions where the JDK API permits them; it does not replace a
+JDK codec merely to fake polling. Cancellation observed after an opaque call still discards its result
+before publication.
+
+Cancellation terminates with `SOURCE_CANCELLED`, discards the current record/window, and releases
+operation resources; it is never silent EOF. A feature cursor enters distinct `CANCELLED`, invalidates
+current, and releases the one-cursor slot; later cursor operations are lifecycle failures. A raster
+read returns no value. Unless explicitly closed, both parent sources remain reusable for a new
+operation after cancellation. Cross-thread close is not cancellation. A custom token failure is
+cleaned up and propagated unchanged rather than mislabeled.
+
+#### Stable bounded diagnostics
+
+`DiagnosticSeverity` has `WARNING` and `ERROR`: a warning records one documented skip, fallback, or
+substitution and continues; an error terminates the current open/query/read/cursor/close operation.
+Programmer input/lifecycle failures remain `NullPointerException`, `IllegalArgumentException`, or
+`IllegalStateException` and do not become source diagnostics.
+
+```text
+DiagnosticLocation(
+  Optional<String> component,
+  OptionalLong recordNumber,
+  OptionalInt partIndex,
+  OptionalInt fieldIndex,
+  Optional<String> fieldName,
+  OptionalLong byteOffset)
+
+SourceDiagnostic(
+  String code, DiagnosticSeverity severity, String sourceId,
+  Optional<DiagnosticLocation> location,
+  String message, Map<String,String> context)
+
+DiagnosticReport(List<SourceDiagnostic> entries, long omittedWarningCount)
+```
+
+Codes match `[A-Z][A-Z0-9_]*`; subsystem prefixes such as `SOURCE_`, `CRS_`, and `SHAPEFILE_` are part
+of the stable contract. Record numbers preserve a positive on-disk number; part/field indexes and byte
+offsets are zero-based. Component is a stable token such as `shp`, `dbf`, `prj`, or `decoder`, never an
+implicit path. Exact code and documented context keys are stable; message text and chained causes are
+debugging aids, not matching contracts.
+
+Hard value bounds are code 64, source ID 256, component 32, field name 256, message 1,024 UTF-16
+characters, and 16 context entries with 64-character keys and 256-character values. Context keys are
+canonicalized lexicographically. Diagnostics contain no raw bytes, credentials, unbounded untrusted
+text, localized cause message, or adapter object. A documented bounded `causeKind` token may summarize
+a failure.
+
+`DiagnosticReport` preserves encounter order, retains the first `N` warnings under the effective
+limit, never sorts or deduplicates entries, and saturates its omitted-warning count. A successful
+source/cursor/read report contains warnings only. Final unchecked `SourceException` carries a report
+whose terminal `ERROR` is
+always appended last outside the warning cap, exposes that error directly, and may chain the original
+cause. The terminal diagnostic can therefore never be truncated. Opening warnings belong to the
+source snapshot, cursor warnings to that cursor, and raster warnings to `RasterRead`; no global or
+asynchronous sink duplicates them.
+
+Public report validation requires all non-empty entries to use one exact source ID; a successful report
+has warnings only, while an exception report has exactly one `ERROR`, last, after zero or more
+warnings. A cursor's
+`diagnostics()` returns a fresh immutable warning-only snapshot observed so far: empty in `NEW`, growing
+after successful/recoverable advances, then frozen unchanged after exhaustion, failure, cancellation,
+or close. Its thrown `SourceException` alone adds the terminal error. Opening diagnostics are fixed at
+source construction, and `RasterRead` contains the final successful request snapshot.
+
+Only explicitly approved recovery emits a warning and continues. Underlying JDK I/O or parser errors
+map once to a stable terminal code; optional adapters perform the same mapping inside their boundary.
+Unexpected implementation `RuntimeException` and every `Error` propagate after deterministic cleanup
+and are not disguised as hostile input. Close failure uses `SOURCE_CLOSE_FAILED`; cleanup after an
+existing failure is suppressed under the existing primary.
+
+#### AWT report and failure boundary
+
+Sources have no callback sink. G4-003 instead adds one explicit AWT-host observation surface using
+toolkit-neutral API values:
+
+```text
+MapSourceReportEvent(
+  String layerId,
+  Optional<DiagnosticReport> previous,
+  Optional<DiagnosticReport> current)
+
+MapSourceReportListener.onMapSourceReportChanged(MapSourceReportEvent event)
+```
+
+The optionals are non-null and unequal. `MapView.sourceReports()` returns a defensive map in current
+installed layer order containing at most one non-empty report per source-backed layer; its size is
+therefore bounded by the already installed layer snapshot, and every report has its own warning cap.
+Opening warnings become the initial report at successful attachment. Each later cursor/read operation
+replaces that layer's report with its warnings or terminal report, or clears it after a clean operation.
+Repeated equal state is silent. Removal with clean close clears the retained entry. If closing a
+removed owned binding fails, listeners receive the terminal transition followed by its removal-to-empty
+transition before the failure is thrown; no detached layer report remains in `sourceReports()`.
+Listener registration, identity duplicates, snapshot mutation, EDT confinement, failure aggregation,
+and post-graphics delivery follow G3-003's event rules. Report changes do not themselves repaint
+for presentation, because G4 adds no status overlay. MapView separately tracks each installed source
+layer's last visual availability: a successful operation with or without warnings is `AVAILABLE`, and
+a terminal report is `UNAVAILABLE`. Either availability change requests one full-component repaint.
+Thus a narrow success-to-failure pass cannot retain old pixels, and a narrow recovered pass cannot
+leave the rest of the layer absent. Report changes within the same availability state do not repaint;
+the full follow-up observes the same state and cannot loop.
+
+A source-backed feature layer drains its bounded cursor into an operation-owned list before painting
+any of that layer; list/reference capacity counts against the query's conservative allocation budget.
+Only successful exhaustion and cursor close publish the list to the renderer. A `SourceException`,
+including close or cancellation, discards the list, skips that layer for the current pass, records its
+terminal report, and allows later layers to render. Raster reads are already all-or-nothing and follow
+the same skip/continue policy. `super.paintComponent` clears the current clip, and an availability
+transition's full follow-up either clears prior pixels or restores a recovered layer across the whole
+component. A failed layer therefore leaves no partial current or previous rendering after the bounded
+follow-up pass.
+
+Source warnings do not skip successful data. The report state commits during the pass, but listeners
+run only after the child graphics is disposed. An unexpected source implementation/runtime failure or
+symbol renderer failure retains the existing G2 behavior and aborts the whole pass; it is not converted
+to a source report. If such a failure follows a queued report event, disposal and best-effort event
+delivery still occur, with the original failure primary and notification failure suppressed.
+
+#### Verification boundary
+
+The G4-001 decision change runs the existing API/core tests and checks the sketches above; contract
+implementations land only with the G4-003/G4-004 vertical slices. Their API tests cover sealed geometry,
+source-wide duplicate IDs, exact feature counts, canonical attributes/schema projection, raster edge
+orientation, the integer nearest formula, strict windows, result dimensions, buffer/builder ownership,
+limit arithmetic, diagnostic bounds/report validation, and cancellation values.
+
+Core/source tests cover every cursor state and slot release, partial iteration, early/double/source
+close, cursor-close failure state/no-retry/source reuse, raster failure cleanup/reuse, reuse after
+cancellation, already-cancelled zero-work behavior, 4,096-unit controlled-loop polling, opaque-stage
+before/after checks, tighter-limit validation, stable order, warnings, terminal cleanup, and
+metadata/results surviving close. Limit tests exercise one less than, exactly, and one greater than
+every primitive/content/reference charge class, cumulative repeated allocations, independent
+format/query/raster counters, and checked-arithmetic overflow. A concrete-image concurrency test
+belongs to G6-004, not the base-source conformance suite.
+
+AWT integration tests buffer-before-paint, skip one failed/cancelled layer while later layers render,
+publish warnings, clear equal/clean status, defer report listeners until graphics disposal, preserve
+runtime/render failure precedence, issue exactly one full follow-up in each availability direction,
+reject a second owned-view attachment, distinguish remove/re-add from permanent close, and exercise
+successful/failed replacement plus reverse-order aggregated close.
+Architecture tests reject AWT, parser, codec, format, and external-adapter types from every source,
+metadata, query, record, pixel, diagnostic, cancellation, and limit signature.
+
+#### Ownership and HITL checkpoint
+
+A source owns every handle it opens; the opener owns the source. Attaching it to a source-backed layer
+borrows by default. G4-003/G4-004 expose named `borrowed(...)` and `owned(...)` binding factories rather
+than a boolean. Factory validation occurs before transfer. A successful `owned` factory transfers
+exclusive responsibility to the returned closeable binding; a failed factory leaves it with the
+caller. If a later MapView attachment fails, the unattached binding still owns the source and the
+caller closes that binding. An owned binding may be installed in at most one live view; a second
+attachment is a lifecycle failure. Borrowed bindings never close their source. Returned records,
+metadata, reports, and pixels contain no live handle.
+
+G4-003 makes `MapView` explicitly `AutoCloseable`. `close()` is an idempotent, permanent EDT operation:
+it marks the view closed, clears installed content/state, then closes installed owned bindings in
+reverse prior layer order and reports every failure. The first `SourceException` remains primary and
+later close failures are suppressed; report listeners drain before it is thrown. Subsequent close and
+read-only report access remain valid, while content/viewport/tool/source mutation is
+`IllegalStateException` and painting produces only the ordinary component background. Swing
+`removeNotify()` remains a reversible detach and never masquerades as disposal or closes a source.
+Examples/windows call `MapView.close()` explicitly from their permanent teardown path.
+
+Layer/source replacement validates and snapshots the complete candidate first. Failure leaves the
+installed view unchanged and does not acquire a candidate binding. Success commits the new snapshot
+and repaint before closing removed owned bindings exactly once. A removed-source close failure is
+recorded/notified and thrown after commit; the new snapshot remains installed, and no rollback can
+resurrect a resource whose close was already attempted. A binding retained by identity in the new
+snapshot is not closed.
+
+The named maintainer checkpoint is **G4 source-contract approval**. Before G4-003 begins, the
+maintainer records approval of: advance/current pull semantics; unchecked structured terminal
+failures; sealed immutable geometry and source-wide IDs; the fixed one-cursor rule and source/child
+close ownership; borrowed-by-default attachment and explicit `MapView.close()`; cancellation's
+4,096-unit project-loop interval plus opaque-JDK checkpoints; the canonical attribute set; strict
+raster-window rejection and exact nearest baseline; typed limit values/defaults/tightening; and the
+diagnostic/location/report plus AWT observation shape. The compile sketches cover an in-memory feature
+source, synthetic raster source, early cursor close, pre/mid-operation cancellation, one warning, one
+terminal error, source-report delivery, owned/borrowed teardown, and values surviving source close. No
+production format module is created by this decision.
+
 ## Native Image
 
 Native-targeted code avoids reflection, runtime scanning, dynamic proxies, Java serialization,
@@ -2327,6 +2835,9 @@ out of this gate.
 | 2026-07-12 | Route toolkit-neutral tool events through one session-aware core state machine before AWT defaults. | Explicit capture, cancellation, quarantine, and cursor ownership preserve navigation while preventing stale gestures from crossing tool lifetimes. |
 | 2026-07-12 | Use screen-space analytic predicates and renderer-owned hit methods for visible symbol footprints. | Sharing placement and paint traversal keeps hit order deterministic while allowing explicitly registered custom renderers to opt in without toolkit leakage or guessed bounds. |
 | 2026-07-12 | Keep hover/selection transactions in MapView and report paint presence from the existing render result. | Full invalidation and in-pass presence avoid a speculative core state machine, duplicate bounds traversal, and presentation-dependent identity state before G7 evidence. |
+| 2026-07-12 | Use synchronous feature cursors and raster reads that return unstyled, independently owned values. | One explicit pull boundary preserves source order, resource ownership, and parser/presentation separation without streams, reactive APIs, or background work. |
+| 2026-07-12 | Use bounded warning reports and unchecked structured terminal source failures. | Stable diagnostics, typed limits, and cooperative cancellation stay observable through cursors and Swing rendering without format exceptions or checked-failure adapters leaking across modules. |
+| 2026-07-12 | Expose latest per-layer source reports and make MapView explicitly closeable. | Deferred EDT report delivery and permanent explicit close make asynchronous paint failures and transferred source ownership observable without treating reversible Swing detachment as disposal. |
 
 ## Task design traceability
 
@@ -2349,3 +2860,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G3-001 | Toolkit-neutral tool events/context, session router, capture/quarantine, and AWT navigation order | Approved |
 | G3-002 | Screen-space geometry predicates, renderer-owned symbol footprints, deterministic topmost hits, and single selection | Approved |
 | G3-003 | Immutable interaction events, hover probes, overlay symbols, logical paint presence, full invalidation, and ordered rendering | Approved |
+| G4-001 | Synchronous feature/raster contracts, immutable records/IDs, canonical attributes, raster grid math, limits, cancellation, reports, and explicit ownership | Approved |
