@@ -220,9 +220,31 @@ gates extend the inventory only when a vertical slice delivers working behavior 
 
 ## Geometry and features
 
-The public geometry model is immutable. Coordinate sequences use packed primitive storage and make
-defensive copies at API boundaries. Features combine geometry with a stable ID, display name,
-attributes, and style. Geometry remains separate from future symbol/rendering extensions.
+The first slice keeps its existing public model; G1 verifies it rather than introducing replacement
+contracts ahead of the symbol and source gates. A `Coordinate` and every ordinate stored in an
+`Envelope` or `CoordinateSequence` is finite. A coordinate sequence owns one packed `double[]`,
+clones input and output arrays, addresses coordinates rather than raw ordinate offsets, and caches its
+finite envelope. It contains at least one complete x/y pair.
+
+Geometry adds the cardinality and topology constraints needed by its renderer:
+
+- a point owns one non-null coordinate;
+- a line string owns at least two coordinates;
+- a polygon owns an exterior and a defensively copied ordered hole list; every ring has at least four
+  coordinates and its final coordinate exactly equals its first coordinate.
+
+G1 does not add ring repair, orientation rules, self-intersection analysis, multipart geometry, empty
+geometry, or coordinate tolerances. Those belong to source-format and geometry-expansion tasks.
+Constructor failures remain ordinary `NullPointerException`, `IllegalArgumentException`, or
+`IndexOutOfBoundsException` failures with the violated role named; structured source diagnostics are
+introduced at G4 and are not retrofitted onto programmer errors.
+
+`Feature` owns a non-blank stable identifier, a display name that may be empty, one geometry, a
+defensively copied immutable attribute map, and the existing `FeatureStyle`. Attribute values are not
+deep-copied in G1; the format-neutral value profile is decided in G4. `InMemoryLayer` similarly owns
+an immutable ordered feature snapshot and precomputes the union envelope, using absence rather than a
+sentinel envelope for an empty layer. Layer order and feature order are rendering order. G2 decides
+the migration from `FeatureStyle`; G1 changes it only to fix a verified contract defect.
 
 ## Projection pipeline
 
@@ -230,21 +252,97 @@ attributes, and style. Geometry remains separate from future symbol/rendering ex
 source coordinate -> map projection -> projected world coordinate -> viewport -> screen pixel
 ```
 
-`Projection` owns forward and inverse projection. `MapViewport` owns only projected-world to screen
-math. The initial concrete projection is Web Mercator; source coordinates are longitude/latitude in
-degrees.
+`Projection` owns forward and inverse projection. The first concrete implementation accepts
+longitude/latitude degrees, clamps latitude to the representable Web Mercator limit, and produces
+projected meters. `MapViewport` never interprets a CRS; it owns only projected-world to screen math.
+Screen x increases right, screen y increases down, the projected center maps to the screen center,
+and `worldUnitsPerPixel` is finite and positive.
+
+Viewport navigation returns new immutable values:
+
+- resize preserves center and scale;
+- a pixel drag moves the world in the same visual direction by applying the inverse delta to the
+  center;
+- zoom divides scale by a positive factor and adjusts the center so the projected coordinate beneath
+  the supplied screen anchor is unchanged;
+- fit centers a finite projected envelope and chooses the greater axis scale after subtracting
+  non-negative padding on both sides. Usable width and height have a one-pixel floor, and a point or
+  other zero-span envelope uses the existing positive `1e-9` projected-unit scale floor.
+
+G1 tests round trips within numeric tolerance rather than demanding bit identity. `MapView.fitToData`
+projects layer-envelope corners, unions all non-empty layers, uses the effective component size, and
+is a no-op when all layers are empty. General non-monotonic envelope projection, longitude wrapping,
+and CRS-domain diagnostics remain G4 concerns.
 
 ## Rendering and interaction
 
-`MapView` is a Swing `JComponent`. It renders through Java2D, owns its viewport state, and follows
-the Swing event-dispatch-thread rule. Pointer listeners receive both screen coordinates and inverse-
-projected map coordinates. Render registration will remain explicit when custom graphics arrive.
+`MapView` is a Swing `JComponent` and is used under the normal Swing event-dispatch-thread contract.
+It owns an immutable ordered snapshot of layer references and the current immutable viewport,
+synchronizing only viewport dimensions to the effective component size. Each layer supplies its
+current immutable feature snapshot for a paint pass; G1 does not deep-snapshot an arbitrary `Layer`
+implementation. A paint pass creates and disposes a child `Graphics2D`, then traverses layers and
+features in order. G1 preserves the direct geometry dispatch already in the component; explicit
+symbol-renderer registration replaces it in G2.
+
+The baseline renderer has these observable semantics:
+
+- a point is a screen-sized circle centered on its projected coordinate, filled before it is stroked;
+- a line is an open projected path drawn with its configured stroke;
+- a polygon is one even-odd path containing the exterior and holes, filled before it is stroked, so
+  a hole exposes the already-painted background or lower feature;
+- zero-alpha fill/stroke skips that operation, and zero stroke width consistently means no stroke for
+  points, lines, and polygons rather than Java2D's device-hairline convention; feature labels remain a
+  point-only convenience of the first slice.
+
+Automated rendering assertions use controlled offscreen images and inspect interiors, exteriors,
+boundaries, and hole regions with bounded color/channel tolerance. They do not compare whole-image
+goldens, font glyph pixels, antialiasing fringes, or platform-dependent raster identity. Each geometry
+kind has an isolated fixture so one renderer cannot accidentally satisfy another renderer's test.
+
+The installed baseline navigation is exercised by dispatching real Swing mouse events, not by calling
+private handlers. A primary-button press/drag/release fixture proves cumulative panning; mouse-wheel
+rotation proves cursor-anchored zoom. Tool/button arbitration is intentionally deferred to G3. A
+component resize preserves center and scale while updating dimensions.
+
+Pointer events cover `MOVED` and `CLICKED`. They retain the originating finite screen coordinates and
+carry the coordinate produced by inverse-projecting the current viewport at that screen position.
+Callbacks execute synchronously on the event-dispatch thread. Registration is ordered, duplicate
+listener instances receive duplicate callbacks, and removal removes the first identical (`==`)
+registration; an equal but distinct listener or an absent listener is a no-op. A callback iterates
+over a snapshot, so additions or removals during a callback affect only later events. Tests dispatch
+events on the event-dispatch thread and surface callback failures to the test thread.
+
+The headless example test constructs `BasicViewer.createMapView()` on the event-dispatch thread
+without opening a window, then inspects the public layer contents and proves that at least one point,
+line, and polygon geometry reached the configured view. Layer or feature counts alone are not
+sufficient evidence of the documented example slice.
 
 ## Native Image
 
 Native-targeted code avoids reflection, runtime scanning, dynamic proxies, Java serialization,
 `Unsafe`, internal JDK APIs, and implicit resource discovery. A real offscreen render is the first
-native smoke path; metadata workarounds require a recorded design decision.
+native smoke path; metadata workarounds require a recorded design decision. G1 keeps one smoke
+scenario shared by its JVM test and Native Image executable: construct a real point feature and
+layer, fit a `MapView`, paint to an ARGB image, and fail unless a bounded center region contains the
+expected non-background rendering. It does not substitute a class-loading-only smoke.
+
+The complete smoke scenario, including component construction, layer mutation, fit, and paint, runs
+on the Swing event-dispatch thread. A caller already on that thread executes it directly; any other
+caller marshals it synchronously and rethrows the original failure on the calling thread. The JVM test
+therefore verifies the same EDT-safe entrypoint used by the Native Image executable.
+
+The native lane remains separate from `qualityGate`. Its absence is reported as unavailable rather
+than treated as JVM success; when the G1 implementation task is accepted, the named HITL checkpoint
+requires a maintainer with GraalVM to record the native command result.
+
+### G1 design closeout
+
+G1 adds verification depth, not a second map model. The packed geometry values, immutable viewport,
+single AWT component, in-memory layer, and real native render remain the smallest end-to-end slice.
+The maintainer checkpoint is explicitly: run the basic viewer on a desktop and confirm point, line,
+polygon, fit, primary-drag pan, cursor-centered wheel zoom, and live pointer coordinates, then record
+the available Native Image result. Symbols, generalized tools, hit testing, and source lifecycles stay
+out of this gate.
 
 ## Decisions
 
@@ -260,6 +358,7 @@ native smoke path; metadata workarounds require a recorded design decision.
 | 2026-07-12 | Keep Java 21 bytecode fixed across CI launcher JDKs. | A newer build JDK should test compatibility, not silently raise the consumer baseline. |
 | 2026-07-12 | Make an explicit offline repository the sole resolution source. | Offline evidence must not succeed through hidden public or machine-local fallback. |
 | 2026-07-12 | Enforce Level 1 architecture with explicit allowlists in the normal gate. | Fast dependency, bytecode, and narrow source/resource checks prevent boundaries from becoming advisory. |
+| 2026-07-12 | Verify the existing first map slice without replacing its contracts. | Deeper event, geometry, viewport, rendering, example, and native evidence should precede new abstractions. |
 
 ## Task design traceability
 
@@ -271,3 +370,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | --- | --- | --- |
 | G0-001 | Java baseline, repository resolution, normal verification, and publication staging | Approved |
 | G0-002 | Module graph, architecture enforcement, prohibited mechanisms, and exception policy | Approved |
+| G1-001 | First-slice geometry, viewport, rendering, interaction, example, and native verification | Approved |
