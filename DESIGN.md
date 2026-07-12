@@ -1144,6 +1144,155 @@ rotation, both size units, nearest versus bilinear sampling, opacity, nominal bo
 integration, and composite order. Parent graphics state remains unchanged. The implementation adds no
 resource scanning, encoded-image support, mutable catalog, cache, or global registry.
 
+### Symbol gallery and render regression (G2-006)
+
+#### Runnable gallery document
+
+G2-006 adds the working `examples:symbol-gallery` application; it is included in settings and in the
+normal checked-project list in the same change, never as an empty example module. `SymbolGallery.main`
+opens its window on the Swing event-dispatch thread, while `createGalleryPanel()` constructs the same
+content without a top-level window so tests can run headlessly. The example adds no library API.
+
+Package-private immutable `GallerySection` and `GalleryCase` records define the committed gallery
+inventory. They defensively copy their ordered values and use stable IDs matching
+`[a-z][a-z0-9-]*` separately from display titles. Duplicate section or case IDs fail construction.
+`GalleryDocument.create()` returns exactly four ordered sections:
+
+- `markers` shows the eight `BuiltInMarker` values by enum name, a non-square multicolor raster icon
+  with nearest and bilinear interpolation, a translucent marker over an opaque reference patch, and an
+  ordered marker composite;
+- `placement` shows all nine anchors against visible reference crosses, non-zero positive and negative
+  x/y offsets, screen-pixel and map-unit sizes, declared rotations, and screen-relative and map-relative
+  marker modes;
+- `lines` shows a plain line, a child-ordered cased composite, distinct start/end markers, and an
+  east-pointing arrowhead following horizontal, rising, and falling endpoint tangents;
+- `fills` shows a solid fill, each of the three basic hatch patterns, a solid-plus-hatch composite,
+  a line-symbol outline, and a polygon hole that exposes a lower reference color.
+
+Every case contributes at least one real `Feature` in an `InMemoryLayer`; blank feature names keep map
+font rendering out of the evidence. A Swing legend beside each map supplies the case display names and
+short interaction cue. Each tab creates `SymbolRendererRegistry.builderWithBuiltIns().build()` and
+passes that instance to its `MapView`, and symbols are retrieved from one immutable
+`NamedSymbolCatalog` chosen by the example. The gallery therefore demonstrates the consumer-facing
+catalog and explicit-registry path rather than relying on a global or hidden default.
+
+The four maps use fixed initial logical sizes, Web Mercator coordinates in small valid extents, and
+explicit fit padding. Pan and zoom remain enabled so a reviewer can observe the difference between
+screen- and map-unit sizing and between screen- and map-anchored hatch phase. With Level 1's unrotated
+viewport, screen- and map-relative marker rotations may have the same visible base bearing; both cases
+remain named in the gallery, while the synthetic rotated-basis distinction stays in the G2-003
+automated transform tests. The example does not add viewport rotation merely to make the gallery more
+dramatic.
+
+The headless construction test runs creation on the EDT and asserts the exact section/case ID matrix,
+all eight marker enum values, all anchors, both units and rotation modes, both raster interpolation
+values, all hatch patterns, non-empty feature lists, immutable inventory, catalog resolution, and an
+explicit-registry constructor path for every view. It does not require a registry getter, open a
+`JFrame`, wait for input, or treat component text pixels as rendering evidence.
+
+#### HITL visual checkpoint
+
+The named checkpoint is **G2 symbol-gallery visual approval**. A maintainer launches
+`:examples:symbol-gallery:run`, inspects every tab at its initial fit, then performs at least one pan and
+one zoom. Approval covers silhouette recognizability, anchor/reference alignment, configured offsets
+and rotations, screen-versus-map sizing while zooming, composite order, endpoint direction, nearest
+versus bilinear icon appearance, opacity, hatch phase/clipping, and the polygon hole. The task cannot be
+Complete until its Notes record reviewer, date, pass/fail, OS, desktop scale, and full JDK
+vendor/version. A failed review returns to implementation and automated verification; it is not hidden
+by regenerating a screenshot. Screenshots may be placed in ignored build output for discussion but are
+not committed as an oracle.
+
+#### Dedicated regression lane
+
+Portable rendering evidence lives in the AWT project's custom
+`src/renderRegressionTest/java` source set rather than a new test-only module or the normal unit-test
+source set. Gradle explicitly makes `renderRegressionTestImplementation` extend `testImplementation`
+and `renderRegressionTestRuntimeOnly` extend `testRuntimeOnly`, then adds `sourceSets.main.output` to
+the custom compile and runtime classpaths. The registered JUnit Platform `renderRegressionTest` task
+uses that source set's output classes as `testClassesDirs` and its runtime classpath as `classpath`.
+It is not wired into `test`, `check`, `checkAll`, or `qualityGate`. Normal formatting, Checkstyle, and
+SpotBugs conventions may still inspect the custom Java sources; only the raster-executing `Test` task
+stays outside the normal gate.
+
+The root `renderRegression` verification task depends only on that focused test task. A separate Java
+21 Linux CI job invokes `./gradlew renderRegression --console=plain`; the existing quality job
+continues to invoke only `qualityGate`. This gives failures a distinct lane and does not make platform
+raster evidence a normal developer prerequisite.
+
+The test task forces `java.awt.headless=true`, disables JUnit parallel execution, and uses
+`BufferedImage.TYPE_INT_ARGB` at fixed logical component dimensions. Each scenario factory creates an
+unfitted view. On the EDT, the runner sets the exact component size and declared background, disables
+component double buffering, and invokes the scenario's fixed-viewport or fit callback only after that
+size is effective. It explicitly fills the entire image with the opaque background under
+`AlphaComposite.Src`, then paints the view through a fresh `SRC_OVER` graphics child whose clip is the
+full image or the scenario's declared inherited clip. It never assumes that an opaque bare
+`JComponent` or a UI delegate clears the buffer. Feature names are blank and built-in renderers are
+explicitly installed. Tests do not query a screen device, display scale, installed font, locale, wall
+clock, random source, or default image interpolation.
+
+Package-private test-only `RenderScenario` values contain a stable ID, dimensions, unfitted view
+factory, post-size viewport callback, optional inherited clip, and ordered invariant callbacks. The
+committed scenarios cover:
+
+- every vector-marker silhouette with interior/exterior probes and tolerant painted bounds;
+- all anchor positions, offsets, screen/map sizing, declared rotation, and nominal composite union;
+- child paint order and opacity over a known background;
+- a non-square RGBA icon's row orientation, alpha, nearest regions, and bilinear transition;
+- line caps, cased child order, start/end attachment, and arrow direction on three tangents;
+- even-odd polygon holes and fill-outline order; and
+- forward, backward, and cross hatches clipped to exterior, holes, and the inherited graphics clip.
+
+These are small fixtures owned by the lane, not a reusable rendering-test framework and not copies of
+the complete gallery screen. A dynamic-test display name begins with the scenario ID, and every
+assertion message names both that ID and the failed invariant.
+
+#### Portable assertions and diagnostics
+
+Assertions use one package-private immutable tolerance profile; individual scenarios cannot widen it.
+The initial fixed values are a per-channel color tolerance of 18, painted/background maximum-channel
+delta of 24, bounds margin of 2 logical pixels, matching-region minimum of 70%, exclusion-region
+maximum of 2%, and hatch-occupancy interval of 8% through 65%. Probe regions are at least 7 by 7 pixels
+and inset at least 3 pixels from an expected edge. Fixture colors and expected opaque composite colors
+are chosen with pairwise maximum-channel distance of at least 64. A helper test computes that minimum
+and proves `2 * colorTolerance < minimumPaletteDistance`, so two expected colors cannot both classify
+the same pixel. Changing this one profile requires review of every scenario; there are no per-OS or
+per-JDK exceptions hidden in fixtures.
+
+Bounds use pixels whose maximum channel distance from the known background exceeds the fixed threshold.
+Interior/color checks require the fixed matching proportion rather than one edge pixel. Ordering uses
+overlap regions well inside both children; hatch checks use the fixed occupancy band plus outside/hole
+exclusion regions; raster interpolation checks color-set behavior and the existence of a blended
+transition rather than one implementation-specific sample. Toolkit-neutral command, transform, and
+nominal-bound arithmetic remains asserted exactly or by numeric tolerance in its normal unit tests.
+
+Focused assertion-helper tests operate on synthetic, directly filled images and include positive
+controls plus negative controls for no paint, swapped child order, a filled hole, reversed raster rows,
+and a missing hatch. Each negative control must produce `AssertionError`; this prevents a broadly
+tolerant implementation from satisfying the lane merely because some pixels changed.
+
+On invariant failure, the runner catches the original `AssertionError` and computes
+`build/render-regression/diagnostics/<scenario-id>.png`. It creates the directory lazily and calls
+`ImageIO.write`; a `false` return is treated as an image-write failure. The runner then throws a new
+`AssertionError` whose message names the scenario, invariant, and attempted path and whose cause is the
+original assertion. Any directory or image-write exception is added as suppressed to that new error,
+never substituted for the rendering failure. The path is deterministic, `clean` removes it, and the
+root build-output ignore rule covers it. Passing tests write nothing. No reference PNG, checksum,
+baseline-update command, or platform-specific threshold is committed.
+
+The root README documents the gallery command, the purpose and separation of `renderRegression`, and
+the diagnostic path. G2-006 is the sole task that introduces this command; earlier task validation
+continues to use focused tests and `qualityGate`.
+
+#### Verification boundary
+
+Example tests prove headless construction, complete named coverage, EDT use, explicit registry/catalog
+construction, and immutable fixtures. Regression-lane tests prove every listed scenario and also assert
+that the environment is headless. CI review confirms quality and rendering are separate jobs and that
+neither Gradle aggregate depends on the other. The manual record proves intended appearance on one
+named desktop; it does not justify cross-platform pixel identity. SVG, text/label regression, encoded
+icon resources, Native Image resources, benchmarks, general snapshot infrastructure, and committed
+screenshots remain out of scope.
+
 ## Projection pipeline
 
 ```text
@@ -1263,6 +1412,7 @@ out of this gate.
 | 2026-07-12 | Compute marker placement as a toolkit-neutral affine result before AWT painting. | One tested transform order keeps anchors, units, offsets, and rotation identical across current and future renderers. |
 | 2026-07-12 | Generate hatch lines only over the clipped screen extent with an explicit per-feature budget. | A simple packed lattice plus Java2D polygon clip preserves holes while bounding allocation and work. |
 | 2026-07-12 | Register AWT symbol renderers by explicit role/key in an instance-owned immutable registry. | Consumers can extend rendering without reflection, discovery, toolkit leakage, or global mutable state. |
+| 2026-07-12 | Verify rendering through invariant-based headless scenarios in a separate lane. | Tolerant bounds, regions, and ordering catch material regressions without promising cross-platform pixel identity or burdening the normal gate. |
 
 ## Task design traceability
 
@@ -1280,3 +1430,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-003 | Immutable placement/stroke values, core marker transforms, AWT painting, and composites | Approved |
 | G2-004 | Solid line/fill values, endpoint tangents, bounded hatch layout, clipping, and migration | Approved |
 | G2-005 | Bounded raster icons, immutable named catalogs, explicit AWT registry, and custom rendering | Approved |
+| G2-006 | Runnable symbol gallery, named visual checkpoint, portable render scenarios, and separate lane | Approved |
