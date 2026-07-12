@@ -243,8 +243,224 @@ introduced at G4 and are not retrofitted onto programmer errors.
 defensively copied immutable attribute map, and the existing `FeatureStyle`. Attribute values are not
 deep-copied in G1; the format-neutral value profile is decided in G4. `InMemoryLayer` similarly owns
 an immutable ordered feature snapshot and precomputes the union envelope, using absence rather than a
-sentinel envelope for an empty layer. Layer order and feature order are rendering order. G2 decides
-the migration from `FeatureStyle`; G1 changes it only to fix a verified contract defect.
+sentinel envelope for an empty layer. Layer order and feature order are rendering order. G1 changes
+`FeatureStyle` only to fix a verified contract defect; the approved G2 migration is defined below.
+
+## Symbols and vector graphics
+
+### Symbol contracts and placement profile (G2-001)
+
+Symbols are immutable, toolkit-neutral feature portrayals in `mundane-map-api`. They contain colors,
+primitive measurements, vector or raster data, and stable renderer keys, but no Java2D classes,
+viewport references, mutable builders, or renderer callbacks. The contract shape is deliberately
+small:
+
+```text
+Symbol
+  +-- role: MARKER | LINE | FILL | LEGACY_GEOMETRY
+  +-- rendererKey: stable explicit key
+  +-- opacity: 0..1
+  +-- MarkerSymbol -> default MARKER role and MarkerPlacement
+  +-- LineSymbol -> default LINE role
+  +-- FillSymbol -> default FILL role
+  +-- CompositeSymbol -> non-empty, role-homogeneous ordered children
+```
+
+`MarkerSymbol`, `LineSymbol`, and `FillSymbol` are open interfaces so a consumer can pair an immutable
+custom value with an explicitly registered renderer. Their Javadocs require immutable state, stable
+value equality, and a namespaced renderer key; built-in implementations are records or final value
+classes with defensive collection and primitive-array copies. A renderer key is a validated string
+value, not a `Class`, reflection token, visitor, or discovery hook. `CompositeSymbol` is a built-in
+root `Symbol` whose role is inferred from its children and whose own renderer key selects explicit
+composite rendering.
+
+The three role interfaces provide their role as a default. A custom value must implement exactly one
+of them and must not override that role. `CompositeSymbol` recursively rejects empty children, mixed
+roles, and `LEGACY_GEOMETRY`, then stores the first child's role. `FeatureStyle` is the sole permitted
+`LEGACY_GEOMETRY` value and is recognized by exact value type, not merely by a claimed role. The
+`Feature` constructor recursively validates this shape and the geometry-role match; it rejects direct
+root implementations, multi-role implementations, role overrides, and legacy impostors with
+`SYMBOL_ROLE_MISMATCH`. Renderers repeat the inexpensive outer role/type check before casting so a
+mutable or dishonest external implementation fails deterministically rather than producing a
+`ClassCastException`.
+
+A marker symbol couples one vector or raster graphic to `MarkerPlacement`. A Level 1 line symbol
+describes centerline paint and a `SymbolLength` width; composition supplies casing, and G2-004 adds
+optional marker endpoints to that same contract. A fill symbol describes the polygon interior and may
+reuse one line symbol as its ring outline. Closed-ring rendering never applies that line symbol's
+endpoint markers. Solid and hatch fills are implementations of `FillSymbol`, not another style tree.
+
+Geometry and symbol roles are checked before rendering: points accept marker symbols, lines accept
+line symbols, and polygons accept fill symbols. Later multipoint and multipart geometries retain the
+role of their component geometry. A mismatch is not silently ignored or coerced; feature construction
+reports `SYMBOL_ROLE_MISMATCH` with feature identifier, geometry kind, and symbol role.
+
+#### Minimal Level 1 values and task staging
+
+The final Level 1 built-in values are intentionally concrete:
+
+- `VectorMarkerSymbol` owns a toolkit-neutral path, a finite positive-area view box, fill color,
+  optional `SymbolStroke`, placement, and opacity. The path uses the sole Level 1 `EVEN_ODD` fill
+  rule; open subpaths contribute to stroke but not fill.
+- `SymbolStroke` owns a color and positive `SymbolLength`. Its Level 1 cap and join are fixed at round,
+  preserving G1 output without public cap/join policy types. Absence means no stroke; transparent
+  color paints nothing. Dashes and alternate caps/joins are deferred.
+- `SolidLineSymbol` owns one `SymbolStroke`, opacity, and, after G2-004, optional start and end marker
+  symbols. Composite line symbols provide casing by drawing complete child lines in order.
+- `SolidFillSymbol` owns a fill color, optional line-symbol ring outline, and opacity. Polygon paths
+  retain even-odd hole behavior. G2-004 adds hatch implementations of the same `FillSymbol` role.
+
+G2-002 introduces the root/marker contracts, renderer key and symbol exception, vector path and view
+box, and a fill-only vector marker value. Its centered, unrotated logical-screen-size static factory
+owns a fill color and opacity but no stroke; all eight built-ins use closed filled silhouettes in this
+first slice. G2-003 adds `MarkerPlacement`, size/length values, optional `SymbolStroke`, and composite
+symbols. The G2-002 factory keeps the same source contract and delegates to centered screen placement
+with no stroke. G2-004 then introduces solid line, solid fill, endpoints, and hatch values. This
+ordering avoids an early dependency on placement/length types and converges on the single final value
+shapes above.
+
+The G2-002 convenience uses primitive screen measurements rather than a temporary record shape. The
+final class can add its canonical placement and stroke representation in G2-003 while the factory
+remains stable. No temporary public marker or parallel placement type is introduced.
+
+#### Renderer identity, staging, and failures
+
+`SymbolRendererKey` is an exact, case-sensitive ASCII value with at least two dot-separated segments;
+each segment matches `[a-z][a-z0-9-]*`. Whitespace, uppercase, empty segments, and normalization are
+rejected. Built-ins reserve `io.github.mundanej.map.symbol.*`; applications use a namespace they own.
+Renderer lookup identity is the pair `(SymbolRole, SymbolRendererKey)`, so role validation precedes
+lookup and a key cannot change a feature's role.
+
+Until G2-005, `MapView` uses one package-private, closed built-in dispatcher with explicit branches
+for only the symbol value classes delivered so far. It uses no public extension API, reflection, or
+discovery; a custom key predictably reaches the unregistered failure. G2-005 replaces that dispatcher
+with an immutable, instance-owned `SymbolRendererRegistry`. An instance-owned builder is created
+either preloaded by a default factory with the same explicit built-in functions or empty for isolated
+tests and applications; `build()` freezes its entries. Public builder registration cannot claim the
+reserved built-in prefix and cannot replace an existing role/key pair. The resulting registry is
+passed to `MapView`, whose convenience constructor uses the built-in registry; there is no static
+mutable registry.
+
+Each registry entry contains an explicit role/key pair and a renderer that validates its expected
+value shape before use; no `Class` token is the lookup key. If a custom value claims a built-in key or
+otherwise reaches a renderer with the wrong value shape, painting reports
+`SYMBOL_RENDERER_VALUE_MISMATCH`. Missing lookup reports `SYMBOL_RENDERER_NOT_REGISTERED`; duplicate
+registration is rejected while constructing the immutable registry. These symbol failures use a
+narrow runtime exception exposing a stable code and immutable string context through accessors;
+messages are human-readable but not a parsing contract. G4 may place the same codes and context into
+its general diagnostic carrier without renaming them.
+
+Composite and geometry-role structure fail at value or `Feature` construction, when all required
+information is available. Registry availability and renderer-value compatibility fail fast when the
+paint traversal reaches the feature: the current paint pass aborts, the child graphics context is
+still disposed, and the feature is never silently skipped. There is no asynchronous diagnostic sink
+before G4; any later continuation policy must be an explicit source/rendering decision rather than a
+change in these error codes.
+
+#### Placement values and units
+
+`MarkerPlacement` is a value composed of a `SymbolSize`, anchor, x/y offset, rotation, and rotation
+mode. `SymbolSize` has positive finite width and height, one unit, and a square-size convenience.
+`SymbolUnit` has exactly two Level 1 values:
+
+- `SCREEN_PIXEL` is one logical component coordinate before device/HiDPI scaling. It remains the same
+  visual size as the map zoom changes.
+- `MAP_UNIT` is one projected-world unit in the active viewport, not a geographic ground metre. Its
+  visual size changes with `worldUnitsPerPixel`; geographic-distance sizing is out of scope.
+
+Both offsets are finite and use the size's unit, avoiding mixed-unit transforms in one placement. In
+screen units, positive x is right and positive y is down. In map units, positive x and y follow the
+projected world axes and the viewport converts that vector to screen space. The feature's projected
+position plus the converted offset is the marker anchor point; offset is not rotated with the marker.
+
+The supported anchors are center plus the eight compass positions: north, north-east, east,
+south-east, south, south-west, west, and north-west. An anchor selects the corresponding point on the
+marker's nominal rectangle before stroke expansion. After unit conversion, that rectangle is
+`[0, width] x [0, height]` in local coordinates, with x right and y down. A vector marker independently
+maps its finite positive-area view-box x and y ranges onto the entire nominal rectangle. A raster
+marker similarly maps its full pixel-cell rectangle onto it. Width and height are therefore explicit
+and may stretch intrinsic aspect ratio; an aspect-preserving convenience computes one dimension but
+does not change the transform. A custom marker renderer must use the same nominal rectangle contract.
+
+Vector strokes are centered on the transformed path and may extend outside the nominal rectangle;
+that expansion never changes size or anchor. Raster filtering also does not change it. A composite has
+no group rectangle: each marker child computes and anchors its own nominal rectangle at the common
+feature position. Rendering translates the chosen nominal anchor to the local origin, rotates the
+graphic about the origin, and finally places the origin at the offset feature position. Renderers
+cannot reorder those operations or derive anchoring from platform rasterization.
+
+Rotation is a finite number of degrees canonicalized to `[0, 360)`, including canonical positive
+zero. At zero degrees the marker's local positive x axis points right in a north-up view; positive
+angles appear clockwise. Let `b` be the clockwise screen bearing of projected-world-positive x,
+computed from the transformed screen delta between an anchor `p` and `p + (1, 0)` using screen-y-down
+`atan2(deltaY, deltaX)`. For configured rotation `r`:
+
+- `SCREEN_RELATIVE` produces screen bearing `normalize(r)`;
+- `MAP_RELATIVE` produces `normalize(b + r)`.
+
+The current unrotated viewport has `b = 0`, so both modes draw the same. Tests use a synthetic rotated
+transform to preserve the sign and distinction without adding viewport rotation to G2. For G2-004
+auto-oriented endpoints, the attachment replaces the ordinary zero bearing with the outward tangent's
+screen bearing and then adds `r`; it does not add `b` a second time. The start outward tangent points
+from the first following distinct coordinate toward the start, and the end outward tangent points from
+the last preceding distinct coordinate toward the end. The same marker rendered away from an endpoint
+uses its declared screen- or map-relative mode normally.
+
+Reusable `SymbolLength` values pair one strictly positive finite magnitude with either unit and apply
+to later line widths, endpoint sizes, and hatch measurements. Optional absence, not zero or a negative
+sentinel, disables a stroke or endpoint. A marker graphic's intrinsic or normalized bounds do not
+choose its unit or placement policy.
+
+#### Opacity and composition
+
+Every symbol opacity is finite and inclusive from zero through one. Effective paint alpha is the
+product of inherited composite opacity, symbol opacity, and the paint or pixel alpha, with channel
+rounding performed only at the AWT boundary. Zero effective opacity performs no painting.
+
+A composite defensively copies at least one child, rejects null children and mixed roles, and paints
+children from first/bottom to last/top. Nested composites are allowed and preserve their boundaries
+for equality and diagnostics; they are not silently flattened. A composite adds opacity and ordering,
+not a second placement transform. Each marker child evaluates its own placement against the same
+feature position, while line and fill children evaluate the same geometry. Transforming a whole
+marker group therefore uses equal explicit placements on its children rather than ambiguous nested
+offset or rotation inheritance.
+
+#### `FeatureStyle` migration
+
+G2 uses the project's documented pre-1.0 freedom for one clean source break rather than maintaining
+parallel portrayal state. In G2-002, `Feature` replaces its `FeatureStyle style` component with
+`Symbol symbol`, and the accessor becomes `symbol()`. `FeatureStyle` temporarily implements `Symbol`
+as a deprecated, geometry-dependent compatibility value. Existing constructor calls that pass a
+`FeatureStyle` continue to compile, but callers of `style()` migrate to `symbol()`; binary
+compatibility is not claimed for `0.x` snapshots.
+
+The compatibility renderer preserves the G1 circle, solid line, solid polygon, and point-label output
+and accepts `FeatureStyle` only directly on a feature. It cannot be nested in composites, named in a
+catalog, or used as an endpoint. New point examples migrate in G2-002, and all remaining examples
+migrate when solid line and fill symbols arrive in G2-004. `FeatureStyle` and its geometry-dependent
+role remain deprecated through the Level 1 `0.x` release and are removed before `1.0.0`; G8 verifies
+that the supported-version statement matches this policy.
+
+Point labels are not part of a marker symbol. Through Level 1, `MapView` retains the G1 behavior of
+drawing one non-blank point-feature name after the complete legacy, marker, or marker-composite symbol
+and before the next feature; marker migration therefore does not silently remove labels. The label is
+opaque G1 dark gray and does not inherit symbol or composite opacity. Its baseline is four logical
+pixels right of and two logical pixels above the axis-aligned union of the final rotated nominal
+marker rectangles; stroke expansion is ignored. This reduces exactly to the G1
+`centerX + diameter / 2 + 4`, `centerY - diameter / 2 - 2` placement for a centered legacy circle.
+Offsets, anchors, non-square sizes, rotations, and composite children are therefore deterministic.
+General label symbols, font policy, placement, and collision handling remain Level 2 work.
+
+Public value construction rejects nulls, non-finite measurements, non-positive sizes, out-of-range
+opacity, blank keys, empty composites, and mixed-role composite children immediately with
+`NullPointerException` or `IllegalArgumentException` naming the field. Built-in equality includes
+canonical measurements, placement, ordered children, colors, and renderer keys. A well-formed
+symbol paired with the wrong feature geometry, a dishonest custom role implementation, or a legacy
+impostor uses `SYMBOL_ROLE_MISMATCH`; renderer lookup/value failures use their stable paint-time codes.
+
+The G2-001 HITL checkpoint is maintainer approval of this interface boundary, the two units, nine
+anchors, transform order, rotation modes, composition rules, and deliberate `FeatureStyle` migration
+before production work begins in G2-002.
 
 ## Projection pipeline
 
@@ -359,6 +575,8 @@ out of this gate.
 | 2026-07-12 | Make an explicit offline repository the sole resolution source. | Offline evidence must not succeed through hidden public or machine-local fallback. |
 | 2026-07-12 | Enforce Level 1 architecture with explicit allowlists in the normal gate. | Fast dependency, bytecode, and narrow source/resource checks prevent boundaries from becoming advisory. |
 | 2026-07-12 | Verify the existing first map slice without replacing its contracts. | Deeper event, geometry, viewport, rendering, example, and native evidence should precede new abstractions. |
+| 2026-07-12 | Replace geometry-dependent `FeatureStyle` with role-specific symbols during `0.x`. | One explicit toolkit-neutral portrayal model is simpler and more extensible than parallel legacy and symbol state. |
+| 2026-07-12 | Use logical screen pixels or projected map units for Level 1 symbol measurements. | The two explicit units cover stable UI marks and zoom-scaled cartography without implying geographic distance. |
 
 ## Task design traceability
 
@@ -371,3 +589,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G0-001 | Java baseline, repository resolution, normal verification, and publication staging | Approved |
 | G0-002 | Module graph, architecture enforcement, prohibited mechanisms, and exception policy | Approved |
 | G1-001 | First-slice geometry, viewport, rendering, interaction, example, and native verification | Approved |
+| G2-001 | Symbol roles, renderer keys, placement units, transforms, composition, and style migration | Approved |
