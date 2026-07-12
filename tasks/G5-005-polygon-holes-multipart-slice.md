@@ -7,8 +7,8 @@ Type: AFK
 
 ## Goal
 
-Read and render shapefile polygons with disjoint shells, holes, and multipart records without losing
-topology or accepting malformed rings silently.
+Read and render shapefile polygons with disjoint shells, holes, and multipart records while rejecting
+violations of the approved bounded structural profile and making its non-goals explicit.
 
 ## Context
 
@@ -25,6 +25,8 @@ are the output boundary.
 ## Out of scope
 
 - General polygon repair, topology editing, overlay operations, and Z/M values
+- General within-ring simplicity plus shell-shell/hole-hole overlap validation beyond the approved
+  hole-association checks
 - Scale-dependent simplification or clipping
 
 ## Acceptance criteria
@@ -35,8 +37,15 @@ are the output boundary.
   deterministically to associate holes with shells.
 - Multiple disjoint shells and holes within the same record remain distinct, preserve source record
   identity, and render with holes unfilled.
-- Ambiguous containment, orphan holes, repeated closing points, empty parts, and self-evidently
-  invalid rings follow documented reject/skip behavior with stable record-and-part diagnostics.
+- Shells retain source order; each hole is assigned to the smallest strictly containing shell and
+  retains source order within it. Orphan, hole-to-candidate-shell edge/vertex touching, equal-
+  innermost, open, short, zero-area, or otherwise undecidable associations reject the whole record;
+  consecutive duplicate vertices are accepted when the whole ring remains nonzero-area.
+- Every containment/segment comparison is prospectively charged against the approved topology-work
+  limit and cancellation cadence before a quadratic hostile case can run unbounded.
+- Structurally valid self-crossing rings or overlapping peer shells/holes outside the stated validity
+  boundary are preserved/rendered under even-odd rules without a simple-polygon validity claim; this
+  acceptance is pinned by tests rather than mistaken for unimplemented repair.
 - Checked arithmetic prevents count/byte-size overflow, and packed coordinates avoid per-point
   object allocation.
 - Offscreen rendering verifies topology using sampled interior/exterior regions or path winding,
@@ -44,8 +53,11 @@ are the output boundary.
 
 ## Required tests
 
-- Hand-built fixtures for a simple shell, shell with hole, multiple shells, multiple holes, and
-  nested/disordered rings allowed by the profile.
+- Hand-built fixtures for a simple shell, shell with hole, multiple shells/holes, nested clockwise
+  islands, source-disordered shells/holes, accepted consecutive duplicates, and every ambiguous
+  containment/topology-limit rejection.
+- Boundary fixtures for signed-zero closure plus deliberately accepted self-crossing/peer-overlap
+  cases outside the structural validity profile.
 - Negative tests for open/short/empty rings, invalid part indices, non-finite coordinates, ambiguous
   holes, truncated data, and allocation limits.
 - Source-to-render integration tests proving holes remain transparent and disjoint shells render.

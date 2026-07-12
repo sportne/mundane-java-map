@@ -20,12 +20,14 @@ diagnostic, CRS, and multipart geometry contracts. This task is the first point 
 
 - New `modules/mundane-map-io-shapefile` production and test sources
 - Module registration, dependency-boundary checks, and publication configuration
+- Finite same-stem lower/upper sidecar probing, ambiguity detection, and staged rejection without
+  parsing sidecar contents
 - New `examples/shapefile-viewer` using the normal API/core/AWT rendering stack
 - Hand-built SHP fixtures for null, point, and multipoint records
 
 ## Out of scope
 
-- SHX random access, DBF attributes, CPG/PRJ sidecars, polylines, and polygons
+- SHX/DBF/CPG/PRJ content parsing, polylines, and polygons; path probing/staged rejection is in scope
 - Corpus, fuzz, Native Image, writing, and editing support
 - Adding an empty module for any other format
 
@@ -33,6 +35,10 @@ diagnostic, CRS, and multipart geometry contracts. This task is the first point 
 
 - The reader validates the 100-byte SHP header, file code, version, declared file length, shape type,
   and mixed big-/little-endian fields before returning records.
+- Polyline/polygon and recognized sidecar inputs whose owning slice has not landed fail with the
+  profile's staged `SHAPEFILE_PROFILE_NOT_IMPLEMENTED`; they are not accepted and ignored. Z/M and
+  MultiPatch **header** codes retain permanent `SHAPEFILE_SHAPE_TYPE_UNSUPPORTED`. A Z/M/MultiPatch
+  record code beneath an accepted header is instead `SHAPEFILE_RECORD_TYPE_MISMATCH`.
 - Null, point, and multipoint records are exposed according to the approved null-record policy with
   stable source record identity and packed primitive coordinates.
 - Sequential cursor iteration is lazy, closeable, single-owner, and deterministic; EOF, early close,
@@ -42,14 +48,20 @@ diagnostic, CRS, and multipart geometry contracts. This task is the first point 
   point counts produce structured diagnostics with record number and byte offset.
 - The format module is JDK-only and has no dependency on AWT; all public values are immutable and
   defensively copy collections.
-- The viewer opens a supplied or bundled small fixture, fits its extent, and renders point and
-  multipoint records through the real `FeatureSource` path.
+- The viewer opens a supplied or bundled small fixture with an explicit recognized CRS override, fits
+  its extent, and renders point and multipoint records through the real `FeatureSource` path.
 - New public APIs have complete Javadocs and architecture tests cover the new module boundary.
 
 ## Required tests
 
 - Unit tests with hand-built bytes for valid headers and null/point/multipoint records in mixed
   endian order.
+- Header/point fixtures prove unused Z/M header bits are ignored, XY signed zero canonicalizes to
+  positive zero, and non-finite XY is rejected.
+- A supported Point header paired separately with Z/M and MultiPatch record codes proves record
+  mismatch remains distinct from unsupported header type.
+- Path-selection tests for lower/upper names, same-file aliases, ambiguous pairs, discovered staged
+  sidecars, and partial-open cleanup.
 - Negative tests for every header/record validation and configured allocation limit introduced here.
 - Cursor lifecycle and feature-source integration tests.
 - Viewer argument/loading tests and an offscreen integration render of the fixture.

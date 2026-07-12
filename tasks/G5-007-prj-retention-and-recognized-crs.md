@@ -19,7 +19,7 @@ engine.
 ## Scope
 
 - PRJ sidecar loading and metadata mapping in `modules/mundane-map-io-shapefile`
-- Explicit shapefile CRS recognizers registered through G4 contracts
+- Fixed format-local WKT1 tokenizer and the two approved structural matchers mapped to G4 definitions
 - Fixtures for recognized and retained-unknown definitions
 
 ## Out of scope
@@ -30,18 +30,20 @@ engine.
 ## Acceptance criteria
 
 - PRJ text is read with an explicit charset and byte/character limits, normalized only as required
-  for registered recognizers, and retained verbatim or losslessly for metadata access.
-- Only explicitly registered, tested forms of EPSG:4326 and EPSG:3857 are recognized.
+  for the fixed structural matchers, and retained verbatim or losslessly for metadata access.
+- Only the exact approved ESRI WKT1 structures for EPSG:4326 and EPSG:3857 are recognized; other
+  bounded syntactically valid definitions remain retained unknown metadata.
 - Missing, blank, oversized, malformed, and unrecognized PRJ inputs have distinct stable diagnostic
   behavior and do not trigger an inferred transform.
 - Recognized source CRS participates in the G4 query/rendering boundary and mismatches with the map
   CRS fail predictably or use an explicitly available transform.
 - Unknown definitions remain inspectable metadata without external parser types in the public API.
-- Recognizer ordering and duplicate registration behavior are deterministic and reflection-free.
+- Recognition is directly constructed and reflection-free; no public/general recognizer registry is
+  introduced for two built-in profiles.
 
 ## Required tests
 
-- Tests for each recognized WKT spelling explicitly supported by the registry.
+- Structural tests for the two recognized WKT trees and near-miss names, constants, order, and extras.
 - Tests for missing, blank, mixed-case/whitespace, unknown, oversized, malformed, and conflicting
   definitions.
 - Integration tests for recognized geographic/projected rendering and unsupported/mismatched CRS

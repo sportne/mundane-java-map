@@ -35,6 +35,8 @@ must exercise the real parser/source/rendering path, not a class-loading placeho
   and nonempty bounded render output rather than only process exit.
 - A separate malformed record produces the same stable diagnostic code and record/offset context as
   the JVM path.
+- A Windows-1252 attribute and undefined-byte null-substitution diagnostic prove the committed manual
+  single-byte table is reachable and identical under Native Image.
 - Fixtures/resources are declared explicitly and work without classpath scanning or implicit
   resource discovery.
 - Source/cursor/file resources close on success and failure.

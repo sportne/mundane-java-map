@@ -29,15 +29,17 @@ parser gaps before real-world corpus and Native Image validation.
 
 ## Acceptance criteria
 
-- One immutable limits value controls file bytes, records, record bytes, parts, points, fields, field
-  widths, sidecar text, decoded text, and aggregate allocation with safe documented defaults.
+- One immutable limits value controls file bytes, records, record bytes, parts, points, polygon
+  topology comparisons, fields, field widths, sidecar text, decoded text, and aggregate allocation
+  with the approved defaults/logical charge table.
 - Every untrusted count, offset, length, multiplication, and addition is range-checked before seeking,
   slicing, or allocating.
 - SHP, SHX, DBF, CPG, and PRJ failures map to stable structured codes with source, sidecar, record,
   part/field, byte offset, severity, and bounded cause context as applicable.
 - Truncated, overlong, malformed, mixed-endian, inconsistent-sidecar, non-finite, and integer-overflow
-  inputs terminate within configured work/allocation bounds without hangs, `OutOfMemoryError`, stack
-  overflow, leaked resources, or unclassified parser exceptions.
+  inputs produce the approved terminal or warning/fallback outcome within configured work/allocation
+  bounds without hangs, `OutOfMemoryError`, stack overflow, leaked resources, or unclassified parser
+  exceptions.
 - Deterministic fuzz tests use committed seeds, fixed iteration/work limits, reproducible failure
   output, and exercise both generated records and mutations of valid hand-built fixtures.
 - A failure in one opened source cannot alter registry, charset, limit, or diagnostic behavior for a
@@ -46,7 +48,8 @@ parser gaps before real-world corpus and Native Image validation.
 
 ## Required tests
 
-- Parameterized boundary tests at limit-1, limit, and limit+1 for every configured maximum.
+- Parameterized boundary tests at limit-1, limit, and limit+1 for every configured maximum, including
+  topology work and each logical allocation category.
 - Targeted hostile fixtures for truncation at structural boundaries, endian swaps, offset/count
   overflow, huge declarations, invalid encodings, inconsistent sidecars, and malformed multipart
   tables.

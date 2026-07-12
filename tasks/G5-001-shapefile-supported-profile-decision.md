@@ -13,13 +13,14 @@ failure, and resource-limit rules before binary parsing begins.
 ## Context
 
 The format-neutral feature-source and CRS work from G4 is the integration boundary. The decision
-must be based on the ESRI Shapefile Technical Description and the dBASE field formats actually
-needed by the Level 1 viewer, not on undocumented behavior from a third-party GIS library.
+must be based on the ESRI Shapefile Technical Description, the Borland dBASE III/IV/5 layouts
+reproduced by OGC CDB Annex C, and the fields actually needed by the Level 1 viewer, not on
+undocumented behavior from a third-party GIS library.
 
 ## Scope
 
-- `DESIGN.md` and `ROADMAP.md` sections that define the Level 1 shapefile profile
-- `modules/mundane-map-api` only if an already-approved source or diagnostic contract needs Javadocs
+- `DESIGN.md`, `design/G5-shapefile-support.md`, and the linked `ROADMAP.md` summary
+- Corrections to later G5 task cards where the approved profile removes an ambiguity
 - Test-fixture conventions for the future `mundane-map-io-shapefile` module
 
 ## Out of scope
@@ -35,8 +36,8 @@ needed by the Level 1 viewer, not on undocumented behavior from a third-party GI
   basename matching, missing files, record-count disagreements, and inconsistent sidecars.
 - Supported DBF field types, blank/null values, deleted rows, numeric/date/logical conversion, and
   unsupported-field behavior are defined.
-- Encoding precedence is deterministic across CPG, caller-supplied charset, DBF language driver, and
-  a documented fallback; invalid or unknown encodings produce stable diagnostics.
+- Encoding precedence is deterministic across CPG, caller-supplied format-local `DbfEncoding`, DBF
+  language driver, and a documented fallback; invalid or unknown encodings produce stable diagnostics.
 - Z/M shape codes are either rejected or reduced according to one documented policy; they are never
   accepted accidentally.
 - Default and configurable maxima are selected for file bytes, records, record bytes, parts, points,

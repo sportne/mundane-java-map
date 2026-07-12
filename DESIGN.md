@@ -53,6 +53,7 @@ design task; there are no empty speculative design files.
 | G2 | [Symbols and vector graphics](design/G2-symbols-and-vector-graphics.md) | G2-001 through G2-007 approved |
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
+| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -93,6 +94,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Compose legacy and lazy source content through one explicit AWT binding. | A source must keep bounded cursor, CRS, cancellation, report, and ownership behavior instead of masquerading as the existing snapshot `Layer`. |
 | 2026-07-12 | Atomically arbitrate staged source success, known failure, and cancellation before publication. | Exactly one terminal outcome owns payload, availability, and report publication, so a cross-thread cancel cannot produce success-after-cancel or two terminal diagnostics. |
 | 2026-07-12 | Keep a concise project design index and gate-oriented detailed design files. | Scoped reading and review remain fast while one entry point preserves cross-gate principles, decisions, and traceability. |
+| 2026-07-12 | Bound Level 1 shapefiles to explicit 2D SHP/SHX/DBF/CPG/PRJ behavior and reject Z/M reduction. | A fixed geometry, sidecar, encoding, limit, diagnostic, and recovery profile is useful for ordinary maps without becoming an implicit general GIS compatibility promise. |
 
 ## Task design traceability
 
@@ -120,3 +122,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G4-002 | Immutable CRS metadata, explicit direct-operation registry, strict Web Mercator/envelopes, display integration, and same-CRS raster boundary | Approved |
 | G4-003 | Common/feature source contracts, packed multipart geometry, linear in-memory queries, explicit AWT bindings, staged CRS-safe rendering, interaction, reports, and ownership | Approved |
 | G4-004 | Raster contracts/accounting, exact visible cell windows, procedural nearest source, matching-CRS binding, direct AWT conversion, atomic publication, and G4 closeout | Approved |
+| G5-001 | Exact 2D shapes, sidecar/recovery rules, DBF schema/value profile, encodings, PRJ recognition, limits, diagnostics, lifecycle, and fixtures | Approved |

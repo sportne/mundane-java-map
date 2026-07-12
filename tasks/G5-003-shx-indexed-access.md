@@ -18,7 +18,7 @@ not a spatial index; viewport acceleration remains G7 work.
 ## Scope
 
 - SHX parsing and index storage in `modules/mundane-map-io-shapefile`
-- Random-record and query integration with the existing shapefile source
+- Internal indexed-record addressing and query integration with the existing shapefile source
 - Hand-built SHP/SHX fixture pairs and mismatch fixtures
 
 ## Out of scope
@@ -35,8 +35,9 @@ not a spatial index; viewport acceleration remains G7 work.
 - Indexed lookup returns the same record identity and geometry as sequential iteration.
 - Query execution uses the index only for record addressing; result ordering remains stable and
   follows the G4 query contract.
-- Missing, truncated, duplicate, out-of-order, or inconsistent index entries follow the approved
-  fallback/failure policy and emit stable sidecar diagnostics.
+- Missing SHX warns and scans sequentially. Any unreadable, truncated, duplicate, out-of-order, or
+  inconsistent present index is discarded whole with the approved warning/reason and uses the same
+  sequential path; a partially trusted index is never published.
 - Index storage is immutable, bounded by the configured record/allocation limits, and uses packed
   primitives rather than one object per entry.
 - Closing the source invalidates indexed access without leaking file handles.
@@ -60,4 +61,5 @@ git diff --check
 ## Notes
 
 Do not conceal a bad index by silently returning partial data. Any fallback must be explicitly
-permitted by G5-001 and observable through diagnostics.
+permitted by G5-001 and observable through diagnostics. SHX adds no public random-record API and is
+not a spatial index.

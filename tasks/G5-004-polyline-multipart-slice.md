@@ -32,18 +32,22 @@ the format-neutral multipart geometry representation.
   content length are validated before allocation.
 - Empty, descending, duplicate, and out-of-range part starts follow the approved profile and produce
   record-level diagnostics rather than unchecked exceptions.
+- A whole part with fewer than two distinct coordinate pairs is rejected; consecutive duplicate
+  vertices in an otherwise non-degenerate part are accepted and retained.
 - Single- and multipart lines preserve source part order and use packed primitive coordinate
   storage.
 - Non-finite ordinates and envelope/payload disagreements are handled by one documented policy.
 - The source returns stable record identity and the viewer renders every valid part without joining
   unrelated parts.
-- Limits are checked with overflow-safe arithmetic, and malformed records do not corrupt subsequent
-  record framing when continued reading is allowed.
+- Limits are checked with overflow-safe arithmetic. A malformed geometry terminates that cursor after
+  cleanup; the reader neither resynchronizes nor skips ahead, and the otherwise open source remains
+  reusable under the G4 failure contract.
 - Public geometry/source changes, if any, are immutable and documented.
 
 ## Required tests
 
-- Hand-built single-part, multipart, zero-length-part-policy, and boundary-count fixtures.
+- Hand-built single-part, multipart, rejected whole-part zero length, accepted interior duplicate
+  vertices, signed-zero-equivalent vertices, and boundary-count fixtures.
 - Negative tests for truncated part tables/payloads, invalid part starts, non-finite coordinates,
   count overflow, and declared-length mismatch.
 - Feature-source integration and offscreen viewer-render tests that assert part topology rather than

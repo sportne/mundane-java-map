@@ -44,6 +44,8 @@ interoperability evidence without slowing or destabilizing the normal quality ga
   all Level 1 geometry/attribute/CRS cases without format logic in AWT.
 - Unsupported or malformed corpus entries fail with the documented diagnostic and do not crash the
   viewer.
+- Negative corpus entries include permanent Z/M rejection, a present discarded-corrupt SHX, a
+  terminal corrupt DBF, and a retained-unknown PRJ.
 - **HITL checkpoint:** a maintainer approves fixture provenance/redistribution rights and manually
   reviews representative point, line, polygon-hole, encoding, and CRS datasets in the viewer.
 

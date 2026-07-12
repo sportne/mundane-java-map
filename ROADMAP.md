@@ -60,6 +60,8 @@ architectural requirement. Level 1 is complete only when
 
 ### G5 — Read-only shapefile support
 
+- Use the approved [bounded 2D shapefile profile](design/G5-shapefile-support.md): null, point,
+  multipoint, polyline, and polygon only, with no implicit Z/M reduction.
 - Add `mundane-map-io-shapefile` only with a working SHP point/multipoint slice and viewer.
 - Grow through SHX, multipart polylines, polygons/holes, DBF, CPG, and retained/recognized PRJ.
 - Bound records, parts, points, fields, and allocations; cover malformed/hostile inputs,
