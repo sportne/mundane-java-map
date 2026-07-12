@@ -938,6 +938,212 @@ the new feature `symbol()` accessor. Separate compatibility tests retain depreca
 through the Level 1 `0.x` policy. Dashes, textures, gradients, polygon repair, raster icons, hit
 testing, and render caches remain out of scope.
 
+### Raster icons, catalogs, and renderer registration (G2-005)
+
+#### Bounded raster icon value
+
+`RasterIconSymbol` is a final immutable `MarkerSymbol` in `mundane-map-api` with canonical factory:
+
+```text
+of(int width, int height, int[] rgbaPixels, MarkerPlacement placement,
+   RasterInterpolation interpolation, double opacity)
+```
+
+Pixels are row-major from top-left, x right and y down. Each unpremultiplied packed int is exactly
+`0xRRGGBBAA`; no AWT color model or byte order leaks into the value. The public read surface is
+`width()`, `height()`, `rgbaAt(x,y)`, `toRgbaArray()` defensive copy, `placement()`,
+`interpolation()`, and `opacity()`. Equality and hash code include dimensions, pixel contents,
+placement, interpolation, and opacity.
+
+Dimensions are positive and at most `MAX_DIMENSION = 4096`; `width * height` is checked in `long`
+before any clone and cannot exceed `MAX_PIXELS = 4_194_304` (16 MiB of packed pixel payload). The input
+length must equal that product exactly. Validation checks dimensions and the `long` product before the
+pixel reference and length, then validates the remaining fields, so hostile dimensions do not require
+a matching allocation to test. The fixed icon limits are public constants and intentionally smaller
+than later raster-source limits.
+
+`RasterInterpolation` is the toolkit-neutral `NEAREST` or `BILINEAR` enum and is reused by the G6
+raster renderer rather than duplicated. The canonical placement may stretch the intrinsic aspect ratio
+because width and height are explicit. Two conveniences keep common icon construction explicit:
+
+```text
+nativeScreenSize(int width, int height, int[] rgbaPixels,
+                 RasterInterpolation interpolation, double opacity)
+screenWidth(int width, int height, int[] rgbaPixels, double widthPixels,
+            RasterInterpolation interpolation, double opacity)
+```
+
+Both use centered, zero-offset, zero-degree, screen-relative `SCREEN_PIXEL` placement.
+`nativeScreenSize` uses the intrinsic dimensions as logical pixels. `screenWidth` requires a positive
+finite width and computes `widthPixels * ((double) height / width)` in that order; the positive finite
+intrinsic ratio is formed before multiplication so an intermediate cannot overflow when the final
+proportional height is representable. The resulting height must also be positive and finite before
+delegation. The renderer slot is
+`(MARKER, io.github.mundanej.map.symbol.raster-icon)`, exposed by
+`RasterIconSymbol.RENDERER_KEY` and guarded by exact value type.
+
+This task accepts decoded pixels only. It adds no encoded PNG/JPEG decoder, file path, URL, resource
+name, or discovery behavior. G2-007 may use a test-module loader for one explicitly named native
+resource; production encoded-image sources begin in G6.
+
+#### Java2D icon rendering
+
+For non-zero effective opacity, the AWT renderer creates a fresh `BufferedImage.TYPE_INT_ARGB` for the
+paint call and converts each toolkit pixel with
+`argb = (rgba << 24) | ((rgba >>> 8) & 0x00ff_ffff)`; it does not premultiply. Zero effective opacity
+still computes and returns nominal bounds but skips image allocation and conversion. The lack of a
+conversion cache is deliberate until G7 evidence. The icon pixel-cell view box is
+`(0, 0, width, height)`, so the existing `SymbolTransforms.marker` path applies every anchor, unit,
+offset, rotation, and nominal-bound rule without icon-specific placement math.
+
+On a disposable child graphics context, nearest interpolation selects
+`VALUE_INTERPOLATION_NEAREST_NEIGHBOR` and bilinear selects `VALUE_INTERPOLATION_BILINEAR`. The renderer
+uses the core coefficients as the image-to-screen `AffineTransform`, applies effective opacity through
+`SRC_OVER`, draws once, and returns nominal marker bounds for the point-label union. Pixel alpha,
+symbol/composite opacity, and any caller background combine at paint time. No platform-default
+interpolation is observable.
+
+#### Immutable named catalogs
+
+`NamedSymbol(name, symbol)` and `NamedSymbolCatalog` live in `mundane-map-api`. A name must be non-blank
+and equal to its own `strip()` result; interior whitespace and Unicode are retained, comparisons are
+exact and case-sensitive, and no Unicode/case normalization occurs. The symbol must satisfy ordinary
+role validation and cannot be `LEGACY_GEOMETRY`.
+
+`NamedSymbolCatalog.of(List<NamedSymbol>)` defensively copies entries in declaration order, detects an
+exact duplicate before building its lookup map, and stores both an immutable ordered list and lookup.
+An empty catalog is valid. The catalog implements `Iterable<NamedSymbol>`; equality, `entries()`, and
+iteration preserve entry order. Its remaining minimal surface is `size()`, `find(name)`, and
+`require(name)`: `find` returns `Optional.empty()` for a valid absent name, while `require` throws
+stable code `SYMBOL_CATALOG_MISSING`. A malformed lookup name is an immediate field-naming argument
+error, not a missing entry.
+
+Duplicate construction throws `SYMBOL_CATALOG_DUPLICATE`. Its fixed context keys are `name`,
+`firstIndex`, and `duplicateIndex`, with decimal zero-based indexes. Missing context has exactly
+`name`. No catalog lookup consults a resource, classpath, parent catalog, default catalog, or renderer
+registry. Applications explicitly choose and pass a catalog; immutable built-in catalogs in later
+examples are ordinary values, not mutable global registries.
+
+#### Explicit AWT renderer registry
+
+G2-005 deletes the closed dispatcher and replaces it with final immutable
+`SymbolRendererRegistry` in `mundane-map-awt`. It is owned by each `MapView`; there is no setter or
+static mutable holder. `MapView(Projection)` delegates to a constructor that also accepts a registry
+and uses `SymbolRendererRegistry.builtIn()` by default.
+
+The implementation prerequisite is G2-004, not merely G2-003: the final registry consumes the line,
+fill, and hatch values and replaces their closed-dispatch branches. The existing G2-005 task-card edge
+is stale and must be changed to `Depends on: G2-004` before production implementation starts. G2-004
+and G2-005 are not implementation-parallel because they both change the AWT dispatcher and `MapView`;
+G2-005 owns the final integration and removal. This design-only sequence leaves task metadata untouched
+until planning metadata is next maintained.
+
+Registration identity is the approved `(SymbolRole, SymbolRendererKey)` pair. A single-use
+instance-owned builder has two entry points: `builder()` is empty and `builderWithBuiltIns()` is
+preloaded through private built-in registration. `register(role, key, renderer)` accepts only
+application namespaces and the three public roles, rejects `LEGACY_GEOMETRY`, and rejects the reserved
+`io.github.mundanej.map.symbol.*` prefix. A reserved-key attempt reports
+`SYMBOL_RENDERER_RESERVED_KEY`; an existing pair reports `SYMBOL_RENDERER_DUPLICATE`. Both carry
+exactly `role` as the enum name and `key` as the exact validated key string. Private built-in
+registration is the only path that can install legacy or reserved pairs. `build()` defensively copies
+entries and consumes the builder; any later builder operation fails with a field-naming state error,
+and registries and previously built instances never observe later builder state.
+
+`builtIn()` installs an explicit source-listed set: legacy style; vector and raster markers; composite
+under marker, line, and fill roles; solid line; solid fill; and hatch fill. Nothing scans packages,
+classes, annotations, services, resources, or module paths. An empty/custom registry has no hidden
+fallback. Missing lookup and false value support retain `SYMBOL_RENDERER_NOT_REGISTERED` and
+`SYMBOL_RENDERER_VALUE_MISMATCH` respectively.
+
+#### Renderer extension surface
+
+`AwtSymbolRenderer` is the one public extension interface in the AWT module:
+
+```text
+boolean supports(Symbol value)
+SymbolRenderResult render(Symbol value, AwtSymbolRenderContext context)
+```
+
+The registry calls `supports` after role/key lookup and before `render`; false produces the stable
+value-mismatch code without casting. Built-ins require their exact final value class. A consumer
+renderer may use language-level `instanceof` but receives no `Class` lookup token and performs no
+discovery. `supports` must be deterministic, side-effect-free, and non-throwing for every non-null
+`Symbol`; a renderer exception is not translated into a misleading registry diagnostic.
+
+`AwtSymbolRenderContext` is a paint-call-scoped facade constructed only by `MapView`. It exposes the
+looked-up `SymbolRole`, feature ID, original `featureGeometry`, current `renderGeometry`, projection
+and viewport snapshots, inherited opacity, closed-ring and optional endpoint-bearing context,
+source-to-screen conversion, validated `MapScreenBasis`, and an optional marker anchor in screen
+coordinates. Root dispatch uses the feature geometry for both geometry accessors. An endpoint marker
+uses the original line as `featureGeometry`, a `PointGeometry` for its source endpoint as
+`renderGeometry`, and the already-projected endpoint as its marker anchor. A fill outline uses the
+original polygon as `featureGeometry`, a `LineStringGeometry` over the selected immutable ring as
+`renderGeometry`, and `closedRing = true`. The marker anchor is present for a point marker and
+line-endpoint marker and absent for line/fill rendering.
+
+The only public recursive operation is exact same-role dispatch:
+
+```text
+SymbolRenderResult renderChild(Symbol child, double opacityMultiplier)
+```
+
+It requires `child.role()` to equal the current role, retains both current geometries plus marker,
+bearing, and closed-ring context, and returns the child's result so marker composites can union bounds.
+A role mismatch uses `SYMBOL_ROLE_MISMATCH` before lookup. The multiplier must be finite in `[0,1]`;
+the child context inherits `current inherited opacity * multiplier`, and the child renderer still
+applies its own symbol opacity. Built-in composites pass their composite opacity. Public custom
+renderers cannot request a role transition; they either use same-role composition or paint their own
+toolkit behavior.
+
+Two package-private context operations implement the validated built-in role transitions. Endpoint
+dispatch accepts a marker, the owning-line opacity multiplier, a source `PointGeometry`, an already
+projected screen anchor, and finite outward bearing; it derives a `MARKER` context with the bearing
+override and returns marker bounds, which the line renderer deliberately discards. Closed-ring dispatch
+accepts a line symbol, owning-fill opacity multiplier, and one closed `CoordinateSequence`; it derives
+a `LINE` context over a `LineStringGeometry` sharing that immutable sequence, suppresses endpoints at
+every same-role recursion level, and requires a none result. No cross-role operation is exposed to a
+consumer renderer. This keeps the public extension surface small while allowing the built-in line and
+fill contracts to retain their G2-004 behavior.
+
+`createGraphics()` returns a disposable child. The facade does not expose `MapView`, mutable layer
+state, registry mutation, the package-private derived-dispatch operations, or the parent graphics
+object. A renderer must not retain the context or returned graphics beyond the call and must dispose
+every created child.
+
+`SymbolRenderResult` is an immutable AWT value containing `Optional<Envelope>
+nominalMarkerBounds`. `none()` represents line/fill output; `markerBounds(...)` and `union(...)`
+support markers and composites. MapView uses the final point result once for label placement. Bounds
+are layout, not a painted-pixel promise, and remain present for zero-opacity markers. Registry dispatch
+requires a non-null result: `MARKER` must return bounds; `LINE` and `FILL` must return none; and the
+legacy renderer returns bounds only for point geometry. A wrong result reports
+`SYMBOL_RENDERER_INVALID_RESULT` with exactly `role` and `key` rather than leaking a null or incidental
+geometry failure.
+
+The context is intentionally one facade rather than public marker/line/fill renderer hierarchies. A
+custom renderer can inspect the already-validated role and geometry, use AWT only inside the AWT
+module, and recurse explicitly, while MapView retains lifecycle, diagnostics, and EDT ownership.
+
+#### Verification boundary
+
+API tests cover pixel format/indexing, row order, defensive copies, dimension/product/length limits,
+native/proportional factories, both interpolation values, catalog name rules, order/equality,
+duplicates, missing versus malformed lookup, composites, and legacy rejection. Limit tests exercise
+oversized dimensions before allocating pixel arrays; proportional tests include a finite near-overflow
+screen width whose intrinsic aspect ratio is one.
+
+Registry tests cover the complete built-in set, empty and preloaded builders, custom explicit marker
+rendering through `MapView`, marker-anchor context, returned composite-bound unions, same-role recursive
+opacity, derived endpoint and closed-ring contexts, public cross-role rejection, duplicate/reserved/
+unregistered/value-mismatch/invalid-result failures, application rejection of legacy-role
+registration, builder consumption, and isolation among two registries and two views. Architecture tests
+prove that API/core have no AWT signatures, registries have no mutable static state or class-token
+lookup, and no discovery API or service descriptor is introduced.
+
+Offscreen tests use a non-square multi-color icon to prove row orientation, alpha, every anchor,
+rotation, both size units, nearest versus bilinear sampling, opacity, nominal bounds, point-label
+integration, and composite order. Parent graphics state remains unchanged. The implementation adds no
+resource scanning, encoded-image support, mutable catalog, cache, or global registry.
+
 ## Projection pipeline
 
 ```text
@@ -1056,6 +1262,7 @@ out of this gate.
 | 2026-07-12 | Store vector paths as packed opcodes and ordinates with fixed even-odd fill. | The complete Level 1 command set stays toolkit-neutral, compact, deterministic, and directly convertible to Java2D. |
 | 2026-07-12 | Compute marker placement as a toolkit-neutral affine result before AWT painting. | One tested transform order keeps anchors, units, offsets, and rotation identical across current and future renderers. |
 | 2026-07-12 | Generate hatch lines only over the clipped screen extent with an explicit per-feature budget. | A simple packed lattice plus Java2D polygon clip preserves holes while bounding allocation and work. |
+| 2026-07-12 | Register AWT symbol renderers by explicit role/key in an instance-owned immutable registry. | Consumers can extend rendering without reflection, discovery, toolkit leakage, or global mutable state. |
 
 ## Task design traceability
 
@@ -1072,3 +1279,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G2-002 | Packed vector paths, normalized built-in markers, Java2D conversion, and first render slice | Approved |
 | G2-003 | Immutable placement/stroke values, core marker transforms, AWT painting, and composites | Approved |
 | G2-004 | Solid line/fill values, endpoint tangents, bounded hatch layout, clipping, and migration | Approved |
+| G2-005 | Bounded raster icons, immutable named catalogs, explicit AWT registry, and custom rendering | Approved |
