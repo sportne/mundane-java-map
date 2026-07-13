@@ -699,3 +699,422 @@ G10-021 depends on G10-020; G10-022 depends on G10-021; G10-023 depends on G10-0
 on G10-023. Shared publication/native inventories follow the append-only single-owner rule. Broader
 properties, GeometryCollection, Z/M, sequences, remote retrieval, writing, alternate parsers, and
 format-specific performance optimization require new evidence and tasks.
+
+## GeoTIFF raster and elevation profile decision (G10-003)
+
+### One strict JDK reader with caller-selected semantics
+
+The **G10 GeoTIFF profile and routing approval** checkpoint selects one future JDK-only,
+AWT-free `mundane-map-io-geotiff` module. It is a published Level 2 runtime module that depends on
+API and only the checked binary, raster-resampling, affine, CRS, and packed-elevation algorithms it
+uses from core. It is not an Optional adapter, does not use `ImageIO`, and has no external library,
+native codec, service provider, reflection, discovery, memory mapping, or network path.
+
+The public surface remains three immutable format values plus one facade:
+
+```text
+GeoTiffFiles
+  openRaster(SourceIdentity identity, Path path,
+             GeoTiffRasterOptions options,
+             CancellationToken cancellation) -> RasterSource
+  openRaster(SourceIdentity identity, byte[] encoded,
+             GeoTiffRasterOptions options,
+             CancellationToken cancellation) -> RasterSource
+  openElevation(SourceIdentity identity, Path path,
+                GeoTiffElevationOptions options,
+                CancellationToken cancellation) -> ElevationSource
+  openElevation(SourceIdentity identity, byte[] encoded,
+                GeoTiffElevationOptions options,
+                CancellationToken cancellation) -> ElevationSource
+
+GeoTiffRasterOptions(GeoTiffLimits formatLimits,
+                     RasterSourceLimits requestLimits)
+  defaults()
+  withFormatLimits(...)
+  withRequestLimits(...)
+
+GeoTiffElevationOptions(ElevationUnit elevationUnit,
+                        GeoTiffLimits formatLimits,
+                        ElevationSourceLimits sourceLimits)
+  of(ElevationUnit elevationUnit)
+  withFormatLimits(...)
+  withSourceLimits(...)
+
+GeoTiffLimits
+  defaults()
+  complete typed accessors and withers for the ceilings below
+```
+
+Convenience overloads without a token delegate to `CancellationToken.none()`. The caller selects
+the semantic route. `openRaster` requires cell-area metadata and returns `RasterSource`;
+`openElevation` requires sample-post metadata and returns `ElevationSource`. Sample values, band
+names, photometric tags, filename suffixes, or no-data metadata never guess a route. A route/profile
+mismatch is terminal before sample allocation. The two options types avoid an inactive raster or
+elevation limit inside one generic bag; no TIFF header, tag, GeoKey, segment, sample-type, decoder, or
+external-library type is public. Elevation has no parameterless defaults: `of(unit)` combines the
+explicit caller declaration with default format/source limits, and the immutable unit has no
+secondary default that can be selected accidentally during open.
+
+This is an interoperability subset of [OGC GeoTIFF 1.1](https://docs.ogc.org/is/19-008r4/19-008r4.html),
+not a claim to arbitrary TIFF 6.0 or GeoTIFF conformance. General TIFF metadata/image support belongs
+neither in the Level 1 image reader nor behind an opaque Java2D provider. A future GDAL decision must
+consume this profile and show a concrete missing capability before accepting JNI; G11-004 therefore
+depends on G10-003. GeoTIFF and DTED remain separate format readers and converge only on the G9
+`ElevationSource` contract.
+
+The strategy comparison is closed for this profile. A small JDK parser/decoder is selected because
+the accepted tag, sample, and compression matrix is finite and can expose every allocation and
+diagnostic boundary. JDK `ImageIO` is rejected because TIFF metadata selection, numeric elevation,
+provider discovery, and intermediate allocation would sit behind `java.desktop` and an opaque SPI.
+GDAL's permissive license does not offset its JNI, platform packaging, process-global driver, PROJ
+data, and much broader attack surface; it is deferred to G11-004 rather than added as a second reader.
+The selected module therefore adds no third-party license or dependency inventory, and any future
+external implementation remains a separately named Optional adapter rather than replacing this
+contract silently.
+
+### Closed container, layout, and compression profile
+
+The exact first container matrix is:
+
+| Concern | Accepted | Rejected or deferred |
+| --- | --- | --- |
+| Header | Classic TIFF version 42; `II` and `MM` byte order | BigTIFF version 43, invalid byte-order aliases |
+| Directories | Exactly one nonempty top-level IFD; ascending unique tag IDs; next offset zero | Pages, chained IFDs, SubIFDs, overviews, masks, cycles |
+| Value storage | TIFF BYTE/ASCII/SHORT/LONG/RATIONAL/DOUBLE forms required below; inline or one bounded out-of-line range | Signed/64-bit IFD offsets, recursive values, unsupported semantic types |
+| Sample organization | Contiguous/chunky samples; exactly strips or exactly tiles | Planar-separate, mixed declarations, sparse zero-offset segments |
+| Compression | None `1`, Adobe Deflate `8`, PackBits `32773`; Predictor absent or `1` | LZW, old Deflate `32946`, JPEG, CCITT, Predictor 2/3, LERC, ZSTD, WebP |
+| Orientation/fill | Orientation absent or `1`; FillOrder absent or `1` | Flipped/rotated storage orientation, reverse fill order |
+
+Every profile requires ImageWidth, ImageLength, BitsPerSample, PhotometricInterpretation, and exactly
+one complete strip/tile family. Compression omission means None; SamplesPerPixel omission means one;
+PlanarConfiguration omission means contiguous; Predictor, Orientation, and FillOrder omission mean
+one. SampleFormat omission means unsigned only for the raster profiles and is invalid for elevation.
+ExtraSamples is absent without alpha and is exactly one SHORT value `2` with alpha. Dimensions,
+RowsPerStrip, and strip offsets/counts use only their TIFF-permitted SHORT/LONG forms. TileWidth and
+TileLength use SHORT/LONG, TileOffsets uses LONG, and TileByteCounts uses SHORT/LONG. NewSubfileType is
+LONG count one. Every other scalar code is SHORT count one; BitsPerSample and SampleFormat are SHORT
+arrays, and ExtraSamples is SHORT count one when present. The GeoKey directory uses SHORT, citation
+and no-data parameters use ASCII, and the three georeference tags use DOUBLE. No coercion between
+signedness, scalar width, ASCII numbers, or floating tag types occurs. BitsPerSample has exactly
+`SamplesPerPixel` entries. A present SampleFormat also has exactly that many entries; every entry must
+equal the one profile value. These count rules run before comparing the sample values.
+
+The complete recognized semantic tag set is closed:
+
+```text
+254 NewSubfileType (absent or zero only)
+256 ImageWidth                 257 ImageLength
+258 BitsPerSample              259 Compression
+262 PhotometricInterpretation  266 FillOrder
+273 StripOffsets
+274 Orientation                277 SamplesPerPixel
+278 RowsPerStrip               279 StripByteCounts
+284 PlanarConfiguration        317 Predictor
+322 TileWidth                  323 TileLength
+324 TileOffsets                325 TileByteCounts
+338 ExtraSamples               339 SampleFormat
+33550 ModelPixelScale          33922 ModelTiepoint
+34264 ModelTransformation      34735 GeoKeyDirectory
+34737 GeoAsciiParams           42113 GDAL_NODATA (elevation only)
+```
+
+Exactly these benign presentation/provenance tags may also occur and are ignored after structural
+validation: DocumentName `269`, ImageDescription `270`, Make `271`, Model `272`, XResolution `282`,
+YResolution `283`, ResolutionUnit `296`, Software `305`, DateTime `306`, Artist `315`, HostComputer
+`316`, and Copyright `33432`. The text tags are one nonempty 7-bit TIFF ASCII string with a declared
+count including exactly one final NUL and no embedded NUL, bounded by `tagPayloadBytes`. X/YResolution
+are RATIONAL count one with a nonzero denominator; ResolutionUnit is SHORT count one and value
+`1|2|3`. Their values do not affect placement, color, diagnostics, or output. Every other tag ID,
+including JPEG tables, ICC/XML/RPC/GDAL metadata, EXIF/GPS pointers, color maps, transfer functions,
+and unknown/private tags, is unsupported with numeric tag context. Tag `330` maps to `construct=subIfd`,
+tag `34736` to `construct=geoDoubleParams`, and every other unlisted tag to `construct=tag`.
+NewSubfileType value `1` maps to `construct=overview`, value `4` to `construct=mask`, and every other
+nonzero value to `construct=tag`. There is no open-ended classification or generic ignored-tag map.
+
+The IFD parser treats every offset/count as unsigned and promotes it to checked `long` before
+addition or multiplication. Each entry's declared byte count is established before inline-versus-
+offset selection. The first IFD offset, every out-of-line value offset, and every selected image-
+segment offset must be positive and even; unused inline value bytes are zero. Misalignment is a
+header, tag, or segment grammar error respectively. Every TIFF ASCII field's count includes its final
+NUL. The checked complete first-IFD range—entry count, all 12-byte entries, and next-offset word—lies
+inside the snapshot and is disjoint from header bytes `[0,8)`. Every physical out-of-line tag payload
+and image segment also lies inside the snapshot and is disjoint from the header, complete IFD, every
+other tag payload, and every image segment. Thus tag payloads and segments are each pairwise disjoint
+and mutually disjoint. The sole permitted logical containment is a citation key's validated slice
+inside its owning GeoAsciiParams payload. Citation sibling slices are disjoint and, as specified
+below, cover that payload before its NUL. No other key/tag alias or nested range is accepted. Ignored
+allowlisted tags remain range/type/count/allocation validated and counted but never become a public/
+private metadata tree.
+
+Strips require positive `RowsPerStrip`, the exact checked `ceil(height / rowsPerStrip)` offset/count
+arrays, and natural north-to-south order. Tiles require positive width and height divisible by 16,
+the exact checked `ceil(width/tileWidth) * ceil(height/tileHeight)` arrays, and row-major tile order.
+Edge tiles retain their declared full tile byte shape; final strips use only their remaining rows.
+Uncompressed byte counts equal the exact decoded shape. A compressed segment has a positive bounded
+encoded count and one exact precomputed decoded count.
+
+The private decoder dispatch is a closed switch, not a registry. None copies exactly. PackBits
+accepts TIFF's literal, replicated, and `-128` no-op packets but must consume the whole segment and
+produce exactly the planned length. Deflate uses a fresh JDK `Inflater` per segment and requires one
+zlib stream that finishes at exactly that length with no preset dictionary, truncation, overrun,
+concatenated stream, or trailing byte. All codecs use the same output bound and cancellation/accounting
+path. Supporting LZW or a predictor is a later profile change with independent fixtures, not a codec
+plug-in point.
+
+### Exact raster and elevation sample profiles
+
+`openRaster` accepts only these unsigned eight-bit chunky profiles:
+
+| Photometric interpretation | Samples/pixel | Bits and sample format | RGBA mapping |
+| --- | ---: | --- | --- |
+| WhiteIsZero `0` | 1 | one `8`, unsigned/omitted | invert gray; alpha 255 |
+| BlackIsZero `1` | 1 | one `8`, unsigned/omitted | copy gray; alpha 255 |
+| WhiteIsZero or BlackIsZero | 2 | two `8`; unsigned; one ExtraSamples `2` | gray plus unassociated alpha |
+| RGB `2` | 3 | three `8`; unsigned/omitted | exact R, G, B; alpha 255 |
+| RGB `2` | 4 | four `8`; unsigned; one ExtraSamples `2` | exact R, G, B, unassociated alpha |
+
+Palette, YCbCr, CMYK, Lab, multispectral bands, associated/unspecified alpha, more than one extra
+sample, color maps, transfer functions, ICC/calibrated color, and raster no-data are unsupported.
+Accepted bytes are treated as straight encoded gray/sRGB component values; there is no implicit
+gamma/profile conversion. The output is the existing immutable `0xRRGGBBAA` buffer and uses G6's
+exact nearest or bilinear request semantics. Opacity remains AWT presentation state.
+
+`openElevation` accepts exactly one chunky BlackIsZero band:
+
+| SampleFormat | BitsPerSample | Decoded value |
+| --- | --- | --- |
+| signed integer `2` | `16` or `32` | exact two's-complement value converted to `double` |
+| IEEE floating point `3` | `32` or `64` | exact finite float/double value widened as needed |
+
+Unsigned, complex, multiband, palette/color, associated-alpha, per-band scale/offset, and mixed sample
+types are unsupported. Unmasked values must be finite and accepted negative zero becomes positive
+zero under G9. The optional GDAL private tag `42113` is the only payload compatibility extension and
+is documented as non-standard. It is one TIFF ASCII field whose declared count includes exactly one
+final NUL and no embedded NUL. The preceding nonempty token may use up to
+`GeoTiffLimits.maximumNoDataBytes() - 1` bytes; the complete field, including its terminator, is what
+the limit counts. An integer token must be an exact in-range signed decimal. A floating token is
+either one finite bounded decimal representable by the declared type or exact lowercase `nan`. A
+finite sentinel masks samples equal after declared-type decoding; `nan` masks every NaN. Infinity is
+never valid, and any NaN without the `nan` policy is `GEOTIFF_SAMPLE_INVALID`. Imagery rejects the
+tag. This makes both the 128-byte default and 1,024-byte hard field ceilings reachable.
+
+### GeoKeys, cell areas, and sample posts
+
+Every accepted file has `GeoKeyDirectoryTag` with directory version `1`, key revision `1`, minor
+revision `0` or `1`, an ascending unique key list, and bounded references. Exactly one horizontal
+profile is accepted:
+
+| Model | Required keys | Optional consistency keys | CRS metadata |
+| --- | --- | --- | --- |
+| Geographic | `GTModelType=2`, `GeographicType=4326` | angular units absent or `9102` | canonical EPSG:4326 |
+| Projected | `GTModelType=1`, `ProjectedCSType=3857` | linear units absent or `9001`; geographic type absent or `4326` | canonical EPSG:3857 |
+
+The SHORT directory count is exactly `4 + 4 * NumberOfKeys` after checked arithmetic and the configured
+key limit. Its four-word header is validated before any entry and therefore has no key ID. Every
+recognized numeric key entry has `TIFFTagLocation=0`, `Count=1`, and carries its unsigned SHORT value
+in `ValueOffset`. A citation entry alone has `TIFFTagLocation=34737`, a positive count, and a checked
+offset into that one ASCII payload. No entry may reference another TIFF tag or use a multi-value
+numeric representation.
+
+The only recognized key IDs are GTModelType `1024`, GTRasterType `1025`, optional GTCitation `1026`,
+GeographicType `2048`, optional GeogCitation `2049`, optional GeogAngularUnits `2054`,
+ProjectedCSType `3072`, optional PCSCitation `3073`, and optional ProjLinearUnits `3076`. A citation
+key must reference tag `34737`; its positive slice lies before that tag's mandatory final NUL, ends
+in `|`, and contains only printable 7-bit ASCII plus that terminator. GeoAsciiParams is absent when no
+citation key exists, and every byte before its final NUL belongs to exactly one declaration-ordered,
+non-overlapping citation slice. Keys `4096..4099` use unsupported construct `verticalCrs`; every other
+unlisted key uses unsupported construct `geoKey` with its numeric ID.
+
+The adapter normalizes the GeoTIFF longitude/latitude tuple to the library's x/y EPSG:4326 convention
+at the format boundary. It resolves the selected definition through `CrsRegistry.level1()` and uses
+`CrsMetadata.recognized` with both textual provenance optionals empty: a numeric GeoKey is not
+fabricated into an exact input string. Other EPSG codes, user-defined keys, citations used as
+definitions, WKT, vertical CRS/datum claims, compound CRS, arbitrary registry lookup, and heuristic
+recognition are unsupported in the first profile. Bounded ASCII citation keys may reference one structurally valid
+GeoAsciiParams payload and are ignored as provenance; raw citation text is never retained in a
+diagnostic. GeoDoubleParams and every unlisted GeoKey follow the exact closed outcomes above.
+
+Raster opening requires `GTRasterTypeGeoKey=1` (`PixelIsArea`). Elevation opening requires
+`GTRasterTypeGeoKey=2` (`PixelIsPoint`) and uses only the caller's explicit
+`GeoTiffElevationOptions.elevationUnit()`. Every vertical GeoKey `4096..4099`, including an orphan
+`VerticalUnitsGeoKey`, is unsupported: G9 can retain a sample unit but cannot honestly retain a
+vertical CRS/datum, so the reader neither discards those semantics nor treats one axis-unit key as a
+complete definition. The three G9 units remain available through the explicit option and are never
+inferred from horizontal CRS, sample magnitude, citation, or filename. Nonzero model Z scale/
+tiepoint components and vertical transforms are likewise unsupported.
+
+Georeferencing is exactly one of:
+
+- one three-DOUBLE `ModelPixelScaleTag` plus one six-DOUBLE `ModelTiepointTag`; or
+- for raster only, one 16-DOUBLE `ModelTransformationTag` whose homogeneous matrix is a finite,
+  invertible 2D affine transform with no perspective, raster/model Z coupling, or non-identity Z row.
+
+The two forms are mutually exclusive. Pixel scale requires finite positive X/Y scales, zero Z scale,
+one finite tiepoint, zero raster/model Z, and the standard north-up equation: columns increase east
+and rows increase south. The tiepoint need not be `(0,0)`, so translation is derived with checked
+arithmetic rather than assumed.
+
+GeoTIFF area coordinates address cell corners. The raster adapter evaluates the approved transform
+at `(column + 0.5,row + 0.5)` and constructs G6's center-based `RasterAffineTransform`; a strictly
+north-up, non-sheared result uses `RasterGridPlacement.axisAligned`, otherwise it uses the real affine
+variant. Its metadata bounds remain the four transformed outer cell corners. Point coordinates
+address elevation posts directly with no half-cell shift. Elevation therefore requires the scale/
+tiepoint form whose derived coefficients have positive X, zero shear, negative Y row direction, and
+produces G9 `sampleBounds` from posts `(0,0)` and `(width-1,height-1)`. Rotated, sheared, reversed,
+wrapped, or collapsed elevation grids fail rather than being warped into a regular grid.
+
+The reader validates finite/invertible placement and source metadata but performs no reprojection,
+domain clamp, coordinate repair, vertical conversion, or raster warp. G4/G6 still require an equal
+recognized display CRS for raster attachment, and G9 query/render operations retain their own
+recognized-CRS/domain rules.
+
+### Snapshot, source lifecycle, and bounded work
+
+A successful path open reads and closes one file into an exact immutable snapshot; a byte-array open
+defensively copies. The reader probes at most one byte beyond the configured input ceiling without
+allocating `maximum + 1`, detects size change/truncation, and retains no path, channel, parser,
+`Inflater`, mapped buffer, thread, executor, cache, or cancellation token. One private immutable
+`TiffPlan` contains only primitive header facts, placement/CRS values, and packed segment offsets/
+counts. Raster sources retain that plan and snapshot. Close marks the source closed, drops those
+references, is idempotent, and cannot fail through ordinary array release; metadata, limits, and the
+empty opening report survive.
+
+A raster read validates its strict window and output first, determines intersecting segments in
+natural order, and charges every complete segment cell that must be decoded as source work. It
+allocates one reusable buffer sized to the largest intersecting decoded segment, one strict-window
+RGBA staging buffer, and the final output builder only after combined G4/format preflight. It decodes
+each segment at most once in that read, copies only requested cells, then reuses `RasterResampling`.
+Compressed payload failure terminates that read with no partial value and leaves the open source
+reusable. There is no persistent decode/resample cache before G10-037 evidence.
+
+Elevation opening decodes every segment eagerly into one temporary row-major `double[]` plus no-data
+mask, closes/releases the encoded transaction state, and calls `PackedElevationGrid.copyOf`. The
+opaque defensive copy and temporary/final coexistence are both prospectively charged, just as the
+DTED reader does. Immediately after that opaque copy, the opener checkpoints cancellation. If
+cancellation won during the copy, it closes the new grid, keeps cancellation primary, suppresses any
+unexpected cleanup failure, and publishes nothing; otherwise it releases temporary references and
+returns the grid. This final arbitration preserves G9's failure-free random `sample`. The returned
+source owns no encoded bytes or format plan.
+
+All controlled byte, entry, key, segment, decompression, pixel, and sample loops checkpoint before
+allocation/publication, at least once per row/segment, and within 4,096 primitive units. Sources use
+G4/G9 external serialization; no method starts background work. A cancelled open publishes nothing;
+a cancelled raster read leaves the source reusable. The first failure remains primary and open-time
+resource cleanup is suppressed in encounter order.
+
+`GeoTiffLimits` is immutable, uses positive typed fields and checked withers, and has these inclusive
+defaults and hard maxima. The no-data and GeoASCII ceilings are at least two bytes; no-data and
+GeoASCII bytes do not exceed one tag payload; encoded-segment and tag-payload bytes do not exceed
+input bytes; and decoded-segment bytes do not exceed format working bytes. Every constructor/wither
+enforces those reachability relations with checked arithmetic and leaves no partial value.
+
+| Ceiling | Default | Hard maximum |
+| --- | ---: | ---: |
+| Input snapshot bytes | 268,435,456 | 1,073,741,824 |
+| Width or height | 65,536 | 131,072 |
+| Declared pixels | 268,435,456 | 2,147,483,647 |
+| IFD entries | 512 | 4,096 |
+| GeoKeys | 128 | 1,024 |
+| Segments | 262,144 | 1,048,576 |
+| One encoded segment | 67,108,864 | 268,435,456 |
+| One decoded segment | 67,108,864 | 268,435,456 |
+| One out-of-line tag payload | 67,108,864 | 268,435,456 |
+| GeoASCII bytes | 65,536 | 1,048,576 |
+| Complete GDAL no-data field bytes, including NUL | 128 | 1,024 |
+| Format working bytes per open/read | 268,435,456 | 1,073,741,824 |
+
+Input storage, G4 published/intermediate buffers, G9 retained sample storage, and format working
+storage have independent ceilings; every phase checks its components and their combined sum with
+checked arithmetic, but no component is silently substituted for another. Because elevation drops
+the snapshot before the final packed-grid copy, its two conservative peaks are input plus format work
+and format work plus G9 retained storage, not all three at once. Format working bytes include packed
+IFD/GeoKey/segment plans, temporary
+sample/mask storage, one decoder scratch, and other project-owned parser arrays, but exclude the input
+snapshot and the final G4/G9 payload already charged by their contracts. Every range end, element
+count, pixel/sample product, decoded length, array index, and combined peak uses checked `long`
+arithmetic before conversion/allocation. Java byte/primitive-array capacity and Classic TIFF's
+unsigned 32-bit fields remain lower effective maxima when callers raise limits. Equality passes;
+maximum plus one and arithmetic overflow fail before dereference or allocation. The strict profile
+has no opening recovery, so opening reports are empty and no redundant format-warning limit exists.
+
+### Diagnostics, evidence, and implementation decomposition
+
+The stable GeoTIFF vocabulary is:
+
+| Code | Closed context | Meaning |
+| --- | --- | --- |
+| `GEOTIFF_IO_FAILED` | `operation=open|size|read|close`, `reason=notFound|accessDenied|changed|other` | A path snapshot transaction failed. |
+| `GEOTIFF_HEADER_INVALID` | `field=byteOrder|version|ifdOffset|ifdCount|nextIfd`, `reason=value|range|alignment|overflow` | The Classic TIFF envelope is malformed. |
+| `GEOTIFF_TAG_INVALID` | `tag`, `reason=order|duplicate|missing|type|count|range|alignment|overlap|encoding|value` | An IFD declaration is invalid, including malformed tag `42113`. |
+| `GEOTIFF_GEOKEY_INVALID` | `reason=header` with no `key`; otherwise mandatory `key` and `reason=order|duplicate|location|count|range|value` | The GeoKey directory is malformed. |
+| `GEOTIFF_PROFILE_UNSUPPORTED` | `construct=bigTiff|multipleIfd|subIfd|overview|mask|tag|geoKey|sampleOrganization|compression|predictor|orientation|photometric|alpha|sampleType|rasterNoData|verticalCrs|horizontalCrs|geoDoubleParams|georeference|route`; optional relevant `tag|key|compression` | Valid TIFF/GeoTIFF content is outside the approved matrix or wrong opener. |
+| `GEOTIFF_GEOREFERENCE_INVALID` | `reason=missing|conflict|nonFinite|singular|orientation|collapsed` | Placement cannot represent the selected source contract. |
+| `GEOTIFF_SEGMENT_INVALID` | `segment`, `reason=count|range|alignment|overlap|encodedLength|decodedLength` | Strip/tile storage is inconsistent. |
+| `GEOTIFF_DECODE_FAILED` | `segment`, `compression`, `reason=truncated|overrun|dictionary|unfinished|trailing|packet` | A selected payload cannot decode exactly. |
+| `GEOTIFF_SAMPLE_INVALID` | `segment`, `reason=nonFinite` | One decoded, unmasked elevation sample is non-finite. |
+
+`SOURCE_LIMIT_EXCEEDED` uses `scope=geoTiffOpen|geoTiffRead` and exact limit tokens
+`inputBytes|dimension|pixels|ifdEntries|geoKeys|segments|encodedSegmentBytes|decodedSegmentBytes|tagPayloadBytes|geoAsciiBytes|noDataBytes|workingBytes`;
+G4/G9 limits retain their existing scopes. `SOURCE_CANCELLED` retains its common shape. Diagnostics
+use the caller's source identity and may use a checked TIFF byte location, tag/key number, or zero-
+based segment index. They never contain a path, citation, raw bytes, numeric sample/no-data value,
+compressed data, JDK exception message, or implementation class.
+
+The GDAL no-data tag's TIFF type/count/NUL/ASCII/token/range grammar is tag-level validation and uses
+`GEOTIFF_TAG_INVALID tag=42113`; it has no segment context. Only a payload sample encountered after a
+valid policy reaches `GEOTIFF_SAMPLE_INVALID`, so every mandatory context key is always available.
+
+After a valid `II|MM` byte-order marker, version `43` is the recognizable unsupported BigTIFF profile;
+every other non-42 version is `GEOTIFF_HEADER_INVALID field=version reason=value`. After a valid first
+IFD, next offset zero is accepted, an even in-input offset outside the header/first IFD with room for
+an IFD count is recognizable `construct=multipleIfd`, and a nonzero misaligned, overlapping, or out-
+of-range value is instead
+`GEOTIFF_HEADER_INVALID field=nextIfd reason=alignment|range`. The reader does not parse a second IFD
+merely to prove it is unsupported. These mappings precede the generic profile/header alternatives.
+
+Opening precedence is public arguments, already-cancelled token, input bytes and snapshot I/O,
+Classic header/IFD structure, tag ranges and semantic matrix, segment plan, GeoKey structure, selected
+route/sample profile, georeference/CRS, prospective allocation, payload validation for elevation, and
+publication. Raster payload diagnostics occur later in segment order during `read`. Within either
+operation the first terminal result is primary; cancellation wins only at an explicit checkpoint
+before another terminal result has been established.
+
+No production test or module lands in G10-003. The approval packet maps hand-built fixtures across
+both byte orders, inline/out-of-line values, strips/tiles, all sample profiles, three compressions,
+both georeference forms, area/point semantics, two CRSs, three elevation units, and finite/NaN no-
+data. Negative tables cover offset/count overflow, tag/key order and duplication, aliases/overlap,
+segment count/length, compressed bombs/truncation/trailing bytes, wrong opener, unsupported profiles,
+conflicting/non-finite transforms, non-finite samples, every exact/one-over ceiling, cancellation,
+and deterministic bounded mutation.
+
+After approval create nine working cards, not empty scaffolds:
+
+1. `G10-030` — create the module with a Classic header/IFD and minimal GeoKey parser, one little-
+   endian uncompressed stripped BlackIsZero raster, EPSG:4326 scale/tiepoint area placement, strict
+   window reads, map rendering, a minimal viewer, publication staging, and an offline consumer.
+2. `G10-031` — add big-endian values, uncompressed tiles, WhiteIsZero/RGB/unassociated-alpha raster
+   profiles, EPSG:3857, and exact segment/window behavior.
+3. `G10-032` — add PackBits and Deflate through the existing raster read/render slice, with exact
+   decompression bounds and malformed-stream tests.
+4. `G10-033` — add the affine ModelTransformation raster path and complete tolerant
+   `renderRegression` placement/CRS evidence.
+5. `G10-034` — add eager PixelIsPoint signed Int16/Int32 elevation with explicit units, exact
+   position queries, colorization, and one rendered terrain slice; depend on G9-002 and G9-005.
+6. `G10-035` — add Float32/Float64 elevation, finite/`nan` no-data, hillshade, and compressed/tiled
+   elevation parity.
+7. `G10-036` — close every limit, diagnostic, cancellation, cleanup, alias/overlap, and deterministic
+   hostile-mutation case across both routes.
+8. `G10-037` — add a small legally redistributable independent-writer corpus with pinned generation
+   recipe/tool versions/licenses/hashes, complete both viewer modes, and append bounded window/memory
+   cases to `performanceEvidence`; add no new corpus command.
+9. `G10-038` — extend the shared JVM/Linux Native Image scenario across None/PackBits/Deflate,
+   raster/elevation success, and one exact malformed outcome; record the bounded claim without a
+   native codec.
+
+The cards are serial because they share one parser, segment decoder, facade, module, publication, and
+viewer: each G10-031 through G10-038 depends on its immediate predecessor, while G10-034 additionally
+depends on G9-002 and G9-005. This is deliberate path safety, not an architectural coupling between
+DTED and GeoTIFF. TIFF writing,
+BigTIFF, LZW/JPEG/predictors, palette/YCbCr/CMYK, arbitrary CRS, multiple IFDs/overviews, masks,
+COG/range access, persistent caches, GDAL, and format-specific acceleration require evidence and new
+tasks.

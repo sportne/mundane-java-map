@@ -215,7 +215,7 @@ already implementation tasks, while any broader follow-up still requires a new c
 | --- | --- | --- | --- | --- |
 | [G10-001 — Secure SVG import profile and first slice](G10-001-secure-svg-import-profile-and-first-slice.md) | Proposed | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
 | [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
-| [G10-003 — GeoTIFF raster/elevation profile decision](G10-003-geotiff-raster-and-elevation-profile-decision.md) | Proposed | HITL | G8-004, G9-001 | Decide image/elevation routing, tags, compression, tiling, CRS, and limits. |
+| [G10-003 — GeoTIFF raster/elevation profile decision](G10-003-geotiff-raster-and-elevation-profile-decision.md) | Proposed | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide GeoPackage/MBTiles scope and isolate SQLite implementation types. |
 | [G10-005 — GPX and KML source profiles](G10-005-gpx-and-kml-source-profiles.md) | Proposed | HITL | G8-004 | Bound first track/waypoint and static-feature profiles. |
 | [G10-006 — Remote tile source first slice](G10-006-remote-tile-source-first-slice.md) | Proposed | AFK | G8-004 | Fetch bounded cancellable HTTP tiles with deterministic local tests. |
@@ -228,5 +228,5 @@ already implementation tasks, while any broader follow-up still requires a new c
 | [G11-001 — Editing, undo, and snapping model](G11-001-editing-undo-and-snapping-model.md) | Proposed | HITL | G8-004 | Decide edit transactions, immutable commands, undo/redo, and snapping. |
 | [G11-002 — Thematic styling and label placement](G11-002-thematic-styling-and-label-placement.md) | Proposed | HITL | G8-004 | Bound thematic rules and deterministic collision-aware labels. |
 | [G11-003 — Workspace persistence profile](G11-003-workspace-persistence-profile.md) | Proposed | HITL | G8-004 | Decide explicit versioned persistence without Java serialization. |
-| [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-004, G10-007 | Isolate JTS, PROJ, SQLite, and GDAL dependencies and types. |
+| [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-003, G10-004, G10-007 | Isolate JTS, PROJ, SQLite, and GDAL dependencies and types. |
 | [G11-005 — Vector map export profile](G11-005-vector-map-export-profile.md) | Proposed | HITL | G10-001 | Select a bounded deterministic vector-export profile. |

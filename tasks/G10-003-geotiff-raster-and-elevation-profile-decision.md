@@ -7,43 +7,48 @@ Type: HITL
 
 ## Goal
 
-Choose a bounded GeoTIFF profile and an implementation strategy that routes imagery to `RasterSource`
-and elevation samples to the shared elevation model.
+Approve one bounded Classic GeoTIFF profile and a pure-Java implementation strategy with explicit
+raster and elevation entry points.
 
 ## Context
 
-Level 1 provides bounded raster requests and affine georeferencing; G9-001 provides terrain data.
-GeoTIFF is intentionally Level 2 and must remain separate from the dependency-free DTED reader even
-when both produce elevation grids.
+Level 1 provides bounded raster windows, affine placement, resampling, and CRS diagnostics; G9 provides
+positioned eager terrain data, queries, and rendering. GeoTIFF must preserve the cell-area versus
+sample-post distinction and remain separate from DTED even when both produce `ElevationSource`.
 
 ## Scope
 
-Decide classic TIFF versus BigTIFF, byte order, strips/tiles, sample organizations/types, compression,
-photometric interpretations, alpha/no-data behavior, required GeoKeys and transform tags, recognized
-CRS handling, overview/window behavior, and parser/decode limits. Compare JDK-only, `ImageIO`-backed AWT
-adapter, and isolated external adapter options. Define deterministic routing of imagery and elevation
-samples and decompose approved work into vertical tasks.
+Complete **G10 GeoTIFF profile and routing approval** for Classic TIFF byte orders and one IFD;
+strips/tiles; None, PackBits, and Deflate; exact gray/RGB/alpha and signed/float elevation profiles;
+GeoKeys, EPSG:4326/EPSG:3857, affine/cell-center rules, explicit caller elevation units and no-data;
+snapshot ownership, limits, diagnostics, cancellation, and source lifecycle. Approve explicit
+`openRaster`/`openElevation` selection in a future JDK-only `mundane-map-io-geotiff` module, and record
+G10-030 through G10-038.
 
 ## Out of scope
 
-Production GeoTIFF code or module creation, arbitrary TIFF conformance, DTED changes, writing, cloud-
-optimized remote range access, JNI/native codecs, and exposing TIFF/library types in public contracts.
+Production code or module creation; BigTIFF, multiple IFDs/overviews, LZW/JPEG/predictors, palette/
+YCbCr/CMYK, arbitrary CRS, writing, cloud-optimized range access, persistent caches, JNI/native codecs,
+and TIFF or external-library types in public contracts.
 
 ## Acceptance criteria
 
-- A maintainer approves a supported/rejected/deferred profile covering tags, compression, layout,
-  sample types, CRS/georeferencing, no-data, and explicit resource limits.
-- The decision defines how metadata determines raster versus elevation output without making DTED a
-  generic image reader.
-- Dependency options are compared for complexity, licensing, security, AWT confinement, Native Image,
-  and maintenance; native code requires a separate evidence-backed decision.
-- Follow-up tasks deliver tested read-to-render or read-to-query slices and add no empty format module.
+- **G10 GeoTIFF profile and routing approval** records the closed container/tag/layout/compression,
+  raster/elevation sample, GeoKey/CRS/georeference, no-data, limit, diagnostic, and precedence matrix.
+- Caller-selected raster versus elevation openers must agree with `PixelIsArea` versus `PixelIsPoint`;
+  no sample or metadata heuristic routes data, and DTED remains a separate reader.
+- The approved module is a published Level 2 JDK-only runtime with a bounded byte snapshot and private
+  decoders; the review rejects opaque ImageIO metadata/allocation behavior and defers GDAL/JNI without
+  a demonstrated missing capability. Native Image remains unclaimed until executable evidence.
+- G10-030 through G10-038 are ordered working slices for the first stripped raster, tiled/color
+  completion, compression, affine placement, integer then floating elevation, hostile hardening,
+  corpus/performance, and Native Image; no empty module is created.
 
 ## Required tests
 
-No production tests. Identify minimal hand-built and redistributable corpus cases for every accepted
-layout/compression/sample branch and map them to later malformed, rendering, performance, and native
-tasks.
+No production tests. Review the hand-built valid/negative/limit/cancellation matrix, independent-writer
+corpus plan, parser/source compile sketches, and the follow-up graph's render, query, publication/
+consumer, performance, and Native Image evidence.
 
 ## Validation
 
@@ -55,5 +60,6 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: the maintainer approves the format matrix, decoder strategy, imagery/elevation routing,
-and follow-up task split before implementation. GeoTIFF stays Level 2.
+HITL checkpoint: **G10 GeoTIFF profile and routing approval**. Approval chooses the strict pure-Java
+profile, explicit semantic openers, and nine-card implementation graph. Rejection creates no module;
+GeoTIFF remains Level 2.

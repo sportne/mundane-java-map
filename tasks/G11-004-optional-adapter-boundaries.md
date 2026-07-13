@@ -1,7 +1,7 @@
 # G11-004 — Optional adapter boundaries
 
 Status: Proposed
-Depends on: G10-004, G10-007
+Depends on: G10-003, G10-004, G10-007
 Gate: G11
 Type: HITL
 
@@ -12,9 +12,10 @@ without weakening the core API, Level 1 runtime, or Native Image architecture.
 
 ## Context
 
-G10-004 evaluates SQLite-backed formats and G10-007 evaluates projection needs. Optional geometry and
-GDAL integrations may reduce later complexity, but their dependencies, native deployment, licenses,
-and type systems must remain outside `mundane-map-api`.
+G10-003 selects a strict pure-Java GeoTIFF profile and defers GDAL, G10-004 evaluates SQLite-backed
+formats, and G10-007 evaluates projection needs. Optional geometry and native integrations may reduce
+later complexity, but their dependencies, deployment, licenses, and type systems must remain outside
+`mundane-map-api`.
 
 ## Scope
 
