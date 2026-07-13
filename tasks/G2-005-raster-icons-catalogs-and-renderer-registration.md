@@ -1,7 +1,7 @@
 # G2-005 — Raster Icons, Catalogs, and Renderer Registration
 
 Status: Proposed
-Depends on: G2-003
+Depends on: G2-004
 Gate: G2
 Type: AFK
 
@@ -66,4 +66,3 @@ git diff --check
 Use packed primitive pixel storage rather than one object per pixel. Encoded PNG/JPEG loading belongs
 to the later raster-source slice; the native resource smoke may supply an explicitly decoded bounded
 fixture through a narrow loader owned by AWT.
-

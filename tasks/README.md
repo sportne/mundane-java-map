@@ -124,8 +124,8 @@ Level 1 is complete only when G8-004 is complete.
 | [G2-001 — Symbol contract and placement profile](G2-001-symbol-contract-and-placement-profile.md) | Complete | HITL | G1-001 | Lock symbol contracts, units, placement, rotation, and style migration. |
 | [G2-002 — Toolkit-neutral vector paths and markers](G2-002-toolkit-neutral-vector-path-and-markers.md) | Complete | AFK | G2-001 | Render immutable vector paths and the built-in marker set. |
 | [G2-003 — Symbol placement and composition](G2-003-symbol-placement-and-composition.md) | Complete | AFK | G2-002 | Render anchored, offset, rotated, scaled, opaque, and composite symbols. |
-| [G2-004 — Line endpoints and hatch fills](G2-004-line-endpoints-and-hatch-fills.md) | Proposed | AFK | G2-003 | Render endpoint markers, arrowheads, and bounded hatch fills. |
-| [G2-005 — Raster icons, catalogs, and renderer registration](G2-005-raster-icons-catalogs-and-renderer-registration.md) | Proposed | AFK | G2-003 | Add bounded icons, immutable catalogs, and explicit render registration. |
+| [G2-004 — Line endpoints and hatch fills](G2-004-line-endpoints-and-hatch-fills.md) | Complete | AFK | G2-003 | Render endpoint markers, arrowheads, and bounded hatch fills. |
+| [G2-005 — Raster icons, catalogs, and renderer registration](G2-005-raster-icons-catalogs-and-renderer-registration.md) | Proposed | AFK | G2-004 | Add bounded icons, immutable catalogs, and explicit render registration. |
 | [G2-006 — Symbol gallery and rendering regression](G2-006-symbol-gallery-and-render-regression.md) | Proposed | HITL | G2-004, G2-005 | Deliver the gallery and create the tolerant rendering-regression lane. |
 | [G2-007 — Native symbol resource smoke](G2-007-native-symbol-resource-smoke.md) | Proposed | HITL | G2-006 | Exercise vector, catalog, registry, and explicit icon-resource paths natively. |
 

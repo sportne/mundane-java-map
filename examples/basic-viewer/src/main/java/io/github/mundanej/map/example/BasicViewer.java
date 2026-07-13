@@ -1,27 +1,34 @@
 package io.github.mundanej.map.example;
 
+import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Feature;
-import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SolidFillSymbol;
+import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.SymbolLength;
+import io.github.mundanej.map.api.SymbolStroke;
+import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.BorderLayout;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
 /** Runnable demonstration of the initial map vertical slice. */
-@SuppressWarnings("deprecation")
 public final class BasicViewer {
     private BasicViewer() {}
 
@@ -73,7 +80,7 @@ public final class BasicViewer {
                                 CoordinateSequence.of(
                                         -71.4128, 41.8240, -71.0589, 42.3601, -71.8023, 42.2626)),
                         Map.of("kind", "route"),
-                        FeatureStyle.line(Rgba.rgb(190, 45, 45), 3.0));
+                        SolidLineSymbol.of(stroke(Rgba.rgb(190, 45, 45), 3.0), 1.0));
 
         Feature region =
                 new Feature(
@@ -84,8 +91,12 @@ public final class BasicViewer {
                                         -72.05, 41.65, -70.75, 41.65, -70.75, 42.55, -72.05, 42.55,
                                         -72.05, 41.65)),
                         Map.of("kind", "region"),
-                        FeatureStyle.polygon(
-                                Rgba.rgb(45, 110, 65), new Rgba(70, 170, 95, 55), 2.0));
+                        SolidFillSymbol.of(
+                                new Rgba(70, 170, 95, 55),
+                                Optional.of(
+                                        SolidLineSymbol.of(
+                                                stroke(Rgba.rgb(45, 110, 65), 2.0), 1.0)),
+                                1.0));
 
         return new InMemoryLayer(
                 "new-england-sample",
@@ -99,6 +110,16 @@ public final class BasicViewer {
                 name,
                 new PointGeometry(new Coordinate(longitude, latitude)),
                 Map.of("kind", "city"),
-                FeatureStyle.point(Rgba.rgb(28, 108, 184), 10.0));
+                VectorMarkerSymbol.of(
+                        BuiltInMarkers.path(BuiltInMarker.CIRCLE),
+                        BuiltInMarkers.viewBox(),
+                        Rgba.rgb(28, 108, 184),
+                        Optional.of(stroke(Rgba.rgb(28, 108, 184), 1.0)),
+                        io.github.mundanej.map.api.MarkerPlacement.centeredScreen(10.0),
+                        1.0));
+    }
+
+    private static SymbolStroke stroke(Rgba color, double widthPixels) {
+        return new SymbolStroke(color, new SymbolLength(widthPixels, SymbolUnit.SCREEN_PIXEL));
     }
 }

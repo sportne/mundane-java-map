@@ -10,6 +10,8 @@ import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureStyle;
+import io.github.mundanej.map.api.HatchFillSymbol;
+import io.github.mundanej.map.api.HatchPattern;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
@@ -19,6 +21,8 @@ import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SolidFillSymbol;
+import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolException;
@@ -44,6 +48,7 @@ import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -369,6 +374,272 @@ class MapViewTest {
                     assertTrue(labelBounds[0] >= 72);
                     assertTrue(labelBounds[2] > 90);
                     assertTrue(labelBounds[3] <= 50);
+                });
+    }
+
+    @Test
+    void solidLineRendersCasingMapWidthAndOutwardEndpointArrows() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    VectorMarkerSymbol arrow = endpointArrow(Rgba.rgb(25, 80, 210));
+                    SolidLineSymbol endpoints =
+                            SolidLineSymbol.of(
+                                    screenStroke(Rgba.rgb(190, 35, 35), 3.0),
+                                    Optional.of(arrow),
+                                    Optional.of(arrow),
+                                    1.0);
+                    Feature repeated =
+                            feature(
+                                    "endpoint-line",
+                                    new LineStringGeometry(
+                                            CoordinateSequence.of(
+                                                    -20.0, 0.0, -20.0, -0.0, 20.0, 0.0, 20.0, 0.0)),
+                                    endpoints);
+                    BufferedImage endpointImage = render(repeated);
+                    assertRegionContainsColor(
+                            endpointImage, 33, 46, 40, 54, Rgba.rgb(25, 80, 210), 25);
+                    assertRegionContainsColor(
+                            endpointImage, 60, 46, 67, 54, Rgba.rgb(25, 80, 210), 25);
+                    assertColorNear(Rgba.rgb(255, 255, 255), endpointImage.getRGB(24, 50), 0);
+                    assertColorNear(Rgba.rgb(255, 255, 255), endpointImage.getRGB(76, 50), 0);
+                    assertColorNear(Rgba.rgb(190, 35, 35), endpointImage.getRGB(50, 50), 8);
+
+                    BufferedImage rising =
+                            render(
+                                    feature(
+                                            "rising",
+                                            new LineStringGeometry(
+                                                    CoordinateSequence.of(
+                                                            -15.0, -15.0, 15.0, 15.0)),
+                                            endpoints));
+                    assertRegionContainsColor(rising, 37, 57, 44, 63, Rgba.rgb(25, 80, 210), 30);
+                    assertRegionContainsColor(rising, 56, 37, 63, 44, Rgba.rgb(25, 80, 210), 30);
+
+                    BufferedImage falling =
+                            render(
+                                    feature(
+                                            "falling",
+                                            new LineStringGeometry(
+                                                    CoordinateSequence.of(
+                                                            -15.0, 15.0, 15.0, -15.0)),
+                                            endpoints));
+                    assertRegionContainsColor(falling, 37, 37, 44, 44, Rgba.rgb(25, 80, 210), 30);
+                    assertRegionContainsColor(falling, 56, 56, 63, 63, Rgba.rgb(25, 80, 210), 30);
+
+                    Symbol outer =
+                            SolidLineSymbol.of(screenStroke(Rgba.rgb(190, 35, 35), 8.0), 1.0);
+                    Symbol inner =
+                            SolidLineSymbol.of(screenStroke(Rgba.rgb(25, 80, 210), 3.0), 1.0);
+                    BufferedImage casing =
+                            render(
+                                    feature(
+                                            "casing",
+                                            new LineStringGeometry(
+                                                    CoordinateSequence.of(-20.0, 0.0, 20.0, 0.0)),
+                                            CompositeSymbol.of(List.of(outer, inner), 1.0)));
+                    assertColorNear(Rgba.rgb(25, 80, 210), casing.getRGB(50, 50), 8);
+                    assertRegionContainsColor(casing, 47, 53, 53, 55, Rgba.rgb(190, 35, 35), 25);
+
+                    SolidLineSymbol mapWidth =
+                            SolidLineSymbol.of(
+                                    new SymbolStroke(
+                                            Rgba.rgb(20, 100, 40),
+                                            new SymbolLength(6.0, SymbolUnit.MAP_UNIT)),
+                                    1.0);
+                    Feature mapLine =
+                            feature(
+                                    "map-width",
+                                    new LineStringGeometry(
+                                            CoordinateSequence.of(-20.0, 0.0, 20.0, 0.0)),
+                                    mapWidth);
+                    int heightAtOne = paintedHeight(renderAtScale(mapLine, 1.0));
+                    int heightAtTwo = paintedHeight(renderAtScale(mapLine, 2.0));
+                    assertTrue(heightAtOne >= heightAtTwo + 2);
+                });
+    }
+
+    @Test
+    void endpointOptionsApplyConfiguredOffsetRotationAndOpacityIndependently() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MarkerPlacement placement =
+                            new MarkerPlacement(
+                                    SymbolSize.square(14.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolAnchor.EAST,
+                                    6.0,
+                                    0.0,
+                                    90.0,
+                                    SymbolRotationMode.MAP_RELATIVE);
+                    VectorMarkerSymbol rotated =
+                            VectorMarkerSymbol.of(
+                                    BuiltInMarkers.path(BuiltInMarker.ARROW),
+                                    BuiltInMarkers.viewBox(),
+                                    Rgba.rgb(20, 80, 210),
+                                    Optional.empty(),
+                                    placement,
+                                    0.5);
+                    SolidLineSymbol endOnly =
+                            SolidLineSymbol.of(
+                                    new SymbolStroke(
+                                            Rgba.TRANSPARENT,
+                                            new SymbolLength(1.0, SymbolUnit.SCREEN_PIXEL)),
+                                    Optional.empty(),
+                                    Optional.of(rotated),
+                                    0.5);
+                    BufferedImage image =
+                            render(
+                                    feature(
+                                            "end-only",
+                                            new LineStringGeometry(
+                                                    CoordinateSequence.of(-20.0, 0.0, 20.0, 0.0)),
+                                            endOnly));
+
+                    assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(30, 50), 0);
+                    assertTrue(countColorNear(image, Rgba.rgb(196, 211, 244), 25) > 8);
+                    assertRegionContainsColor(image, 72, 39, 80, 50, Rgba.rgb(196, 211, 244), 35);
+                    assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(76, 56), 5);
+                });
+    }
+
+    @Test
+    void solidFillAndEveryHatchPatternPreserveHoleAndOutline() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    PolygonGeometry polygon = polygonWithHole(20.0, 6.0);
+                    SolidLineSymbol outline =
+                            SolidLineSymbol.of(screenStroke(Rgba.rgb(25, 70, 35), 2.0), 1.0);
+                    SolidFillSymbol solid =
+                            SolidFillSymbol.of(Rgba.rgb(80, 180, 95), Optional.of(outline), 0.75);
+                    BufferedImage solidImage = render(feature("solid-fill", polygon, solid));
+                    assertRegionContainsColor(
+                            solidImage, 67, 47, 72, 53, Rgba.rgb(80, 180, 95), 55);
+                    assertColorNear(Rgba.rgb(255, 255, 255), solidImage.getRGB(50, 50), 0);
+                    assertRegionContainsColor(solidImage, 28, 47, 32, 53, Rgba.rgb(25, 70, 35), 35);
+
+                    EnumMap<HatchPattern, BufferedImage> patternImages =
+                            new EnumMap<>(HatchPattern.class);
+                    for (HatchPattern pattern : HatchPattern.values()) {
+                        HatchFillSymbol hatch =
+                                HatchFillSymbol.of(
+                                        pattern,
+                                        screenStroke(Rgba.rgb(155, 40, 120), 1.5),
+                                        new SymbolLength(7.0, SymbolUnit.SCREEN_PIXEL),
+                                        SymbolRotationMode.SCREEN_RELATIVE,
+                                        Optional.of(outline),
+                                        0.8,
+                                        128);
+                        BufferedImage image = render(feature(pattern.name(), polygon, hatch));
+                        patternImages.put(pattern, image);
+                        assertTrue(countColorNear(image, Rgba.rgb(155, 40, 120), 60) > 20);
+                        assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(50, 50), 0);
+                        assertRegionContainsColor(image, 28, 47, 32, 53, Rgba.rgb(25, 70, 35), 35);
+                    }
+                    BufferedImage forward = patternImages.get(HatchPattern.FORWARD_DIAGONAL);
+                    BufferedImage backward = patternImages.get(HatchPattern.BACKWARD_DIAGONAL);
+                    BufferedImage cross = patternImages.get(HatchPattern.CROSS_DIAGONAL);
+                    int forwardRising =
+                            diagonalColorPairs(forward, Rgba.rgb(155, 40, 120), 60, 1, -1);
+                    int forwardFalling =
+                            diagonalColorPairs(forward, Rgba.rgb(155, 40, 120), 60, 1, 1);
+                    int backwardRising =
+                            diagonalColorPairs(backward, Rgba.rgb(155, 40, 120), 60, 1, -1);
+                    int backwardFalling =
+                            diagonalColorPairs(backward, Rgba.rgb(155, 40, 120), 60, 1, 1);
+                    assertTrue(forwardRising > forwardFalling * 2);
+                    assertTrue(backwardFalling > backwardRising * 2);
+                    assertTrue(
+                            diagonalColorPairs(cross, Rgba.rgb(155, 40, 120), 60, 1, -1)
+                                    > forwardRising / 2);
+                    assertTrue(
+                            diagonalColorPairs(cross, Rgba.rgb(155, 40, 120), 60, 1, 1)
+                                    > backwardFalling / 2);
+                });
+    }
+
+    @Test
+    void hatchLatticeModesKeepTheirIndependentPhaseAndSpacingPolicies() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    PolygonGeometry coveringPolygon = coveringPolygon(1_000.0);
+                    for (SymbolRotationMode rotationMode : SymbolRotationMode.values()) {
+                        for (SymbolUnit unit : SymbolUnit.values()) {
+                            HatchFillSymbol hatch =
+                                    HatchFillSymbol.of(
+                                            HatchPattern.FORWARD_DIAGONAL,
+                                            screenStroke(Rgba.rgb(70, 70, 70), 1.0),
+                                            new SymbolLength(8.0, unit),
+                                            rotationMode,
+                                            Optional.empty(),
+                                            1.0,
+                                            256);
+                            Feature feature = feature("lattice", coveringPolygon, hatch);
+                            BufferedImage scaleOne =
+                                    renderWithViewport(
+                                            feature,
+                                            new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 0.0, 0.0, 1.0));
+                            BufferedImage scaleTwo =
+                                    renderWithViewport(
+                                            feature,
+                                            new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 0.0, 0.0, 2.0));
+                            int atOne = countColorNear(scaleOne, Rgba.rgb(70, 70, 70), 30);
+                            int atTwo = countColorNear(scaleTwo, Rgba.rgb(70, 70, 70), 30);
+                            if (unit == SymbolUnit.SCREEN_PIXEL) {
+                                assertEquals(atOne, atTwo, 30);
+                            } else {
+                                assertTrue(atTwo > atOne);
+                            }
+
+                            BufferedImage panned =
+                                    renderWithViewport(
+                                            feature,
+                                            new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 3.0, 0.0, 1.0));
+                            if (rotationMode == SymbolRotationMode.SCREEN_RELATIVE) {
+                                assertEquals(imageHash(scaleOne), imageHash(panned));
+                            } else {
+                                assertTrue(imageHash(scaleOne) != imageHash(panned));
+                            }
+                        }
+                    }
+                });
+    }
+
+    @Test
+    void hatchWorkUsesVisibleClipAndReportsStableOverLimitFailure() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    PolygonGeometry huge = polygonWithHole(100_000.0, 10.0);
+                    HatchFillSymbol clipped =
+                            HatchFillSymbol.of(
+                                    HatchPattern.CROSS_DIAGONAL,
+                                    screenStroke(Rgba.rgb(60, 60, 60), 1.0),
+                                    new SymbolLength(10.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolRotationMode.SCREEN_RELATIVE,
+                                    Optional.empty(),
+                                    1.0,
+                                    64);
+                    assertTrue(
+                            countColorNear(
+                                            render(feature("clipped", huge, clipped)),
+                                            Rgba.rgb(60, 60, 60),
+                                            30)
+                                    > 0);
+
+                    HatchFillSymbol limited =
+                            HatchFillSymbol.of(
+                                    HatchPattern.CROSS_DIAGONAL,
+                                    screenStroke(Rgba.rgb(60, 60, 60), 1.0),
+                                    new SymbolLength(10.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolRotationMode.SCREEN_RELATIVE,
+                                    Optional.empty(),
+                                    1.0,
+                                    1);
+                    SymbolException failure =
+                            assertThrows(
+                                    SymbolException.class,
+                                    () -> render(feature("limited", huge, limited)));
+                    assertEquals(SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED, failure.code());
+                    assertEquals("limited", failure.context().get("featureId"));
+                    assertEquals("candidate", failure.context().get("countKind"));
                 });
     }
 
@@ -735,6 +1006,71 @@ class MapViewTest {
         return image;
     }
 
+    private static BufferedImage renderWithViewport(Feature feature, MapViewport viewport) {
+        MapView view = configuredView(feature);
+        view.setViewport(viewport);
+        BufferedImage image =
+                new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
+        paint(view, image);
+        return image;
+    }
+
+    private static VectorMarkerSymbol endpointArrow(Rgba color) {
+        MarkerPlacement placement =
+                new MarkerPlacement(
+                        SymbolSize.square(14.0, SymbolUnit.SCREEN_PIXEL),
+                        SymbolAnchor.EAST,
+                        0.0,
+                        0.0,
+                        0.0,
+                        SymbolRotationMode.SCREEN_RELATIVE);
+        return VectorMarkerSymbol.of(
+                BuiltInMarkers.path(BuiltInMarker.ARROW),
+                BuiltInMarkers.viewBox(),
+                color,
+                Optional.empty(),
+                placement,
+                1.0);
+    }
+
+    private static SymbolStroke screenStroke(Rgba color, double width) {
+        return new SymbolStroke(color, new SymbolLength(width, SymbolUnit.SCREEN_PIXEL));
+    }
+
+    private static PolygonGeometry polygonWithHole(double exteriorRadius, double holeRadius) {
+        return new PolygonGeometry(
+                CoordinateSequence.of(
+                        -exteriorRadius,
+                        -exteriorRadius,
+                        exteriorRadius,
+                        -exteriorRadius,
+                        exteriorRadius,
+                        exteriorRadius,
+                        -exteriorRadius,
+                        exteriorRadius,
+                        -exteriorRadius,
+                        -exteriorRadius),
+                List.of(
+                        CoordinateSequence.of(
+                                -holeRadius,
+                                -holeRadius,
+                                holeRadius,
+                                -holeRadius,
+                                holeRadius,
+                                holeRadius,
+                                -holeRadius,
+                                holeRadius,
+                                -holeRadius,
+                                -holeRadius)));
+    }
+
+    private static PolygonGeometry coveringPolygon(double radius) {
+        return new PolygonGeometry(
+                CoordinateSequence.of(
+                        -radius, -radius, radius, -radius, radius, radius, -radius, radius, -radius,
+                        -radius));
+    }
+
     private static Feature vectorSquare(MarkerPlacement placement, SymbolStroke stroke) {
         return feature(
                 "placed-square",
@@ -779,6 +1115,54 @@ class MapViewTest {
     private static int paintedWidth(BufferedImage image) {
         int[] bounds = paintedBounds(image);
         return bounds[2] - bounds[0] + 1;
+    }
+
+    private static int paintedHeight(BufferedImage image) {
+        int[] bounds = paintedBounds(image);
+        return bounds[3] - bounds[1] + 1;
+    }
+
+    private static int countColorNear(BufferedImage image, Rgba expected, int tolerance) {
+        int count = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                if (isColorNear(image.getRGB(x, y), expected, tolerance)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static int diagonalColorPairs(
+            BufferedImage image, Rgba expected, int tolerance, int deltaX, int deltaY) {
+        int count = 0;
+        for (int y = 1; y < image.getHeight() - 1; y++) {
+            for (int x = 1; x < image.getWidth() - 1; x++) {
+                if (isColorNear(image.getRGB(x, y), expected, tolerance)
+                        && isColorNear(image.getRGB(x + deltaX, y + deltaY), expected, tolerance)) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private static boolean isColorNear(int actualArgb, Rgba expected, int tolerance) {
+        Color actual = new Color(actualArgb, true);
+        return Math.abs(expected.red() - actual.getRed()) <= tolerance
+                && Math.abs(expected.green() - actual.getGreen()) <= tolerance
+                && Math.abs(expected.blue() - actual.getBlue()) <= tolerance;
+    }
+
+    private static long imageHash(BufferedImage image) {
+        long result = 1L;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                result = 31L * result + image.getRGB(x, y);
+            }
+        }
+        return result;
     }
 
     private static MapView configuredView(Feature feature) {

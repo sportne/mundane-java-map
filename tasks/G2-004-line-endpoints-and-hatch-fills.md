@@ -1,6 +1,6 @@
 # G2-004 — Line Endpoints and Hatch Fills
 
-Status: Proposed
+Status: Complete
 Depends on: G2-003
 Gate: G2
 Type: AFK
@@ -64,3 +64,9 @@ git diff --check
 Keep endpoint and hatch calculations JDK-only and allocation-bounded. Invalid polygon topology is not
 repaired here; render only geometry accepted by the public model.
 
+Completed on 2026-07-13. Immutable solid-line, solid-fill, and bounded diagonal-hatch values now
+complete the Level 1 geometry roles. Core supplies outward endpoint bearings, bearing-overridden
+marker transforms, and packed clipped hatch segments with preflight limits. AWT renders line
+composites, optional oriented endpoints, even-odd fills, unclipped outlines, and all four independent
+hatch rotation/spacing policies. The basic viewer now exercises the symbol path while compatibility
+tests retain the deprecated style path.

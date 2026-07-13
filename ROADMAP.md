@@ -26,6 +26,10 @@ and the temporary legacy-style compatibility path.
 G2-003 adds immutable placement, sizing, rotation, stroke, and homogeneous composition contracts;
 toolkit-neutral transform math; and ordered, opacity-aware AWT marker rendering with isolated
 graphics state. Line, fill, raster-icon, and registration behavior remains in later G2 slices.
+G2-004 completes working marker, line, and fill roles with solid lines, outward-oriented endpoint
+markers, even-odd solid fills, optional outlines, and allocation-bounded diagonal hatch layouts.
+The basic viewer now uses these symbols directly; the deprecated style branch remains separately
+verified during the Level 1 migration window.
 
 ## Level 1
 

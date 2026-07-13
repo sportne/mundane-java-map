@@ -21,6 +21,36 @@ public final class SymbolTransforms {
             MarkerPlacement placement,
             Coordinate featureScreen,
             MapScreenBasis basis) {
+        Objects.requireNonNull(placement, "placement");
+        Objects.requireNonNull(basis, "basis");
+        double bearing =
+                placement.rotationMode() == SymbolRotationMode.SCREEN_RELATIVE
+                        ? placement.rotationDegrees()
+                        : basis.xAxisScreenBearingDegrees() + placement.rotationDegrees();
+        return markerWithBearing(viewBox, placement, featureScreen, basis, bearing);
+    }
+
+    /** Derives a marker transform using an outward screen bearing as its rotation base. */
+    public static MarkerTransform markerAtScreenBearing(
+            Envelope viewBox,
+            MarkerPlacement placement,
+            Coordinate featureScreen,
+            MapScreenBasis basis,
+            double outwardBearingDegrees) {
+        if (!Double.isFinite(outwardBearingDegrees)) {
+            throw new IllegalArgumentException("outwardBearingDegrees must be finite");
+        }
+        Objects.requireNonNull(placement, "placement");
+        double bearing = outwardBearingDegrees + placement.rotationDegrees();
+        return markerWithBearing(viewBox, placement, featureScreen, basis, bearing);
+    }
+
+    private static MarkerTransform markerWithBearing(
+            Envelope viewBox,
+            MarkerPlacement placement,
+            Coordinate featureScreen,
+            MapScreenBasis basis,
+            double bearing) {
         Objects.requireNonNull(viewBox, "viewBox");
         Objects.requireNonNull(placement, "placement");
         Objects.requireNonNull(featureScreen, "featureScreen");
@@ -63,10 +93,6 @@ public final class SymbolTransforms {
         }
         double anchorX = finite(featureScreen.x() + offsetScreenX, "marker-anchor-x");
         double anchorY = finite(featureScreen.y() + offsetScreenY, "marker-anchor-y");
-        double bearing =
-                placement.rotationMode() == SymbolRotationMode.SCREEN_RELATIVE
-                        ? placement.rotationDegrees()
-                        : basis.xAxisScreenBearingDegrees() + placement.rotationDegrees();
         double radians = StrictMath.toRadians(bearing);
         double cosine = finite(StrictMath.cos(radians), "marker-rotation-cosine");
         double sine = finite(StrictMath.sin(radians), "marker-rotation-sine");

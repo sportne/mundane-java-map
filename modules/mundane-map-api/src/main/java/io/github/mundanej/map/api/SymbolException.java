@@ -20,6 +20,9 @@ public final class SymbolException extends RuntimeException {
     /** A finite symbol input overflowed while deriving a screen transform. */
     public static final String TRANSFORM_NON_FINITE = "SYMBOL_TRANSFORM_NON_FINITE";
 
+    /** A bounded hatch layout requires more candidate segments than permitted. */
+    public static final String HATCH_SEGMENT_LIMIT_EXCEEDED = "SYMBOL_HATCH_SEGMENT_LIMIT_EXCEEDED";
+
     private final String code;
     private final Map<String, String> context;
 

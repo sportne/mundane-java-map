@@ -30,5 +30,12 @@ class BasicViewerTest {
         assertTrue(
                 map.layers().getFirst().features().stream()
                         .anyMatch(feature -> feature.geometry() instanceof PolygonGeometry));
+        assertTrue(
+                map.layers().getFirst().features().stream()
+                        .noneMatch(
+                                feature ->
+                                        feature.symbol()
+                                                instanceof
+                                                io.github.mundanej.map.api.FeatureStyle));
     }
 }
