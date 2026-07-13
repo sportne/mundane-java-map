@@ -17,6 +17,9 @@ discovery restrictions, and prohibited native-targeted mechanisms with positive 
 evidence. G1 now directly verifies geometry invariants, isolated rendering and holes, repeated-paint
 clearing, installed navigation and pointer routing, listener mutation semantics, the example, and the
 EDT-safe smoke. The Linux x86-64 GraalVM CE Java 21.0.2 lane builds and runs the real offscreen image.
+G2-001 is also complete: its approved design fixes the toolkit-neutral symbol roles, renderer
+identity, placement units and transforms, composition rules, diagnostics, and pre-1.0
+`FeatureStyle` migration. Production symbol work begins with G2-002.
 
 ## Level 1
 

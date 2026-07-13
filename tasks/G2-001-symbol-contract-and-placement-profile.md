@@ -1,6 +1,6 @@
 # G2-001 — Symbol Contract and Placement Profile
 
-Status: Proposed
+Status: Complete
 Depends on: G1-001
 Gate: G2
 Type: HITL
@@ -68,3 +68,10 @@ git diff --check
 Keep Level 1 deliberately small. Do not design arbitrary SVG, style expressions, mutable symbol
 builders, reflection-based visitors, or extension types whose only purpose is a speculative format.
 
+Completed on 2026-07-13. The approved G2 design fixes one toolkit-neutral symbol hierarchy, explicit
+role/key renderer identity, two size units, nine anchors, placement and rotation transforms, ordered
+opacity composition, stable failure codes, and the deliberate pre-1.0 `FeatureStyle` migration. The
+maintainer's authorization to execute the approved G0-through-G2 sequence completed the HITL
+checkpoint. No production API or rendering behavior changes in this decision task; G2-002 owns the
+first implementation slice. Baseline API/AWT tests, the full `qualityGate`, whitespace validation,
+and independent review are recorded with the task commit.
