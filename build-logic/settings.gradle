@@ -1,8 +1,14 @@
+def offlineRepositoryUri = mapOfflineRepositoryUri(providers)
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        gradlePluginPortal()
-        mavenCentral()
+        if (offlineRepositoryUri != null) {
+            maven { url = offlineRepositoryUri }
+        } else {
+            gradlePluginPortal()
+            mavenCentral()
+        }
     }
     versionCatalogs {
         libs {
@@ -13,3 +19,36 @@ dependencyResolutionManagement {
 
 rootProject.name = 'build-logic'
 
+static URI mapOfflineRepositoryUri(org.gradle.api.provider.ProviderFactory providers) {
+    String configured = providers.gradleProperty('map.offlineRepo').orNull
+    if (configured == null) {
+        return null
+    }
+    if (configured.isBlank()) {
+        throw new GradleException('map.offlineRepo must not be blank')
+    }
+
+    java.nio.file.Path repositoryPath
+    try {
+        if (configured.startsWith('file:')) {
+            URI repositoryUri = URI.create(configured)
+            if (repositoryUri.scheme != 'file'
+                    || repositoryUri.query != null
+                    || repositoryUri.fragment != null) {
+                throw new IllegalArgumentException('unsupported file URI')
+            }
+            repositoryPath = java.nio.file.Path.of(repositoryUri)
+        } else {
+            repositoryPath = java.nio.file.Path.of(configured)
+        }
+    } catch (IllegalArgumentException exception) {
+        throw new GradleException(
+                'map.offlineRepo must be an absolute normalized path or file URI', exception)
+    }
+
+    if (!repositoryPath.isAbsolute() || repositoryPath != repositoryPath.normalize()) {
+        throw new GradleException(
+                'map.offlineRepo must be an absolute normalized path or file URI')
+    }
+    return repositoryPath.toUri()
+}

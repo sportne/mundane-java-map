@@ -32,6 +32,24 @@ Useful focused commands:
 `nativeSmoke` is intentionally separate from `qualityGate` because it requires a GraalVM
 toolchain. The normal gate has no external services or native tools.
 
+The library always compiles to the Java 21 API and class-file baseline. CI may select a newer test
+launcher with `-Pmap.testJavaVersion=<version>` without changing published bytecode.
+
+For a fully local build, provide one absolute normalized Maven-layout repository as the sole plugin
+and dependency source for both the main build and `build-logic`:
+
+```bash
+./gradlew -Pmap.offlineRepo=/absolute/path/to/repository --offline qualityGate --console=plain
+```
+
+The repository must contain the required plugin markers and all transitive build/test artifacts.
+There is no public or machine-local fallback when `map.offlineRepo` is set.
+
+`publicationDryRun` recreates and verifies `build/release-dry-run/maven` with the POM, Gradle module
+metadata, binary, sources, and Javadoc artifacts for `io.github.mundanej:mundane-map-api`,
+`io.github.mundanej:mundane-map-core`, and `io.github.mundanej:mundane-map-awt` at the current project
+version. It performs no remote publication.
+
 ## Modules
 
 | Module | Responsibility |
@@ -76,4 +94,3 @@ See `examples/basic-viewer` for complete usage.
 ## Status
 
 The project starts at `0.1.0-SNAPSHOT`. Public APIs may change freely before `1.0.0`.
-

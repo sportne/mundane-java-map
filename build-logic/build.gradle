@@ -2,6 +2,10 @@ plugins {
     id 'groovy-gradle-plugin'
 }
 
+def java21Launcher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(21)
+}
+
 dependencies {
     implementation "com.diffplug.spotless:com.diffplug.spotless.gradle.plugin:${libs.versions.spotlessPlugin.get()}"
     implementation "com.github.spotbugs:com.github.spotbugs.gradle.plugin:${libs.versions.spotbugsPlugin.get()}"
@@ -9,4 +13,22 @@ dependencies {
     implementation(
         "org.graalvm.buildtools.native:org.graalvm.buildtools.native.gradle.plugin:${libs.versions.graalvmNativePlugin.get()}"
     )
+    testImplementation gradleTestKit()
+    testImplementation platform(libs.junit.bom)
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly libs.junit.platform.launcher
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    systemProperty 'map.rootDir', rootDir.parentFile.absolutePath
+    systemProperty 'map.gradleUserHome', gradle.gradleUserHomeDir.absolutePath
+    systemProperty 'map.java21Home',
+            java21Launcher.get().metadata.installationPath.asFile.absolutePath
+    systemProperty 'map.testJavaVersion',
+            providers.gradleProperty('map.testJavaVersion').getOrElse('21')
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+    }
 }

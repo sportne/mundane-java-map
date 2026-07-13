@@ -1,6 +1,6 @@
 # G0-001 — Current Baseline Verification
 
-Status: Proposed
+Status: Complete
 Depends on: None
 Gate: G0
 Type: AFK
@@ -65,3 +65,8 @@ git diff --check
 Keep build and test dependencies out of published runtime variants. An offline validation may use a
 temporary repository fixture, but it must not embed machine-specific paths or require network access.
 
+Completed on 2026-07-13 with isolated normal/offline repository-policy fixtures, missing-coordinate
+failure checks, Java 21 class-file verification, exact staged-artifact verification, and successful
+local `checkAll`, `publicationDryRun`, and `qualityGate` runs on Java 21. The CI workflow fixes the
+artifact release at 21 and selects Java 21 or 25 only as the test launcher; execution of that remote
+matrix is rechecked after the authorized final push.

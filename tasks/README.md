@@ -12,8 +12,9 @@ authoritative task set.
 - `Complete`: every acceptance criterion is implemented, required validation has passed, and the
   result is supported by current source and test evidence.
 
-The initial source implements much of G0 and G1, but both remain proposed until the broken build
-baseline is repaired and their required evidence is rerun.
+The initial source implements much of G1, but it remains proposed until its required evidence is
+rerun. G0-001 has repaired and verified the build baseline; later tasks remain governed by their own
+dependencies and evidence.
 
 ## Type vocabulary
 
@@ -101,13 +102,13 @@ path-safe without explicit ownership, even when their dependency graph permits c
 
 ## Level 1
 
-Level 1 is complete only when G8-004 is complete. All tasks currently have `Proposed` status.
+Level 1 is complete only when G8-004 is complete.
 
 ### G0 — Verified baseline
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G0-001 — Current baseline verification](G0-001-current-baseline-verification.md) | Proposed | AFK | None | Restore the Java 21 Gradle baseline and prove normal/publication staging. |
+| [G0-001 — Current baseline verification](G0-001-current-baseline-verification.md) | Complete | AFK | None | Restore the Java 21 Gradle baseline and prove normal/publication staging. |
 | [G0-002 — Architecture boundary hardening](G0-002-architecture-boundary-hardening.md) | Proposed | AFK | G0-001 | Mechanically enforce production, AWT, I/O, dependency, and native boundaries. |
 
 ### G1 — First map slice

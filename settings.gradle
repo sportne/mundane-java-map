@@ -1,11 +1,40 @@
 pluginManagement {
-    def offlineRepoPath = providers.gradleProperty('map.offlineRepo').orNull
+    String configuredOfflineRepository =
+            providers.gradleProperty('map.offlineRepo').orNull
+    URI offlineRepositoryUri = null
+    if (configuredOfflineRepository != null) {
+        if (configuredOfflineRepository.isBlank()) {
+            throw new GradleException('map.offlineRepo must not be blank')
+        }
+        java.nio.file.Path repositoryPath
+        try {
+            if (configuredOfflineRepository.startsWith('file:')) {
+                URI repositoryUri = URI.create(configuredOfflineRepository)
+                if (repositoryUri.scheme != 'file'
+                        || repositoryUri.query != null
+                        || repositoryUri.fragment != null) {
+                    throw new IllegalArgumentException('unsupported file URI')
+                }
+                repositoryPath = java.nio.file.Path.of(repositoryUri)
+            } else {
+                repositoryPath = java.nio.file.Path.of(configuredOfflineRepository)
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new GradleException(
+                    'map.offlineRepo must be an absolute normalized path or file URI', exception)
+        }
+        if (!repositoryPath.isAbsolute() || repositoryPath != repositoryPath.normalize()) {
+            throw new GradleException(
+                    'map.offlineRepo must be an absolute normalized path or file URI')
+        }
+        offlineRepositoryUri = repositoryPath.toUri()
+    }
 
     includeBuild 'build-logic'
 
     repositories {
-        if (offlineRepoPath != null && !offlineRepoPath.isBlank()) {
-            maven { url = uri(offlineRepoPath) }
+        if (offlineRepositoryUri != null) {
+            maven { url = offlineRepositoryUri }
         } else {
             gradlePluginPortal()
             mavenCentral()
@@ -17,13 +46,13 @@ plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 
-dependencyResolutionManagement {
-    def offlineRepoPath = providers.gradleProperty('map.offlineRepo').orNull
+def offlineRepositoryUri = mapOfflineRepositoryUri(providers)
 
+dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        if (offlineRepoPath != null && !offlineRepoPath.isBlank()) {
-            maven { url = uri(offlineRepoPath) }
+        if (offlineRepositoryUri != null) {
+            maven { url = offlineRepositoryUri }
         } else {
             mavenCentral()
         }
@@ -32,10 +61,61 @@ dependencyResolutionManagement {
 
 rootProject.name = 'mundane-java-map'
 
-include ':modules:mundane-map-api'
-include ':modules:mundane-map-core'
-include ':modules:mundane-map-awt'
-include ':modules:mundane-map-architecture-tests'
-include ':modules:mundane-map-native-tests'
-include ':examples:basic-viewer'
+def projectInventory = [
+    [path: ':modules:mundane-map-api', category: 'JDK_RUNTIME', releaseLevel: 1,
+        published: true, nativeTarget: true],
+    [path: ':modules:mundane-map-core', category: 'JDK_RUNTIME', releaseLevel: 1,
+        published: true, nativeTarget: true],
+    [path: ':modules:mundane-map-awt', category: 'JDK_RUNTIME', releaseLevel: 1,
+        published: true, nativeTarget: true],
+    [path: ':modules:mundane-map-architecture-tests', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false],
+    [path: ':modules:mundane-map-native-tests', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false],
+    [path: ':examples:basic-viewer', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false],
+]
 
+def duplicateProjectPaths = projectInventory.groupBy { it.path }.findAll { _, entries ->
+    entries.size() != 1
+}.keySet()
+if (!duplicateProjectPaths.isEmpty()) {
+    throw new GradleException("Duplicate project inventory paths: ${duplicateProjectPaths.sort()}")
+}
+
+gradle.ext.mapProjectInventory = projectInventory.collect { Map.copyOf(it) }.asImmutable()
+projectInventory.each { entry -> include entry.path }
+
+static URI mapOfflineRepositoryUri(org.gradle.api.provider.ProviderFactory providers) {
+    String configured = providers.gradleProperty('map.offlineRepo').orNull
+    if (configured == null) {
+        return null
+    }
+    if (configured.isBlank()) {
+        throw new GradleException('map.offlineRepo must not be blank')
+    }
+
+    java.nio.file.Path repositoryPath
+    try {
+        if (configured.startsWith('file:')) {
+            URI repositoryUri = URI.create(configured)
+            if (repositoryUri.scheme != 'file'
+                    || repositoryUri.query != null
+                    || repositoryUri.fragment != null) {
+                throw new IllegalArgumentException('unsupported file URI')
+            }
+            repositoryPath = java.nio.file.Path.of(repositoryUri)
+        } else {
+            repositoryPath = java.nio.file.Path.of(configured)
+        }
+    } catch (IllegalArgumentException exception) {
+        throw new GradleException(
+                'map.offlineRepo must be an absolute normalized path or file URI', exception)
+    }
+
+    if (!repositoryPath.isAbsolute() || repositoryPath != repositoryPath.normalize()) {
+        throw new GradleException(
+                'map.offlineRepo must be an absolute normalized path or file URI')
+    }
+    return repositoryPath.toUri()
+}

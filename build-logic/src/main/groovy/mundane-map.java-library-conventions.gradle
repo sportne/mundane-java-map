@@ -8,10 +8,20 @@ plugins {
 }
 
 def javaRelease = providers.gradleProperty('map.javaRelease').map(Integer::parseInt).getOrElse(21)
+if (javaRelease != 21) {
+    throw new GradleException(
+            "map.javaRelease is fixed at 21; received ${javaRelease}")
+}
+def testJavaVersion =
+        providers.gradleProperty('map.testJavaVersion').map(Integer::parseInt).getOrElse(21)
+if (testJavaVersion < 21) {
+    throw new GradleException(
+            "map.testJavaVersion must be 21 or newer; received ${testJavaVersion}")
+}
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(javaRelease)
+        languageVersion = JavaLanguageVersion.of(21)
     }
     withSourcesJar()
     withJavadocJar()
@@ -32,6 +42,9 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.withType(Test).configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(testJavaVersion)
+    }
     useJUnitPlatform {
         excludeTags 'slow', 'native-image', 'manual'
     }

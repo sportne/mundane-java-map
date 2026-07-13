@@ -1,3 +1,17 @@
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
+
 plugins {
     id 'base'
 }
@@ -10,24 +24,283 @@ allprojects {
     version = rootProject.version
 }
 
-def checkedProjects = [
-    ':modules:mundane-map-api',
-    ':modules:mundane-map-core',
-    ':modules:mundane-map-awt',
-    ':modules:mundane-map-architecture-tests',
-    ':modules:mundane-map-native-tests',
-    ':examples:basic-viewer',
-]
+@DisableCachingByDefault(because = 'Verification reads a freshly staged local repository')
+abstract class VerifyPublicationDryRun extends DefaultTask {
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getRepositoryDirectory()
 
-def publishedProjects = [
-    ':modules:mundane-map-api',
-    ':modules:mundane-map-core',
-    ':modules:mundane-map-awt',
-]
+    @Input
+    abstract ListProperty<String> getModuleNames()
+
+    @Input
+    abstract Property<String> getPublicationVersion()
+
+    @TaskAction
+    void verifyRepository() {
+        verifyDirectory(
+                repositoryDirectory.get().asFile,
+                moduleNames.get(),
+                publicationVersion.get())
+    }
+
+    static void verifyDirectory(
+            File repository, Collection<String> modules, String version) {
+        verifyExactChildren(repository, ['io'])
+        verifyExactChildren(new File(repository, 'io'), ['github'])
+        verifyExactChildren(new File(repository, 'io/github'), ['mundanej'])
+        File groupDirectory = new File(repository, 'io/github/mundanej')
+        Set<String> expectedModules = modules as Set
+        Set<String> actualModules = childNames(groupDirectory)
+        if (actualModules != expectedModules) {
+            throw new GradleException(
+                    "Staged module mismatch: expected ${expectedModules.sort()}, "
+                            + "found ${actualModules.sort()}")
+        }
+
+        for (String moduleName : expectedModules) {
+            File moduleDirectory = new File(groupDirectory, moduleName)
+            verifyFilesAndChecksums(moduleDirectory, ['maven-metadata.xml'], [version])
+            verifyModuleMetadata(
+                    new File(moduleDirectory, 'maven-metadata.xml'), moduleName, version)
+
+            File versionDirectory = new File(moduleDirectory, version)
+            File metadata = new File(versionDirectory, 'maven-metadata.xml')
+            Set<String> payloads = snapshotPayloads(metadata, moduleName, version)
+            Set<String> expectedPayloads = [
+                "${moduleName}-${snapshotValue(metadata, '', 'jar')}.jar",
+                "${moduleName}-${snapshotValue(metadata, 'sources', 'jar')}-sources.jar",
+                "${moduleName}-${snapshotValue(metadata, 'javadoc', 'jar')}-javadoc.jar",
+                "${moduleName}-${snapshotValue(metadata, '', 'pom')}.pom",
+                "${moduleName}-${snapshotValue(metadata, '', 'module')}.module"
+            ] as Set
+            if (payloads != expectedPayloads) {
+                throw new GradleException(
+                        "Unexpected metadata payload for ${moduleName}: expected "
+                                + "${expectedPayloads.sort()}, found ${payloads.sort()}")
+            }
+            verifyFilesAndChecksums(versionDirectory, payloads + 'maven-metadata.xml', [])
+        }
+    }
+
+    private static Set<String> childNames(File parent) {
+        File[] children = parent.listFiles()
+        return children == null ? [] as Set : children.collect { it.name } as Set
+    }
+
+    private static void verifyExactChildren(File parent, Collection<String> expectedNames) {
+        Set<String> expected = expectedNames as Set
+        Set<String> actual = childNames(parent)
+        if (actual != expected) {
+            throw new GradleException(
+                    "Staged layout mismatch in ${parent}: expected ${expected.sort()}, "
+                            + "found ${actual.sort()}")
+        }
+    }
+
+    private static void verifyModuleMetadata(
+            File metadata, String moduleName, String version) {
+        def document = parseMetadata(metadata)
+        def versionNodes = document.getElementsByTagName('version')
+        Set<String> versions = [] as Set
+        for (int index = 0; index < versionNodes.length; index++) {
+            versions.add(versionNodes.item(index).textContent.trim())
+        }
+        if (text(document, 'groupId') != 'io.github.mundanej'
+                || text(document, 'artifactId') != moduleName
+                || text(document, 'latest') != version
+                || versions != ([version] as Set)) {
+            throw new GradleException("Incorrect module metadata identity: ${metadata}")
+        }
+    }
+
+    private static Set<String> snapshotPayloads(
+            File metadata, String moduleName, String version) {
+        def document = parseMetadata(metadata)
+        if (text(document, 'groupId') != 'io.github.mundanej'
+                || text(document, 'artifactId') != moduleName
+                || text(document, 'version') != version) {
+            throw new GradleException("Incorrect snapshot metadata identity: ${metadata}")
+        }
+        Set<String> payloads = [] as Set
+        def entries = document.getElementsByTagName('snapshotVersion')
+        for (int index = 0; index < entries.length; index++) {
+            def entry = entries.item(index)
+            String classifier = childText(entry, 'classifier')
+            String extension = childText(entry, 'extension')
+            String value = childText(entry, 'value')
+            String classifierSuffix = classifier ? "-${classifier}" : ''
+            payloads.add("${moduleName}-${value}${classifierSuffix}.${extension}")
+        }
+        return payloads
+    }
+
+    private static String snapshotValue(File metadata, String classifier, String extension) {
+        def entries = parseMetadata(metadata).getElementsByTagName('snapshotVersion')
+        List<String> values = []
+        for (int index = 0; index < entries.length; index++) {
+            def entry = entries.item(index)
+            if (childText(entry, 'classifier') == classifier
+                    && childText(entry, 'extension') == extension) {
+                values.add(childText(entry, 'value'))
+            }
+        }
+        if (values.size() != 1) {
+            throw new GradleException(
+                    "Expected one ${classifier ?: 'main'} ${extension} snapshot in ${metadata}, "
+                            + "found ${values}")
+        }
+        return values.first()
+    }
+
+    private static def parseMetadata(File metadata) {
+        if (!metadata.isFile()) {
+            throw new GradleException("Missing snapshot metadata: ${metadata}")
+        }
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance()
+            factory.setFeature('http://apache.org/xml/features/disallow-doctype-decl', true)
+            factory.setFeature('http://xml.org/sax/features/external-general-entities', false)
+            factory.setFeature('http://xml.org/sax/features/external-parameter-entities', false)
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, '')
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, '')
+            return factory.newDocumentBuilder().parse(metadata)
+        } catch (Exception exception) {
+            throw new GradleException("Cannot read snapshot metadata: ${metadata}", exception)
+        }
+    }
+
+    private static String text(def document, String name) {
+        def nodes = document.getElementsByTagName(name)
+        return nodes.length == 0 ? '' : nodes.item(0).textContent.trim()
+    }
+
+    private static String childText(def element, String name) {
+        def children = element.getElementsByTagName(name)
+        return children.length == 0 ? '' : children.item(0).textContent.trim()
+    }
+
+    private static void verifyFilesAndChecksums(
+            File directory,
+            Collection<String> baseNames,
+            Collection<String> expectedDirectories) {
+        Set<String> expected = expectedDirectories as Set
+        baseNames.each { name ->
+            expected.add(name)
+            ['md5', 'sha1', 'sha256', 'sha512'].each { expected.add("${name}.${it}") }
+        }
+        Set<String> actual = directory.listFiles() == null
+                ? [] as Set
+                : directory.listFiles().collect { it.name } as Set
+        if (actual != expected) {
+            throw new GradleException(
+                    "Staged file mismatch in ${directory}: expected ${expected.sort()}, "
+                            + "found ${actual.sort()}")
+        }
+        baseNames.each { name ->
+            File payload = new File(directory, name)
+            [md5: 'MD5', sha1: 'SHA-1', sha256: 'SHA-256', sha512: 'SHA-512'].each {
+                suffix, algorithm ->
+                    String expectedDigest = new File(directory, "${name}.${suffix}").text.trim()
+                    byte[] digest = java.security.MessageDigest.getInstance(algorithm)
+                            .digest(payload.bytes)
+                    String actualDigest = digest.collect { String.format('%02x', it & 0xff) }.join()
+                    if (actualDigest != expectedDigest) {
+                        throw new GradleException(
+                                "Incorrect ${algorithm} checksum for ${payload}")
+                    }
+            }
+        }
+    }
+}
+
+@DisableCachingByDefault(because = 'Exercises the staged repository verifier against mutations')
+abstract class TestPublicationDryRunVerifier extends DefaultTask {
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getRepositoryDirectory()
+
+    @Input
+    abstract ListProperty<String> getModuleNames()
+
+    @Input
+    abstract Property<String> getPublicationVersion()
+
+    @TaskAction
+    void testMutations() {
+        File source = repositoryDirectory.get().asFile
+        File wrongName = new File(temporaryDir, 'wrong-name')
+        copyTree(source, wrongName)
+        File versionDirectory = new File(
+                wrongName,
+                "io/github/mundanej/${moduleNames.get().first()}/${publicationVersion.get()}")
+        File payload = versionDirectory.listFiles().find {
+            it.isFile() && it.name.endsWith('.jar') && !(it.name =~ /-(sources|javadoc)\.jar$/)
+        }
+        Files.move(
+                payload.toPath(),
+                payload.toPath().resolveSibling("stale-${payload.name}"),
+                StandardCopyOption.REPLACE_EXISTING)
+        expectFailure(wrongName, 'wrong snapshot filename')
+
+        File unexpected = new File(temporaryDir, 'unexpected')
+        copyTree(source, unexpected)
+        File unexpectedVersion = new File(
+                unexpected,
+                "io/github/mundanej/${moduleNames.get().first()}/${publicationVersion.get()}")
+        new File(unexpectedVersion, 'unexpected-directory').mkdir()
+        expectFailure(unexpected, 'unexpected staged directory')
+
+        File missingModuleMetadata = new File(temporaryDir, 'missing-module-metadata')
+        copyTree(source, missingModuleMetadata)
+        new File(
+                missingModuleMetadata,
+                "io/github/mundanej/${moduleNames.get().first()}/maven-metadata.xml").delete()
+        expectFailure(missingModuleMetadata, 'missing module metadata')
+    }
+
+    private void expectFailure(File repository, String scenario) {
+        try {
+            VerifyPublicationDryRun.verifyDirectory(
+                    repository, moduleNames.get(), publicationVersion.get())
+        } catch (GradleException expected) {
+            return
+        }
+        throw new GradleException("Publication verifier accepted ${scenario}")
+    }
+
+    private static void copyTree(File source, File destination) {
+        Files.walk(source.toPath()).withCloseable { paths ->
+            paths.forEach { path ->
+                def relative = source.toPath().relativize(path)
+                def target = destination.toPath().resolve(relative)
+                if (Files.isDirectory(path)) Files.createDirectories(target)
+                else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+    }
+}
+
+@DisableCachingByDefault(because = 'Console output is the task result')
+abstract class PrintPublishedArtifacts extends DefaultTask {
+    @Input
+    abstract ListProperty<String> getCoordinates()
+
+    @TaskAction
+    void printCoordinates() {
+        coordinates.get().each { println it }
+    }
+}
+
+def projectInventory = gradle.ext.mapProjectInventory
+def checkedProjects = projectInventory.collect { it.path }
+def publishedProjects = projectInventory.findAll { it.published }.collect { it.path }
+def buildLogicCheck = gradle.includedBuild('build-logic').task(':check')
 
 tasks.register('checkAll') {
     group = 'verification'
-    description = 'Runs JVM checks across all included projects.'
+    description = 'Runs JVM checks across all included projects and build conventions.'
+    dependsOn buildLogicCheck
     dependsOn checkedProjects.collect { "${it}:check" }
 }
 
@@ -54,31 +327,57 @@ tasks.register('cleanReleaseDryRun', Delete) {
     delete layout.buildDirectory.dir('release-dry-run')
 }
 
+def publicationTasks = publishedProjects.collect {
+    "${it}:publishAllPublicationsToReleaseDryRunRepository"
+}
+
 tasks.register('publicationDryRun') {
     group = 'publishing'
-    description = 'Stages published modules in a local Maven repository.'
+    description = 'Stages and verifies published modules in a local Maven repository.'
     dependsOn tasks.named('cleanReleaseDryRun')
-    dependsOn publishedProjects.collect {
-        "${it}:publishAllPublicationsToReleaseDryRunRepository"
-    }
+    dependsOn 'verifyPublicationDryRun'
+    dependsOn 'testPublicationDryRunVerifier'
+}
+
+tasks.register(
+        'testPublicationDryRunVerifier',
+        TestPublicationDryRunVerifier) {
+    group = 'verification'
+    description = 'Proves publication verification rejects stale and unexpected files.'
+    dependsOn publicationTasks
+    mustRunAfter tasks.named('cleanReleaseDryRun')
+    repositoryDirectory = layout.buildDirectory.dir('release-dry-run/maven')
+    moduleNames = publishedProjects.collect { project(it).name }
+    publicationVersion = project.version.toString()
 }
 
 gradle.projectsEvaluated {
     publishedProjects.each { projectPath ->
         project(projectPath).tasks.matching {
-            it.name == 'publishAllPublicationsToReleaseDryRunRepository'
+            it.name.startsWith('publish')
+                    && it.name.endsWith('ToReleaseDryRunRepository')
         }.configureEach {
             mustRunAfter rootProject.tasks.named('cleanReleaseDryRun')
         }
     }
 }
 
-tasks.register('printPublishedArtifacts') {
+tasks.register(
+        'verifyPublicationDryRun',
+        VerifyPublicationDryRun) {
+    group = 'verification'
+    description = 'Verifies the exact public-module payload staged by publicationDryRun.'
+    dependsOn publicationTasks
+    mustRunAfter tasks.named('cleanReleaseDryRun')
+    repositoryDirectory = layout.buildDirectory.dir('release-dry-run/maven')
+    moduleNames = publishedProjects.collect { project(it).name }
+    publicationVersion = project.version.toString()
+}
+
+tasks.register('printPublishedArtifacts', PrintPublishedArtifacts) {
     group = 'help'
     description = 'Prints the planned public Maven coordinates.'
-    doLast {
-        println "io.github.mundanej:mundane-map-api:${project.version}"
-        println "io.github.mundanej:mundane-map-core:${project.version}"
-        println "io.github.mundanej:mundane-map-awt:${project.version}"
+    coordinates = publishedProjects.collect { projectPath ->
+        "${project.group}:${project(projectPath).name}:${project.version}"
     }
 }
