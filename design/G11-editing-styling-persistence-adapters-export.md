@@ -621,3 +621,341 @@ plugins, mutable geometry handles, line/polygon editing, topology validity/repai
 grid/intersection/midpoint/angle snapping, multi-selection, format writers, transactions across
 sessions, and JTS coupling remain out of scope. These omissions are deliberate boundaries, not empty
 extension points.
+
+## Thematic portrayal and point-label placement (G11-002)
+
+### One binding-owned portrayal, not a styling language
+
+The first styling profile adds one immutable toolkit-neutral `FeaturePortrayal` value. A vector
+binding owns exactly one portrayal and applies it to every immutable feature snapshot it presents.
+The portrayal has one optional selector for each existing marker, line, and fill role plus one
+optional singular-point label profile. An absent role selector deliberately omits that geometry role.
+At least one selector must be present, and a label profile requires a marker selector.
+
+This is a closed value model, not a callback, predicate tree, expression language, stylesheet, or
+renderer registry. It cannot inspect the viewport, layer, feature ID, geometry coordinates, another
+attribute, mutable application state, or AWT state. The existing explicit `SymbolRendererRegistry`
+continues to render the selected immutable symbol; thematic styling does not create a second dispatch
+or plugin surface.
+
+The public API shape is:
+
+```text
+FeaturePortrayal(
+  Optional<SymbolSelector> marker,
+  Optional<SymbolSelector> line,
+  Optional<SymbolSelector> fill,
+  Optional<PointLabelProfile> pointLabel)
+
+sealed SymbolSelector
+  FixedSymbolSelector(Symbol symbol)
+  CategoricalSymbolSelector(
+      String attribute,
+      List<CategoricalSymbolRule> rules,
+      Optional<Symbol> fallback)
+  GraduatedSymbolSelector(
+      String attribute,
+      List<GraduatedSymbolStep> steps,
+      Optional<Symbol> fallback)
+
+CategoricalSymbolRule(ThematicValue value, Symbol symbol)
+GraduatedSymbolStep(BigDecimal lowerInclusive, Symbol symbol)
+```
+
+`mundane-map-api` owns those values plus `ScreenBox`, the label configuration/output values, and
+label failure values. `ScreenBox(minX, minY, maxX, maxY)` requires finite ordered edges and represents
+a half-open logical-screen rectangle. `mundane-map-core` owns the immutable resolver and greedy
+placement algorithm plus its immutable operation-input batch. `mundane-map-awt` owns binding
+integration, Java2D text metrics, transient association of a placed result with its `TextLayout`, and
+drawing. No new module is introduced.
+
+Every selector exposes its one `SymbolRole`. Fixed selectors derive it from the symbol. Thematic
+selectors require a non-empty rule/step list and require every listed and fallback symbol to have the
+same role. `FeaturePortrayal` requires its three positions to contain only the matching role. These
+checks occur during immutable-value construction, before a binding is claimed. A fixed selector with
+one symbol is used instead of a one-rule thematic selector with no attribute meaning.
+
+`FeaturePortrayal.fixed(marker, line, fill)` is the convenient no-label form. A `withPointLabel`
+factory returns another immutable value; there is no mutable builder or live style setter. Existing
+source and future editable-binding factories that accept three role symbols delegate internally to a
+fixed portrayal and add the internal compatibility label described below. Existing snapshot bindings
+retain each `Feature.symbol()` through a private
+feature-owned selector adapter; `MapLayerBinding.portrayedSnapshot(layer, portrayal)` is the explicit
+override for applications that want binding-level thematic portrayal. Source and editable bindings
+gain corresponding portrayal overloads. Changing portrayal means transactionally replacing the
+binding, which already supplies attachment, repaint, interaction-reconciliation, and cache-invalidation
+boundaries.
+
+G11 replaces the G1 per-feature convenience-label draw with this one global label pass. Compatibility
+factories install one exact internal profile: `FeatureName`, opaque `rgba(32,32,32,255)`, `NORMAL`,
+12 logical pixels, positions `[NE]`, gap 4, offsets `(0,0)`, collision padding 1, priority 0, and the
+inclusive resolution range `[Double.MIN_VALUE, Double.MAX_VALUE]`. Existing APIs therefore continue
+to show isolated non-blank point names in the same dark color and north-east intent without carrying
+two label engines. The measured visual box is now separated from the marker's top/right by four
+pixels; it deliberately replaces rather than reproduces G1's unmeasured baseline at
+`(marker.maxX + 4, marker.minY - 2)`. Collision omission is likewise an intentional Level 2 visual
+change. An explicit `FeaturePortrayal` has no labels unless its caller supplies a profile.
+
+### Exact categorical and graduated semantics
+
+`ThematicValue` is a closed immutable match value with `TEXT`, `LOGICAL`, `NUMERIC`, `DATE`, and
+`NULL` forms. Text and date retain exact value equality. Logical retains its boolean. Numeric stores a
+normalized `BigDecimal`: integral attributes use `BigDecimal.valueOf(long)`, finite floating values
+use `BigDecimal.valueOf(double)`, decimal attributes use their value, then trailing zeros are removed
+and every numeric zero becomes `BigDecimal.ZERO`. Numeric categories therefore make `1L`, `1.0d`, and
+`1.00` equal without parsing text or using binary floating comparison. `AttributeNull.INSTANCE` maps
+to `NULL`; a missing key remains distinct. `AttributeBytes` is not a thematic value in this profile.
+
+A categorical selector preserves its declared rule list for equality and documentation but rejects
+two rules whose values are equal after numeric normalization. Evaluation converts the one present
+canonical attribute when supported and performs one exact lookup. A missing key, unsupported binary
+value, or unmatched value chooses the optional fallback; without a fallback it returns no symbol.
+`NULL` can be matched explicitly. There is no first-match precedence, wildcard, coercion, regex,
+locale, case folding, range rule, or implicit `toString`.
+
+A graduated selector accepts only a canonical `Long`, finite `Double`, or `BigDecimal` attribute and
+normalizes it by the same numeric rule. Steps are declared in strictly increasing normalized order.
+The selected symbol is the step with the greatest lower bound less than or equal to the value, so the
+implicit classes are `[lower[i], lower[i+1])` and the final class is `[lower[last], +infinity)`. A
+value below the first threshold, a missing/null/non-numeric attribute, or an unsupported value uses
+the optional fallback; otherwise it returns no symbol. NaN and infinities cannot enter a canonical
+`FeatureRecord`, and selectors do not parse numeric text.
+
+Categorical selectors contain at most 256 rules and graduated selectors at most 64 steps. Attribute
+names reuse G4's exact non-blank, at-most-256-UTF-16-character rule. Construction rejects unordered or
+duplicate thresholds, normalized duplicate categories, nulls, wrong roles, and excessive counts with
+field-naming `IllegalArgumentException`; these are configuration failures, not source diagnostics.
+Missing, null, wrong-type, unmatched, and below-range data follow the declared fallback/omission policy
+and emit no warning per record, preventing diagnostic floods for ordinary thematic data.
+
+`FeaturePortrayalResolver` in `mundane-map-core` compiles one immutable portrayal into categorical
+lookup maps, graduated threshold arrays, an ordered unique symbol-attribute list, and an optional
+label-attribute name. It performs no I/O and retains only the immutable configuration. It resolves a
+geometry role plus canonical attributes to an optional symbol and resolves label text as described
+below. This is a small reusable algorithm boundary for AWT and later export, not a general expression
+evaluator or cache.
+
+### Binding, source-query, and interaction behavior
+
+The compiled symbol-attribute order is marker selector, line selector, then fill selector, with
+exact-name duplicates removed on first occurrence. Paint appends the label attribute on first use only
+when the profile is visible at the captured resolution. Hit/hover/click operations request only symbol
+attributes because labels are not hittable; fit requests `NONE`. A source-backed portrayed binding
+uses `AttributeSelection.ONLY` with the operation's non-empty list, or `NONE` when it is empty; it never
+widens a query to `ALL`. If the source has a known schema, attachment checks every selector and label
+field and rejects an absent one before claiming the binding. A dynamic schema may omit a field per
+record, which follows normal fallback/no-label behavior. Snapshot and editable records already own
+their canonical attributes and need no projection.
+
+Attachment also recursively preflights renderer availability and value compatibility for every symbol
+reachable from every rule, step, and fallback, not merely a fixed or currently selected value. This
+reuses G4's transactional candidate validation and existing symbol failures; a later data value cannot
+surprise an already attached binding with an unregistered renderer.
+
+Paint and hit operations capture the portrayal/resolver with the same content, viewport, CRS, and
+registry snapshot already required by G3/G4. They resolve each encountered feature once for its
+geometry role in that operation. The selected symbol follows the existing component dispatch,
+renderer lookup, paint-presence, clipping/simplification, and private G7 cache paths unchanged. An
+absent selection paints no geometry and contributes no hit, hover, click selection, interaction
+overlay, or label. It remains source content for query/extent/fit and stable ID purposes: a previously
+stored or programmatically assigned ID selection may persist invisibly, but pointer interaction cannot
+create it and no presentation overlay is painted until that immutable binding resolves a symbol.
+This preserves G3's identity semantics without treating a portrayal as a source filter.
+
+General labels are annotations and are not part of symbol hit footprints. Text never makes an
+otherwise omitted or transparent marker hittable, and label boxes are not searched by `hitTest`.
+Hover and click selection therefore continue to select geometry/symbol paint, not glyphs. A selected
+point's label is painted in the ordinary label pass, not duplicated in hover/selection overlays.
+
+Fit and source extent operations continue to use authoritative geometry and `AttributeSelection.NONE`;
+thematic omission cannot make an extent depend on a viewport or presentation rule. G7's screen-plan
+cache remains keyed by authoritative immutable geometry, viewport, operation, clip, and exact stroke
+margin; selected color and opacity do not invalidate geometry plans, while a changed symbol margin
+already misses. Vector templates remain keyed by immutable path identity. No selected-symbol,
+attribute, label, or `TextLayout` cache is added.
+
+### Bounded singular-point label profile
+
+The initial label profile supports only one label for a singular `PointGeometry`. Multipoints,
+lines, polygons, repeated labels, curved text, area anchors, shields, wrapping, rich text, and
+locale-aware formatting remain later work. The public toolkit-neutral values are:
+
+```text
+PointLabelProfile(
+  LabelTextSource textSource,
+  LabelTextStyle style,
+  List<PointLabelPosition> positions,
+  double gapPixels,
+  double offsetXPixels,
+  double offsetYPixels,
+  double collisionPaddingPixels,
+  int priority,
+  ResolutionRange visibleResolution)
+
+sealed LabelTextSource
+  FeatureName
+  TextAttribute(String attribute)
+
+LabelTextStyle(Rgba color, LabelWeight weight, double sizePixels)
+LabelWeight = NORMAL | BOLD
+PointLabelPosition = N | NE | E | SE | S | SW | W | NW
+ResolutionRange(double minUnitsPerPixelInclusive,
+                double maxUnitsPerPixelInclusive)
+```
+
+The logical family is fixed to Java's `SansSerif`; public values never contain `Font`,
+`FontRenderContext`, `GlyphVector`, `Shape`, or `TextLayout`. Size is a finite 6 through 72 logical
+screen pixels. Label color must have positive alpha; an invisible label is rejected as configuration
+rather than silently reserving collision space. Gap and collision padding are finite 0 through 64
+pixels; each offset is finite and within -256 through 256 pixels. Positions are non-empty, unique,
+retain declaration order, and contain at most all eight values. Resolution endpoints are finite,
+positive, ordered, and inclusive. The current exact `MapViewport.unitsPerPixel()` decides visibility,
+avoiding a synthetic zoom level.
+
+`FeatureName` uses the immutable record/feature display name. `TextAttribute` uses only a present
+canonical `String` under its exact field name. Missing, `AttributeNull`, non-text, or blank (`isBlank`)
+input produces no candidate and no diagnostic. Text is neither trimmed nor formatted. A candidate
+may contain at most 256 Unicode code points and may not contain CR, LF, or Unicode line/paragraph
+separators; violations use the stable label failures below rather than truncation. Tabs and other
+characters are passed to the JDK text implementation as one logical line. No numeric/date formatting,
+locale, template, expression, fallback text, or ellipsis policy is implied.
+
+After a marker symbol renders successfully, the label request uses the final union of its nominal
+axis-aligned marker bounds. G2 requires every `MARKER` result to contain those bounds, including a
+zero-opacity marker; an absent result remains `SYMBOL_RENDERER_INVALID_RESULT` with `role` and `key`
+and never becomes a fallback point anchor. The configured x/y offset translates that reference box
+before candidate placement. For each declared compass position, the measured text visual box is
+aligned outside the corresponding side or corner with the exact gap on each separated axis; a cardinal
+position centers the other axis. The translated visual bounds, expanded by collision padding, are the
+collision box. Baseline coordinates come from that same translation, so paint and collision cannot
+disagree.
+
+### One global deterministic placement pass
+
+AWT creates `new Font("SansSerif", PLAIN|BOLD, 1).deriveFont(size)` and one `TextLayout` per eligible
+request using the current child graphics' `FontRenderContext`. It extracts only finite visual bounds
+and advance into toolkit-neutral immutable placement input. AWT objects remain operation-local. Font
+fallback and exact glyph outlines are JDK/platform behavior; deterministic ordering is promised for a
+given input and metric set, not pixel-identical glyphs across operating systems.
+
+`GreedyPointLabelPlacement` in core receives the logical component box, measured requests, and exact
+paint ordinals. AWT assigns consecutive `int` ordinals from zero only to eligible requests as they are
+encountered in ordinary layer/feature paint order; the request limit makes overflow impossible, and a
+later/topmost request has the larger ordinal. Placement compares priorities and ordinals directly,
+without subtracting and risking overflow. It orders requests by descending explicit priority, then
+descending ordinary paint ordinal so the topmost layer/feature wins an equal-priority collision. It
+visits a request's positions in declared order and accepts the first collision box wholly contained in
+`[0,width) x [0,height)` that has no positive-area intersection with an already accepted box. Boxes
+that only touch at an edge or corner do not collide. If every candidate is clipped or collides, that
+label is normally omitted. The initial algorithm linearly scans accepted boxes; the hard limits below
+bound this deliberately simple implementation before any profiling justifies a spatial index.
+
+The placement result contains immutable toolkit-neutral `PlacedPointLabel` values with layer/feature
+ID, exact text/style, baseline x/y, measured advance, visual bounds, collision bounds, and ordinary
+paint ordinal. It contains no AWT value. Accepted values are returned in ascending ordinary paint
+ordinal for drawing, even though priority/topmost order decided admission. This stable handoff lets
+G11-005 consume already placed labels and an explicit measured advance without making an AWT-free SVG
+writer measure fonts or duplicate collision policy.
+
+The paint stack becomes:
+
+```text
+all vector/raster feature geometry in ordinary layer/feature order
+all accepted point labels in ordinary paint order
+G11-001 editing preview and snap indicators
+G3 hover overlay
+G3 selection overlay
+G3 measurement overlay
+```
+
+Raster layers produce no label requests. Measurement graphics retain their G3 tool-owned pass and do
+not enter the feature-label engine. Label collision tests consider other accepted label boxes only;
+they do not reserve geometry, markers, editing graphics, component insets, or future UI chrome. AWT
+draws each accepted `TextLayout` once at the approved baseline with `SRC_OVER` and the configured RGBA
+color, restoring graphics state per draw. There is no background, halo, shadow, font download, device
+pixel snap, or glyph-outline export in the first profile.
+
+### Limits, failures, and cache policy
+
+One paint may collect at most 4,096 eligible label requests, evaluate at most 32,768 candidate boxes,
+perform at most 10,000,000 accepted-box collision comparisons, and retain at most 262,144 total label
+code points. These are fixed first-profile limits shared by the AWT collector and core placement
+utility, with checked arithmetic before retaining the next request, candidate, or comparison. Eight
+positions per request make the candidate limit independently explicit. The quadratic collision scan
+is therefore bounded; G11-024 records real-stack evidence before any grid, tree, or label cache is
+proposed.
+
+Expected omissions—resolution exclusion, missing/blank/wrong-type text, no selected symbol,
+off-viewport candidates, and collisions—are not diagnostics. Invalid public configuration uses normal
+field-naming argument failures. Runtime hard failures use `LabelPlacementException` with one immutable
+`LabelPlacementProblem` and stable codes:
+
+- `LABEL_REQUEST_LIMIT_EXCEEDED` with `limit` and `attempted`;
+- `LABEL_CANDIDATE_LIMIT_EXCEEDED` with `limit` and `attempted`;
+- `LABEL_COLLISION_WORK_LIMIT_EXCEEDED` with `limit` and `attempted`;
+- `LABEL_TEXT_LIMIT_EXCEEDED` with `layerIndex`, `featureIndex`, `limit`, and bounded
+  `attemptedAtLeast`;
+- `LABEL_TEXT_BUDGET_EXCEEDED` with `limit` and `attempted`;
+- `LABEL_TEXT_MULTILINE_UNSUPPORTED` with `layerIndex`, `featureIndex`, and bounded `codePoint`;
+- `LABEL_METRICS_NON_FINITE` with `layerIndex`, `featureIndex`, and bounded `quantity`; and
+- `LABEL_LAYOUT_NON_FINITE` with `layerIndex`, `featureIndex`, `position`, and bounded `quantity`.
+
+Context values are insertion ordered, ASCII keys are fixed above, messages contain no full label text,
+and request-specific contexts always put zero-based captured `layerIndex` before zero-based
+`featureIndex`. They are checked non-negative `int`/`long` traversal values under existing binding and
+source-query counts, distinguish legal same-ID features in different layers, and follow G11-001's
+bounded-problem precedent without copying unbounded public IDs. The request/candidate/work/budget
+codes describe the whole batch and have no offending identity. Collection/layout completes before any
+label is drawn, so a failure leaves the geometry pass visible but never publishes a partial label
+pass. Unexpected JDK text or renderer failures propagate unchanged. Label failures are presentation
+failures, never `SourceDiagnostic` entries and never attributed to a parser.
+
+The portrayal resolver's immutable lookup tables are configuration, not a result cache. Placement,
+metrics, and `PlacedPointLabel` values live for one paint/export snapshot and are released afterward.
+There is no weak/global cache, background layout, repaint listener, or retained last-layout value in
+`MapView`. A later cache requires a G7-style profile, key/invalidation proof, and measured benefit.
+
+### Verification, decomposition, and checkpoint
+
+API tests cover immutability, role checks, all value/count/range boundaries, numeric normalization,
+normalized duplicate rejection, exact text/date/logical/null equality, and ordered defensive copies.
+Core tests cover categorical fallback/omission, graduated lower-inclusive boundaries, required-field
+deduplication, label text extraction, all eight candidate alignments, inclusive resolution edges,
+priority/topmost admission, declared-position fallback, touching versus overlap, clipping, stable
+returned paint order, every hard limit, checked overflow, and stable failure context. Deterministic
+metric stubs make placement tests independent of installed fonts.
+
+AWT integration tests cover portrayed snapshot/source/editable records, exact `ONLY` attribute
+projection, known/dynamic schemas, role omission, compatibility-label migration, selector agreement
+between paint/hit/hover/click/overlay, recursive renderer preflight, mandatory marker-bound anchors,
+missing-bound `SYMBOL_RENDERER_INVALID_RESULT`, positive-alpha font/weight/size/color,
+geometry-label-edit-hover-selection-measurement order, and graphics-state isolation. Rendering
+regression asserts selector decisions, label count/order, non-overlapping/inside logical boxes, and
+broad tolerant ink regions; it never hashes glyph pixels. The manual example uses deliberately wide
+separations around font-sensitive boundaries and is reviewed on one named desktop without making a
+cross-platform glyph-identity claim.
+
+Implementation is deferred into these reviewable vertical slices after this profile is approved; this
+design task creates no task files or modules for them:
+
+1. `G11-020` adds immutable portrayal values/resolver and a fixed/categorical marker slice through
+   snapshot, source, and editable bindings.
+2. `G11-021` adds graduated selection and complete marker/line/fill role behavior with query and
+   interaction agreement.
+3. `G11-022` adds point-label values, text extraction, AWT metrics, and the global label paint pass.
+4. `G11-023` adds bounded greedy collision placement, the styling/label example, and tolerant
+   `renderRegression` scenarios.
+5. `G11-024` adds Javadocs, performance evidence, consumer/publication checks, representative Linux
+   Native Image verification, and the styling/label simplicity closeout.
+
+The exact future dependency graph is `G11-010 + G11-002 -> G11-020`; `G11-020 -> G11-021` and
+`G11-020 -> G11-022` (which may proceed in parallel); `G11-021 + G11-022 -> G11-023`; and
+`G11-023 -> G11-024`. The G11-010 prerequisite supplies the editable binding consumed by G11-020;
+none of these future tasks may introduce that surface early.
+
+The named HITL checkpoint is **G11 thematic and point-label profile approval**. A maintainer approves
+the selector equality/fallback semantics, single-point label/font/position profile, exact placement and
+paint order, compatibility-label migration, annotation-only hit policy, limits/failures, example
+scenarios, and five-slice decomposition before G11-020 is created. The result is the smallest design
+that makes attribute-driven cartography and collision-aware labels useful without turning a small map
+library into a stylesheet, expression, font, or cache framework.

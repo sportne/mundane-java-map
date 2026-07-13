@@ -1,7 +1,7 @@
 # G11-005 — Vector map export profile
 
 Status: Proposed
-Depends on: G10-001
+Depends on: G10-001, G11-002
 Gate: G11
 Type: HITL
 
@@ -12,17 +12,18 @@ before implementing export.
 
 ## Context
 
-G10-001 establishes a secure static SVG import subset and Level 1 supplies toolkit-neutral paths,
-symbols, raster icons, hatches, labels, and map rendering. Export needs an explicit target profile and
-fallback policy; rendering to a screen is not itself a portable vector document contract.
+G10-001 establishes a secure static SVG import subset. Level 1 supplies toolkit-neutral paths,
+symbols, raster icons, hatches, one compatibility point label, and map rendering; G11-002 defines the
+general placed-point-label handoff. Export needs an explicit target profile and fallback policy;
+rendering to a screen is not itself a portable vector document contract.
 
 ## Scope
 
 Compare a static SVG-first profile with other justified targets and select one. Define viewport/page
-bounds, coordinate precision, background, clipping, layer order, vector path/symbol mapping, text/font
-handling, raster-icon embedding or rejection, opacity/hatch behavior, metadata, deterministic ordering,
-numeric formatting, unsupported-effect diagnostics, limits, and reproducibility. Decompose the chosen
-writer into working export and verification tasks.
+bounds, coordinate precision, background, clipping, layer order, vector path/symbol mapping, placed-
+label/text/font handling, raster-icon embedding or rejection, opacity/hatch behavior, metadata,
+deterministic ordering, numeric formatting, unsupported-effect diagnostics, limits, and
+reproducibility. Decompose the chosen writer into working export and verification tasks.
 
 ## Out of scope
 

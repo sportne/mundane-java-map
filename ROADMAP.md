@@ -150,9 +150,14 @@ separately decomposed.
   transactions, bounded delta undo/redo, and explicit same-CRS vertex/segment snapping precede any
   mutable workflow. Read-only sources are never written or disguised as edit state. The approved
   design decomposes implementation into session, history, snapping, and point-tool vertical slices.
-- Thematic styling and improved deterministic label placement.
+- Use one immutable binding-owned portrayal with closed fixed/categorical/graduated role selectors,
+  exact canonical-scalar matching, and projected source attributes. Place bounded name/text-attribute
+  labels for singular points in one deterministic global pass: AWT owns logical `SansSerif` metrics
+  and drawing, while toolkit-neutral placed-label values preserve export and test boundaries. Later
+  G11-020 through G11-024 slices deliver selectors, complete roles, layout, regression/evidence, and
+  native/consumer closeout without an expression language or label cache.
 - Explicit versioned project/workspace persistence without Java serialization.
 - Optional JTS, PROJ, SQLite, and GDAL adapters whose types do not leak into the API.
-- A bounded deterministic vector map export profile.
+- A bounded deterministic vector map export profile consuming G11-002's placed-label contract.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
