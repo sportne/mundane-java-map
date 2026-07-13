@@ -17,6 +17,9 @@ public final class SymbolException extends RuntimeException {
     /** A renderer key was paired with an unsupported symbol value shape. */
     public static final String RENDERER_VALUE_MISMATCH = "SYMBOL_RENDERER_VALUE_MISMATCH";
 
+    /** A finite symbol input overflowed while deriving a screen transform. */
+    public static final String TRANSFORM_NON_FINITE = "SYMBOL_TRANSFORM_NON_FINITE";
+
     private final String code;
     private final Map<String, String> context;
 

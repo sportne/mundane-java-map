@@ -23,6 +23,9 @@ identity, placement units and transforms, composition rules, diagnostics, and pr
 G2-002 now delivers that first production slice: packed toolkit-neutral paths, explicit marker
 dispatch and diagnostics, eight normalized core markers, Java2D conversion, real-stack rendering,
 and the temporary legacy-style compatibility path.
+G2-003 adds immutable placement, sizing, rotation, stroke, and homogeneous composition contracts;
+toolkit-neutral transform math; and ordered, opacity-aware AWT marker rendering with isolated
+graphics state. Line, fill, raster-icon, and registration behavior remains in later G2 slices.
 
 ## Level 1
 

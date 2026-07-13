@@ -76,7 +76,7 @@ class BuiltInMarkersTest {
         assertSame(BuiltInMarkers.path(BuiltInMarker.STAR), marker.path());
         assertEquals(BuiltInMarkers.viewBox(), marker.viewBox());
         assertEquals(Rgba.rgb(10, 20, 30), marker.fill());
-        assertEquals(18.0, marker.screenSizePixels());
+        assertEquals(18.0, marker.placement().size().width());
         assertEquals(0.75, marker.opacity());
         assertThrows(NullPointerException.class, () -> BuiltInMarkers.path(null));
     }

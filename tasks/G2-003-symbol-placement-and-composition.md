@@ -1,6 +1,6 @@
 # G2-003 — Symbol Placement and Composition
 
-Status: Proposed
+Status: Complete
 Depends on: G2-002
 Gate: G2
 Type: AFK
@@ -63,3 +63,9 @@ git diff --check
 Use immutable transform inputs and ordinary affine math. Do not store viewport or graphics state in
 symbols, and restore all mutated `Graphics2D` state around each renderer invocation.
 
+Completed on 2026-07-13. The API now supplies immutable size, length, anchor, rotation, placement,
+stroke, line, fill, and composite values. Core owns the toolkit-neutral marker transform and
+map-to-screen basis calculations. AWT renders placed, stroked, and recursively composed vector
+markers through isolated child graphics, with focused coverage for units, anchors, offsets,
+rotation modes, opacity, draw order, and graphics-state preservation. The legacy filled-screen
+factory remains the compatibility path.

@@ -49,14 +49,15 @@ class SymbolModelTest {
         assertEquals(path, marker.path());
         assertEquals(VIEW_BOX, marker.viewBox());
         assertEquals(new Rgba(10, 20, 30, 128), marker.fill());
-        assertEquals(24.0, marker.screenSizePixels());
+        assertEquals(MarkerPlacement.centeredScreen(24.0), marker.placement());
+        assertTrue(marker.stroke().isEmpty());
         assertEquals(0.5, marker.opacity());
         assertEquals(marker, same);
         assertEquals(marker.hashCode(), same.hashCode());
         assertNotEquals(
                 marker,
                 VectorMarkerSymbol.filledScreen(path, VIEW_BOX, Rgba.rgb(10, 20, 31), 24.0, 0.5));
-        assertTrue(marker.toString().contains("screenSizePixels=24.0"));
+        assertTrue(marker.toString().contains("placement=MarkerPlacement"));
     }
 
     @Test

@@ -31,7 +31,12 @@ public record Feature(
         }
         SymbolRole actualRole = symbol.role();
         SymbolRole expectedRole = expectedRole(geometry);
-        if (!(symbol instanceof MarkerSymbol) || actualRole != expectedRole) {
+        int interfaceCount =
+                (symbol instanceof MarkerSymbol ? 1 : 0)
+                        + (symbol instanceof LineSymbol ? 1 : 0)
+                        + (symbol instanceof FillSymbol ? 1 : 0);
+        boolean supportedShape = symbol instanceof CompositeSymbol || interfaceCount == 1;
+        if (!supportedShape || actualRole != expectedRole) {
             throw roleMismatch(id, geometry, actualRole);
         }
         Objects.requireNonNull(symbol.rendererKey(), "symbol.rendererKey");

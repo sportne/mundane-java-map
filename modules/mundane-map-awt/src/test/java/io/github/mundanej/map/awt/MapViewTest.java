@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.BuiltInMarker;
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Feature;
@@ -12,18 +13,28 @@ import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
+import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolException;
+import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolRendererKey;
+import io.github.mundanej.map.api.SymbolRotationMode;
+import io.github.mundanej.map.api.SymbolSize;
+import io.github.mundanej.map.api.SymbolStroke;
+import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.InMemoryLayer;
+import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapViewport;
+import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.event.InputEvent;
@@ -35,6 +46,7 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -145,6 +157,257 @@ class MapViewTest {
                                                     invisible))
                                     .getRGB(50, 50),
                             0);
+                });
+    }
+
+    @Test
+    void placementControlsAnchorOffsetUnitsZoomAndClockwiseRotation() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MarkerPlacement anchored =
+                            new MarkerPlacement(
+                                    new SymbolSize(20.0, 10.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolAnchor.NORTH_WEST,
+                                    5.0,
+                                    7.0,
+                                    0.0,
+                                    SymbolRotationMode.SCREEN_RELATIVE);
+                    BufferedImage anchoredImage = render(vectorSquare(anchored, null));
+                    int[] anchoredBounds = paintedBounds(anchoredImage);
+                    assertTrue(anchoredBounds[0] >= 54 && anchoredBounds[0] <= 56);
+                    assertTrue(anchoredBounds[1] >= 56 && anchoredBounds[1] <= 58);
+                    assertTrue(anchoredBounds[2] >= 74 && anchoredBounds[2] <= 76);
+                    assertTrue(anchoredBounds[3] >= 66 && anchoredBounds[3] <= 68);
+
+                    MarkerPlacement rotated =
+                            new MarkerPlacement(
+                                    new SymbolSize(20.0, 10.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolAnchor.CENTER,
+                                    0.0,
+                                    0.0,
+                                    90.0,
+                                    SymbolRotationMode.SCREEN_RELATIVE);
+                    int[] rotatedBounds = paintedBounds(render(vectorSquare(rotated, null)));
+                    assertTrue(rotatedBounds[2] - rotatedBounds[0] <= 11);
+                    assertTrue(rotatedBounds[3] - rotatedBounds[1] >= 19);
+
+                    MarkerPlacement screenPlacement = MarkerPlacement.centeredScreen(20.0);
+                    MarkerPlacement mapPlacement =
+                            new MarkerPlacement(
+                                    SymbolSize.square(20.0, SymbolUnit.MAP_UNIT),
+                                    SymbolAnchor.CENTER,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    SymbolRotationMode.MAP_RELATIVE);
+                    Feature screenFeature = vectorSquare(screenPlacement, null);
+                    Feature mapFeature = vectorSquare(mapPlacement, null);
+                    int screenAtOne = paintedWidth(renderAtScale(screenFeature, 1.0));
+                    int screenAtTwo = paintedWidth(renderAtScale(screenFeature, 2.0));
+                    int mapAtOne = paintedWidth(renderAtScale(mapFeature, 1.0));
+                    int mapAtTwo = paintedWidth(renderAtScale(mapFeature, 2.0));
+                    assertEquals(screenAtOne, screenAtTwo, 1);
+                    assertTrue(mapAtOne >= mapAtTwo * 2 - 2);
+                });
+    }
+
+    @Test
+    void vectorStrokeAndCompositeOrderingUseIndependentChildGraphics() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    SymbolStroke stroke =
+                            new SymbolStroke(
+                                    Rgba.rgb(190, 30, 30),
+                                    new SymbolLength(4.0, SymbolUnit.SCREEN_PIXEL));
+                    BufferedImage stroked =
+                            render(vectorSquare(MarkerPlacement.centeredScreen(20.0), stroke));
+                    assertColorNear(Rgba.rgb(35, 105, 205), stroked.getRGB(50, 50), 4);
+                    assertRegionContainsColor(stroked, 38, 47, 42, 53, Rgba.rgb(190, 30, 30), 20);
+
+                    Symbol red = squareSymbol(Rgba.rgb(200, 30, 30), 24.0, 1.0);
+                    Symbol blue = squareSymbol(Rgba.rgb(30, 30, 200), 12.0, 1.0);
+                    Feature blueOnTop =
+                            feature(
+                                    "blue-top",
+                                    new PointGeometry(new Coordinate(0.0, 0.0)),
+                                    CompositeSymbol.of(List.of(red, blue), 1.0));
+                    Feature redOnTop =
+                            feature(
+                                    "red-top",
+                                    new PointGeometry(new Coordinate(0.0, 0.0)),
+                                    CompositeSymbol.of(List.of(blue, red), 1.0));
+                    assertColorNear(Rgba.rgb(30, 30, 200), render(blueOnTop).getRGB(50, 50), 4);
+                    assertColorNear(Rgba.rgb(200, 30, 30), render(redOnTop).getRGB(50, 50), 4);
+                    assertColorNear(Rgba.rgb(200, 30, 30), render(blueOnTop).getRGB(40, 50), 4);
+
+                    Symbol nested =
+                            CompositeSymbol.of(
+                                    List.of(
+                                            CompositeSymbol.of(
+                                                    List.of(
+                                                            squareSymbol(
+                                                                    Rgba.rgb(255, 0, 0),
+                                                                    16.0,
+                                                                    0.5)),
+                                                    0.5)),
+                                    0.5);
+                    Color nestedPixel =
+                            new Color(
+                                    render(
+                                                    feature(
+                                                            "nested",
+                                                            new PointGeometry(
+                                                                    new Coordinate(0.0, 0.0)),
+                                                            nested))
+                                            .getRGB(50, 50),
+                                    true);
+                    assertEquals(255, nestedPixel.getRed(), 1);
+                    assertEquals(223, nestedPixel.getGreen(), 2);
+                    assertEquals(223, nestedPixel.getBlue(), 2);
+                });
+    }
+
+    @Test
+    void awtRendererUsesSyntheticRotatedBasisForMapRelativePlacement() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapScreenBasis rotatedBasis =
+                            MapScreenBasis.of(new Coordinate(0.0, 2.0), new Coordinate(2.0, 0.0));
+                    MarkerPlacement screenRelative =
+                            new MarkerPlacement(
+                                    new SymbolSize(20.0, 10.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolAnchor.CENTER,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    SymbolRotationMode.SCREEN_RELATIVE);
+                    MarkerPlacement mapRelative =
+                            new MarkerPlacement(
+                                    new SymbolSize(20.0, 10.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolAnchor.CENTER,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    SymbolRotationMode.MAP_RELATIVE);
+
+                    int[] screenBounds =
+                            paintedBounds(
+                                    renderMarkerWithBasis(
+                                            vectorSquareSymbol(screenRelative, null, 1.0),
+                                            rotatedBasis));
+                    int[] mapBounds =
+                            paintedBounds(
+                                    renderMarkerWithBasis(
+                                            vectorSquareSymbol(mapRelative, null, 1.0),
+                                            rotatedBasis));
+
+                    assertTrue(screenBounds[2] - screenBounds[0] >= 19);
+                    assertTrue(screenBounds[3] - screenBounds[1] <= 11);
+                    assertTrue(mapBounds[2] - mapBounds[0] <= 11);
+                    assertTrue(mapBounds[3] - mapBounds[1] >= 19);
+                });
+    }
+
+    @Test
+    void screenAndMapStrokeUnitsAreConvertedIndependentlyOfMarkerTransform() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapScreenBasis doubleScale =
+                            MapScreenBasis.of(new Coordinate(2.0, 0.0), new Coordinate(0.0, -2.0));
+                    SymbolStroke screenStroke =
+                            new SymbolStroke(
+                                    Rgba.rgb(190, 30, 30),
+                                    new SymbolLength(2.0, SymbolUnit.SCREEN_PIXEL));
+                    SymbolStroke mapStroke =
+                            new SymbolStroke(
+                                    Rgba.rgb(190, 30, 30),
+                                    new SymbolLength(2.0, SymbolUnit.MAP_UNIT));
+
+                    int screenWidth =
+                            paintedWidth(
+                                    renderMarkerWithBasis(
+                                            vectorSquareSymbol(
+                                                    MarkerPlacement.centeredScreen(20.0),
+                                                    screenStroke,
+                                                    1.0),
+                                            doubleScale));
+                    int mapWidth =
+                            paintedWidth(
+                                    renderMarkerWithBasis(
+                                            vectorSquareSymbol(
+                                                    MarkerPlacement.centeredScreen(20.0),
+                                                    mapStroke,
+                                                    1.0),
+                                            doubleScale));
+
+                    assertTrue(mapWidth >= screenWidth + 2);
+                });
+    }
+
+    @Test
+    void transparentMarkerStillPositionsItsLabelFromNominalBounds() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MarkerPlacement placement =
+                            new MarkerPlacement(
+                                    new SymbolSize(20.0, 20.0, SymbolUnit.SCREEN_PIXEL),
+                                    SymbolAnchor.NORTH_WEST,
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    SymbolRotationMode.SCREEN_RELATIVE);
+                    Feature transparent =
+                            new Feature(
+                                    "transparent",
+                                    "Label",
+                                    new PointGeometry(new Coordinate(0.0, 0.0)),
+                                    Map.of(),
+                                    vectorSquareSymbol(placement, null, 0.0));
+
+                    int[] labelBounds = paintedBounds(render(transparent));
+
+                    assertTrue(labelBounds[0] >= 72);
+                    assertTrue(labelBounds[2] > 90);
+                    assertTrue(labelBounds[3] <= 50);
+                });
+    }
+
+    @Test
+    void mapPaintingPreservesCallerGraphicsState() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    Feature feature =
+                            vectorSquare(
+                                    MarkerPlacement.centeredScreen(20.0),
+                                    new SymbolStroke(
+                                            Rgba.rgb(1, 2, 3),
+                                            new SymbolLength(2.0, SymbolUnit.SCREEN_PIXEL)));
+                    MapView view = configuredView(feature);
+                    BufferedImage image =
+                            new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = image.createGraphics();
+                    try {
+                        graphics.translate(3.0, 4.0);
+                        graphics.clipRect(0, 0, 80, 70);
+                        graphics.setComposite(AlphaComposite.Src);
+                        graphics.setColor(Color.MAGENTA);
+                        graphics.setStroke(new BasicStroke(7.0f));
+                        java.awt.geom.AffineTransform transform = graphics.getTransform();
+                        java.awt.Shape clip = graphics.getClip();
+                        java.awt.Composite composite = graphics.getComposite();
+                        java.awt.Paint paint = graphics.getPaint();
+                        java.awt.Stroke currentStroke = graphics.getStroke();
+
+                        view.paint(graphics);
+
+                        assertEquals(transform, graphics.getTransform());
+                        assertEquals(clip.getBounds(), graphics.getClip().getBounds());
+                        assertEquals(composite, graphics.getComposite());
+                        assertEquals(paint, graphics.getPaint());
+                        assertEquals(currentStroke, graphics.getStroke());
+                    } finally {
+                        graphics.dispose();
+                    }
                 });
     }
 
@@ -461,6 +724,61 @@ class MapViewTest {
                 new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
         paint(view, image);
         return image;
+    }
+
+    private static BufferedImage renderAtScale(Feature feature, double worldUnitsPerPixel) {
+        MapView view = configuredView(feature);
+        view.setViewport(new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 0.0, 0.0, worldUnitsPerPixel));
+        BufferedImage image =
+                new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
+        paint(view, image);
+        return image;
+    }
+
+    private static Feature vectorSquare(MarkerPlacement placement, SymbolStroke stroke) {
+        return feature(
+                "placed-square",
+                new PointGeometry(new Coordinate(0.0, 0.0)),
+                vectorSquareSymbol(placement, stroke, 1.0));
+    }
+
+    private static VectorMarkerSymbol vectorSquareSymbol(
+            MarkerPlacement placement, SymbolStroke stroke, double opacity) {
+        return VectorMarkerSymbol.of(
+                BuiltInMarkers.path(BuiltInMarker.SQUARE),
+                BuiltInMarkers.viewBox(),
+                Rgba.rgb(35, 105, 205),
+                Optional.ofNullable(stroke),
+                placement,
+                opacity);
+    }
+
+    private static BufferedImage renderMarkerWithBasis(
+            VectorMarkerSymbol symbol, MapScreenBasis basis) {
+        MapView view = new MapView(IDENTITY);
+        BufferedImage image =
+                new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+            graphics.setRenderingHint(
+                    java.awt.RenderingHints.KEY_ANTIALIASING,
+                    java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+            view.renderMarkerSymbol(graphics, symbol, new Coordinate(50.0, 50.0), basis);
+        } finally {
+            graphics.dispose();
+        }
+        return image;
+    }
+
+    private static Symbol squareSymbol(Rgba fill, double size, double opacity) {
+        return BuiltInMarkers.filledScreen(BuiltInMarker.SQUARE, fill, size, opacity);
+    }
+
+    private static int paintedWidth(BufferedImage image) {
+        int[] bounds = paintedBounds(image);
+        return bounds[2] - bounds[0] + 1;
     }
 
     private static MapView configuredView(Feature feature) {

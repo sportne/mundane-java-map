@@ -1,5 +1,6 @@
 package io.github.mundanej.map.awt;
 
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Envelope;
@@ -19,9 +20,14 @@ import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
+import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.MarkerTransform;
 import io.github.mundanej.map.core.ProjectionEnvelopes;
+import io.github.mundanej.map.core.SymbolTransforms;
+import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -42,6 +48,7 @@ import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
@@ -169,14 +176,18 @@ public final class MapView extends JComponent {
         }
         SymbolSnapshot symbolSnapshot = new SymbolSnapshot(symbol.role(), symbol.rendererKey());
         if (geometry instanceof PointGeometry point) {
-            if (!(symbol instanceof MarkerSymbol) || symbolSnapshot.role() != SymbolRole.MARKER) {
+            if (!(symbol instanceof MarkerSymbol || symbol instanceof CompositeSymbol)
+                    || symbolSnapshot.role() != SymbolRole.MARKER) {
                 throw roleMismatch(feature, symbolSnapshot);
             }
             Rectangle2D bounds = renderMarker(graphics, point, symbol, symbolSnapshot);
             renderPointLabel(graphics, feature.name(), bounds);
             return;
         }
-        throw roleMismatch(feature, symbolSnapshot);
+        if (symbolSnapshot.role() != geometryRole(geometry)) {
+            throw roleMismatch(feature, symbolSnapshot);
+        }
+        throw rendererNotRegistered(symbolSnapshot);
     }
 
     private void renderLegacyFeature(
@@ -224,30 +235,109 @@ public final class MapView extends JComponent {
             PointGeometry point,
             Symbol symbol,
             SymbolSnapshot symbolSnapshot) {
+        Coordinate projected = projection.project(point.coordinate());
+        MapViewport viewportSnapshot = viewport();
+        Coordinate screen = viewportSnapshot.worldToScreen(projected);
+        Coordinate xScreen =
+                viewportSnapshot.worldToScreen(new Coordinate(projected.x() + 1.0, projected.y()));
+        Coordinate yScreen =
+                viewportSnapshot.worldToScreen(new Coordinate(projected.x(), projected.y() + 1.0));
+        MapScreenBasis basis =
+                MapScreenBasis.of(
+                        new Coordinate(xScreen.x() - screen.x(), xScreen.y() - screen.y()),
+                        new Coordinate(yScreen.x() - screen.x(), yScreen.y() - screen.y()));
+        return renderMarkerSymbol(graphics, symbol, symbolSnapshot, screen, basis, 1.0);
+    }
+
+    private Rectangle2D renderMarkerSymbol(
+            Graphics2D graphics,
+            Symbol symbol,
+            SymbolSnapshot symbolSnapshot,
+            Coordinate featureScreen,
+            MapScreenBasis basis,
+            double inheritedOpacity) {
+        if (symbolSnapshot.role() != SymbolRole.MARKER) {
+            throw rendererValueMismatch(symbolSnapshot);
+        }
+        if (CompositeSymbol.RENDERER_KEY.equals(symbolSnapshot.rendererKey())) {
+            if (!(symbol instanceof CompositeSymbol composite)) {
+                throw rendererValueMismatch(symbolSnapshot);
+            }
+            double childOpacity = inheritedOpacity * composite.opacity();
+            Rectangle2D result = null;
+            for (Symbol child : composite.children()) {
+                SymbolSnapshot childSnapshot =
+                        new SymbolSnapshot(child.role(), child.rendererKey());
+                Rectangle2D childBounds =
+                        renderMarkerSymbol(
+                                graphics, child, childSnapshot, featureScreen, basis, childOpacity);
+                result = result == null ? childBounds : result.createUnion(childBounds);
+            }
+            return result;
+        }
         if (!VectorMarkerSymbol.RENDERER_KEY.equals(symbolSnapshot.rendererKey())) {
             throw rendererNotRegistered(symbolSnapshot);
         }
         if (!(symbol instanceof VectorMarkerSymbol marker)) {
             throw rendererValueMismatch(symbolSnapshot);
         }
-        Coordinate screen = toScreen(point.coordinate());
-        double size = marker.screenSizePixels();
-        Rectangle2D nominal =
-                new Rectangle2D.Double(
-                        screen.x() - size / 2.0, screen.y() - size / 2.0, size, size);
-        if (marker.opacity() > 0.0 && marker.fill().alpha() > 0) {
-            VectorPath2D.Converted converted = VectorPath2D.convert(marker.path());
-            AffineTransform transform = new AffineTransform();
-            transform.translate(nominal.getMinX(), nominal.getMinY());
-            transform.scale(
-                    nominal.getWidth() / marker.viewBox().width(),
-                    nominal.getHeight() / marker.viewBox().height());
-            transform.translate(-marker.viewBox().minX(), -marker.viewBox().minY());
-            Shape fill = transform.createTransformedShape(converted.fillPath());
-            graphics.setColor(color(marker.fill(), marker.opacity()));
-            graphics.fill(fill);
+        MarkerTransform markerTransform =
+                SymbolTransforms.marker(marker.viewBox(), marker.placement(), featureScreen, basis);
+        Rectangle2D nominal = rectangle(markerTransform.nominalScreenBounds());
+        double effectiveOpacity = inheritedOpacity * marker.opacity();
+        if (effectiveOpacity == 0.0
+                || (marker.fill().alpha() == 0
+                        && marker.stroke().map(SymbolStroke::color).orElse(Rgba.TRANSPARENT).alpha()
+                                == 0)) {
+            return nominal;
+        }
+        VectorPath2D.Converted converted = VectorPath2D.convert(marker.path());
+        AffineTransform transform =
+                new AffineTransform(
+                        markerTransform.m00(),
+                        markerTransform.m10(),
+                        markerTransform.m01(),
+                        markerTransform.m11(),
+                        markerTransform.m02(),
+                        markerTransform.m12());
+        Graphics2D childGraphics = (Graphics2D) graphics.create();
+        try {
+            childGraphics.setComposite(
+                    AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) effectiveOpacity));
+            if (marker.fill().alpha() > 0) {
+                Shape fill = transform.createTransformedShape(converted.fillPath());
+                childGraphics.setColor(color(marker.fill()));
+                childGraphics.fill(fill);
+            }
+            if (marker.stroke().isPresent() && marker.stroke().orElseThrow().color().alpha() > 0) {
+                SymbolStroke stroke = marker.stroke().orElseThrow();
+                double width = SymbolTransforms.screenLength(stroke.width(), basis);
+                float floatWidth = (float) width;
+                if (!Float.isFinite(floatWidth) || floatWidth <= 0.0f) {
+                    throw transformFailure("symbol-screen-stroke-width");
+                }
+                childGraphics.setStroke(
+                        new BasicStroke(floatWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                childGraphics.setColor(color(stroke.color()));
+                Shape strokePath = transform.createTransformedShape(converted.strokePath());
+                childGraphics.draw(strokePath);
+            }
+        } finally {
+            childGraphics.dispose();
         }
         return nominal;
+    }
+
+    Rectangle2D renderMarkerSymbol(
+            Graphics2D graphics, Symbol symbol, Coordinate featureScreen, MapScreenBasis basis) {
+        Objects.requireNonNull(symbol, "symbol");
+        return renderMarkerSymbol(
+                graphics,
+                symbol,
+                new SymbolSnapshot(symbol.role(), symbol.rendererKey()),
+                featureScreen,
+                basis,
+                1.0);
     }
 
     private static void renderPointLabel(
@@ -307,9 +397,29 @@ public final class MapView extends JComponent {
         return new Color(color.red(), color.green(), color.blue(), color.alpha());
     }
 
-    private static Color color(Rgba color, double opacity) {
-        int alpha = (int) Math.round(color.alpha() * opacity);
-        return new Color(color.red(), color.green(), color.blue(), alpha);
+    private static Rectangle2D rectangle(Envelope bounds) {
+        return new Rectangle2D.Double(
+                bounds.minX(), bounds.minY(), bounds.width(), bounds.height());
+    }
+
+    private static SymbolRole geometryRole(Geometry geometry) {
+        if (geometry instanceof PointGeometry) {
+            return SymbolRole.MARKER;
+        }
+        if (geometry instanceof LineStringGeometry) {
+            return SymbolRole.LINE;
+        }
+        if (geometry instanceof PolygonGeometry) {
+            return SymbolRole.FILL;
+        }
+        return null;
+    }
+
+    private static SymbolException transformFailure(String quantity) {
+        return new SymbolException(
+                SymbolException.TRANSFORM_NON_FINITE,
+                "Symbol transform produced a non-finite value",
+                Map.of("quantity", quantity));
     }
 
     private static SymbolException roleMismatch(Feature feature, SymbolSnapshot symbolSnapshot) {

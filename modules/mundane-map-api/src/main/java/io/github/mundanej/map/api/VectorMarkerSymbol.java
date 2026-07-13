@@ -1,8 +1,9 @@
 package io.github.mundanej.map.api;
 
 import java.util.Objects;
+import java.util.Optional;
 
-/** A filled toolkit-neutral vector path rendered as a centered square screen marker. */
+/** An immutable toolkit-neutral vector marker with explicit placement and optional stroke. */
 public final class VectorMarkerSymbol implements MarkerSymbol {
     /** The explicit built-in vector-marker renderer key. */
     public static final SymbolRendererKey RENDERER_KEY =
@@ -11,14 +12,22 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
     private final VectorPath path;
     private final Envelope viewBox;
     private final Rgba fill;
-    private final double screenSizePixels;
+    private final Optional<SymbolStroke> stroke;
+    private final MarkerPlacement placement;
     private final double opacity;
 
     private VectorMarkerSymbol(
-            VectorPath path, Envelope viewBox, Rgba fill, double screenSizePixels, double opacity) {
+            VectorPath path,
+            Envelope viewBox,
+            Rgba fill,
+            Optional<SymbolStroke> stroke,
+            MarkerPlacement placement,
+            double opacity) {
         this.path = Objects.requireNonNull(path, "path");
         this.viewBox = Objects.requireNonNull(viewBox, "viewBox");
         this.fill = Objects.requireNonNull(fill, "fill");
+        this.stroke = Objects.requireNonNull(stroke, "stroke");
+        this.placement = Objects.requireNonNull(placement, "placement");
         double viewBoxWidth = viewBox.width();
         double viewBoxHeight = viewBox.height();
         if (!Double.isFinite(viewBoxWidth)
@@ -27,9 +36,6 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
                 || viewBoxHeight <= 0.0) {
             throw new IllegalArgumentException(
                     "viewBox must have finite positive width and height");
-        }
-        if (!Double.isFinite(screenSizePixels) || screenSizePixels <= 0.0) {
-            throw new IllegalArgumentException("screenSizePixels must be finite and positive");
         }
         if (!Double.isFinite(opacity) || opacity < 0.0 || opacity > 1.0) {
             throw new IllegalArgumentException("opacity must be finite and between zero and one");
@@ -42,14 +48,30 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
             throw new IllegalArgumentException("path coordinates must remain inside viewBox");
         }
         requireClosedSubpaths(path);
-        this.screenSizePixels = screenSizePixels;
-        this.opacity = opacity;
+        this.opacity = opacity == 0.0 ? 0.0 : opacity;
     }
 
-    /** Creates a centered, square, filled marker measured in logical screen pixels. */
+    /** Creates a vector marker with explicit optional stroke and placement. */
+    public static VectorMarkerSymbol of(
+            VectorPath path,
+            Envelope viewBox,
+            Rgba fill,
+            Optional<SymbolStroke> stroke,
+            MarkerPlacement placement,
+            double opacity) {
+        return new VectorMarkerSymbol(path, viewBox, fill, stroke, placement, opacity);
+    }
+
+    /** Creates a centered, square, fill-only marker measured in logical screen pixels. */
     public static VectorMarkerSymbol filledScreen(
             VectorPath path, Envelope viewBox, Rgba fill, double screenSizePixels, double opacity) {
-        return new VectorMarkerSymbol(path, viewBox, fill, screenSizePixels, opacity);
+        return of(
+                path,
+                viewBox,
+                fill,
+                Optional.empty(),
+                MarkerPlacement.centeredScreen(screenSizePixels),
+                opacity);
     }
 
     /** Returns the immutable vector path. */
@@ -57,7 +79,7 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
         return path;
     }
 
-    /** Returns the finite positive-area path coordinate bounds mapped to the marker square. */
+    /** Returns the finite positive-area path coordinate bounds mapped to the marker rectangle. */
     public Envelope viewBox() {
         return viewBox;
     }
@@ -67,9 +89,14 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
         return fill;
     }
 
-    /** Returns the marker's square size in logical screen pixels. */
-    public double screenSizePixels() {
-        return screenSizePixels;
+    /** Returns the optional round marker stroke. */
+    public Optional<SymbolStroke> stroke() {
+        return stroke;
+    }
+
+    /** Returns the marker placement. */
+    public MarkerPlacement placement() {
+        return placement;
     }
 
     @Override
@@ -106,13 +133,14 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
                 && path.equals(symbol.path)
                 && viewBox.equals(symbol.viewBox)
                 && fill.equals(symbol.fill)
-                && Double.compare(screenSizePixels, symbol.screenSizePixels) == 0
+                && stroke.equals(symbol.stroke)
+                && placement.equals(symbol.placement)
                 && Double.compare(opacity, symbol.opacity) == 0;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(path, viewBox, fill, screenSizePixels, opacity);
+        return Objects.hash(path, viewBox, fill, stroke, placement, opacity);
     }
 
     @Override
@@ -123,8 +151,10 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
                 + viewBox
                 + ", fill="
                 + fill
-                + ", screenSizePixels="
-                + screenSizePixels
+                + ", stroke="
+                + stroke
+                + ", placement="
+                + placement
                 + ", opacity="
                 + opacity
                 + '}';
