@@ -53,7 +53,7 @@ design task; there are no empty speculative design files.
 | G2 | [Symbols and vector graphics](design/G2-symbols-and-vector-graphics.md) | G2-001 through G2-007 approved |
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
-| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-008 approved |
+| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-009 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -101,6 +101,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Align DBF rows to physical SHP ordinals and resolve text through one finite format-local encoding profile. | Positional pairing, selected-field decoding, and explicit hints preserve source identity and bounded work without locale, provider, or schema-discovery behavior. |
 | 2026-07-12 | Retain exact bounded PRJ text while recognizing only two fixed WKT1 trees. | Format-local structural matching can provide useful canonical CRS metadata without a general WKT model, authority lookup, heuristic CRS guess, or registry alias leak. |
 | 2026-07-12 | Harden shapefile input with exact hostile fixtures plus bounded deterministic public-opener mutation tests. | Targeted cases remain the diagnostic oracle while reproducible breadth tests expose unchecked parser paths without a production fuzzer, random CI behavior, or second format implementation. |
+| 2026-07-12 | Keep a small licensed shapefile interoperability corpus in a separate offline verification lane. | Checksummed curated artifacts and exact public outcomes add real-tool evidence without weakening unit-test precision, slowing the normal gate, or making builds depend on downloads. |
 
 ## Task design traceability
 
@@ -136,3 +137,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G5-006 | Packed DBF schema plan, finite CPG/LDID encoding resolution, positional row alignment, selected typed decoding, and viewer evidence | Approved |
 | G5-007 | Strict bounded PRJ retention, packed WKT1 syntax validation, exact Level 1 CRS recognition, override arbitration, and viewer evidence | Approved |
 | G5-008 | Cross-component hostile fixtures, uniform bound/precedence audit, deterministic public-opener mutation harness, stable outcome oracles, and cleanup evidence | Approved |
+| G5-009 | Licensed checksummed corpus, exact interoperability oracles, isolated corpus lane, complete viewer observability, and maintainer review | Approved |

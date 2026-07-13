@@ -2146,3 +2146,241 @@ set and additionally ensure mutation/fixture helpers occur only in test output. 
 only `:modules:mundane-map-io-shapefile:check`, `qualityGate`, and `git diff --check` as listed in the
 task. It neither creates nor invokes `shapefileCorpus`, native, rendering-regression, or performance
 lanes.
+
+### Shapefile corpus and viewer completion (G5-009)
+
+#### Corpus boundary and roles
+
+G5-009 adds interoperability evidence after the complete hostile-input profile is stable. It creates
+no production module/API, parser option, supported shape/encoding/CRS, or recovery rule. Unit fixtures
+from G5-002 through G5-008 remain the exact boundary and malformed-input tests; corpus entries prove
+that independently produced bytes reach those same public outcomes. Corpus tests use only the public
+`Shapefiles`/`FeatureSource` surface and never receive package-private parser access.
+
+The checked-in corpus lives only under
+`modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/shapefile-corpus/`. Its companion
+Java tests use a dedicated `shapefileCorpusTest` source set. Neither resources nor tests enter the
+main/test JAR, publication, Native Image resources, normal `test`, `check`, `checkAll`, or
+`qualityGate`. There is no empty corpus module or root data hierarchy.
+
+Every dataset has one declared role:
+
+- `CURATED` is an unchanged or legally permitted excerpt obtained from an identified real GIS tool
+  or data publisher. At least one successful dataset has this role and was not produced with any
+  project fixture builder. Its origin, version/date when known, redistribution terms, and any allowed
+  transformation/excerpt are explicit.
+- `GENERATED` is purpose-built or deliberately corrupted coverage whose external creation tool and
+  version, checked recipe, or parent-plus-exact-derivation statement is recorded. Generated artifacts
+  are committed bytes; the test run does not invoke GIS software, rerun a generator, or mutate a
+  positive corpus entry.
+
+Hand-built unit fixtures and deterministic G5-008 cases are never promoted implicitly. Adding or
+replacing corpus bytes requires the same manifest, expectation, checksum, license, and HITL review as
+the initial set. The complete corpus is at most 16 datasets, 512 KiB per dataset, and 4 MiB across all
+component files, keeping checkout and manual inspection proportionate.
+
+The initial inventory uses these stable dataset IDs; a case may carry additional tags but none may be
+silently dropped or renamed:
+
+```text
+curated-point-utf8-4326
+generated-multipoint-null-ibm437
+generated-multipart-line-ibm850
+generated-polygon-hole-windows1252-3857
+generated-point-iso88591-unknown-prj
+generated-point-fallback-deleted
+generated-pointz-rejected
+generated-corrupt-shx
+generated-corrupt-dbf
+```
+
+The first case is the independently GIS-produced successful `CURATED` artifact. The next five cover
+the remaining successful geometry/encoding/CRS/override profiles. The final three are generated
+negative/derivative cases whose `parentId` and exact corruption recipe are recorded. Exact expectation
+tags, not the names alone, prove every Level 1 requirement.
+
+#### Manifest, provenance, and completeness
+
+UTF-8 `manifest.tsv` is the sole inventory. It uses LF, one header, literal tab separators, no quoting,
+and rows sorted by `(datasetId, componentPath)`. Every field is non-empty except `parentId`; values may
+not contain controls or tabs. `componentPath`/`licensePath` alone are normalized relative `/` paths:
+they reject a leading slash, backslash, empty/`.`/`..` segment, drive prefix, or URI scheme. Columns are exact:
+
+```text
+datasetId  role  componentPath  byteLength  sha256  origin  toolAndVersion  licenseId  licensePath  parentId  coverageTags  expectationId
+```
+
+`componentPath` is relative beneath `data/<datasetId>/`; SHP and sidecars share exact base name
+`<datasetId>` and use one approved component extension/case. `sha256` is 64 lowercase hexadecimal digits over
+the committed bytes and `byteLength` is decimal. `origin` is a stable public source URL/citation for
+curated data or a bounded generation/derivation reference for generated data; tests record it but
+never dereference it. `licenseId` is an SPDX identifier where available or `LicenseRef-<token>`;
+`licensePath` points beneath `licenses/` to committed plain text. `coverageTags` is a comma-separated,
+sorted, unique list from the closed vocabulary with no whitespace. Rows of one dataset must repeat
+identical provenance/role/license/parent/tags/expectation fields.
+
+Each dataset has exactly one `.shp` row and at most one `.shx`, `.dbf`, `.cpg`, and `.prj` row. A
+nonblank `parentId` resolves to exactly one different dataset; unknown parents, self-reference, and
+cycles fail. Such a row's `origin` is an exact nonblank `derive:<recipe-token>` value, and the derived
+dataset must repeat the parent's `licenseId` and `licensePath`. A transformation needing different or
+additional terms is not admitted until its licensing is represented by a separately reviewed corpus
+case; the initial derivative negatives add no multi-license model.
+
+The corpus `Test` task declares the one source resource directory as an input and passes that exact
+project-relative root to its fork. The JDK-only manifest test walks only this root, never a consumer,
+home, arbitrary classpath, or environment-selected directory. It rejects duplicate IDs/paths, unsorted rows,
+unknown roles/tags, missing components/licenses, byte/checksum disagreement, unreferenced data/license
+files, unsafe paths, component-case ambiguity, inconsistent dataset fields, unknown expectation IDs,
+and generated parent cycles. Manifest and expectation inventory are the only intentional files not
+self-listed. SHA-256 uses `MessageDigest.getInstance("SHA-256")`, an exact JDK algorithm name, with no
+download, signature service, environment key, or trust-on-first-use behavior.
+
+Coverage tags form a closed test-owned vocabulary. Completeness requires the positive profile tags
+for null, point, multipoint, polyline, polygon, multipart, hole, valid SHX, every supported DBF scalar,
+UTF-8/ISO-8859-1/Windows-1252/IBM437/IBM850, CPG/LDID/fallback/explicit-override selection, and
+recognized EPSG:4326/EPSG:3857. Negative entries require permanent Z/M rejection, ignored corrupt SHX,
+terminal corrupt DBF, and retained-unknown PRJ. One small dataset may cover several tags, but every tag
+must map to at least one exact assertion; tag presence alone never passes compatibility.
+
+#### Exact public outcome oracle
+
+`CorpusExpectations` is a finite test-only map keyed one-to-one by `expectationId`; it is reviewed
+source, not deserialized executable behavior. For each dataset it fixes:
+
+- open options, including an explicit encoding/CRS override only when that case is testing it;
+- success or the exact terminal phase/code;
+- source identity-independent metadata: extent, absent feature count, ordered nullable schema, and
+  missing/recognized/unknown CRS state with exact retained PRJ text where applicable;
+- ordered physical record IDs, exact geometry class and packed coordinates/part/ring/polygon fences,
+  envelopes, and ordered typed attributes; and
+- ordered diagnostics by code, severity, location, context, and omitted count, excluding message and
+  cause text.
+
+Before parsing, each dataset is copied directly from the exact source-root files whose length and
+checksum were just verified into a fresh temporary directory; processed/classpath resource copies are
+never parser input or an alternate checksum oracle.
+The test opens it with a fixed `SourceIdentity`, queries absent bounds with `AttributeSelection.ALL`,
+iterates to exhaustion, compares the complete outcome, closes cursor/source, and immediately deletes
+the copy. A source-open failure likewise leaves the directory deletable. Success values are compared
+directly; no geometry hash, parser-specific dump, snapshot update mode, broad diagnostic family, or
+image golden can approve a changed outcome.
+
+Every successful dataset containing valid SHX is also copied without SHX and reopened. Metadata,
+records, geometry, attributes, cursor diagnostics, and exhaustion must match exactly; only the opening
+report changes by the approved missing-SHX warning. The corrupt-SHX dataset must equal its clean
+sequential parent after the exact ignored-index warning. This is correctness evidence, not a timing or
+random-access claim.
+
+The corpus tests contain no mutation loop, randomized generation, cancellation sweep, injected I/O,
+benchmark, native execution, or broad hostile matrix. Those remain G5-008, G7, G5-010, and the focused
+unit suites. One corpus entry may intentionally fail, but an unexpected exception, checksum change,
+missing expectation, resource leak, nondeterministic order, or message-dependent assertion fails the
+lane.
+
+#### Separate Gradle and CI lane
+
+The shapefile module defines `shapefileCorpusTest` source/configuration sets extending only its normal
+test JUnit dependencies plus main output, and one `Test` task of the same name. Corpus-owned tasks are
+exactly `compileShapefileCorpusTestJava`, `processShapefileCorpusTestResources`,
+`shapefileCorpusTestClasses`, `shapefileCorpusTest`, `checkstyleShapefileCorpusTest`, and
+`spotbugsShapefileCorpusTest`; the root corpus lane runs all applicable compile/resource/test/static-
+analysis tasks. The root defines:
+
+```text
+shapefileCorpus (group=verification)
+  dependsOn :modules:mundane-map-io-shapefile:shapefileCorpusTest
+            :modules:mundane-map-io-shapefile:checkstyleShapefileCorpusTest
+            :modules:mundane-map-io-shapefile:spotbugsShapefileCorpusTest
+```
+
+The custom test task has stable locale/time-zone/encoding inputs, disables parallel forks, and uses no
+network API or external process. It passes only its Gradle-declared project-relative source root; no
+consumer/environment path is accepted. The root corpus task mechanically walks the task-dependency
+closures of `checkAll`, `qualityGate`, root `check`, and each checked project's exact normal-gate roots
+`check`, `spotlessCheck`, and `javadoc`, and fails if they contain any of those six corpus-owned tasks.
+The module build explicitly detaches custom-source-
+set Checkstyle/SpotBugs lifecycle wiring from normal `check`; the global `spotlessJavaCheck` may still
+format-check `src/**/*.java`, but it neither compiles/runs corpus code nor reads corpus data. Conversely, the
+root creator command executes the manifest and every expectation exactly once.
+
+One non-verification helper, `primeShapefileCorpusDependencies`, resolves exactly the format module's
+`shapefileCorpusTestCompileClasspath`, `shapefileCorpusTestRuntimeClasspath`,
+`shapefileCorpusTestAnnotationProcessor`, `errorprone`, `checkstyle`, `spotbugs`, `spotbugsPlugins`,
+`spotbugsSlf4j`, and `jacocoAgent` configurations without compiling or running corpus code. CI adds a
+separately named `ubuntu-24.04`/Temurin Java 21 corpus job with a newly empty, job-local
+`GRADLE_USER_HOME`. It runs that prime task online, then uses the same home for
+`./gradlew --offline shapefileCorpus --rerun-tasks --console=plain`; the
+normal JVM job remains unchanged. A corpus-lane bytecode check rejects `java.net`, `java.net.http`,
+socket/datagram channel types, `ProcessBuilder`, and every `Runtime.exec` overload in its own test
+output. No fixture, GIS tool, license, or expectation is fetched and no child process can be launched. Corpus failure blocks
+G5/Level 1 release readiness but is visibly separate from the normal gate. Local completion follows
+the task's exact command order: focused module/viewer checks, the newly created root corpus command,
+`qualityGate`, then whitespace. No native, render-regression, fuzz, or performance command is folded
+into this task.
+
+#### Viewer completion and HITL evidence
+
+The G5-007 command remains
+`shapefile-viewer <path.shp> [EPSG:4326|EPSG:3857]`. G5-009 adds no format branching to AWT. The example
+run task uses the root project directory as its fixed working directory so the repository-relative
+HITL commands in the task are portable across subproject invocation. The application still receives
+and validates the path as an ordinary caller argument.
+
+Argument/registry validation, `Shapefiles.open`, and the bounded preview run synchronously on the
+launching thread before Swing scheduling. A returned source is loader-owned. The loader opens one
+`ALL` cursor, reads at most 21 published records, retains 20, uses the 21st only to set a
+`preview truncated` flag, and closes the cursor before any attachment. Open/advance failure closes the
+cursor if acquired and then the source; the operation failure remains primary. An otherwise successful
+early cursor close failure becomes primary and source-close failure is suppressed. Only after clean
+cursor close does the loader hand the source plus immutable preview to one EDT startup callable.
+
+The loader wraps that callable in one `FutureTask`, queues it once with `EventQueue.invokeLater`, and
+waits with `get()` until the task reaches a terminal owner state. `InterruptedException` only records
+that interruption occurred and the wait continues; after success or failure the loader restores its
+interrupt status. `ExecutionException` is unwrapped after EDT cleanup and the original
+`RuntimeException` or `Error` is rethrown unchanged. If queue submission itself fails, the loader still
+owns and closes the source. No future is cancelled and no second EDT runnable is submitted.
+
+On the EDT, startup constructs the fixed view/panel, seeds the opening-report section, registers one
+`MapSourceReportListener`, creates the owned binding, installs it, fits, and applies preview/list
+selection state in that order. Registration before installation means no live source report is
+missed, while opening diagnostics are never duplicated into the live-report section. All listener,
+panel/list selection, binding/view mutation, window installation, and permanent close calls remain on
+the EDT.
+
+One explicit startup owner state prevents double cleanup. Failure before binding transfer closes the
+loader-owned source then any constructed view; failure while an unattached binding owns the source
+closes the binding then view; failure after installation, including fit or panel initialization,
+closes only the owning view. The startup failure stays primary and cleanup failures are suppressed in
+that order. The completed `FutureTask` proves ownership is either installed or fully cleaned before
+the launching thread continues, so it never retries close.
+
+The example
+uses `FeatureSourceMetadata`, `FeatureRecord`, `DiagnosticReport`, and `MapSourceReportListener` to
+show a generic bounded side panel containing source/CRS state, ordered schema, at most the first 20
+record IDs, ordered attributes for the currently chosen preview record, and separate opening/latest
+query diagnostic codes/locations/context.
+The panel labels truncation instead of materializing the dataset. Values use bounded ordinary `toString` only for the approved canonical
+types; binary/raw bytes, retained PRJ text, paths, and exception causes are not displayed.
+
+Load failure returns no partial view and prints/presents the stable generic report once after the
+stage-exact cleanup above. Live source reports replace prior live state in encounter order. Unknown PRJ
+without an override reaches the expected generic CRS attachment failure; corrupt SHX stays viewable
+with its warning; corrupt DBF and Z/M remain terminal. Temporary viewer tests prove all resources are
+deletable after startup failure, view close, and window teardown.
+
+Automated viewer tests use temporary small fixtures and invariant assertions: expected geometry role,
+fit envelope, non-background tolerant regions, part separation, polygon-hole background, stable paint
+presence, schema/value preview, non-ASCII decoded text, and diagnostic order. They do not copy the
+corpus parser oracle into the example, require pixel identity, create a new render lane, or inspect
+Java2D from the format module.
+
+The named **G5 corpus and viewer approval** HITL checkpoint has two recorded outcomes before the task
+may be Complete: the maintainer confirms every fixture's license/generation statement and specifically
+each `CURATED` origin, excerpt/derivation permission, and redistribution terms,
+and manually runs representative corpus paths for point/multipoint, multipart line, polygon hole,
+all five decoded encodings, both recognized CRSs, corrupt-SHX warning, and unknown-PRJ behavior. Review
+confirms geometry/fit, hole appearance, readable attribute preview, diagnostic presentation, and clean
+window close on a supported desktop. The task notes record the reviewed commit, reviewer/date,
+approve/reject outcome, Java/OS/window-system/scale, exact commands and dataset IDs, per-case result,
+and unresolved blocker; the manifest remains factual provenance rather than mutable approval state.
