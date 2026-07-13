@@ -10,12 +10,13 @@ features; packed coordinates; Web Mercator and viewport math; Swing rendering; p
 fit-to-data, pointer-coordinate events; a basic viewer; architecture tests; and an offscreen native
 smoke entrypoint.
 
-G0 is complete. G0-001 verifies the fixed Java 21 artifact baseline, strict root/included-build
+G0 and G1 are complete. G0-001 verifies the fixed Java 21 artifact baseline, strict root/included-build
 repository modes, normal JVM gate, and exact three-module publication staging. G0-002 now enforces
 the authoritative runtime graph, module/toolkit/I/O direction, public API isolation, resource
 discovery restrictions, and prohibited native-targeted mechanisms with positive and negative
-evidence. Several G1 behaviors still lack direct tests, and an actual Native Image run has not been
-recorded in the current environment, so G1 remains **implemented in source; verification pending**.
+evidence. G1 now directly verifies geometry invariants, isolated rendering and holes, repeated-paint
+clearing, installed navigation and pointer routing, listener mutation semantics, the example, and the
+EDT-safe smoke. The Linux x86-64 GraalVM CE Java 21.0.2 lane builds and runs the real offscreen image.
 
 ## Level 1
 

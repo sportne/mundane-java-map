@@ -1,6 +1,7 @@
 package io.github.mundanej.map.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.Envelope;
@@ -44,5 +45,34 @@ class MapViewportTest {
 
         assertEquals(25.0, minimum.x(), TOLERANCE);
         assertEquals(475.0, maximum.x(), TOLERANCE);
+    }
+
+    @Test
+    void panAndResizePreserveTheDocumentedState() {
+        MapViewport viewport = new MapViewport(800, 600, 100.0, 200.0, 2.5);
+
+        MapViewport panned = viewport.panByPixels(20.0, -12.0);
+        MapViewport resized = panned.resized(320, 240);
+
+        assertEquals(50.0, panned.centerX(), TOLERANCE);
+        assertEquals(170.0, panned.centerY(), TOLERANCE);
+        assertEquals(panned.centerX(), resized.centerX(), TOLERANCE);
+        assertEquals(panned.centerY(), resized.centerY(), TOLERANCE);
+        assertEquals(panned.worldUnitsPerPixel(), resized.worldUnitsPerPixel(), TOLERANCE);
+        assertEquals(320, resized.width());
+        assertEquals(240, resized.height());
+    }
+
+    @Test
+    void fitHandlesPointAndDegenerateScreenSpace() {
+        Envelope point = new Envelope(12.0, -4.0, 12.0, -4.0);
+
+        MapViewport fitted = MapViewport.fit(1, 1, point, 500.0);
+
+        assertEquals(12.0, fitted.centerX(), TOLERANCE);
+        assertEquals(-4.0, fitted.centerY(), TOLERANCE);
+        assertEquals(1.0e-9, fitted.worldUnitsPerPixel(), 1.0e-18);
+        assertThrows(
+                IllegalArgumentException.class, () -> MapViewport.fit(100, 100, point, Double.NaN));
     }
 }

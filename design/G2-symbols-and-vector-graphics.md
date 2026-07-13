@@ -1106,8 +1106,10 @@ The Java 21-specific file is the project baseline; a future toolchain-baseline t
 G2 does not maintain dual metadata forms. The exact quoted pattern includes only the icon, not its
 directory or provenance file. The application also uses a constant class/resource lookup that the
 Java 21 tool can recognize, but the checked metadata remains the deliberate, reviewable inclusion
-contract. Metadata-repository use stays disabled; no tracing-agent output, reflection, proxy, JNI,
-serialization, bundle, initialization, or broad resource configuration is added.
+contract. Metadata-repository use stays disabled. G2 adds no tracing-agent output, reflection, proxy,
+JNI, serialization, bundle, initialization, or broad resource configuration: the narrow Java 21 AWT
+JNI/reflection files approved by G1 remain unchanged, while this task owns only the exact icon
+resource entry above.
 
 The native module's JVM test reads the metadata resource and compares it, after line-ending
 normalization, with the approved text block. The architecture suite includes the native support output

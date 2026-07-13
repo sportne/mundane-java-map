@@ -1,6 +1,6 @@
 # G1-001 — First Map Slice Verification
 
-Status: Proposed
+Status: Complete
 Depends on: G0-002
 Gate: G1
 Type: HITL
@@ -26,6 +26,7 @@ repository gate.
 - Existing production code in `mundane-map-api`, `mundane-map-core`, and `mundane-map-awt` only as
   needed to fix verified G1 defects.
 - Existing module tests, architecture tests, `mundane-map-native-tests`, and `examples/basic-viewer`.
+- `build-logic` only for a verified defect in the existing Native Image executable lane.
 - Public Javadocs affected by a defect fix.
 
 ## Out of scope
@@ -76,3 +77,12 @@ git diff --check
 HITL is limited to the desktop observation and availability of a GraalVM `native-image` toolchain;
 all behavior that can be asserted deterministically belongs in automated tests. Do not loosen tests
 to accommodate a defect or expand G1 into later-gate design work.
+
+Completed on 2026-07-13. Focused tests cover geometry validation and copying, viewport edge cases,
+isolated tolerant rendering, holes, repeated-paint clearing, installed navigation, pointer routing,
+listener identity/mutation, example geometry construction, and the EDT-safe JVM smoke. The desktop
+checkpoint ran through WSLg and visually confirmed fit, point/line/polygon appearance, primary drag,
+cursor-centered wheel zoom, background clearing, and live coordinate updates. `nativeSmoke` built
+and ran the real offscreen path on Linux x86-64 with GraalVM CE Java 21.0.2 after adding the minimal
+agent-derived AWT JNI/reflection metadata to the support application. The focused lanes, full
+`qualityGate`, and final review are recorded with the task commit.

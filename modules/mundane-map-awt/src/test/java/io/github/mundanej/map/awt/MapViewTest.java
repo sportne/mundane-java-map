@@ -1,88 +1,412 @@
 package io.github.mundanej.map.awt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.MapPointerEvent;
+import io.github.mundanej.map.api.MapPointerListener;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.core.InMemoryLayer;
-import io.github.mundanej.map.core.WebMercatorProjection;
+import io.github.mundanej.map.core.MapViewport;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class MapViewTest {
+    private static final int IMAGE_SIZE = 100;
+    private static final double TOLERANCE = 1.0e-9;
+    private static final Projection IDENTITY =
+            new Projection() {
+                @Override
+                public String id() {
+                    return "identity";
+                }
+
+                @Override
+                public Coordinate project(Coordinate source) {
+                    return source;
+                }
+
+                @Override
+                public Coordinate unproject(Coordinate projected) {
+                    return projected;
+                }
+            };
+
     @Test
-    void rendersPointLinePolygonAndEmitsPointerCoordinates() throws Exception {
-        AtomicReference<Throwable> failure = new AtomicReference<>();
+    void rendersPointFillAndStrokeIndependently() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
-                    try {
-                        MapView view = new MapView(new WebMercatorProjection());
-                        view.setSize(640, 480);
-                        view.setLayers(List.of(sampleLayer()));
-                        view.fitToData(24.0);
+                    Feature point =
+                            feature(
+                                    "point",
+                                    new PointGeometry(new Coordinate(0.0, 0.0)),
+                                    new FeatureStyle(
+                                            Rgba.rgb(220, 30, 30),
+                                            Rgba.rgb(20, 80, 210),
+                                            2.0,
+                                            20.0));
 
-                        BufferedImage image =
-                                new BufferedImage(640, 480, BufferedImage.TYPE_INT_ARGB);
-                        Graphics2D graphics = image.createGraphics();
-                        try {
-                            view.paint(graphics);
-                        } finally {
-                            graphics.dispose();
-                        }
+                    BufferedImage image = render(point);
 
-                        assertNotEquals(Color.WHITE.getRGB(), image.getRGB(320, 240));
-                        Coordinate center = view.screenToMap(320.0, 240.0);
-                        assertEquals(-71.0, center.x(), 0.2);
-                        assertEquals(42.3, center.y(), 0.2);
-                    } catch (Throwable throwable) {
-                        failure.set(throwable);
-                    }
+                    assertColorNear(Rgba.rgb(20, 80, 210), image.getRGB(50, 50), 2);
+                    assertRegionContainsColor(image, 57, 47, 62, 53, Rgba.rgb(220, 30, 30), 35);
+                    assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(20, 20), 0);
                 });
-        if (failure.get() != null) {
-            throw new AssertionError(failure.get());
+    }
+
+    @Test
+    void rendersLineStrokeAndSkipsZeroWidthStroke() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    LineStringGeometry line =
+                            new LineStringGeometry(CoordinateSequence.of(-20.0, 0.0, 20.0, 0.0));
+                    Feature visible =
+                            feature("line", line, FeatureStyle.line(Rgba.rgb(180, 40, 40), 3.0));
+                    Feature hidden =
+                            feature(
+                                    "hidden-line",
+                                    line,
+                                    FeatureStyle.line(Rgba.rgb(180, 40, 40), 0.0));
+
+                    assertColorNear(Rgba.rgb(180, 40, 40), render(visible).getRGB(50, 50), 3);
+                    assertColorNear(Rgba.rgb(255, 255, 255), render(hidden).getRGB(50, 50), 0);
+                });
+    }
+
+    @Test
+    void rendersPolygonFillStrokeAndHoleIndependently() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    CoordinateSequence exterior =
+                            CoordinateSequence.of(
+                                    -20.0, -20.0,
+                                    20.0, -20.0,
+                                    20.0, 20.0,
+                                    -20.0, 20.0,
+                                    -20.0, -20.0);
+                    CoordinateSequence hole =
+                            CoordinateSequence.of(
+                                    -5.0, -5.0,
+                                    5.0, -5.0,
+                                    5.0, 5.0,
+                                    -5.0, 5.0,
+                                    -5.0, -5.0);
+                    Feature polygon =
+                            feature(
+                                    "polygon",
+                                    new PolygonGeometry(exterior, List.of(hole)),
+                                    FeatureStyle.polygon(
+                                            Rgba.rgb(25, 80, 35), Rgba.rgb(55, 180, 75), 2.0));
+
+                    BufferedImage image = render(polygon);
+
+                    assertColorNear(Rgba.rgb(55, 180, 75), image.getRGB(60, 50), 3);
+                    assertRegionContainsColor(image, 28, 46, 32, 54, Rgba.rgb(25, 80, 35), 30);
+                    assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(50, 50), 0);
+                    assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(10, 10), 0);
+                });
+    }
+
+    @Test
+    void eachPaintClearsThePreviousFrame() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    Feature point =
+                            feature(
+                                    "point",
+                                    new PointGeometry(new Coordinate(0.0, 0.0)),
+                                    FeatureStyle.point(Rgba.rgb(20, 80, 210), 12.0));
+                    MapView view = configuredView(point);
+                    BufferedImage image =
+                            new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
+                    paint(view, image);
+                    assertColorNear(Rgba.rgb(20, 80, 210), image.getRGB(50, 50), 2);
+
+                    view.setViewport(new MapViewport(IMAGE_SIZE, IMAGE_SIZE, -20.0, 0.0, 1.0));
+                    paint(view, image);
+
+                    assertColorNear(Rgba.rgb(255, 255, 255), image.getRGB(50, 50), 0);
+                    assertColorNear(Rgba.rgb(20, 80, 210), image.getRGB(70, 50), 2);
+                });
+    }
+
+    @Test
+    void installedMouseListenersPanResizeAndZoomAroundTheCursor() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = new MapView(IDENTITY);
+                    view.setSize(200, 160);
+                    view.setViewport(new MapViewport(200, 160, 1000.0, 2000.0, 10.0));
+
+                    dispatchMouse(view, MouseEvent.MOUSE_PRESSED, 100, 80, MouseEvent.BUTTON1, 0);
+                    dispatchMouse(
+                            view,
+                            MouseEvent.MOUSE_DRAGGED,
+                            120,
+                            110,
+                            MouseEvent.NOBUTTON,
+                            InputEvent.BUTTON1_DOWN_MASK);
+                    dispatchMouse(view, MouseEvent.MOUSE_RELEASED, 120, 110, MouseEvent.BUTTON1, 0);
+
+                    assertEquals(800.0, view.viewport().centerX(), TOLERANCE);
+                    assertEquals(2300.0, view.viewport().centerY(), TOLERANCE);
+
+                    Coordinate before = view.screenToMap(40.0, 55.0);
+                    view.dispatchEvent(
+                            new MouseWheelEvent(
+                                    view,
+                                    MouseEvent.MOUSE_WHEEL,
+                                    System.currentTimeMillis(),
+                                    0,
+                                    40,
+                                    55,
+                                    0,
+                                    false,
+                                    MouseWheelEvent.WHEEL_UNIT_SCROLL,
+                                    1,
+                                    -1));
+                    Coordinate after = view.screenToMap(40.0, 55.0);
+
+                    assertEquals(before.x(), after.x(), TOLERANCE);
+                    assertEquals(before.y(), after.y(), TOLERANCE);
+
+                    double scale = view.viewport().worldUnitsPerPixel();
+                    double centerX = view.viewport().centerX();
+                    double centerY = view.viewport().centerY();
+                    view.setSize(320, 240);
+                    assertEquals(320, view.viewport().width());
+                    assertEquals(240, view.viewport().height());
+                    assertEquals(scale, view.viewport().worldUnitsPerPixel(), TOLERANCE);
+                    assertEquals(centerX, view.viewport().centerX(), TOLERANCE);
+                    assertEquals(centerY, view.viewport().centerY(), TOLERANCE);
+                });
+    }
+
+    @Test
+    void pointerCallbacksCarryScreenAndMapCoordinatesOnTheEdt() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = new MapView(IDENTITY);
+                    view.setSize(200, 100);
+                    view.setViewport(new MapViewport(200, 100, 10.0, 20.0, 2.0));
+                    List<MapPointerEvent> events = new ArrayList<>();
+                    view.addMapPointerListener(
+                            event -> {
+                                assertTrue(SwingUtilities.isEventDispatchThread());
+                                events.add(event);
+                            });
+
+                    dispatchMouse(view, MouseEvent.MOUSE_MOVED, 120, 40, MouseEvent.NOBUTTON, 0);
+                    dispatchMouse(view, MouseEvent.MOUSE_CLICKED, 80, 70, MouseEvent.BUTTON1, 0);
+
+                    assertEquals(
+                            List.of(MapPointerEvent.Type.MOVED, MapPointerEvent.Type.CLICKED),
+                            events.stream().map(MapPointerEvent::type).toList());
+                    assertEquals(120.0, events.get(0).screenX(), TOLERANCE);
+                    assertEquals(40.0, events.get(0).screenY(), TOLERANCE);
+                    assertEquals(new Coordinate(50.0, 40.0), events.get(0).mapCoordinate());
+                    assertEquals(new Coordinate(-30.0, -20.0), events.get(1).mapCoordinate());
+                });
+    }
+
+    @Test
+    void listenerIdentityDuplicatesAndCallbackMutationAreDeterministic() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = new MapView(IDENTITY);
+                    view.setSize(100, 100);
+                    EqualListener first = new EqualListener();
+                    EqualListener equalButDistinct = new EqualListener();
+                    view.addMapPointerListener(first);
+                    view.addMapPointerListener(first);
+                    view.addMapPointerListener(equalButDistinct);
+
+                    view.removeMapPointerListener(equalButDistinct);
+                    dispatchMouse(view, MouseEvent.MOUSE_MOVED, 50, 50, MouseEvent.NOBUTTON, 0);
+                    assertEquals(2, first.count());
+                    assertEquals(0, equalButDistinct.count());
+
+                    view.removeMapPointerListener(first);
+                    dispatchMouse(view, MouseEvent.MOUSE_MOVED, 50, 50, MouseEvent.NOBUTTON, 0);
+                    assertEquals(3, first.count());
+
+                    MapView mutationView = new MapView(IDENTITY);
+                    mutationView.setSize(100, 100);
+                    List<String> calls = new ArrayList<>();
+                    MapPointerListener added = event -> calls.add("added");
+                    MapPointerListener[] removed = new MapPointerListener[1];
+                    MapPointerListener mutating =
+                            event -> {
+                                calls.add("mutating");
+                                mutationView.removeMapPointerListener(removed[0]);
+                                mutationView.addMapPointerListener(added);
+                            };
+                    removed[0] = event -> calls.add("removed");
+                    mutationView.addMapPointerListener(mutating);
+                    mutationView.addMapPointerListener(removed[0]);
+
+                    dispatchMouse(
+                            mutationView, MouseEvent.MOUSE_MOVED, 50, 50, MouseEvent.NOBUTTON, 0);
+                    assertEquals(List.of("mutating", "removed"), calls);
+                    calls.clear();
+                    dispatchMouse(
+                            mutationView, MouseEvent.MOUSE_MOVED, 50, 50, MouseEvent.NOBUTTON, 0);
+                    assertEquals(List.of("mutating", "added"), calls);
+                });
+    }
+
+    @Test
+    void fitHandlesEmptyPointAndLineLayers() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = new MapView(IDENTITY);
+                    view.setSize(200, 100);
+                    MapViewport initial = new MapViewport(200, 100, 12.0, 34.0, 5.0);
+                    view.setViewport(initial);
+                    view.setLayers(List.of(new InMemoryLayer("empty", "Empty", List.of())));
+
+                    view.fitToData(10.0);
+                    assertEquals(initial, view.viewport());
+
+                    view.setLayers(
+                            List.of(
+                                    layer(
+                                            feature(
+                                                    "point",
+                                                    new PointGeometry(new Coordinate(3.0, 4.0)),
+                                                    FeatureStyle.point(
+                                                            Rgba.rgb(20, 40, 60), 8.0)))));
+                    view.fitToData(10.0);
+                    assertEquals(3.0, view.viewport().centerX(), TOLERANCE);
+                    assertEquals(4.0, view.viewport().centerY(), TOLERANCE);
+                    assertEquals(1.0e-9, view.viewport().worldUnitsPerPixel(), 1.0e-18);
+
+                    view.setLayers(
+                            List.of(
+                                    layer(
+                                            feature(
+                                                    "line",
+                                                    new LineStringGeometry(
+                                                            CoordinateSequence.of(
+                                                                    -10.0, -5.0, 10.0, 5.0)),
+                                                    FeatureStyle.line(
+                                                            Rgba.rgb(20, 40, 60), 2.0)))));
+                    view.fitToData(10.0);
+                    assertEquals(0.0, view.viewport().centerX(), TOLERANCE);
+                    assertEquals(0.0, view.viewport().centerY(), TOLERANCE);
+                    assertEquals(0.125, view.viewport().worldUnitsPerPixel(), TOLERANCE);
+                });
+    }
+
+    private static BufferedImage render(Feature feature) {
+        MapView view = configuredView(feature);
+        BufferedImage image =
+                new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
+        paint(view, image);
+        return image;
+    }
+
+    private static MapView configuredView(Feature feature) {
+        MapView view = new MapView(IDENTITY);
+        view.setSize(IMAGE_SIZE, IMAGE_SIZE);
+        view.setViewport(new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 0.0, 0.0, 1.0));
+        view.setLayers(List.of(layer(feature)));
+        return view;
+    }
+
+    private static void paint(MapView view, BufferedImage image) {
+        Graphics2D graphics = image.createGraphics();
+        try {
+            view.paint(graphics);
+        } finally {
+            graphics.dispose();
         }
     }
 
-    private static InMemoryLayer sampleLayer() {
-        Feature point =
-                new Feature(
-                        "point",
-                        "Center",
-                        new PointGeometry(new Coordinate(-71.0, 42.3)),
-                        Map.of(),
-                        FeatureStyle.point(Rgba.rgb(20, 100, 200), 12.0));
-        Feature line =
-                new Feature(
-                        "line",
-                        "",
-                        new LineStringGeometry(
-                                CoordinateSequence.of(-71.2, 42.2, -71.0, 42.3, -70.8, 42.4)),
-                        Map.of(),
-                        FeatureStyle.line(Rgba.rgb(180, 40, 40), 3.0));
-        Feature polygon =
-                new Feature(
-                        "polygon",
-                        "",
-                        new PolygonGeometry(
-                                CoordinateSequence.of(
-                                        -71.1, 42.2, -70.9, 42.2, -70.9, 42.4, -71.1, 42.4, -71.1,
-                                        42.2)),
-                        Map.of(),
-                        FeatureStyle.polygon(
-                                Rgba.rgb(20, 100, 20), new Rgba(30, 180, 60, 80), 2.0));
-        return new InMemoryLayer("sample", "Sample", List.of(polygon, line, point));
+    private static InMemoryLayer layer(Feature feature) {
+        return new InMemoryLayer("layer", "Layer", List.of(feature));
+    }
+
+    private static Feature feature(
+            String id, io.github.mundanej.map.api.Geometry geometry, FeatureStyle style) {
+        return new Feature(id, "", geometry, Map.of(), style);
+    }
+
+    private static void dispatchMouse(
+            MapView view, int id, int x, int y, int button, int modifiers) {
+        view.dispatchEvent(
+                new MouseEvent(
+                        view, id, System.currentTimeMillis(), modifiers, x, y, 1, false, button));
+    }
+
+    private static void assertColorNear(Rgba expected, int actualArgb, int tolerance) {
+        Color actual = new Color(actualArgb, true);
+        assertTrue(Math.abs(expected.red() - actual.getRed()) <= tolerance, actual::toString);
+        assertTrue(Math.abs(expected.green() - actual.getGreen()) <= tolerance, actual::toString);
+        assertTrue(Math.abs(expected.blue() - actual.getBlue()) <= tolerance, actual::toString);
+        assertTrue(Math.abs(expected.alpha() - actual.getAlpha()) <= tolerance, actual::toString);
+    }
+
+    private static void assertRegionContainsColor(
+            BufferedImage image,
+            int minimumX,
+            int minimumY,
+            int maximumX,
+            int maximumY,
+            Rgba expected,
+            int tolerance) {
+        for (int y = minimumY; y <= maximumY; y++) {
+            for (int x = minimumX; x <= maximumX; x++) {
+                Color actual = new Color(image.getRGB(x, y), true);
+                if (Math.abs(expected.red() - actual.getRed()) <= tolerance
+                        && Math.abs(expected.green() - actual.getGreen()) <= tolerance
+                        && Math.abs(expected.blue() - actual.getBlue()) <= tolerance
+                        && Math.abs(expected.alpha() - actual.getAlpha()) <= tolerance) {
+                    return;
+                }
+            }
+        }
+        throw new AssertionError("Expected color was absent from rendering assertion region");
+    }
+
+    private static final class EqualListener implements MapPointerListener {
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public void onMapPointerEvent(MapPointerEvent event) {
+            calls.incrementAndGet();
+        }
+
+        int count() {
+            return calls.get();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof EqualListener;
+        }
+
+        @Override
+        public int hashCode() {
+            return 1;
+        }
     }
 }

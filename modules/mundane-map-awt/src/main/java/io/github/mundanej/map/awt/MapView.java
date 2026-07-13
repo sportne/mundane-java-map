@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 
 /**
  * A lightweight Swing map component for projected vector features.
@@ -119,15 +120,23 @@ public final class MapView extends JComponent {
 
     /** Removes one matching pointer-listener instance. */
     public void removeMapPointerListener(MapPointerListener listener) {
-        pointerListeners.remove(listener);
+        for (int index = 0; index < pointerListeners.size(); index++) {
+            if (pointerListeners.get(index) == listener) {
+                pointerListeners.remove(index);
+                return;
+            }
+        }
     }
 
     @Override
     protected void paintComponent(Graphics graphics) {
-        super.paintComponent(graphics);
         synchronizeViewportSize();
         Graphics2D graphics2D = (Graphics2D) graphics.create();
         try {
+            if (isOpaque()) {
+                graphics2D.setColor(getBackground());
+                graphics2D.fillRect(0, 0, getWidth(), getHeight());
+            }
             graphics2D.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             for (Layer layer : layers) {
@@ -152,9 +161,11 @@ public final class MapView extends JComponent {
         if (geometry instanceof PointGeometry point) {
             renderPoint(graphics, point, feature);
         } else if (geometry instanceof LineStringGeometry line) {
-            Path2D path = path(line.coordinates(), false);
-            graphics.setColor(color(style.stroke()));
-            graphics.draw(path);
+            if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
+                Path2D path = path(line.coordinates(), false);
+                graphics.setColor(color(style.stroke()));
+                graphics.draw(path);
+            }
         } else if (geometry instanceof PolygonGeometry polygon) {
             renderPolygon(graphics, polygon, style);
         }
@@ -230,12 +241,16 @@ public final class MapView extends JComponent {
                 new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent event) {
-                        dragAnchor = event.getPoint();
+                        if (SwingUtilities.isLeftMouseButton(event)) {
+                            dragAnchor = event.getPoint();
+                        }
                     }
 
                     @Override
                     public void mouseReleased(MouseEvent event) {
-                        dragAnchor = null;
+                        if (SwingUtilities.isLeftMouseButton(event)) {
+                            dragAnchor = null;
+                        }
                     }
 
                     @Override

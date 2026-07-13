@@ -115,7 +115,7 @@ Level 1 is complete only when G8-004 is complete.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G1-001 — First map slice verification](G1-001-first-map-slice-verification.md) | Proposed | HITL | G0-002 | Verify and harden the implemented end-to-end Swing slice and native smoke. |
+| [G1-001 — First map slice verification](G1-001-first-map-slice-verification.md) | Complete | HITL | G0-002 | Verify and harden the implemented end-to-end Swing slice and native smoke. |
 
 ### G2 — Symbols and vector graphics
 

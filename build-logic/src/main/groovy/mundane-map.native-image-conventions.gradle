@@ -10,6 +10,7 @@ graalvmNative {
         main {
             imageName = project.name
             fallback = false
+            sharedLibrary = false
             buildArgs.add('--no-fallback')
         }
         test {
@@ -17,4 +18,3 @@ graalvmNative {
         }
     }
 }
-

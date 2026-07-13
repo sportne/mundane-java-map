@@ -67,7 +67,9 @@ It owns an immutable ordered snapshot of layer references and the current immuta
 synchronizing only viewport dimensions to the effective component size. Each layer supplies its
 current immutable feature snapshot for a paint pass; G1 does not deep-snapshot an arbitrary `Layer`
 implementation. A paint pass creates and disposes a child `Graphics2D`, then traverses layers and
-features in order. G1 preserves the direct geometry dispatch already in the component; explicit
+features in order. Because a bare custom `JComponent` has no UI delegate that is guaranteed to clear
+its pixels, an opaque `MapView` first fills its full current bounds with its configured background on
+every paint. G1 preserves the direct geometry dispatch already in the component; explicit
 symbol-renderer registration replaces it in G2.
 
 The baseline renderer has these observable semantics:
@@ -119,6 +121,17 @@ on the Swing event-dispatch thread. A caller already on that thread executes it 
 caller marshals it synchronously and rethrows the original failure on the calling thread. The JVM test
 therefore verifies the same EDT-safe entrypoint used by the Native Image executable.
 
+The Native Image convention explicitly selects an executable rather than relying on the build-tool
+plugin's shared-library value. The Java 21 AWT native libraries use JNI and one reflective rendering
+engine internally, so the support application checks in the minimal `jni-config.json` and
+`reflect-config.json` captured from this exact blank-label offscreen scenario. The configuration was
+generated with the Java 21 tracing agent, reviewed to contain only JDK/AWT internals plus the inherited
+`MapView.coalesceEvents` hook, and proved by running the image; no resource/service metadata, proxy,
+serialization, production reflection call, or metadata-repository fallback is introduced. This is
+support-module configuration for JDK implementation reachability, not an application discovery API.
+Changing the JDK baseline or broadening the smoke requires recapturing and reviewing this bounded
+metadata rather than accepting an unreviewed agent directory.
+
 The native lane remains separate from `qualityGate`. Its absence is reported as unavailable rather
 than treated as JVM success; when the G1 implementation task is accepted, the named HITL checkpoint
 requires a maintainer with GraalVM to record the native command result.
@@ -135,7 +148,10 @@ assembles the Level 1 release lane.
 
 G1 adds verification depth, not a second map model. The packed geometry values, immutable viewport,
 single AWT component, in-memory layer, and real native render remain the smallest end-to-end slice.
-The maintainer checkpoint is explicitly: run the basic viewer on a desktop and confirm point, line,
-polygon, fit, primary-drag pan, cursor-centered wheel zoom, and live pointer coordinates, then record
-the available Native Image result. Symbols, generalized tools, hit testing, and source lifecycles stay
-out of this gate.
+Gate closeout found and fixed only three cross-cutting defects: identity-based listener removal,
+consistent zero-width line suppression, and deterministic background clearing. It also made the
+existing native executable/metadata assumptions explicit rather than adding a second renderer or
+smoke application. The desktop checkpoint confirmed point, line, polygon, fit, primary-drag pan,
+cursor-centered wheel zoom, and live pointer coordinates; the Linux Java 21 image executed the same
+offscreen scenario. Symbols, generalized tools, hit testing, and source lifecycles stay out of this
+gate.
