@@ -1938,3 +1938,211 @@ Temporary 4326 and 3857 fixtures prove fit/render through registered direct oper
 override, conflict rejection, retained unknown inspection, and normal G4 missing/unknown attachment
 diagnostics. G5-007 validation runs the focused format/core/viewer checks, normal gate, and whitespace;
 no corpus, native, fuzz, rendering-regression, or performance lane is introduced.
+
+### Bounds, diagnostics, and deterministic fuzzing (G5-008)
+
+#### Hardening boundary
+
+G5-008 closes cross-component safety gaps after every Level 1 shape and sidecar slice exists. It adds
+no format, public API, limit, recovery behavior, production fuzzer, parser layer, or Gradle command.
+The approved G5-001 profile and G5-002 through G5-007 executable stage orders remain normative; this
+task repairs an implementation when evidence disagrees rather than redefining malformed input to make
+a test pass. Valid fixtures keep exactly equal observable metadata, records, warnings, and order.
+
+Production changes are limited to checked arithmetic, prospective accounting/checkpoints, stable
+diagnostic mapping, cleanup, and architecture fixes in the existing same-package shapefile peers.
+Test-only `ShapefileAdversarialFixtures` extends the established byte builders, while test-only
+`ShapefileMutationHarness` invokes only public `Shapefiles.open`, `FeatureSource`, and `FeatureCursor`
+behavior. Neither is shared with production or G5-009's future corpus lane. There is no generic
+binary-reader base, alternate parser, property-test/fuzz dependency, reflection, or generated source.
+
+#### Uniform bounds and failure precedence
+
+One audit enumerates every use of the twelve `ShapefileLimits` fields, each hard format/Java capacity,
+and every G4 query ceiling. Every untrusted signed/unsigned count, word conversion, component/record
+end, offset, part/ring/field span, array length, token capacity, and logical allocation term uses
+prospective checked arithmetic before seek, slice, loop, allocation, or ownership transfer. Overflow
+uses the already approved outcome for that stage and reports requested `Long.MAX_VALUE` when the
+shared limit shape applies; no wraparound value participates in a later diagnostic.
+
+The audit does not introduce one global error-ranking function. These rules compose the earlier task
+orders and are asserted at their boundaries:
+
+1. Public argument/lifecycle checks remain ordinary Java failures. Initial cancellation wins before
+   any probe, I/O, allocation, or format diagnostic.
+2. Component snapshot order and ambiguity precede channel work. SHP remains required; recoverable
+   SHX handling cannot conceal an SHP I/O/format failure.
+3. After opening a component, captured byte-size/hard layout checks precede reading a field. A count
+   is trusted only after its containing prefix is complete and valid; its configured ceiling and Java
+   capacity then precede derived-length reads and allocations.
+4. Within a component, the exact physical/stage order from its owning task chooses among multiple
+   malformed fields. Cross-component outcomes retain SHP, SHX, DBF, CPG, PRJ encounter order.
+5. Cancellation observed at an approved checkpoint retains prior bounded warnings and appends one
+   terminal `SOURCE_CANCELLED`; cleanup never changes it. A custom token exception remains unclassified.
+6. Cleanup continues in reverse ownership order. A known primary format/cancellation failure keeps
+   cleanup throwables suppressed; cleanup failure without another primary uses only
+   `SOURCE_CLOSE_FAILED` or the approved temporary-sidecar close mapping.
+
+Limit fixtures use a minimally valid carrier for `maximum - 1`, `maximum`, and `maximum + 1`; equality
+must succeed when no independent hard constraint is lower. Where a hard format/Java maximum makes a
+configured boundary unreachable, tests pin that earlier hard failure and separately exercise the
+configurable ceiling below it. Coverage includes component/record bytes, physical records, parts,
+points, topology comparisons, DBF fields/width, CPG/PRJ bytes, decoded characters, and parser
+allocation. Allocation cases exercise byte, int, long/double, char/String, reference-slot, map-entry,
+scalar, and decimal charges, including defensive/intermediate copies and filtered/discarded values;
+charges remain cumulative and are never inferred from heap use.
+
+The separate G4 query matrix uses `FeatureSourceLimits`/`FeatureQueryLimits`, not
+`ShapefileLimits`, and covers records examined, records returned, coordinates returned, attribute
+values returned, decoded text characters returned, conservatively owned payload bytes, and retained
+warnings at one below/equal/one above. The warning boundary asserts the exact retained prefix and
+`omittedWarningCount`. Fixtures distinguish format `decodedTextCharacters` spent while parsing from
+G4 returned decoded-text/payload accounting, even when both reject the same selected DBF value.
+
+#### Exact hostile fixture matrix
+
+Targeted fixtures, not mutation-family assertions, are the oracle for exact code, severity, encounter
+order, location, context, warning omission, and terminal precedence:
+
+| Area | Required hostile cases |
+| --- | --- |
+| Component transaction | required-missing SHP; lower/upper sidecar ambiguity and identity failure through the existing injectable filesystem seam on every host, plus real distinct-file evidence where supported; open/size/read/temporary-close faults at each acquisition stage; reverse partial cleanup |
+| SHP framing | every fixed-header boundary; negative/swapped/truncated word lengths; record-header truncation; ordinal mismatch; exact/short/overlong record payload; appended data; targeted same-size mutation of a later validated field without claiming general snapshot detection |
+| SHP geometry | every supported/unsupported/mismatched code; non-finite/signed-zero/bounds cases; hostile point/part/ring counts; truncated coordinates; invalid multipart tables; degenerate line/ring; polygon contact/orphan/equal-innermost and topology ceiling |
+| SHX | captured size/header/endian/entry overflow; decreasing, duplicate, gapped, overlapping, out-of-file addresses; SHP length/count mismatch; SHX versus SHP I/O classification; whole-index fallback only |
+| DBF | all header/status versions; unsigned count/length overflow; descriptor/name/width/decimal/row-sum errors; terminator/suffix/truncated row; marker and count mismatch; every invalid selected scalar and unsupported-field warning |
+| CPG | byte limit; empty/unknown/multiple tokens; BOM truncation; non-ASCII; all alias/LDID/override conflict branches and undefined single-byte values |
+| PRJ | byte/character/token/depth ceilings; BOM; representative valid 2/3/4-byte scalars cut at every continuation boundary; isolated/bad continuations, illegal leads, overlong forms, surrogate encodings, and values above U+10FFFF; invalid token/grammar/EOF; valid unknown/near-match; override equality/conflict; size mutation and temporary close |
+| Cross-sidecar | warning-cap omission and SHX-before-DBF/CPG-before-PRJ order; DBF/SHX count disagreement; null/deleted alignment; earlier recovered warning retained before later terminal error |
+
+For truncation matrices, the builder cuts at every byte of fixed headers/descriptors and immediately
+before/inside/after each variable table or payload class, rather than exhaustively cutting a large
+coordinate body. Endian cases swap one field at a time so the expected first failure remains
+unambiguous. Targeted diagnostics compare exact public fields and never compare message or chained
+cause text.
+
+#### Bounded deterministic mutation harness
+
+The breadth harness uses five committed 64-bit seeds, one per component family:
+
+```text
+SHP 0x5348502D47353038    SHX 0x5348582D47353038
+DBF 0x4442462D47353038    CPG 0x4350472D47353038
+PRJ 0x50524A2D47353038
+```
+
+One local `java.util.Random(seed)` instance, whose algorithm is specified by the JDK contract, is
+constructed explicitly per seed. No default/global random source, time, process state, filesystem
+order, locale, or parallel execution affects case creation. Catalogs are fixed `List.of`/primitive
+arrays and enum declaration order; selection never iterates a map, set, directory, or provider list.
+
+Case indexes are local to the printed family token. Every family uses indexes `0..31` for 32 mutation
+cases. SHP uses `32..51` for 20 generated combinations; SHX, DBF, CPG, and PRJ each use `32..50` for
+19. This is exactly 256 logical cases. Each case is executed twice in fresh directories from the same
+replay descriptor, for 512 parser runs.
+Each dataset has at most five components, 65,536 aggregate encoded bytes, 64 records/parts/fields,
+4,096 points/decoded characters, 20,000 topology comparisons, and 1 MiB parser allocation under
+explicit tighter options. One non-parameterized harness test method owns all 512 runs and has one
+JUnit 5 aggregate deadline:
+`@Timeout(value = 60, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)`.
+There is no per-case or per-seed timeout multiplier. Timeout fails the test process path; it never becomes a source
+diagnostic or performance claim. The fixed case/work ceilings are the primary runtime bound.
+
+Mutation operators are a finite enum: single/multiple bit flip; overwrite a selected byte, endian
+word, integer, or double with zero/ones/min/max/non-finite constants; reverse one endian field;
+truncate at a selected structural/data position; append bounded bytes; replace a trusted length/count/
+offset; delete an optional sidecar; select its approved lower- or upper-case spelling; and cross-wire
+one SHX/DBF from a second valid baseline. Generated combinations choose from finite valid shape/component templates
+and those same field/operator catalogs. They do not synthesize bytes by reimplementing parser grammar.
+
+A replay descriptor contains only family token, its committed seed, local zero-based case index,
+baseline ID, component token, operator,
+up to two offsets, and fixed scalar operands. It is printed in a bounded assertion message and a
+test-only `replay(String family, int caseIndex)` entry reconstructs exactly one case and rejects an
+unknown family or out-of-range index. Family seed plus local case index is the authoritative recipe:
+replay advances a fresh specified `Random` through the same declaration-ordered preceding choices,
+then verifies the descriptor's summary fields before execution. There is no automatic shrinker or
+failed-byte artifact. A discovered defect is manually reduced, reviewed, and committed as a named
+targeted fixture before the code fix; the breadth case remains as additional evidence.
+
+#### Public outcome oracle and lifecycle evidence
+
+Each breadth case runs the full public opening/query path with fixed source identity, its generated
+open-options choice, source bounds absent, `AttributeSelection.ALL`, no tighter query limits, and
+`CancellationToken.none()` for both open and cursor. A normalized outcome is phase-structured:
+
+- opening success stores metadata plus the opening report's ordered entries and omitted count;
+- opening failure stores only the opening `SourceException` report entries and its omitted count;
+- cursor success/failure stores yielded IDs/geometries/ordered attributes plus the final cursor or
+  cursor-exception report entries and its separate omitted count; and
+- targeted cleanup cases alone may store a close-exception report and its separate omitted count.
+
+Mutually exclusive phases remain distinct; their diagnostic entries are never concatenated into one
+report or one omitted count. Normalization excludes message, stack, exception class/cause text,
+temporary path, and timing. The two executions must be equal.
+
+The only accepted outcomes are:
+
+- complete success whose immutable values satisfy schema, finite geometry, stable unique IDs/source
+  order, configured limits, and clean exhaustion;
+- success with only an approved recoverable warning/fallback and otherwise the same invariants; or
+- `SourceException` with one approved terminal code last after bounded warnings and deterministic
+  cleanup.
+
+The test-only allowlist uses full string equality and pins severity. The only `WARNING` codes are:
+
+```text
+SHAPEFILE_SHX_MISSING                 SHAPEFILE_SHX_IGNORED
+SHAPEFILE_DBF_MISSING                 SHAPEFILE_DBF_FIELD_UNSUPPORTED
+SHAPEFILE_DBF_VALUE_INVALID           SHAPEFILE_CPG_WITHOUT_DBF
+SHAPEFILE_CPG_INVALID                 SHAPEFILE_ENCODING_CONFLICT
+SHAPEFILE_ENCODING_FALLBACK           SHAPEFILE_PRJ_BLANK
+SHAPEFILE_PRJ_CRS_UNRECOGNIZED        SHAPEFILE_PRJ_OVERRIDE_USED
+```
+
+The only terminal `ERROR` codes are:
+
+```text
+SHAPEFILE_COMPONENT_MISSING           SHAPEFILE_COMPONENT_AMBIGUOUS
+SHAPEFILE_IO_FAILED                   SHAPEFILE_HEADER_INVALID
+SHAPEFILE_FILE_LENGTH_MISMATCH        SHAPEFILE_SHAPE_TYPE_UNSUPPORTED
+SHAPEFILE_RECORD_NUMBER_INVALID       SHAPEFILE_RECORD_LENGTH_INVALID
+SHAPEFILE_RECORD_TYPE_MISMATCH        SHAPEFILE_COORDINATE_NON_FINITE
+SHAPEFILE_BOUNDS_MISMATCH             SHAPEFILE_PART_TABLE_INVALID
+SHAPEFILE_RING_INVALID                SHAPEFILE_RING_TOPOLOGY_AMBIGUOUS
+SHAPEFILE_DBF_HEADER_INVALID          SHAPEFILE_DBF_FIELD_INVALID
+SHAPEFILE_DBF_RECORD_MARKER_INVALID   SHAPEFILE_DBF_RECORD_COUNT_MISMATCH
+SHAPEFILE_PRJ_INVALID                 SHAPEFILE_CRS_CONFLICT
+SOURCE_LIMIT_EXCEEDED                 SOURCE_CANCELLED
+SOURCE_CLOSE_FAILED                   CRS_RETAINED_DEFINITION_TOO_LONG
+```
+
+Every other `SOURCE_*`, `CRS_*`, or format code is rejected; there is no prefix match. The breadth
+catalog has a named input/options case for every listed warning and may accept those warnings. Its
+terminal subset is the table above **except** `SHAPEFILE_COMPONENT_MISSING`,
+`SHAPEFILE_COMPONENT_AMBIGUOUS`, `SHAPEFILE_IO_FAILED`, `SOURCE_CANCELLED`, and
+`SOURCE_CLOSE_FAILED`, plus `CRS_RETAINED_DEFINITION_TOO_LONG`; occurrence of any excluded code in
+ordinary fresh-file breadth work is a test failure. Those six codes are accepted only by,
+respectively, the named required-SHP, filesystem-seam ambiguity, injected-I/O,
+scheduled-cancellation, injected-cleanup, and PRJ 16,385th-character boundary targeted fixtures, each
+of which asserts its exact phase report rather than using the breadth oracle.
+
+The completed gate specifically rejects staging-only `SHAPEFILE_PROFILE_NOT_IMPLEMENTED`. Any other
+`RuntimeException`, hang, nondeterministic normalized outcome, or contract violation fails
+with the replay descriptor. The harness does not catch or relabel `Error`; `OutOfMemoryError`,
+`StackOverflowError`, and other fatal failures therefore fail normally. It does not accept a broad
+diagnostic family as a substitute for targeted exact fixtures: a mutation may end only at a
+condition-reachable breadth code, and its repeated result must be identical.
+
+Every run uses try/finally ownership, closes an early/live cursor and returned source, then immediately
+deletes its temporary files. Targeted tests separately prove failure/cancellation cursor-slot release,
+fresh-cursor repetition/reuse, source close with an abandoned cursor, temporary-sidecar close, and
+primary/suppressed ordering through the JDK seam. After each seed group, a fresh clean sentinel source
+with default registry, encoding, limits, and options must return its exact baseline outcome, proving
+that hostile input leaves no mutable global state.
+
+Architecture checks continue deriving the format's JDK-only, AWT-free, native-targeted prohibition
+set and additionally ensure mutation/fixture helpers occur only in test output. G5-008 validation is
+only `:modules:mundane-map-io-shapefile:check`, `qualityGate`, and `git diff --check` as listed in the
+task. It neither creates nor invokes `shapefileCorpus`, native, rendering-regression, or performance
+lanes.

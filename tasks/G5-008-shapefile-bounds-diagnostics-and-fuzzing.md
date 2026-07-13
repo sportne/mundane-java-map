@@ -19,6 +19,7 @@ parser gaps before real-world corpus and Native Image validation.
 
 - Shared limits, checked arithmetic, and diagnostic mapping in `mundane-map-io-shapefile`
 - Adversarial hand-built fixtures and deterministic mutation/generation tests
+- Test-only fixed-seed mutation support that invokes the public `Shapefiles` opener
 - Architecture checks for prohibited parser/runtime mechanisms
 
 ## Out of scope
@@ -29,9 +30,10 @@ parser gaps before real-world corpus and Native Image validation.
 
 ## Acceptance criteria
 
-- One immutable limits value controls file bytes, records, record bytes, parts, points, polygon
-  topology comparisons, fields, field widths, sidecar text, decoded text, and aggregate allocation
-  with the approved defaults/logical charge table.
+- The format-local immutable `ShapefileLimits` controls file bytes, physical records, record bytes,
+  parts, points, polygon topology comparisons, fields, field widths, sidecar text, decoded DBF text,
+  and parser allocation with the approved defaults/logical charge table. The separate immutable G4
+  `FeatureSourceLimits`/`FeatureQueryLimits` continue to control public query work and payload.
 - Every untrusted count, offset, length, multiplication, and addition is range-checked before seeking,
   slicing, or allocating.
 - SHP, SHX, DBF, CPG, and PRJ failures map to stable structured codes with source, sidecar, record,
@@ -42,6 +44,15 @@ parser gaps before real-world corpus and Native Image validation.
   exceptions.
 - Deterministic fuzz tests use committed seeds, fixed iteration/work limits, reproducible failure
   output, and exercise both generated records and mutations of valid hand-built fixtures.
+- Breadth cases use an absent source envelope, `ALL` attributes, no tighter query limits, and
+  `CancellationToken.none()`; injected I/O, cancellation, cleanup, required-file, and ambiguity
+  failures are accepted only in their named targeted fixtures.
+- Targeted fixtures assert exact diagnostics and precedence; mutation cases assert a repeatable public
+  success/warning/known-terminal outcome and fail on every other runtime exception. Fatal VM errors
+  are never caught or relabeled.
+- The mutation harness has no production API, external fuzzing dependency, automatic shrinker,
+  unbounded random input, or new Gradle lane. It records a bounded replay descriptor; any durable
+  regression is manually minimized into a committed targeted fixture.
 - A failure in one opened source cannot alter registry, charset, limit, or diagnostic behavior for a
   later source.
 - Valid fixtures from earlier tasks retain identical observable features and diagnostics.
@@ -50,11 +61,19 @@ parser gaps before real-world corpus and Native Image validation.
 
 - Parameterized boundary tests at limit-1, limit, and limit+1 for every configured maximum, including
   topology work and each logical allocation category.
+- Separate G4 boundary tests cover records examined/returned, returned coordinates/attribute values/
+  decoded text/payload bytes, and retained-warning omission at one below/equal/one above.
 - Targeted hostile fixtures for truncation at structural boundaries, endian swaps, offset/count
   overflow, huge declarations, invalid encodings, inconsistent sidecars, and malformed multipart
   tables.
-- Fixed-seed fuzz tests with an assertion that outcomes are success or a known diagnostic family.
+- Fixed-seed fuzz tests accept success or a code from the exact documented G5 warning/terminal set,
+  never a prefix/family match, and require the complete normalized outcome to repeat exactly.
+- Repeat each generated case from its replay descriptor and compare normalized metadata, features,
+  warning/error codes, locations, contexts, and separate omitted-warning counts for opening, cursor,
+  and optional close reports; message/cause text is excluded.
 - File-handle/lifecycle tests after success, parser rejection, cancellation, and cursor abandonment.
+- Architecture/source checks retain the JDK-only, AWT-free, no-reflection/scanning/serialization/JNI/
+  `Unsafe`/internal-JDK/memory-mapping boundary and reject production fuzz helpers.
 
 ## Validation
 
@@ -66,5 +85,7 @@ git diff --check
 
 ## Notes
 
-Keep fuzzing deterministic and short enough for the normal JVM gate. Store only minimal reproducer
-bytes. Never catch fatal VM errors to disguise an unchecked allocation.
+Keep fuzzing deterministic and short enough for the normal JVM gate. Commit only manually minimized
+reproducer bytes for a durable regression. Never catch fatal VM errors to disguise an unchecked
+allocation. Do not add or invoke
+`shapefileCorpus`; G5-009 owns that separate command and real-world corpus lane.
