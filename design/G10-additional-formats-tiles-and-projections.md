@@ -1159,39 +1159,63 @@ ends provide working behavior. Architecture tests allowlist only the concrete ed
 family those are `geopackage-xerial -> image` and `mbtiles-xerial -> image`; reverse edges, cycles,
 transitive toolkit leakage, and an open-ended I/O dependency category remain forbidden.
 
-On 2026-07-13 the approved resolvable dependency is `org.xerial:sqlite-jdbc:3.53.0.0`, the latest
-split release present in Maven Central. The exact artifacts are:
+On 2026-07-13 the approved resolvable dependency is `org.xerial:sqlite-jdbc:3.53.2.0`, released on
+2026-06-04 and present as the current split release in Maven Central. The exact artifacts, independently
+downloaded and hashed during G11-004 design review, are:
 
 | Artifact | SHA-256 | Use |
 | --- | --- | --- |
-| `sqlite-jdbc-3.53.0.0-without-natives.jar` | `8098b34191dd832a112934e12087e0d430b7e9ae93aee7c155e06f82866b1b2b` | Private JDBC implementation classes |
-| `sqlite-jdbc-3.53.0.0-natives-linux.jar` | `b56611404e866e2fc9bf5b5b7d731d650205a275e6bb4b035e03d5f28b89ddd1` | Upstream Linux SQLite JNI binaries |
-| `sqlite-jdbc-3.53.0.0.pom` | `7c897bfb3502e81d2ec7ed02c0221789805addb1bdce9641e513bf7b61730b7b` | Dependency and license provenance |
+| `sqlite-jdbc-3.53.2.0-without-natives.jar` | `ccfd2bc6b289be6ed599b92c6036610cb73fe64c43ffd7b54f46b6e412afc34d` | Private JDBC implementation classes |
+| `sqlite-jdbc-3.53.2.0-natives-linux.jar` | `1c25f9fa2c0cb8e0af6eba32121fa71823c9ebcc9ba83024b1955e11e43e99f5` | Upstream Linux SQLite JNI binaries |
+| `sqlite-jdbc-3.53.2.0.pom` | `63858f3bb9c9161cc41f848b9df59a58d5811b4a13b0663470b7aae655466c5e` | Dependency and license provenance |
 
-The ordinary all-platform JAR, SHA-256
-`303e8150100982f2ed7d1b82d897278ef7744bd494c28ad4e7042b7914591697`, is rejected. The Linux
+The ordinary `3.53.2.0` all-platform JAR, SHA-256
+`dc320e4102884c135ccc30c3c6fc3fb190b750e1586a100e3aba3be783cf33a9`, is rejected. The Linux
 classifier still contains upstream binaries for several Linux architectures and libc variants because
-Xerial publishes no narrower classifier; the first supported and tested runtime is Java 21 on Linux
-x86-64 with glibc only. The unused classifier entries are inventoried, not repackaged into a MundaneJ
-JAR, and do not widen the support claim. macOS, Windows, musl, other architectures, Android, a system-
-SQLite mode, and caller-supplied native libraries require separate packaging and evidence decisions.
+Xerial publishes no narrower classifier. A private platform preflight runs before connection/native
+initialization: `os.name` must be exactly `Linux`, `os.arch` must be `amd64` or `x86_64`, and Xerial's
+`OSInfo.isMusl()` must be false; every other result is `SQLITE_ADAPTER_UNAVAILABLE` with
+`reason=unsupportedPlatform`. The first support claim is a Java 21 JVM on that x86-64 Linux path with
+glibc 2.35 or newer. Pinned Ubuntu 22.04/glibc 2.35 is the minimum evidence lane and Ubuntu
+24.04/glibc 2.39 is the second lane; each records the exact image, JDK, kernel, and `getconf` result.
+The pinned glibc native's symbol table requires at most `GLIBC_2.3`, but that is artifact inventory,
+not a project support claim; glibc below 2.35 remains unverified. The unused classifier entries are
+inventoried, not repackaged into a MundaneJ JAR, and do not widen support. macOS, Windows, musl, other
+architectures, Android, a system-SQLite mode, and caller-supplied native libraries require separate
+packaging and evidence decisions.
 
-The implementation task must recheck Maven Central presence, release signatures, current security
-advisories, the exact resolved runtime graph, and all checksums without silently changing versions.
+The [upstream release](https://github.com/xerial/sqlite-jdbc/releases/tag/3.53.2.0) and
+[Maven Central directory](https://repo.maven.apache.org/maven2/org/xerial/sqlite-jdbc/3.53.2.0/)
+are the recorded provenance. The implementation task must recheck Maven Central presence, release
+signatures, current security advisories, the exact resolved runtime graph, and all checksums without
+silently changing versions; a version change amends this decision first.
 It records Xerial's Apache-2.0 terms, the retained Zentus BSD notice, SQLite's public-domain status,
 any bundled notice obligations, and the pinned SQLite compile options required by GeoPackage 1.4
 Requirement 9. No version range, rich latest selector, local Maven fallback, or unverified GitHub-
 release binary is accepted.
 
 The code classifier physically contains `META-INF/services/java.sql.Driver`, Native Image feature
-metadata, dormant resource/URL loading paths, JNI declarations, native extraction, and process-global
-loader state. Project bytecode does not use any discovery path: it constructs the pinned
-`org.sqlite.jdbc4.JDBC4Connection` directly with private fixed properties. The external loader still
-extracts and loads its selected JNI library and therefore needs a writable temporary directory. That
-bounded third-party mechanism is accepted only inside these Optional adapters under G0's recorded
-external-artifact qualification. The service descriptor and Native Image metadata are not copied into
-a MundaneJ artifact or explicit native configuration, and no project code calls `DriverManager`,
-`ServiceLoader`, `SQLiteDataSource`, `Class.forName`, reflection, resource lookup, or native loading.
+metadata, resource/URL loading, JNI declarations, native extraction, and process-global loader state.
+Direct connection startup also initializes Xerial `LoggerFactory`, whose third-party bytecode calls
+`Class.forName("org.slf4j.Logger")`; the exact resolved graph deliberately omits SLF4J, so the caught
+absence selects Xerial's JDK logger in every supported test/consumer. Xerial `OSInfo.isMusl()` lists
+`/proc/self/map_files` and may read `/etc/os-release`; the external loader's OS translation also runs
+`uname -o` and tests `/system/lib/libGLESv1_CM.so` and `/system/lib64/libGLESv1_CM.so` before selecting
+the ordinary Linux branch. These
+reflection, host-file, resource, JNI, load, and dormant process mechanisms are explicit
+external-artifact exceptions, not undiscovered project behavior.
+
+Project bytecode constructs pinned `org.sqlite.jdbc4.JDBC4Connection` directly with private fixed
+properties and does not call `DriverManager`, `ServiceLoader`, `SQLiteDataSource`, `Class.forName`,
+reflection, resource lookup, process execution, or native loading. The external loader extracts and
+loads its selected JNI library and therefore needs a writable temporary directory. These bounded
+third-party mechanisms are accepted only inside the Optional adapters under G0 qualification. The
+service descriptor and Native Image metadata are not copied into a MundaneJ artifact or explicit
+native configuration. External-artifact verification scans the exact descriptor/resource tree,
+native entries, symbolic calls/strings for reflection, fixed host paths, process execution, URL/
+resource access, temporary properties, and load APIs; the supported-path test expects the fixed probes
+above and no other process/file target. Any addition or changed control-path inventory
+requires design review rather than an allow-all dependency exemption.
 
 These adapters are JVM-only and have Native Image policy `not-targeted`. Xerial's own reachability
 metadata is not a project compatibility claim. Neither adapter enters the shared native executable,
@@ -1607,17 +1631,25 @@ types, attributes, both recognized and retained-unknown CRSs, sparse PNG/JPEG ti
 math, MBTiles TMS conversion, tolerant rendering, exact/one-over limits, malformed schemas/geometry/
 images, corrupt/truncated databases, URI/path/sidecar canaries, mutation, cancellation through the
 progress handler, lifecycle/cleanup, cache rollback/LRU, and deterministic diagnostics. Architecture
-tests prove external-type isolation, direct construction, exact classifier graph, no AWT, the two
-I/O-codec allowlist edges, and absence of project discovery/native-loading calls.
+tests prove external-type isolation, direct construction, the exact classifier graph with no SLF4J,
+no AWT, the two I/O-codec allowlist edges, absence of project discovery/native-loading calls, and the
+closed third-party reflection/host/resource/process/JNI inventory above.
 
 Each created module joins publication staging and the standalone consumer with its exact classified
-runtime dependencies, artifact/license/checksum verification, and a Java 21 Linux x86-64/glibc JVM
-scenario. The project repository contains only MundaneJ artifacts; G8's post-Level-1 Optional-adapter
+runtime dependencies, artifact/license/checksum verification, and the pinned Java 21 Ubuntu
+22.04/glibc 2.35 and Ubuntu 24.04/glibc 2.39 JVM scenarios. The project repository contains only
+MundaneJ artifacts; G8's post-Level-1 Optional-adapter
 rule constructs a separate exact build-only mirror containing the approved Xerial POM, code classifier,
 and Linux classifier. A fresh offline consumer resolves both adapter artifacts and exactly those two
 classified runtime artifacts, rejects the ordinary/all-platform JAR and every other component, and
-opens one staged fixture. Normal Ubuntu CI must run the real read/query/render tests; unsupported-
-platform tests prove the stable unavailable diagnostic without loading JNI. No Native Image, new
+opens one staged fixture. The two pinned Ubuntu jobs run real read/query/render tests; a pinned
+Alpine/musl negative job and non-Linux/non-x86 fresh JVMs prove `unsupportedPlatform` before loading
+JNI. Because Xerial's loader state is process-global, each deployment negative uses a separate JVM:
+property-controlled non-Linux/non-x86, pinned Alpine for musl, code-classifier-only for `nativeLoad`,
+and the exact graph with `org.sqlite.tmpdir` pointing to a controlled non-directory/unwritable fixture
+for `temporaryDirectory`. A subsequent success runs in another clean JVM with the exact graph and a
+writable private temporary directory. These are test-only process/classpath controls, not a production
+loader seam or supported incomplete dependency graph. No Native Image, new
 corpus command, public network, benchmark threshold, or Level 1 release record is changed.
 
 After G10-004, create one shared working prerequisite; after the global G11-004 adapter approval,
@@ -1637,9 +1669,10 @@ create five SQLite-format cards:
 6. `G10-044` — close MBTiles limits/diagnostics/cancellation/cache/mutation/corrupt-database cases,
    add independent fixtures, and record the exact Linux JVM support evidence for both adapters.
 
-G10-039 is a prerequisite of G10-042, G10-043, and G10-060. G10-041 follows G10-040; G10-042 follows
-both G10-041 and G10-039. G10-043 follows G10-039 plus G11-004, and G10-044 waits for both tile-format
-branches. The format branches are logically independent after the shared decoder, but dependency
+The exact graph is: G10-039 follows G10-004; G10-040 follows both G10-004 and G11-004; G10-041 follows
+G10-040; G10-042 follows G10-041 and G10-039; G10-043 follows G10-039 and G11-004; and G10-044 follows
+G10-042 and G10-043. G10-039 is also a prerequisite of G10-060. The format branches are logically
+independent after the shared decoder, but dependency
 verification, settings/inventory, publication, consumer, task-index, and roadmap changes remain under
 one integration owner. No module is created by the profile decision or shared helper card.
 

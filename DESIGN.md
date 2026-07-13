@@ -59,7 +59,7 @@ design task; there are no empty speculative design files.
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-007 and holistic closeout approved |
-| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 approved |
+| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-004 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -140,6 +140,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-13 | Model editing as bounded immutable-record replacement in one application-owned session. | Atomic revisions, delta history, same-CRS snapping, and an explicit AWT binding add point editing without mutable geometry, source write-back, topology machinery, or a generic command framework. |
 | 2026-07-13 | Select symbols with closed binding-owned selectors and place singular-point labels in one bounded global pass. | Exact scalar matching, projected attribute queries, AWT-only metrics, toolkit-neutral placement, and greedy operation-local collision handling add useful cartography without an expression, font, hit, or cache framework. |
 | 2026-07-13 | Persist only portable local map configuration in one strict XML v1 workspace. | Canonical bytes, guarded relative paths, application-owned source/catalog registries, and atomic replacement reopen a useful Level 1 map without coupling the workspace module to format adapters or serializing runtime state, secrets, format data, or arbitrary objects. |
+| 2026-07-13 | Accept only the two evidenced Xerial SQLite format adapters and defer JTS, PROJ, and GDAL. | Exact classifiers, private JDBC/native boundaries, and a Linux JVM-only claim serve concrete GeoPackage/MBTiles profiles; the other libraries have no demonstrated gap and therefore create no speculative framework, dependency, module, or task. |
 
 ## Task design traceability
 
@@ -208,3 +209,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G11-001 | Immutable edit commands/snapshots, atomic revisions, bounded delta history, same-CRS vertex/segment snapping, point-first AWT integration, and four later slices | Approved |
 | G11-002 | Closed fixed/categorical/graduated portrayals, exact query/interaction behavior, bounded singular-point labels, toolkit-neutral placement, and five later slices | Approved |
 | G11-003 | AWT-free XML v1 model, portable field exclusions, guarded local paths, application openers/session ownership, atomic writer, and five later slices | Approved |
+| G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Approved |

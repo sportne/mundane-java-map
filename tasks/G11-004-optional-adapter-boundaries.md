@@ -7,47 +7,53 @@ Type: HITL
 
 ## Goal
 
-Decide whether and how JTS, PROJ, SQLite, and GDAL integrations can exist as isolated optional adapters
-without weakening the core API, Level 1 runtime, or Native Image architecture.
+Approve exactly two Xerial-backed SQLite format adapters and record evidence-based `DEFER` decisions
+for JTS, PROJ, and GDAL without weakening Level 1 or reserving speculative integration surfaces.
 
 ## Context
 
-G10-003 selects a strict pure-Java GeoTIFF profile and defers GDAL, G10-004 approves bounded
-SQLite-backed formats, G10-007 evaluates projection needs, and G11-001 establishes the editing model
-that could demonstrate a geometry-engine need. Optional geometry and native integrations may reduce
-later complexity, but their dependencies, deployment, licenses, and type systems must remain outside
-`mundane-map-api`.
+G10-003's bounded JDK-only GeoTIFF profile demonstrates no GDAL gap; G10-004 provides two complete
+SQLite container profiles; G10-007 records no PROJ-requiring CRS; and G11-001's point-first editing and
+same-CRS snapping demonstrate no current JTS need. The authoritative disposition is in
+`design/G11-editing-styling-persistence-adapters-export.md`; G10 retains the concrete format details.
 
 ## Scope
 
-For each candidate, record the demonstrated use case, capability boundary, module name, dependency and
-license policy, conversion ownership, explicit registry/factory, error/diagnostic translation,
-resource lifecycle, supported platforms, version policy, and Native Image expectation. Decide accept,
-defer, or reject independently and create separate evidence/implementation tasks only for accepted
-adapters.
+Define `ACCEPT|DEFER|REJECT`; record the four dispositions and exact reopen evidence; qualify the two
+existing Xerial module boundaries, external-JNI exception, public-type isolation, direct construction,
+dependency/classifier/checksum pin, licensing/notices, lifecycle/diagnostics, Linux JVM support,
+Native Image policy, publication/consumer evidence, and corrected G10-039 through G10-044 graph.
 
 ## Out of scope
 
-Production adapter modules, mandatory external dependencies, public APIs exposing external types,
-automatic classpath/plugin discovery, bundled native binaries without a packaging decision, and a
-custom native performance library without benchmark evidence and a separate approval.
+Production code/modules/tasks; a generic adapter/SQLite/native-loader API; JTS, PROJ, or GDAL module
+names/dependencies/cards; external types in public contracts; project-owned/repacked native binaries;
+discovery; new platform/Native Image claims; and native performance work without benchmarks and a
+separate decision.
 
 ## Acceptance criteria
 
-- A maintainer records an independent accept/defer/reject decision for JTS, PROJ, SQLite, and GDAL
-  based on a concrete capability rather than general convenience.
-- Accepted adapters depend inward on format-neutral contracts; conversion types and third-party
-  exceptions never leak into `mundane-map-api`.
-- Registration is explicit, diagnostics are translated to stable library codes, and ownership/cleanup
-  is documented.
-- Native/library packaging, licensing, platform support, security updates, and Native Image limitations
-  are explicit before implementation tasks are approved.
-- Each accepted adapter receives a working vertical-slice task; deferred adapters create no module.
+- **G11 optional-adapter disposition approval** records SQLite/Xerial `ACCEPT` and JTS/PROJ/GDAL
+  `DEFER`, with no reserved module or card for a deferred candidate.
+- Acceptance is only `mundane-map-io-geopackage-xerial` and `mundane-map-io-mbtiles-xerial`; no generic
+  SQLite/API type exists, and JDBC/Xerial/native types remain private under architecture checks.
+- The verified `3.53.2.0` code/Linux classifiers, exact runtime graph/checksums, direct private
+  construction, closed third-party reflection/host/resource/JNI inventory, licenses/notices,
+  external-JNI exception, Java 21 Linux x86-64/glibc 2.35 floor, and Native Image `not-targeted`
+  policy are exact.
+- Stable deployment diagnostics, lifecycle/cleanup, publication/classifier mirror, and offline
+  consumer evidence are mapped to G10 working cards; missing dependency identity fails verification,
+  not an application runtime protocol.
+- G10-040 and G10-043 are the accepted working roots after G11-004; the corrected graph contains no
+  duplicate G11 implementation task, while every deferred candidate has a concrete reopen gate.
 
 ## Required tests
 
-No production tests. For accepted adapters, define later boundary/type-leak architecture tests,
-conversion parity, missing-library/version, lifecycle, diagnostic, platform, and Native Image tests.
+No production tests in this design task. Require later exact dependency/signature/checksum and notice
+checks; external-type/prohibited-call architecture tests; Linux JVM format success; stable
+`unsupportedPlatform|nativeLoad|temporaryDirectory` cases in isolated fresh JVMs; third-party
+mechanism inventory; lifecycle/cleanup; publication; and a clean offline consumer. Native Image is
+neither run nor claimed while these adapters are `not-targeted`.
 
 ## Validation
 
@@ -59,5 +65,7 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: the maintainer approves each adapter decision, dependency/license terms, and supported
-platform claim independently. JNI is permitted only inside an approved optional adapter, never Level 1.
+HITL checkpoint: **G11 optional-adapter disposition approval**. The maintainer approves the one
+`ACCEPT`, three `DEFER` outcomes, exact Xerial artifacts/licenses/external-JNI boundary, Java 21 Linux
+x86-64/glibc 2.35+ JVM-only claim, Native Image `not-targeted` policy, reopen evidence, and reused G10
+graph. Project code still declares/loads no native library; Level 1 remains JDK-only.

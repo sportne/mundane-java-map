@@ -37,7 +37,7 @@ claims, project-owned/repacked native binaries, and any public API exposing JDBC
 ## Acceptance criteria
 
 - The **G10 SQLite container profile approval** checkpoint records the GeoPackage and MBTiles profile
-  matrices, Xerial artifact/license/JNI decision, and Java 21 Linux x86-64/glibc JVM-only claim.
+  matrices, Xerial artifact/license/JNI decision, and Java 21 Linux x86-64/glibc 2.35+ JVM-only claim.
 - The adapter design uses static format facades returning G4 contracts, direct
   `JDBC4Connection` construction, fixed SQL, immutable local files, bounded VM progress, and stable
   translated diagnostics without leaking external types.
@@ -58,7 +58,8 @@ claims, project-owned/repacked native binaries, and any public API exposing JDBC
 No production tests. Define later generated and independent fixtures for valid tables, all supported
 geometry and tile paths, schema/profile mismatch, corrupt/hostile contents, exact/one-over limits,
 VM cancellation, mutation/sidecars, query/render/cache behavior, resource closure, classified
-dependency isolation, publication consumers, and the supported Linux JVM path.
+dependency isolation and third-party mechanism inventory, fresh-process deployment failures,
+publication consumers, and the pinned Ubuntu 22.04/24.04 Linux JVM paths.
 
 ## Validation
 
@@ -71,5 +72,6 @@ git diff --check
 ## Notes
 
 HITL checkpoint: **G10 SQLite container profile approval**. Approval covers both independent profiles,
-the `3.53.0.0` code-only plus Linux-native Xerial classifiers, licensing/native-extraction tradeoff,
-strict read-only policy, two module boundaries, JVM-only platform wording, and later task graph.
+the verified `3.53.2.0` code-only plus Linux-native Xerial classifiers, licensing/native-extraction
+tradeoff, strict read-only policy, two module boundaries, JVM-only platform wording, and later task
+graph. Any future version change first amends the authoritative G10 design pin and checksums.

@@ -163,7 +163,10 @@ separately decomposed.
   replacement; edit/history, thematic labels,
   data, limits, caches, diagnostics, credentials, remote sources, and later formats remain excluded.
   G11-030 through G11-034 deliver reader, writer, session, viewer, and hardening/native/consumer slices.
-- Optional JTS, PROJ, SQLite, and GDAL adapters whose types do not leak into the API.
+- Approve only the two bounded Xerial-backed GeoPackage/MBTiles Optional adapters, with exact
+  classifiers and a Java 21 Linux x86-64/glibc 2.35+ JVM-only claim. JTS, PROJ, and GDAL remain
+  explicitly deferred until their recorded capability/evidence gates are met; no generic adapter API
+  or empty module is reserved.
 - A bounded deterministic vector map export profile consuming G11-002's placed-label contract.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
