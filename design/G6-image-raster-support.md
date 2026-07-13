@@ -368,3 +368,300 @@ provider abstraction, or background loader is needed for the observable slice. T
 implementation is intentionally simple and bounded; G6-003 may optimize through the already-real
 request context, and G6-004 may add evidence-backed caches without changing the format-neutral source
 contract.
+
+## World-file affine georeferencing (G6-002)
+
+### Placement model and invariants
+
+G6-002 adds one real format-neutral affine placement rather than placing coefficients in
+`RasterRequest`, stretching an affine image to its envelope, or teaching the image format about
+Java2D. API adds two immutable values:
+
+```text
+RasterAffineTransform
+  of(double a, double d, double b, double e, double c, double f)
+  a(), d(), b(), e(), c(), f()
+  gridToMap(double columnCenter, double rowCenter) -> Coordinate
+  mapToGrid(Coordinate mapCoordinate) -> Coordinate
+
+RasterGridPlacement
+  axisAligned(Envelope exactBounds)
+  affine(RasterAffineTransform transform)
+  kind() -> AXIS_ALIGNED | AFFINE
+  axisAlignedBounds() -> Optional<Envelope>
+  affineTransform() -> Optional<RasterAffineTransform>
+```
+
+The world-file equation is exact:
+
+```text
+mapX = A * columnCenter + B * rowCenter + C
+mapY = D * columnCenter + E * rowCenter + F
+```
+
+Integer grid coordinates are pixel centers. Full raster outer corners are
+`(-0.5,-0.5)`, `(width-0.5,-0.5)`, `(width-0.5,height-0.5)`, and
+`(-0.5,height-0.5)`. A window uses the same half-cell convention. `RasterAffineTransform` stores the
+six canonicalized finite coefficients and a private precomputed inverse; equality/hash/toString use
+only the public coefficients.
+
+Construction rejects a zero or unrepresentable linear transform without an arbitrary epsilon. Let
+`scale = max(abs(A),abs(B),abs(D),abs(E))`; it must be positive and finite. Compute the determinant
+from the four coefficients divided by `scale`, then derive inverse coefficients as normalized inverse
+terms divided once more by `scale`. Zero/non-finite normalized determinant, inverse coefficient, or
+inverse translation fails. This avoids overflowing `A*E-B*D` solely because units are large. Forward
+and inverse methods require finite input, use checked `Math.fma` composition, and throw
+`ArithmeticException` if a finite output cannot be represented. Signed zero is canonical positive
+zero.
+
+The final tagged placement stores exactly one payload. `axisAlignedBounds()` is present only for
+`AXIS_ALIGNED`; `affineTransform()` is present only for `AFFINE`. Returned values are immutable and
+the absent accessor never fabricates a default.
+
+`RasterSourceMetadata` retains `mapBounds()` and gains
+`Optional<RasterGridPlacement> gridPlacement()`. Its existing five-argument constructor remains
+source-compatible: an existing present `mapBounds` creates an axis-aligned placement with the same
+exact envelope, while absent bounds creates absent placement. One new factory derives the redundant
+envelope rather than making callers reproduce it:
+
+```text
+RasterSourceMetadata.withPlacement(identity, width, height, placement, crs)
+```
+
+The factory stores the exact axis envelope or derives the affine envelope from the four outer corners
+and dimensions. Unplaced metadata continues through the old absent-bounds constructor. No public path
+accepts both placement and bounds, so callers cannot create contradictory state. For affine placement,
+the represented NW-to-NE and NW-to-SW edge differences must be finite/nonzero and have a nonzero
+scaled determinant after translation; the derived envelope must have strictly positive finite x/y
+spans. This rejects a mathematically invertible transform whose tiny basis collapses after adding a
+large translation. Axis-aligned rasters retain every G4 exact edge
+and ULP outcome; they are not converted to approximate affine coefficients. `mapBounds` remains the
+conservative fit/report envelope, while `gridPlacement` is the painting/window authority. There is no
+public quadrilateral, matrix hierarchy, ground-control-point model, or CRS operation in this value.
+
+### World-file placement request and sidecar snapshot
+
+The working G6-001 `ImagePlacement` gains only implemented variants:
+
+```text
+worldFile()
+worldFile(Optional<CrsMetadata> crs)
+worldFile(CrsMetadata crs)
+```
+
+This is an opener instruction. A world file contains no CRS; absent remains absent, unknown remains
+unknown, and recognized caller metadata is retained exactly. No PRJ/WKT, filename/range guess,
+default EPSG value, or transformation is added. Non-world-file modes do not inspect sidecars.
+
+For the image's exact lexical stem, the finite candidate order is:
+
+```text
+PNG:  .pngw .PNGW .pgw .PGW .wld .WLD
+JPG:  .jpgw .JPGW .jgw .JGW .wld .WLD
+JPEG: .jpegw .JPEGW .jgw .JGW .wld .WLD
+```
+
+Each suffix replaces the image suffix and is resolved as a direct sibling; the opener never lists a
+directory. Mixed-case sidecar suffixes are unsupported. Lower/upper names that the filesystem reports
+as the same file collapse to one candidate. No candidate is `IMAGE_WORLD_FILE_MISSING`; more than one
+distinct file is `IMAGE_WORLD_FILE_AMBIGUOUS`; failure while probing or proving identity is the
+existing `IMAGE_IO_FAILED` with `operation=probe|identity`. There is no priority/fallback among long,
+short, and `.wld` variants, so adding a second file cannot silently change which transform wins.
+
+The primary image open/header/format limits succeed before the requested sidecar is snapshotted. The
+sidecar outcome then precedes decoder lookup. A bad image therefore wins over missing world data, and
+a requested missing/malformed world file wins over a missing decoder. A candidate appearing after the
+finite snapshot is ignored; the selected file is opened through the same package-private file seam,
+read and closed during the opening transaction, and never retained by the source.
+
+The snapshot fixes candidate selection, not a filesystem lock. A replacement completed before the
+selected path is opened is accepted and its successfully read bytes become authoritative. Removal or
+I/O failure before open/read fails without rescan or fallback. The read uses one captured size and one
+returned byte sequence; a concurrent same-size rewrite may therefore yield the old bytes, new bytes,
+or a mixed sequence whose deterministic parse succeeds/fails according to those bytes. Detecting such
+same-size mutation is explicitly unsupported and the size recheck does not claim otherwise.
+
+### Bounded six-line parser
+
+`ImageSourceLimits` adds positive `maximumWorldFileBytes = 4,096` and
+`maximumWorldFileLineBytes = 256`. The selected file's captured size is checked before its sole byte
+array, read exactly to that hard fence, size-rechecked, and closed. Both bounds use the existing
+`imageOpen` prospective limit behavior; equality passes and plus one fails.
+
+The per-line count includes every byte from line start through the last byte before LF, CRLF, or EOF,
+including indentation and trailing SP/TAB. LF and both CR/LF bytes are excluded. The first content
+byte beyond the ceiling is the limit location; a CR after exactly 256 content bytes is instead parsed
+as a terminator and must be followed by LF. Whole-file bytes include all terminators.
+
+The existing six-value G6-001 constructor remains source-compatible and delegates the two new fields
+to those defaults. A new eight-value constructor exposes all limits in established field order;
+accessors, both new withers, value equality/hash/string, `defaults()`, and every existing wither retain
+all eight values. The two world-file ceilings are appended after the existing six constructor
+arguments. No reflective/default-field migration is used.
+
+Input is strict US-ASCII with no BOM. The exact grammar is:
+
+```text
+decimal := [+-]? (digits+ ('.' digits*)? | '.' digits+) ([eE][+-]? digits+)?
+line    := (SP | TAB)* decimal (SP | TAB)* (LF | CRLF | EOF on line six)
+file    := exactly six nonblank lines, with at most one final line ending
+```
+
+Bare CR, blank/extra line, comment, multiple token, hex, locale comma, control/non-ASCII byte,
+`NaN`, `Infinity`, malformed exponent, missing value, and extra trailing content fail. Per-line bytes
+are checked before substring/String construction. After lexical validation, `Double.parseDouble`
+must produce a finite value; signed zero is canonicalized. Physical line order maps exactly to
+`A,D,B,E,C,F`. Raw text and numbers are not retained or emitted in diagnostics.
+
+Cancellation is checked before/after candidate probe, same-file identity, sidecar open/size/
+allocation/read/close, within 4,096 controlled bytes, during transform/corner construction, and before
+metadata/source publication. Cleanup itself never polls. World-file failure closes its temporary
+handle and the still-transaction-owned image channel; the operation failure stays primary and cleanup
+failures are suppressed. A successfully published source holds immutable coefficients, so later
+sidecar mutation/removal has no effect.
+
+### Affine window planning
+
+Core extends `RasterGridWindows` by placement kind. Axis-aligned dispatch remains byte-for-byte the G4
+binary-search behavior. For affine `mapBounds(metadata, window)`, transform the four window outer
+corners `(column-0.5,row-0.5)` through `(column+width-0.5,row+height-0.5)` and return their finite
+envelope.
+
+Affine `visibleWindow` is one fixed-purpose primitive algorithm:
+
+1. intersect the visible display envelope with the stored affine `mapBounds`; empty/line/point contact
+   returns empty before inverse work;
+2. enumerate that intersection exactly as NW `(minX,maxY)`, NE `(maxX,maxY)`, SE `(maxX,minY)`, SW
+   `(minX,minY)` and inverse-transform in that perimeter order into grid-center coordinates;
+   non-finite/unrepresentable inverse arithmetic throws `ArithmeticException` rather than pretending
+   the geometry is empty;
+3. scale the inverse vertices and raster boundaries by one common power of two chosen from their
+   maximum absolute magnitude, then clip that convex parallelogram against the equally scaled form of
+   raster rectangle `[-0.5,width-0.5] x [-0.5,height-0.5]` with a four-edge
+   Sutherland-Hodgman pass using fixed local
+   arrays for at most eight vertices and convex interpolation in the scaled coordinates;
+4. return empty for zero-area, line, or point intersection before integer rounding; and
+5. scale the clipped bounds back (requiring finite values within the raster rectangle) and derive a
+   conservative half-open integer cell range using one
+   `nextDown`/`nextUp` outward step around the half-cell formulas and clamping only the view-derived
+   result to `[0,width] x [0,height]`.
+
+The exact x formulas (and analogously y) are:
+
+```text
+start = clamp(floor(nextDown(clippedMin + 0.5)), 0, width)
+end   = clamp(ceil(nextUp(clippedMax + 0.5)), 0, width)
+```
+
+The common power-of-two normalization avoids overflow without changing line intersections. In those
+scaled coordinates, subtract the first vertex before the fixed shoelace cross sums; the finite
+absolute area must be strictly positive before the integer formulas run. A representable thin
+positive intersection therefore remains positive, while a collapsed floating result is honestly
+empty rather than repaired with an epsilon.
+
+The clip accepts either winding (a negative affine determinant reverses it) but never reorders
+vertices. After each clip edge it removes consecutive exact duplicate vertices and does not retain a
+closing duplicate; fewer than three distinct vertices is empty. Non-finite normalization,
+intersection, rescaling, or shoelace arithmetic throws `ArithmeticException`, never a clean empty
+result.
+
+The outward step may include at most one fringe cell per edge; the component clip removes its paint.
+Direct `RasterSource.read` remains strict and never clips/repairs a caller's window. Checked long index
+math handles large valid dimensions. This is not a public polygon, topology, warp, Java2D `Area`,
+densification, tolerance, or per-pixel inverse scan.
+
+Tests first rerun every G4 axis edge, `nextUp`/`nextDown`, collapsed-cell, touching, and huge-dimension
+oracle unchanged. Affine cases cover full/partial/disjoint/touching views, corner-only and edge-crossing
+overlap, negative coefficients, rotation, shear, thin positive intersections, one-cell rasters,
+conservative fringe bounds, and non-finite inverse/corner/envelope failure.
+
+### True-parallelogram AWT placement
+
+After a successful contained-window read, AWT maps output-image edge coordinates to absolute grid
+center coordinates:
+
+```text
+columnCenter = window.column - 0.5 + imageX * window.width / outputWidth
+rowCenter    = window.row    - 0.5 + imageY * window.height / outputHeight
+```
+
+It then applies `RasterAffineTransform` and the existing display-world-to-screen viewport transform.
+The composed Java2D `AffineTransform` draws the image once on a disposable child using the existing
+nearest/SRC_OVER policy and component clip. Axis-aligned placement retains the exact G4 edge-rectangle
+path. G6-002 MapView output dimensions still equal the selected window dimensions; the general formula
+is real because direct requests already permit another output shape and G6-003 changes view planning.
+
+An affine raster is placed within its declared source/display CRS; it is not reprojected. Recognized
+source and display definitions must still be exactly equal. A different recognized CRS remains
+`CRS_RASTER_WARP_UNSUPPORTED`; missing/unknown metadata retains the existing attachment failures; an
+out-of-domain affine envelope reaches the existing strict CRS envelope diagnostic. Direct source reads
+remain possible without attachable CRS. Fit uses the four-corner affine envelope without reading.
+
+Raster alpha, reports, success/failure/cancellation arbitration, base order, no-hit behavior, combined
+allocation preflight, and owned/borrowed lifecycle remain G4. No affine branch changes decoder
+registration, caches a transformed image, or adds another layer type.
+
+### Diagnostics, viewer, and evidence
+
+World-file diagnostics add only:
+
+| Code | Location/context |
+| --- | --- |
+| `IMAGE_WORLD_FILE_MISSING` | component `worldFile`, empty location/context |
+| `IMAGE_WORLD_FILE_AMBIGUOUS` | component `worldFile`; exact `candidate0..candidateN`, `candidateCount` |
+| `IMAGE_WORLD_FILE_INVALID` | first byte/EOF; `reason`, and assigned `coefficient` when applicable |
+| `IMAGE_WORLD_FILE_TRANSFORM_INVALID` | component `worldFile`, no byte offset; exact `reason` only |
+
+Invalid parser reasons are exactly `empty`, `encoding`, `lineCount`, `number`, `nonFinite`,
+`truncated`, and `sizeChanged`. Exceeding either whole-file or per-line bytes is instead
+`SOURCE_LIMIT_EXCEEDED` with `scope=imageOpen` and `limit=worldFileBytes|worldFileLineBytes`; it never
+also emits `lineLength`. Transform-invalid reasons are exactly `singular`, `inverseNonFinite`,
+`cornerNonFinite`, `envelopeNonFinite`, and `envelopeNonPositive`. Individual lexical/non-finite
+coefficient failures use the assigned line's start/first offending byte and include `coefficient`;
+derived transform reasons never guess a responsible coefficient or byte.
+
+An ambiguity context has decimal `candidateCount` and contiguous `candidate0` through `candidateN-1` in
+distinct-file declaration order. Each value is the first declaration token representing that
+same-file alias group, such as `longLower` or `shortUpper`; at most six candidates fit the global
+context bound. Existing `IMAGE_IO_FAILED` permits component `worldFile` and operation
+`probe|identity|open|size|read|close`. No candidate filename/path, coefficient value, raw line, or
+provider text enters a report. A successful world-file open has no warning.
+
+The example commands are exact:
+
+```text
+raster-viewer <image>
+raster-viewer <image> --world-file EPSG:4326|EPSG:3857
+```
+
+The first retains G6-001 normalized, explicitly non-georeferenced placement. The second requests one
+sidecar and declares the CRS; no automatic fallback occurs. Argument/registry validation precedes
+open. The loader remains off EDT; owned attachment/fit/window/close remain on EDT; the example never
+parses coefficients or branches on PNG versus JPEG.
+
+Tiny checksummed BSD fixtures include north-up PNG, rotated/sheared PNG with distinct alpha cells,
+projected JPEG with large tolerant color regions, and geographic EPSG:4326 within domain. Parser tests
+exercise every candidate/case/same-file/ambiguity outcome; grammar/line/byte/number boundary; finite,
+singular, inverse, corner, envelope, and size-change path; cancellation and primary/suppressed cleanup.
+CRS tests cover missing, unknown, mismatch, exact geographic/projected, and domain rejection.
+
+Offscreen evidence maps known pixel centers through the public affine value and public MapView
+conversion, asserts tolerant 3-by-3 regions (exact PNG, JPEG tolerance 20), proves an envelope point
+outside the transformed parallelogram stays white, contains non-white pixels within the transformed
+outer-corner envelope plus a small antialias allowance, and bounds total paint. Fit and file deletion
+after open/startup/view-close failures are explicit. No whole-image golden is used.
+
+Architecture tests keep affine values/algorithms in API/core `java.base`, keep io-image AWT-free, and
+leave the exact ImageIO qualification solely in the approved AWT decoder. No sidecar discovery,
+directory list, retained handle, cache, thread, new provider behavior, reflection, service descriptor,
+or native metadata is added. G6-005 owns actual native resource/reachability evidence. Focused checks,
+`qualityGate`, and whitespace are the complete G6-002 validation; publication, native, render-
+regression, corpus, and performance lanes do not run.
+
+### G6-002 simplicity check
+
+One tagged placement preserves exact G4 axis semantics and adds the one affine variant required by a
+working world-file slice. One finite sidecar snapshot, six-number parser, invertible transform, fixed
+four-corner clip, and true affine draw are sufficient. Bounds cannot contradict placement; the
+envelope is never mistaken for the parallelogram; CRS is never guessed; and no request, decoder,
+polygon, warp, or persistence framework is introduced.

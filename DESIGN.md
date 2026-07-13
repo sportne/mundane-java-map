@@ -54,7 +54,7 @@ design task; there are no empty speculative design files.
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
 | G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-010 approved |
-| G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 approved |
+| G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-002 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -105,6 +105,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Keep a small licensed shapefile interoperability corpus in a separate offline verification lane. | Checksummed curated artifacts and exact public outcomes add real-tool evidence without weakening unit-test precision, slowing the normal gate, or making builds depend on downloads. |
 | 2026-07-12 | Extend one explicit native smoke with a checksummed corpus-derived shapefile subset and one malformed record. | A literal resource inventory and the real Path/source/AWT stack prove reachability and parity without embedding the corpus, scanning resources, adding native parser code, or making a performance claim. |
 | 2026-07-12 | Decode bounded PNG/JPEG through an explicit toolkit-neutral registry and one AWT ImageIO adapter. | A fixed header profile and source-owned accounting keep the format module AWT-free; application decoder choice remains explicit while G0 narrowly acknowledges the standard JDK ImageIO registry's opaque initialization. |
+| 2026-07-12 | Retain world-file placement as an invertible pixel-center affine transform. | A tagged axis/affine placement preserves exact G4 grid behavior while true parallelogram planning and drawing avoid guessed CRS, envelope stretching, or a general warp model. |
 
 ## Task design traceability
 
@@ -143,3 +144,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G5-009 | Licensed checksummed corpus, exact interoperability oracles, isolated corpus lane, complete viewer observability, and maintainer review | Approved |
 | G5-010 | Explicit native shapefile resources, JVM/native semantic parity, valid query/render and malformed diagnostic paths, lifecycle evidence, and G5 closeout | Approved |
 | G6-001 | Bounded PNG/JPEG profile, source-owned decode reservation, explicit registry/context, narrow ImageIO qualification, lifecycle, viewer, and publication wiring | Approved |
+| G6-002 | Exact sidecar snapshot/grammar, pixel-center affine placement/inverse, conservative window planning, true AWT parallelogram drawing, and viewer evidence | Approved |
