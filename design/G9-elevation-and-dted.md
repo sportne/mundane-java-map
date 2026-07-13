@@ -1325,3 +1325,237 @@ whitespace. Native, corpus, rendering, performance, and publication lanes remain
 interpolation, CRS transformation, datum or unit conversion, slope/aspect, terrain modeling, a typed
 absence reason, alternate no-data policy, source method, cache, query SPI, and format-specific API are
 outside this task.
+
+## Legally redistributable DTED corpus (G9-006)
+
+### Independent producer evidence without downloaded terrain
+
+The corpus proves compatibility with bytes written by an implementation independent of this project;
+it does not attempt to establish rights for downloaded terrain. The initial three cells contain only
+project-authored synthetic elevation values and are emitted by pinned
+[GDAL 3.13.0](https://github.com/OSGeo/gdal/releases/tag/v3.13.0). GDAL's official
+[DTED driver](https://gdal.org/en/stable/drivers/raster/dted.html) supports `CreateCopy` for exact
+Level 0/1/2 cells, and its pinned
+[writer](https://github.com/OSGeo/gdal/blob/v3.13.0/frmts/dted/dted_create.c) emits the required fixed
+records. GDAL is acquisition tooling only: it is never a production/test dependency, adapter, Gradle
+execution, CI runtime, or reason to expose an external type.
+
+All initial data rows have role `GENERATED`, but they are not G9-003 fixtures: the project parser's
+writers/constants/helpers are forbidden from acquisition and corpus tests. The independent GDAL
+writer provides the producer variation this task needs while the project owns and can license the
+synthetic numeric input and output under BSD-3-Clause. GDAL's MIT terms are recorded as tool
+provenance and committed with the recipe. No NGA/USGS or other access-controlled, paid, ambiguous,
+personal, operational, or real-world terrain bytes are inputs.
+
+The supported initial inventory is exactly:
+
+| Dataset ID | Conventional output path | Profile | Columns × rows | Exact bytes |
+| --- | --- | --- | ---: | ---: |
+| `gdal-zone-v-l0-complete` | `w001/s81.dt0` | Level 0 complete | 21 × 121 | 8,762 |
+| `gdal-zone-v-l1-complete` | `w001/s81.dt1` | Level 1 complete | 201 × 1,201 | 488,642 |
+| `gdal-zone-v-l2-partial` | `w001/s81.dt2` | Level 2 fixed-array partial `99` | 601 × 3,601 | 4,339,042 |
+
+Their total binary payload is exactly 4,836,446 bytes. Every cell covers longitude `-1..0` and
+latitude `-81..-80`, deliberately exercising western/southern coordinate grammar at the zone-V
+boundary while keeping Level 2 proportionate. This also demonstrates why G5's four-MiB whole-corpus
+limit cannot be copied.
+
+For public column `c` west-to-east and row `r` north-to-south, every non-void value is the exact Int16
+metre value:
+
+```text
+1500 + floor(1000 * c / (columnCount - 1))
+     - floor(2000 * r / (rowCount - 1))
+```
+
+This fixes north-west `1500`, north-east `2500`, south-west `-500`, south-east `500`, south midpoint
+`0`, and the Level 0/1 center `1000`. Only Level 2 replaces the 3-by-3 public block
+`columns 299..301, rows 1799..1801`—including its center `(300,1800)`—with no-data; its immediately
+adjacent finite posts retain their formula values. GDAL therefore emits partial indicator `99`;
+Level 0 and Level 1 are complete and contain no void. The recipe supplies
+`DTED_CompilationDate=2605` so the
+otherwise default GDAL header satisfies G9-004's complete supported field grammar. It also fixes
+WGS84, MSL, Int16, no SRTM marker, exact dimensions, pixel-center bounds, and every environment
+setting that can affect bytes.
+
+The checked acquisition recipe uses the exact official image tag
+`ghcr.io/osgeo/gdal:ubuntu-full-3.13.0` and requires a Linux/amd64 manifest digest in its constants
+before approval. It creates raw/VRT input outside the repository with the outer-edge geotransform
+whose pixel centers are the stated posts:
+
+```text
+xOrigin = west - longitudeSpacing / 2
+xScale  = longitudeSpacing
+yOrigin = north + latitudeSpacing / 2
+yScale  = -latitudeSpacing
+```
+
+It then invokes strict DTED `CreateCopy`, verifies the three exact sizes, requests GDAL checksum
+verification on reread, and prints candidate SHA-256 values. The recipe pins locale, time zone,
+encoding, umask, image digest, command arguments, metadata, and output paths; explicitly sets
+`GDAL_PAM_ENABLED=NO` so no `.aux.xml` sidecar can affect the candidate inventory; and fails on
+warnings. It never downloads terrain. The release tag alone is not sufficient authority: the
+approval evidence records the resolved image digest, `gdal --version`, recipe SHA-256, and GDAL MIT
+license. No digest is invented in design; literal output and manifest hashes are admitted only by the
+checkpoint below.
+
+### Corpus-only repository boundary and immutable inventory
+
+All resources live beneath one test-only root:
+
+```text
+modules/mundane-map-io-dted/src/dtedCorpusTest/resources/dted-corpus/
+  manifest.tsv
+  data/<datasetId>/w001/s81.dt0|dt1|dt2
+  licenses/BSD-3-Clause.txt
+  licenses/GDAL-MIT.txt
+  recipes/gdal-3.13.0-zone-v.sh
+```
+
+Companion Java lives in the dedicated `dtedCorpusTest` source set. The corpus source-set resources,
+expectations, and tests never enter main/test JARs, runtime/source/Javadoc Maven artifacts, module
+metadata, or the compile/test execution closures of normal `test`, `check`, `checkAll`, or
+`qualityGate`. The existing global Spotless task may format-check `src/**/*.java`, including corpus
+Java, but it neither compiles nor executes that source and never reads corpus resources. An ordinary repository/source
+archive may contain them only because the named approval establishes that redistribution basis.
+`publicationDryRun` verifies every staged `mundane-map-io-dted` artifact is corpus-free. There is no
+corpus module, separately published corpus artifact, runtime loader, or automatic source-set/resource
+coupling to native tests. G9-006 itself makes no native copy; G9-008 is the sole planned descendant
+that may reuse an approved file, through an explicit task-designed copy with pinned hash, resource
+declaration, license evidence, and continued exclusion from published artifacts.
+
+`manifest.tsv` is UTF-8 with LF, one header, literal tab separators, no quoting, and rows sorted by
+`datasetId`. Every value is non-empty except `parentId`; no value contains a control or tab. Columns
+are exact:
+
+```text
+datasetId  role  filePath  originalFilename  byteLength  sha256  origin
+toolAndVersion  licenseId  licensePath  parentId  derivation  coverageTags  expectationId
+```
+
+Paths are normalized relative `/` paths beneath the corpus root and reject a leading slash,
+backslash, drive/URI prefix, empty segment, `.` or `..`. Byte length is canonical decimal and SHA-256
+is 64 lowercase hexadecimal digits over the committed file. `origin` identifies the project-owned
+synthetic formula; `originalFilename` is exactly `s81.dt0`, `s81.dt1`, or `s81.dt2`, while `filePath`
+retains the conventional `w001` directory. `toolAndVersion` includes GDAL release, image tag, and
+image-manifest digest.
+`licenseId=BSD-3-Clause` and `licensePath` reference the committed data-license text. Each
+`derivation` is `generate:recipes/gdal-3.13.0-zone-v.sh`; that recipe records its separate
+`MIT`/`licenses/GDAL-MIT.txt` tool license in fixed machine-checked `TOOL_LICENSE_ID` and
+`TOOL_LICENSE_PATH` header assignments. Every row has one distinct expectation ID.
+
+The closed role model also keeps future additions honest:
+
+- `CURATED` is an unchanged independently produced file with `derivation=none` and exact original
+  source name/URL/date/digest;
+- `GENERATED` is purpose-built from project-owned input with `derivation=generate:<safe recipe path>`;
+  and
+- `DERIVED` changes a different already-approved manifest dataset, requires its non-empty `parentId`,
+  inherits that parent's data license, and uses `derivation=derive:<safe recipe path>`. Parent cycles
+  are forbidden. Cropping, downsampling, or reheadering is never labeled curated; a cropped cell that
+  no longer meets strict one-degree dimensions is not admitted at all.
+
+The initial coverage-tag vocabulary is the sorted unique subset of `checksum`, `complete`, `level0`,
+`level1`, `level2`, `negative-elevation`, `partial`, `positive-elevation`, `southern-cell`, `void`,
+`western-cell`, `zero-elevation`, and `zone-v`. Tags select required expectation coverage but never
+replace literal assertions. Exact stored sets are:
+
+- Level 0: `checksum,complete,level0,negative-elevation,positive-elevation,southern-cell,western-cell,zero-elevation,zone-v`;
+- Level 1: `checksum,complete,level1,negative-elevation,positive-elevation,southern-cell,western-cell,zero-elevation,zone-v`; and
+- Level 2: `checksum,level2,negative-elevation,partial,positive-elevation,southern-cell,void,western-cell,zero-elevation,zone-v`.
+
+Each list occupies one manifest field. The manifest test rejects duplicates, unsafe paths, unsorted rows, unknown
+roles/tags, inconsistent role fields, missing recipe/license/expectation references, byte/hash
+changes, derived-parent cycles, and any unreferenced data/license/recipe file. Manifest and the finite
+Java expectation inventory are the only self-listing exemptions.
+
+Caps are enforced before opening any DTED file: at most six datasets, at most 5,242,880 bytes per data
+file, and at most 6,291,456 bytes across the entire corpus resource tree including manifest,
+licenses, and recipes. Equality is accepted. Increasing any cap or adding/replacing any file requires
+the same named approval; it cannot be hidden as an expectation update.
+
+### Exact public-reader oracle
+
+`DtedCorpusExpectations` is a finite test-only Java map keyed one-to-one by `expectationId`. It is
+reviewed source, not deserialized behavior or an updateable snapshot. Tests first walk the exact
+Gradle-declared source resource root, validate the complete manifest and all referenced files, and
+verify length/SHA before parsing. They copy the verified source bytes—not processed classpath
+resources—to a fresh temporary directory under the conventional original filename.
+
+Each data file is opened only through `DtedFiles` with defaults and a fixed non-sensitive
+`SourceIdentity`. The exact oracle asserts dimensions, `Envelope(-1, -81, 0, -80)`, recognized
+EPSG:4326, metres, row/column spacing and orientation, all four corners, the south midpoint, Level 0/1
+center, selected asymmetric interior values, and Level 2's complete 3-by-3 void island (including its
+center) plus adjacent finite posts, and an
+empty opening diagnostic report. It uses direct `sample` only: G9-006 does not depend on or exercise
+G9-005 coordinate queries. It closes the source and immediately deletes the temporary directory,
+proving no retained file handle. It exposes or asserts no parser class, raw header, level enum,
+original path, GDAL metadata API, or diagnostic message.
+
+Every initial dataset must succeed. A future independently produced file outside the strict profile
+may be useful only if its manifest/approval and expectation pin one exact G9-004 terminal outcome
+(code, severity, source-independent location, canonical context, and omitted count, excluding message
+and cause); adding it does not expand parser support. Corpus tests contain no fixture writer,
+mutation/fuzz loop, cancellation sweep, injected I/O, interpolation, rendering, benchmark, native
+execution, or broad malformed matrix.
+
+### Separate Gradle, offline CI, and approval checkpoint
+
+The DTED module owns exactly six corpus tasks:
+
+```text
+compileDtedCorpusTestJava
+processDtedCorpusTestResources
+dtedCorpusTestClasses
+dtedCorpusTest
+checkstyleDtedCorpusTest
+spotbugsDtedCorpusTest
+```
+
+Root `dtedCorpus` is created here and depends on the test, Checkstyle, and SpotBugs tasks. The custom
+source set extends only main output and normal JUnit/test-analysis dependencies. The module detaches
+custom Checkstyle/SpotBugs lifecycle wiring from normal `check`; root verification mechanically walks
+the dependency closures of `check`, `checkAll`, `qualityGate`, every checked project's normal roots,
+and publication tasks and rejects all six corpus-owned tasks. The shared `spotlessJavaCheck` is the
+declared formatting-only exception: it may inspect corpus Java under `src/**/*.java` but does not read
+resources or compile/run the source. Conversely `dtedCorpus` executes every
+manifest/public-oracle/static-analysis check exactly once.
+
+`primeDtedCorpusDependencies` is a non-verification helper that resolves only
+`dtedCorpusTestCompileClasspath`, `dtedCorpusTestRuntimeClasspath`,
+`dtedCorpusTestAnnotationProcessor`, `errorprone`, `checkstyle`, `spotbugs`, `spotbugsPlugins`,
+`spotbugsSlf4j`, and `jacocoAgent`. A separate Ubuntu 24.04/Temurin 21 CI job starts with an empty
+job-local `GRADLE_USER_HOME`, primes online, then uses that same home for:
+
+```bash
+./gradlew --offline dtedCorpus --rerun-tasks --console=plain
+```
+
+The corpus-test bytecode check rejects `java.net`, `java.net.http`, socket/datagram channel APIs,
+`ProcessBuilder`, and every `Runtime.exec` overload. Tests never dereference provenance, invoke the
+recipe/GDAL, consult an environment path, or accept a runtime download. Corpus evidence therefore
+stays visibly separate from the normal gate while remaining reproducible offline.
+
+The mandatory HITL checkpoint is named **G9 DTED corpus approval**. Candidate generation occurs
+outside the repository; before any candidate binary is staged or committed, a maintainer records in
+the G9-006 task notes:
+
+- reviewer, date, `APPROVED|REJECTED`, and any blocker;
+- the exact three dataset IDs, intended paths, sizes, SHA-256 values, total size, and manifest SHA;
+- recipe SHA, GDAL tag/version and Linux/amd64 image digest;
+- synthetic-input origin, complete transformation statement, BSD-3-Clause data basis, GDAL MIT tool
+  basis, and confirmation that no access-controlled or downloaded terrain contributed; and
+- confirmation that repository/source redistribution is approved and Maven artifacts remain clean.
+
+The binary-ingest change must match those approved hashes exactly. A mismatch returns to HITL; an
+ambiguous license or rejected candidate makes the implementation task `Blocked`, not weaker evidence
+or a runtime download. Approval state is not a mutable manifest field. After ingest, task notes record
+the final worktree hash equality before commit; the manifest remains factual inventory and no
+self-referential commit identifier is required.
+
+Focused module/architecture checks run first, then the newly created offline corpus lane,
+`publicationDryRun`, normal-gate isolation dry-run, the normal quality gate, and whitespace. Native,
+render-regression, performance, and consumer lanes do not run. Three independently written files, one
+manifest, two license texts, one non-build recipe, one finite oracle, and one isolated lane are enough;
+there is no real-terrain collection, second reader, acquisition plugin, generalized corpus framework,
+or parser/profile change.

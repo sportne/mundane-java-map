@@ -68,6 +68,7 @@ must name supported behavior, limits, malformed-input handling, and stable diagn
   - G2-006 creates `./gradlew renderRegression --console=plain`.
   - G5-009 creates `./gradlew shapefileCorpus --console=plain`.
   - G7-001 creates `./gradlew performanceEvidence --console=plain`.
+  - G9-006 creates `./gradlew dtedCorpus --console=plain`.
   - G0-001 creates `publicationDryRun`; G8-003 hardens it and creates `consumerSmoke`, yielding
     `./gradlew publicationDryRun consumerSmoke --console=plain`.
 - New `mundane-map-io-*` modules are added only in the task that delivers working behavior and
@@ -196,7 +197,7 @@ must be decomposed again after that evidence exists.
 | [G9-003 — DTED levels reader slice](G9-003-dted-levels-reader-slice.md) | Proposed | AFK | G9-001 | Read DTED Levels 0, 1, and 2 into the shared elevation model. |
 | [G9-004 — DTED validation and diagnostics](G9-004-dted-validation-and-diagnostics.md) | Proposed | AFK | G9-003 | Validate headers, dimensions, checksums, samples, voids, and truncation. |
 | [G9-005 — Elevation position-query policy](G9-005-elevation-position-query-policy.md) | Proposed | AFK | G9-001, G9-003 | Provide explicit nearest and bilinear query behavior. |
-| [G9-006 — Legally redistributable DTED corpus](G9-006-legally-redistributable-dted-corpus.md) | Proposed | HITL | G9-004 | Approve provenance for small Level 0/1/2 automated fixtures. |
+| [G9-006 — Legally redistributable DTED corpus](G9-006-legally-redistributable-dted-corpus.md) | Proposed | HITL | G9-004 | Approve and verify an isolated Level 0/1/2 independent-writer corpus. |
 | [G9-007 — DTED memory and read performance](G9-007-dted-memory-and-read-performance.md) | Proposed | AFK | G9-004, G9-006 | Decide from evidence whether larger datasets need lazy/windowed access. |
 | [G9-008 — Native Image DTED smoke](G9-008-native-image-dted-smoke.md) | Proposed | HITL | G9-002, G9-005, G9-007 | Read, query, colorize, and render DTED natively without native parsing. |
 

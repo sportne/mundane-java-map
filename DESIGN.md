@@ -57,7 +57,7 @@ design task; there are no empty speculative design files.
 | G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-005 approved |
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
-| G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-005 approved |
+| G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-006 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -125,6 +125,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Decode the first DTED slice eagerly through one format facade into `PackedElevationGrid`. | Completing and closing bounded file I/O before publication preserves failure-free sample access and leaves lazy/windowed access to measured evidence. |
 | 2026-07-12 | Harden the strict DTED profile with prospective format limits and terminal exact diagnostics. | Complete field grammar, mandatory checksums, deterministic precedence, and bounded mutation evidence make hostile input predictable without repair, profile expansion, or a parser framework. |
 | 2026-07-12 | Query elevation through one explicit source-CRS core operation with nearest or bilinear policy. | Exact post-coordinate search, unit-bearing values, and deliberate ordinary absence provide deterministic reuse without parser branches, implicit transforms, or a query framework. |
+| 2026-07-12 | Build DTED corpus evidence from approved GDAL-generated synthetic cells in a separate offline lane. | An independent writer plus exact provenance, hashes, licenses, and public outcomes adds compatibility evidence without ambiguous terrain rights, runtime downloads, or production dependencies. |
 
 ## Task design traceability
 
@@ -180,3 +181,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G9-003 | DTED facade/options, strict Level 0/1/2 profile, eager fixed-record decoding, signed-magnitude/no-data mapping, publication extension, and fixtures | Approved |
 | G9-004 | Typed DTED limits, complete fixed-field grammar, checksum/sample enforcement, exact diagnostic precedence, hostile fixtures, and deterministic mutation evidence | Approved |
 | G9-005 | Explicit source-CRS query boundary, exact post search, nearest/bilinear/no-data policy, unit-bearing results, lifecycle, and DTED integration evidence | Approved |
+| G9-006 | Approved GDAL-generated Level 0/1/2 corpus, manifest/licenses/recipe, exact public oracle, isolated offline lane, and publication exclusion | Approved |
