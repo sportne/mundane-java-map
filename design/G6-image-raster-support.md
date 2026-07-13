@@ -665,3 +665,220 @@ working world-file slice. One finite sidecar snapshot, six-number parser, invert
 four-corner clip, and true affine draw are sufficient. Bounds cannot contradict placement; the
 envelope is never mistaken for the parallelogram; CRS is never guessed; and no request, decoder,
 polygon, warp, or persistence framework is introduced.
+
+## Raster requests and rendering controls (G6-003)
+
+### Dependency and request evolution
+
+G2-005 owns the toolkit-neutral `RasterInterpolation = NEAREST | BILINEAR` value because decoded raster
+icons need it first, and G2-006 owns the `renderRegression` lane. G6-003 therefore depends on G2-006
+as well as G6-002; it reuses the enum rather than defining a duplicate. The G4 request evolves
+source-compatibly:
+
+```text
+RasterRequest(
+    RasterWindow sourceWindow,
+    int outputWidth,
+    int outputHeight,
+    RasterInterpolation interpolation,
+    Optional<RasterRequestLimits> tighterLimits)
+```
+
+The existing constructor without interpolation delegates to `NEAREST`. Null interpolation is a
+parameter-named programmer failure. Cancellation remains solely on
+`RasterSource.read(request,cancellation)`, so a request is immutable/reusable. Opacity is presentation
+state and never enters a request, read/result, decoder/cache identity, or source metadata.
+
+G6-001's `EncodedRasterDecodeContext` gains one source-compatible default
+`interpolation() -> NEAREST`; the concrete image context overrides it from the request. Existing
+G6-001 decoders/fakes also inherit
+`supportsInterpolation(mode) -> mode == NEAREST`; the Level 1 AWT decoder explicitly returns true for
+both enum values. The image source checks support before decode. False terminates with
+`IMAGE_DECODER_INTERPOLATION_UNSUPPORTED`, component `decoder`, and exact context `format` and
+`interpolation`; a throwing/nondeterministic capability method is an implementation contract failure.
+Thus an already-compiled nearest-only decoder cannot silently return nearest pixels for a bilinear
+request. `RasterRead` still echoes the exact source window and output dimensions; interpolation need
+not be repeated in the result.
+
+### Exact shared resampling math
+
+Core adds one final JDK-only algorithm utility `RasterResampling`, not an SPI/pixel-source hierarchy.
+It exposes checked axis plans and RGBA blending used by `SyntheticRasterSource` and AWT's image
+decoder:
+
+```text
+nearestIndex(outputIndex, sourceSize, outputSize) -> int
+bilinearAxis(outputIndex, sourceSize, outputSize) -> AxisWeights
+bilinearRgba(nw, ne, sw, se, xWeights, yWeights) -> int
+```
+
+`AxisWeights` is one immutable nested core value containing lower/upper indexes, their non-negative
+integer weights, and the positive denominator. Callers add the strict source-window origin after
+planning; no callback, array, image, or toolkit value enters core.
+
+Nearest remains the G4 rule exactly:
+
+```text
+floor(((2 * outputIndex + 1) * sourceSize) / (2 * outputSize))
+```
+
+All multiply/add operations are checked in `long`; exact half-cell ties select the greater/right or
+bottom cell. Bilinear defines the output-center position relative to source cell centers with:
+
+```text
+numerator   = (2 * outputIndex + 1) * sourceSize - outputSize
+denominator = 2 * outputSize
+position    = numerator / denominator
+```
+
+Positions at/below zero clamp both indexes to zero. Positions at/above `sourceSize-1` clamp both to
+the final index. Otherwise lower is floor division, upper is lower+1, upper weight is the non-negative
+remainder, and lower weight is denominator minus remainder. A singleton source axis repeats its only
+sample. The operation is window-local: indexes never escape the strict requested window, so its outer
+cell centers extend to the output edge without hidden filter padding.
+
+Bilinear blending uses the Cartesian products of x/y weights in straight sRGB component space but
+premultiplies color by alpha for the accumulation. With total weight `W`:
+
+```text
+alphaNumerator   = sum(weight * alpha)
+outputAlpha      = roundHalfUp(alphaNumerator / W)
+channelNumerator = sum(weight * alpha * channel)
+outputChannel    = roundHalfUp(channelNumerator / alphaNumerator)
+```
+
+When `alphaNumerator` is zero or rounded `outputAlpha` is zero, the result is canonical transparent
+black. Otherwise channels and alpha are clamped only after exact checked `long` arithmetic. This
+prevents hidden RGB in transparent pixels from bleeding into visible output and avoids
+floating/platform differences. Nearest copies the exact
+unpremultiplied `0xRRGGBBAA` sample. Synthetic source tests make both modes part of the generic G4
+contract rather than an image-only behavior.
+
+Before loops, checked arithmetic validates all axis denominators/products, four taps per output pixel,
+and worst-case weight/alpha/channel sums against `long`. The four-tap count is derived bounded work,
+not another public limit. Cancellation checkpoints run at least per output row and within 4,096
+output pixels or source taps.
+
+### Bounded ImageIO region and subsampling plan
+
+Every image read retains G6-001's conservative full-image source-pixel charge and intermediate
+reservation because setting an ImageIO region is not proof that a compressed codec avoided full
+decode. The source still validates the strict window, output shape, header/content state, and limits
+before the explicit decoder.
+
+The AWT adapter always passes the strict `RasterWindow` as `ImageReadParam.setSourceRegion`. For
+nearest only, each axis independently uses integer source subsampling when:
+
+```text
+sourceAxisSize % outputAxisSize == 0
+factor = sourceAxisSize / outputAxisSize
+offset = floor(factor / 2)
+```
+
+That factor/offset produces exactly the G4 nearest indexes. An ineligible axis uses factor 1/offset 0;
+project code resamples it afterward. Every bilinear request uses the source region but no ImageIO
+subsampling because discarded neighbor samples would change the oracle. The decoder validates the
+returned region/subsample dimensions before accepting the image. Package-private test probes may
+observe requested hints, but public metadata/diagnostics never claim codec work was avoided.
+
+The adapter converts JDK default non-premultiplied ARGB samples to RGBA and applies
+`RasterResampling` only where an axis was not already sampled exactly. It uses one final
+`RgbaPixelBuffer.Builder`, retains no full RGBA matrix/cache, and keeps the G6-001
+`setInput(...,true,true)`, provider, reservation-claim, hard-fence, cleanup, and final source result
+validation rules. PNG results are exact; JPEG decode tolerance is applied to source-region evidence,
+while project resampling itself remains deterministic.
+
+### Affine viewport output planning
+
+G6-002 continues to choose the strict visible source window by inverse clipping. G6-003 chooses only
+the MapView request's output density. Transform one grid-column basis vector and one grid-row basis
+vector through the retained placement and current viewport into logical screen space. For selected
+window dimensions `W,H`:
+
+```text
+plannedWidth  = cap(W, columnBasisLength)
+plannedHeight = cap(H, rowBasisLength)
+```
+
+`cap(size,basisLength)` requires a finite non-negative norm. If the norm is at least 1, it returns
+`size` without multiplying; otherwise it returns `max(1, ceil(size * basisLength))`, whose product is
+already bounded by `size`. A huge finite zoom-in therefore caps at source resolution instead of
+failing an irrelevant intermediate int conversion. This is
+screen-density downsampling only: MapView never invents source detail during zoom-in. Direct callers
+may still request any G4-valid output size, including upsampling. The explicit plan is not silently
+reduced to satisfy limits; window/output/pixel/byte failure follows normal diagnostics.
+
+After deterministic source resampling, Java2D maps output edges to the selected axis rectangle or
+affine parallelogram exactly as G6-002 and always uses nearest-neighbor for the final draw. Selecting
+Java2D bilinear here would filter twice and make results platform-dependent. Component clipping may
+discard conservative fringe paint; it does not alter the strict request.
+
+### Immutable raster presentation state
+
+AWT adds one final immutable value:
+
+```text
+RasterRenderOptions(RasterInterpolation interpolation, double opacity)
+  defaults() -> NEAREST, 1.0
+  withInterpolation(...)
+  withOpacity(...)
+```
+
+Opacity must be finite in `[0,1]`; it is rejected rather than clamped. Existing borrowed/owned raster
+binding factories use defaults, and overloads accept an initial options snapshot. Accepted `-0.0` is
+canonicalized to `+0.0` before equality/hash/storage. MapView owns the
+current snapshot for each installed raster binding and exposes EDT-only
+`setRasterRenderOptions(layerId, options)`. It rejects a missing/non-raster ID, does not replace,
+reclaim, reopen, or close the source, and schedules one full repaint. Options are captured once per
+paint transaction, so interpolation and opacity cannot mix across a pass.
+
+Opacity zero performs no source read, conversion, or draw, but still participates in fit/base order.
+Because no source operation occurred, it preserves the binding's prior report/availability rather
+than fabricating clean recovery. Nonzero opacity uses one disposable graphics child with
+`AlphaComposite.SRC_OVER` and constant `(float) opacity`; packed pixel alpha and layer opacity compose
+once. Source pixels stay unmodified and opacity does not affect decoder/cache identity.
+
+The raster viewer adds a `NEAREST`/`BILINEAR` selector and 0–100% opacity control. EDT events replace
+only the view-owned immutable options and repaint; loading, world-file parsing, CRS, and source
+ownership remain unchanged/off EDT. Status shows current controls plus normalized versus world-file
+placement. The example never calls ImageIO or implements interpolation/affine math.
+
+### Cancellation, accounting, and verification
+
+The G4 atomic operation remains: plan and validate, decode, exact resample, build immutable read,
+convert RGBA-to-ARGB, win `ACTIVE -> SUCCEEDED`, then draw. Cancellation checks occur before decoder,
+immediately after opaque ImageIO, within nearest/bilinear loops, before buffer transfer, within AWT
+conversion, and immediately before success publication. Failure/cancellation discards every partial
+value, draws nothing, publishes one terminal report, and leaves a known-failure image source reusable.
+
+Prospective charges cover the unchanged conservative decode reservation, final RGBA output, separate
+AWT ARGB output, and any fixed axis/planner scratch. The tap count is checked work but does not double-
+charge source pixels. A successful decoder/read must still return the exact window/output shape.
+Opacity affects only the final composite.
+
+API tests cover request constructor compatibility, enum/null validation, tighter limits, and strict
+windows. Core tests cover nearest ties/up/down cases; bilinear identity/1x1/1xN/Nx1/quarter weights,
+edge clamp, transparent-color bleed, alpha rounding, overflow, window locality, and synthetic parity.
+Image tests use a controlled reader to assert source region, independently eligible nearest factors/
+offsets, no bilinear subsampling, returned-shape mismatch, and equality with extracted-matrix oracles.
+
+Affine tests cover rotated/sheared partial views, screen-density output, thin intersections, mapped
+corners, clipping/background, and fit. Rendering covers opacity 0/0.5/1, translucent pixels, single
+SrcOver composition, no double filter, and mixed vector/raster order. Cancellation is injected at
+every controlled stage. Viewer tests prove options update without source/binding replacement and
+close once. Offscreen/render-regression assertions use tolerant regions/bounds and exact project math,
+never whole-image identity.
+
+Architecture tests keep API/core/io-image AWT-free, confine ImageIO/Java2D/render options to AWT, and
+reject cache, background/discovery, affine-as-CRS, or native metadata additions. `renderRegression`
+runs separately after focused checks because this task changes rendering and G2-006 already created
+the lane. `qualityGate` and whitespace then run; native, publication, corpus, and performance lanes do
+not.
+
+### G6-003 simplicity check
+
+One existing two-value interpolation enum, one core integer math utility, one source-compatible
+request/context evolution, and one immutable AWT options value cover the slice. Resampling occurs once;
+opacity stays presentation-only; affine placement stays placement-only; and ImageIO hints never become
+correctness claims. There is no filter SPI, generic pixel source, warp framework, cache, worker, or
+replacement binding lifecycle.

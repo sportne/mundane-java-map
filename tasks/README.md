@@ -157,7 +157,7 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 | --- | --- | --- | --- | --- |
 | [G6-001 — Bounded PNG/JPEG raster source](G6-001-bounded-png-jpeg-raster-source.md) | Proposed | AFK | G4-002, G4-004 | Add an AWT-free image adapter plus explicitly registered AWT decode path. |
 | [G6-002 — World-file affine georeferencing](G6-002-world-file-affine-georeferencing.md) | Proposed | AFK | G6-001 | Apply bounded world-file affine georeferencing and CRS metadata. |
-| [G6-003 — Raster requests and rendering controls](G6-003-raster-requests-and-rendering-controls.md) | Proposed | AFK | G6-002 | Add windowing, resampling, opacity, interpolation, and affine rendering. |
+| [G6-003 — Raster requests and rendering controls](G6-003-raster-requests-and-rendering-controls.md) | Proposed | AFK | G6-002, G2-006 | Add windowing, resampling, opacity, interpolation, and affine rendering. |
 | [G6-004 — Raster cache, lifecycle, and hardening](G6-004-raster-cache-lifecycle-and-hardening.md) | Proposed | AFK | G6-003 | Bound caches and malformed inputs while honoring close and cancellation. |
 | [G6-005 — Native Image raster smoke](G6-005-native-image-raster-smoke.md) | Proposed | HITL | G6-004 | Decode and render PNG/JPEG with affine metadata under Native Image. |
 
