@@ -120,7 +120,8 @@ empty module, and broader follow-up remains separately decomposed.
 - A secure static SVG import subset; general SVG is not promised.
 - GeoJSON through one bounded optional Jackson Core adapter; a strict JDK-only Classic GeoTIFF reader
   with explicit raster/elevation entry points; separate strict GeoPackage 1.4.0 and raster MBTiles 1.3
-  adapters; GPX, KML, remote tile sources, and an evidence-selected additional projection.
+  adapters; separate JDK-only GPX 1.1 waypoint/track and static KML 2.2 geometry sources; remote tile
+  sources; and an evidence-selected additional projection.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - SQLite-backed formats use separate `mundane-map-io-geopackage-xerial` and
@@ -128,6 +129,10 @@ empty module, and broader follow-up remains separately decomposed.
   direct read-only construction, and no JDBC type leakage. Their first claim is Java 21 on Linux
   x86-64/glibc JVM only; Native Image and other platforms require new evidence. See the
   [G10 task set](tasks/README.md#g10--additional-formats-tiles-and-projections).
+- GPX and KML remain independent modules even though both use directly constructed JDK StAX. Their
+  first profiles are bounded UTF-8 local-file snapshots yielding unstyled EPSG:4326 features; GPX
+  routes/extensions and KML network, temporal, region, altitude, style, and presentation semantics
+  remain explicit rejects or warned omissions rather than implicit behavior.
 
 ### G11 — Editing, styling, persistence, adapters, and export
 

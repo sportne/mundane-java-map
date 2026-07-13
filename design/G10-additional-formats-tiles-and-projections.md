@@ -1597,3 +1597,405 @@ G10-044 follows G10-043. The two format branches are logically independent after
 but the task graph also serializes dependency verification, settings/inventory, publication, consumer,
 task-index, and roadmap changes under one integration owner. No module is created by the profile
 decision.
+
+## GPX and KML source profiles (G10-005)
+
+### Approval and independent module boundaries
+
+The named checkpoint is **G10 GPX/KML source profile approval**. It independently approves the two
+format matrices, their warned omissions, the common security posture, and the later task graph.
+G10-005 creates no production module or parser.
+
+The normative inputs are the
+[Topografix GPX 1.1 schema](https://www.topografix.com/GPX/1/1/) and
+[OGC KML 2.2 standard](https://docs.ogc.org/is/07-147r2/07-147r2.html). The approved modules are:
+
+```text
+mundane-map-io-gpx -> mundane-map-api + selected mundane-map-core source/CRS algorithms
+mundane-map-io-kml -> mundane-map-api + selected mundane-map-core source/CRS algorithms
+```
+
+Both are published Level 2 JDK-only, AWT-free modules. They share no production dependency, parser
+facade, XML event model, public base class, extension registry, or combined artifact. Each has a small
+private format state machine over the same directly constructed JDK StAX API. This deliberate
+duplication is less policy than a generic XML module and prevents GPX extension behavior from becoming
+KML behavior accidentally. Public signatures contain only JDK and MundaneJ values.
+
+The eventual surfaces are intentionally parallel but separate:
+
+```text
+GpxFiles.open(Path path, SourceIdentity identity,
+              GpxOpenOptions options, CancellationToken cancellation) -> FeatureSource
+
+KmlFiles.open(Path path, SourceIdentity identity,
+              KmlOpenOptions options, CancellationToken cancellation) -> FeatureSource
+
+GpxOpenOptions(GpxLimits formatLimits, FeatureSourceLimits queryLimits)
+KmlOpenOptions(KmlLimits formatLimits, FeatureSourceLimits queryLimits)
+```
+
+Each options value is immutable, has `defaults()` plus complete withers, and captures every effective
+limit at invocation. There is no public stream/reader/DOM/event overload, URL opener, registry,
+schema object, parser selection, style option, coordinate override, lazy flag, or format sniffing.
+Package-private byte-array seams exist only for deterministic parser tests; the public path remains
+one local-file transaction with unambiguous ownership.
+
+### One bounded UTF-8 and JDK StAX boundary
+
+An open resolves the caller path to a normalized absolute path and, using `NOFOLLOW_LINKS`, requires
+one nonempty readable regular file that is not a symbolic link. It snapshots initial basic attributes,
+checks the format input ceiling, opens one channel, reads exactly the captured size into one array,
+probes one additional byte without allocating `maximum + 1`, closes the channel, and compares size,
+last-modified time, and a file key when the provider supplies one. Any mismatch fails the transaction.
+No path, channel, or filesystem identity survives successful opening.
+
+The byte snapshot accepts an optional leading UTF-8 BOM and otherwise requires strict shortest-form
+UTF-8 with valid Unicode scalar values. UTF-16/UTF-32 BOMs, malformed/overlong UTF-8, isolated
+surrogates, characters excluded by XML 1.0, and an XML declaration naming anything except
+case-insensitive `UTF-8` are outside the profile. Absence of an encoding declaration means UTF-8.
+The implementation validates bytes incrementally without constructing a second full-file string;
+StAX performs the later character decoding from the same owned snapshot. XML 1.0 is accepted and XML
+1.1 is rejected. The optional BOM records one bounded format-specific warning.
+
+Each module creates its parser with `XMLInputFactory.newDefaultFactory()`, never `newFactory()` or a
+named/internal implementation. Before creating a reader it sets and reads back this exact policy:
+
+```text
+XMLInputFactory.IS_NAMESPACE_AWARE = true
+XMLInputFactory.IS_COALESCING = false
+XMLInputFactory.IS_VALIDATING = false
+XMLInputFactory.SUPPORT_DTD = false
+XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES = false
+XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES = false
+XMLConstants.ACCESS_EXTERNAL_DTD = ""
+XMLConstants.USE_CATALOG = false
+```
+
+It also installs an `XMLResolver` that always throws a constant project-owned exception and an
+`XMLReporter` that turns any parser report into a constant invalid-XML result. Unsupported or
+ineffective property configuration is an internal `IllegalStateException` before input I/O; it never
+falls back to weaker settings. No schema is loaded. `xsi:schemaLocation` is inert bounded text, and
+XInclude, DTD declarations, entity references, processing that resolves a URI, and external subsets
+never run. The implementation references no internal JDK parser class, service loader, reflection,
+classpath scan, or resource lookup.
+
+Start/end document, start/end element, comments, processing instructions, DTD, and entity-reference
+events count as structural XML events. Parser-dependent characters/CDATA chunk boundaries do not;
+their decoded characters are charged as the project state machine combines adjacent chunks into one
+bounded logical scalar. Namespace declarations and attributes have their own counters, and every
+decoded name/value/comment/instruction contributes to scalar and aggregate-character ceilings.
+Comments and processing instructions are ignored after counting. A DTD or entity-reference event is
+terminal even if a future JDK implementation emits one despite the configured policy.
+Element/attribute matching is by exact namespace URI plus local name, never prefix. Controlled byte,
+character, coordinate, and structural-event loops poll cancellation at most every 4,096 primitive
+units. Every opaque `hasNext()`/`next()` call is checked immediately before and after, and cancellation
+is checked immediately before source publication.
+
+This is explicit profile parsing, not general XML Schema validation. Each reader enforces the order,
+cardinality, namespaces, and value rules named below and structurally counts every ignored subtree;
+it makes no claim about unneeded portions of the full XSD beyond that closed profile. Raw XML,
+namespace prefixes, locations supplied by the parser, element/attribute values, file paths, parser
+classes, and exception messages never enter diagnostics.
+
+### Eager immutable source and lifecycle
+
+Opening completely parses the bounded snapshot into immutable `FeatureRecord` values and then drops
+the input and parser before returning. A small private format source composes the existing core
+`InMemoryFeatureSource` state machine for ordered queries and owns the format opening report; the two
+modules duplicate that trivial wrapper rather than add a public report-decorator or shared XML source.
+There is no live XML cursor, deferred parse error, background work, executor, cache, retained URI, or
+close-time parser I/O.
+
+The opening pass computes an exact exposed feature count, the union of emitted geometry envelopes, a
+fixed format schema, recognized EPSG:4326 metadata, and warning report. Source and query order is
+document order. Metadata and opening diagnostics survive close; close invalidates the source/live
+cursor through the G4 state machine and releases the retained record snapshot. Already returned
+immutable records remain valid. One-live-cursor, projection, tighter-limit, cancellation, failure,
+and early/double/source-close behavior is exactly G4's in-memory conformance behavior.
+
+The format open-time owned-byte counter charges the input snapshot, parser-owned project buffers,
+pending values, warning accumulators, packed coordinates/part offsets, record/list/map slots, and all
+retained strings/attribute payloads using G4's logical table before allocation or ownership transfer.
+The JDK parser's object headers and transient implementation bookkeeping cannot be measured byte for
+byte, but untrusted input, event, depth, attribute, namespace, scalar, aggregate-text, and retained
+value ceilings constrain it. This qualification does not permit an unbounded token or subtree.
+Query-time returned payload remains independently charged by G4.
+
+Every documented skip produces one warning in encounter order, as required by G4. The report builder
+allocates only the first configured number of immutable warning values; later warnings increment the
+saturating `omittedWarningCount` directly without allocating a diagnostic. It never deduplicates or
+coalesces equal warnings. Earlier retained warnings are materialized before a terminal error, so the
+final report preserves encounter order and G4's warning/omission contract under hostile repetition.
+
+### GPX 1.1 waypoint and track profile
+
+`mundane-map-io-gpx` accepts only the exact root namespace
+`http://www.topografix.com/GPX/1/1`, local name `gpx`, fixed `version="1.1"`, and one
+nonblank bounded `creator`. The core root order is `metadata?`, `wpt*`, `rte*`, `trk*`, then
+`extensions?`; duplicate/out-of-order content is invalid. A `rte` is a recognized unsupported route
+even when empty. Root, metadata, waypoint, track, segment, and track-point extensions are structurally
+skipped and each produces one bounded warning; their namespace-qualified contents are never
+interpreted or preserved. A foreign element
+outside an `extensions` subtree and an unknown element in the GPX namespace are terminal. Namespace
+declarations and `xsi:schemaLocation` are allowed after counting; any other unapproved attribute is
+terminal.
+
+One top-level waypoint produces one point record. Each track segment with at least two track points
+produces one line record; every empty or one-point segment is a valid-but-unrepresentable input skipped
+with its own bounded warning. Track containers themselves do not emit a record. IDs are generated
+independently of untrusted text and remain stable for the source lifetime:
+
+```text
+waypoint       -> gpx:wpt:<one-based waypoint ordinal>
+track segment  -> gpx:trk:<one-based track ordinal>:seg:<one-based segment ordinal>
+```
+
+Every waypoint or segment is also assigned one positive physical feature-candidate ordinal in root
+encounter order for diagnostics. A track-point error uses its segment's record number and a bounded
+zero-based `pointIndex` context. Empty/skipped candidates still consume the physical ordinal and the
+format feature-candidate ceiling but do not affect exposed count.
+
+Waypoint and track-point `lat`/`lon` attributes are required exactly once, contain bounded ASCII
+decimal tokens, convert to finite `double`, and lie in inclusive latitude `[-90,90]` and longitude
+`[-180,180)`, matching GPX's exclusive upper longitude bound. Negative zero is canonicalized to
+positive zero. Geometry uses the library x/y
+visualization convention `(longitude, latitude)` and records the canonical recognized
+`CrsRegistry.level1()` EPSG:4326 metadata. Source extent is computed from emitted coordinates; GPX
+metadata bounds are neither trusted nor retained. Dateline-crossing segments remain literal under the
+same non-wrapping rule approved for GeoJSON.
+
+The fixed ordered schema is:
+
+| Field | Type/nullability | Waypoint | Track segment |
+| --- | --- | --- | --- |
+| `gpxKind` | `TEXT`, non-null | `waypoint` | `trackSegment` |
+| `trackIndex` | `INTEGER`, nullable | null | one-based track ordinal |
+| `segmentIndex` | `INTEGER`, nullable | null | one-based segment ordinal |
+| `elevationMetres` | `FLOATING`, nullable | parsed optional `ele` | null |
+| `time` | `TEXT`, nullable | canonical optional timestamp | null |
+| `comment` | `TEXT`, nullable | optional `cmt` | track `cmt` |
+| `description` | `TEXT`, nullable | optional `desc` | track `desc` |
+| `source` | `TEXT`, nullable | optional `src` | track `src` |
+| `symbol` | `TEXT`, nullable | optional `sym` | null |
+| `type` | `TEXT`, nullable | optional `type` | track `type` |
+| `trackNumber` | `INTEGER`, nullable | null | optional non-negative `number` |
+
+The GPX `name` becomes `FeatureRecord.name()` and is not duplicated as an attribute. Optional
+elevation is a bounded decimal that must convert to a finite `double`; GPX metric units make the
+attribute metres. Optional time is the strict RFC 3339 subset
+`YYYY-MM-DDTHH:MM:SS[.fraction](Z|+HH:MM|-HH:MM)`, with one through nine digits when the fraction is
+present; it must parse to an instant and is retained in canonical `Instant.toString()` UTC form.
+Missing nullable fields use `AttributeNull` so every record satisfies the fixed schema.
+
+The reader recognizes GPX's remaining standard scalar/link/quality children only well enough to
+respect their parent and structure, counts their complete subtrees, and emits one field-ignored
+warning per discarded field. It neither follows a link nor claims full validation of discarded metadata.
+Track-point elevation, time, and other non-coordinate children are deliberately not projected onto a
+line record because G4 has no per-vertex attribute-series contract; each present category records a
+separate data-ignored warning. This visible loss is preferable to parallel arrays hidden in one
+attribute, synthetic point records, or a GPX-specific public geometry. Routes, route points,
+extension semantics, sensor series, arbitrary waypoint symbols, write-back, and elevation-aware
+geometry remain later profiles.
+
+### Static KML 2.2 geometry profile
+
+`mundane-map-io-kml` accepts XML root `kml` in exact namespace
+`http://www.opengis.net/kml/2.2` containing exactly one supported root feature: `Document`, `Folder`,
+or `Placemark`. Documents and folders may nest those same three feature kinds to the logical feature-
+nesting limit; every encountered `Document`, `Folder`, or leaf `Placemark` consumes one level, with the
+root feature at level one. Placemarks may not nest features. Placemark preorder is physical/source
+order, independent of folder names or IDs. `NetworkLinkControl`, `NetworkLink`, every overlay,
+`Model`, `Tour`, `Update`,
+`Region`, `TimeSpan`, `TimeStamp`, `Schema`, and any foreign-namespace feature/geometry are recognized
+unsupported constructs rather than skipped.
+
+Document, Folder, and Placemark `visibility` may be absent or exact true (`1` or `true`); false is
+unsupported because silently rendering hidden content changes semantics. `open`, `LookAt`, `Camera`,
+`Snippet`, address/contact fields, `Style`, `StyleMap`, `styleUrl`, and `ExtendedData` are presentation
+or unmodeled data: their bounded subtrees are never interpreted, resolved, or exposed and produce
+one warning per ignored construct. In particular an href or style URL causes no I/O. KML styles do not
+become G2 symbols; G4's source-backed layer continues to receive explicit caller-owned marker, line,
+and fill symbols. General KML styling and label placement remain G11-002 work, not an implicit parser
+side channel.
+
+One Placemark with exactly one direct supported geometry emits one record. A Placemark with no
+geometry is fully counted/validated then skipped with a warning; more than one geometry is invalid.
+The exact geometry mapping is:
+
+| KML geometry | Required profile | MundaneJ geometry |
+| --- | --- | --- |
+| `Point` | exactly one coordinate tuple | `PointGeometry` |
+| `LineString` | at least two tuples | `LineStringGeometry` |
+| `Polygon` | one outer ring and zero or more inner rings | `PolygonGeometry` |
+| homogeneous `MultiGeometry` of Points | one or more direct Points | `MultiPointGeometry` |
+| homogeneous `MultiGeometry` of LineStrings | one or more direct LineStrings | `MultiLineStringGeometry` |
+| homogeneous `MultiGeometry` of Polygons | one or more direct Polygons | `MultiPolygonGeometry` |
+
+Nested, empty, or mixed `MultiGeometry`, standalone `LinearRing`, and every other geometry are
+unsupported. Polygon rings contain at least four tuples and have exact first/last x/y closure; the
+first boundary is exterior and later boundaries are holes. Component/ring order is preserved.
+Orientation, containment, self-intersection, topology repair, antimeridian splitting, terrain
+tessellation, and ring normalization are not performed.
+
+`coordinates` is a bounded whitespace-separated list of comma-separated `longitude,latitude` or
+`longitude,latitude,altitude` tuples. Each ordinate uses GPX's bounded finite ASCII decimal grammar,
+but KML longitude is inclusive `[-180,180]` while latitude remains inclusive `[-90,90]`; negative
+zero is canonicalized. Geometry `altitudeMode` must be
+absent or exact `clampToGround`, while `extrude` and `tessellate` must be absent or false (`0` or
+`false`). Other modes, `gx:altitudeMode`, or true extrusion/tessellation are unsupported. A finite
+third ordinate under clamp-to-ground is counted and discarded with its own bounded altitude warning;
+altitude rendering/storage is not invented. Output normalizes `(longitude, latitude)` to canonical
+recognized EPSG:4326 and follows the literal non-wrapping dateline rule.
+
+Record IDs are `kml:placemark:<one-based Placemark preorder ordinal>`. A bounded nonblank KML `id`, if
+present, is data rather than source identity; no style/update references are resolved. The fixed schema
+is:
+
+| Field | Type/nullability | Value |
+| --- | --- | --- |
+| `kmlId` | `TEXT`, nullable | exact Placemark `id` or null |
+| `description` | `TEXT`, nullable | bounded character-only description or null |
+| `geometryKind` | `TEXT`, non-null | `point`, `line`, `polygon`, `multipoint`, `multiline`, or `multipolygon` |
+
+Placemark `name` becomes the record name. Description accepts text/CDATA and predefined XML character
+references but no nested element/HTML interpretation. Source count and extent cover emitted
+Placemarks only. Labels, balloon HTML, shared-style resolution, visibility inheritance beyond the
+approved true-only value, temporal filtering, regionation, network refresh, overlays, models, KMZ,
+`gx` extensions, ExtendedData mapping, and 3D output require later profile decisions.
+
+### Typed limits and deterministic diagnostics
+
+`GpxLimits` and `KmlLimits` are separate immutable values. They repeat the small common fields rather
+than expose a generic XML-security API; `KmlLimits` alone adds logical feature nesting depth. Defaults and
+hard maxima are inclusive:
+
+| Open-time ceiling | Default | Hard maximum |
+| --- | ---: | ---: |
+| Encoded input bytes | 16,777,216 | 268,435,456 |
+| XML nesting depth, root = 1 | 64 | 128 |
+| XML structural events, excluding text chunks | 4,000,000 | 32,000,000 |
+| Elements | 1,000,000 | 8,000,000 |
+| Attributes | 1,000,000 | 8,000,000 |
+| Namespace declarations | 65,536 | 1,048,576 |
+| Logical KML feature nesting depth, root feature = 1 | 32 | 64 |
+| Physical feature candidates | 100,000 | 1,000,000 |
+| Total coordinate positions | 2,000,000 | 16,000,000 |
+| Positions in one geometry or GPX segment | 1,000,000 | 16,000,000 |
+| Parts/rings/MultiGeometry components | 250,000 | 2,000,000 |
+| Characters in one scalar | 65,536 | 1,048,576 |
+| Aggregate decoded scalar characters | 16,777,216 | 134,217,728 |
+| Characters in one numeric token | 128 | 256 |
+| Conservatively owned open-time bytes | 268,435,456 | 1,073,741,824 |
+| Retained opening warnings | 256 | 4,096 |
+
+All count/character/input fields are positive `int`; owned bytes is positive `long`. GPX has no
+feature-depth accessor/token. Constructors and withers require total positions at least positions per
+geometry, aggregate characters at least one scalar, elements at least physical candidates, and events
+at least `2 * elements + 2`, using checked arithmetic. KML additionally requires XML depth at least
+logical feature depth plus six, covering `<kml>` and the deepest supported
+MultiGeometry/Polygon/boundary/ring/coordinates chain so both ceilings remain independently
+reachable. Owned bytes must be at
+least the checked sum of input bytes, 16 bytes per total coordinate, four bytes per part fence, eight
+bytes per candidate record slot, and two bytes per aggregate character. Input, structural, and query
+limits remain independently tighten-able and may intentionally become the first effective ceiling.
+Equality is accepted; maximum plus one and overflow fail before allocation/publication.
+
+Counts include ignored and unsupported-to-be-diagnosed subtrees through the point of failure, empty or
+skipped candidates, repeated ring closure, namespace/attribute content, pending warning categories,
+and all simultaneous defensive copies. Elements/attributes/namespaces are charged prospectively on
+their start event; decoded characters and numeric tokens are charged before appending; positions and
+parts before packed allocation. The snapshot plus retained output peak is charged even though the
+snapshot is dropped before source publication.
+
+The closed GPX outcomes are:
+
+| Code | Severity and exact context |
+| --- | --- |
+| `GPX_UTF8_BOM_IGNORED` | warning; empty context |
+| `GPX_EXTENSION_IGNORED` | warning; `scope=root|metadata|waypoint|track|segment|trackPoint` |
+| `GPX_FIELD_IGNORED` | warning; `scope=metadata|waypoint|track` |
+| `GPX_TRACK_POINT_DATA_IGNORED` | warning; `field=elevation|time|other` |
+| `GPX_TRACK_SEGMENT_SKIPPED` | warning; `reason=empty|singlePoint` |
+| `GPX_IO_FAILED` | error; `operation=attributes|open|read|close`, `reason=notFound|accessDenied|changed|other` |
+| `GPX_ENCODING_INVALID` | error; `reason=bom|utf8|xmlVersion|declaredEncoding` |
+| `GPX_XML_INVALID` | error; `reason=syntax|doctype|entity|namespace|order|cardinality|trailingContent` |
+| `GPX_PROFILE_UNSUPPORTED` | error; `construct=route|foreignElement|coreElement|attribute` |
+| `GPX_VALUE_INVALID` | error; `field=creator|latitude|longitude|elevation|time|name|comment|description|source|symbol|type|trackNumber|coordinates`, `reason=missing|duplicate|syntax|range|nonFinite|length|cardinality|closure` |
+
+The closed KML outcomes are:
+
+| Code | Severity and exact context |
+| --- | --- |
+| `KML_UTF8_BOM_IGNORED` | warning; empty context |
+| `KML_PRESENTATION_IGNORED` | warning; `construct=open|view|snippet|contact|style|styleUrl|extendedData` |
+| `KML_ALTITUDE_IGNORED` | warning; empty context |
+| `KML_PLACEMARK_SKIPPED` | warning; `reason=noGeometry` |
+| `KML_IO_FAILED` | error; `operation=attributes|open|read|close`, `reason=notFound|accessDenied|changed|other` |
+| `KML_ENCODING_INVALID` | error; `reason=bom|utf8|xmlVersion|declaredEncoding` |
+| `KML_XML_INVALID` | error; `reason=syntax|doctype|entity|namespace|order|cardinality|trailingContent` |
+| `KML_PROFILE_UNSUPPORTED` | error; `construct=network|overlay|model|tour|update|region|time|schema|foreignElement|visibility|geometry|multiGeometry|altitudeMode|extrude|tessellate|attribute` |
+| `KML_VALUE_INVALID` | error; `field=id|name|description|coordinates|longitude|latitude|altitude|outerRing|innerRing`, `reason=missing|duplicate|syntax|range|nonFinite|length|cardinality|closure|nestedContent` |
+
+`SOURCE_LIMIT_EXCEEDED` uses `scope=gpxOpen|kmlOpen` and exact limit tokens
+`inputBytes|xmlDepth|xmlEvents|elements|attributes|namespaceDeclarations|featureDepth|features|
+coordinates|geometryCoordinates|parts|scalarCharacters|textCharacters|numberCharacters|ownedBytes`;
+`featureDepth` is KML-only. The retained-warning value caps the report and increments G4's omitted-
+warning count rather than terminating with a limit diagnostic. G4 retains `SOURCE_CANCELLED`, query-
+limit diagnostics, and `SOURCE_CLOSE_FAILED` unchanged.
+
+Every diagnostic has component `gpx` or `kml`. A feature-local result uses the positive physical
+candidate number; exact `pointIndex`, when relevant, is a bounded decimal context value. Other parser
+locations are omitted because StAX line/column/offset behavior is implementation-dependent. No path,
+creator/name/ID/text/coordinate token, namespace prefix, URI, href, XML excerpt, parser location,
+class, or cause message appears in stable output.
+
+Opening precedence for both is public arguments, already-cancelled token, parser-policy configuration,
+path/attributes/input size, snapshot/read/close, UTF-8/BOM/XML declaration, structural XML events in encounter
+order, prospective structural limits, namespace/root profile, candidate structure/values, packed
+allocation, duplicate generated-ID/schema validation, final cancellation, and source publication.
+An encountered terminal format error remains primary; pending earlier warnings precede it, and cleanup
+failures are suppressed. Source/cursor precedence after publication is the existing G4 in-memory
+order.
+
+### Evidence and implementation decomposition
+
+Future tests use hand-built fixtures plus a small legally redistributable real-producer set for each
+format, with source/license/provenance and SHA-256 recorded. They cover namespace prefixes, root/order,
+every supported record/geometry, fixed schemas, dateline literals, empty sources, BOM, CDATA/entity
+escaping, presentation/extension warning retention and omission, all rejected constructs, malformed XML/UTF-8, DTD/XXE/
+schema-location/resolver canaries, exact/one-over limits, checked overflow, already/mid-parse
+cancellation, snapshot mutation, cleanup precedence, query lifecycle, and tolerant map rendering.
+No input canary may access a public network or local file outside its temporary fixture tree.
+
+Architecture tests prove JDK-only/AWT-free modules, no shared XML module, only
+`newDefaultFactory()`, exact parser settings/readback, no internal JDK API/reflection/discovery, no
+URL/network/schema resolution, and no parser type leakage. Each module joins publication staging and
+the ordinary offline Java 21 consumer with no external dependency mirror. Native tests explicitly
+register the tiny fixture resources and exercise parser construction, one query/render success, an
+ignored-data warning, and one exact malformed result on Linux. They make no broader platform claim
+without corresponding evidence and add no new corpus command.
+
+After approval, create eight one-to-five-day working cards:
+
+1. `G10-050` — create `mundane-map-io-gpx` with the hardened snapshot/StAX boundary, fixed source,
+   waypoint query/render slice, publication staging, and offline consumer.
+2. `G10-051` — add track-segment lines, fixed attributes, warned vertex-data omission, viewer, and
+   tolerant render regression.
+3. `G10-052` — close GPX grammar, bounded ignored-content reporting, every limit/diagnostic/cancellation/
+   mutation/cleanup case, and provenance-recorded fixtures.
+4. `G10-053` — extend `nativeSmoke` with explicit GPX success/warning/malformed paths and record the
+   bounded Linux evidence.
+5. `G10-054` — create `mundane-map-io-kml` with the same independently implemented security boundary,
+   container traversal plus Point/LineString query/render, publication staging, and offline consumer.
+6. `G10-055` — add Polygon and homogeneous MultiGeometry mappings through viewer and tolerant render
+   regression.
+7. `G10-056` — close KML presentation warnings, rejected dynamic/network/altitude behavior, every
+   limit/diagnostic/cancellation/mutation/cleanup case, and provenance-recorded fixtures.
+8. `G10-057` — extend `nativeSmoke` with explicit KML success/warning/malformed paths and close the
+   shared security-evidence review without merging the modules.
+
+G10-051 through G10-053 are serial after G10-050; G10-055 through G10-057 are serial after G10-054;
+G10-057 additionally waits for G10-053 for the combined closeout. The GPX and KML branches are
+logically parallel after G10-005, but their first cards are not path-safe while both change settings,
+architecture inventories, publication, consumer, native inventory, task index, and roadmap files.
+One integration owner serializes those shared changes. No module is created by this profile card.

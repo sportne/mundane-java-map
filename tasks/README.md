@@ -217,7 +217,7 @@ already implementation tasks, while any broader follow-up still requires a new c
 | [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](G10-003-geotiff-raster-and-elevation-profile-decision.md) | Proposed | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
-| [G10-005 — GPX and KML source profiles](G10-005-gpx-and-kml-source-profiles.md) | Proposed | HITL | G8-004 | Bound first track/waypoint and static-feature profiles. |
+| [G10-005 — GPX and KML source profiles](G10-005-gpx-and-kml-source-profiles.md) | Proposed | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
 | [G10-006 — Remote tile source first slice](G10-006-remote-tile-source-first-slice.md) | Proposed | AFK | G8-004 | Fetch bounded cancellable HTTP tiles with deterministic local tests. |
 | [G10-007 — Additional projection selection](G10-007-additional-projection-selection.md) | Proposed | HITL | G8-004 | Select the next projection from evidence and decide its adapter boundary. |
 

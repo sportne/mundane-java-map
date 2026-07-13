@@ -7,40 +7,53 @@ Type: HITL
 
 ## Goal
 
-Define small, secure first profiles for GPX waypoints/tracks and static KML features before creating
-independent source adapters.
+Approve small, secure GPX 1.1 waypoint/track and static KML 2.2 geometry profiles before creating two
+independent JDK-only source modules.
 
 ## Context
 
-Both are XML formats but differ substantially in geometry, styling, extension, and network behavior.
-The existing feature-source and secure-input rules allow a shared review approach, not a combined
-production module.
+Both are XML formats but differ substantially in geometry, presentation, extension, and network
+behavior. The existing G4 source/CRS/diagnostic contracts and G0 explicit-construction rules allow one
+secure JDK StAX policy to be reviewed, not a combined production module or public XML abstraction.
+The normative references are the Topografix GPX 1.1 schema and OGC KML 2.2.
 
 ## Scope
 
-For GPX, decide supported versions, waypoints, track segments, timestamps/elevation, extensions, and
-WGS 84 mapping. For KML, decide static point/line/polygon/multipart features, folders, names,
-altitude handling, and a minimal style subset. For both, define secure JDK XML parsing, stable
-diagnostics, size/depth/element/coordinate limits, lifecycle, and later separate task sequences.
+Lock GPX version/root/order, waypoint and track-segment records, fixed attributes, omitted per-vertex
+data, routes/extensions, and longitude/latitude mapping. Lock KML containers, placemarks, Point,
+LineString, Polygon, homogeneous MultiGeometry, clamp-to-ground handling, ignored presentation, and
+rejected dynamic/network constructs. For both, define strict UTF-8 local snapshots, direct hardened
+JDK StAX, materialized source lifecycle, stable diagnostics, exact limits/accounting, rendering,
+publication, consumer, Native Image evidence, and separate working implementation sequences.
 
 ## Out of scope
 
-Production parsing or modules, GPX routes unless promoted by the decision, KML tours/models/regions,
-NetworkLinks, remote resources, scripts, arbitrary extensions/styles, KMZ, writing, and shared XML
-library types in public APIs.
+Production parsing or modules, GPX routes/extension semantics, per-track-point attribute series, KML
+styles/labels/temporal or region filtering, tours/models/overlays/NetworkLinks, remote resources,
+scripts, ExtendedData semantics, KMZ, altitude rendering, writing, schema validation, alternate
+encodings, and shared XML library types in public APIs.
 
 ## Acceptance criteria
 
-- A maintainer approves separate GPX and KML supported/rejected/deferred matrices.
-- Profiles define geometry/attribute mapping, CRS/axis behavior, unsupported-content diagnostics, XML
-  hardening, and conservative resource limits.
-- Network and external entity resolution are disabled; local input never causes implicit I/O.
-- Follow-up tasks are format-specific working slices and create no empty or combined XML adapter.
+- The **G10 GPX/KML source profile approval** checkpoint approves both independent format matrices,
+  warned omissions, and later task graphs.
+- Both profiles expose fixed facades returning G4 `FeatureSource`, materialize bounded immutable
+  records from one closed local snapshot, normalize longitude/latitude to recognized EPSG:4326, and
+  keep parser and format types private.
+- `XMLInputFactory.newDefaultFactory()` is namespace-aware and configured/read back with DTD,
+  external entities, validation, and replacement disabled plus a resolver that always rejects; no
+  schema location, XInclude, URI, href, or external resource causes I/O.
+- Exact grammar, geometry, attribute, warning, diagnostic-precedence, cancellation, lifecycle,
+  UTF-8, XML-event, feature/coordinate, text, and owned-byte behavior is implementation-ready.
+- G10-050 through G10-057 each add working format behavior before a module appears; there is no shared
+  XML module, style engine, live-parser source, or empty adapter.
 
 ## Required tests
 
-No production tests. Identify later valid, namespace/version, malformed XML, XXE/entity, limit,
-geometry/rendering, corpus, and Native Image cases for each format.
+No production tests. Define later generated and independent fixtures for valid feature mappings,
+namespace/version/order, UTF-8/XML/XXE/entity/schema-location canaries, warning retention/omission,
+malformed and exact/one-over limits, cancellation/cleanup, tolerant rendering, publication consumers,
+and explicit Linux Native Image success plus stable malformed outcomes for each format.
 
 ## Validation
 
@@ -52,5 +65,6 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: the maintainer approves both first profiles and their separate implementation task
-graphs. Features not approved here remain backlog items, not implied parser behavior.
+HITL checkpoint: **G10 GPX/KML source profile approval**. Approval covers both exact subsets, warned
+data loss, strict UTF-8/direct JDK StAX boundary, two module/lifecycle designs, stable diagnostics,
+Native Image expectations, and eight later task cards. Unapproved behavior remains backlog work.
