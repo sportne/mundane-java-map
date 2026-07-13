@@ -54,7 +54,7 @@ design task; there are no empty speculative design files.
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
 | G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-010 approved |
-| G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-003 approved; G6-004 draft |
+| G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-005 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -108,6 +108,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Retain world-file placement as an invertible pixel-center affine transform. | A tagged axis/affine placement preserves exact G4 grid behavior while true parallelogram planning and drawing avoid guessed CRS, envelope stretching, or a general warp model. |
 | 2026-07-12 | Resample raster requests once with exact project-owned nearest/bilinear math and keep opacity in AWT presentation state. | Window-local integer filtering, screen-density planning, and immutable render options avoid codec-dependent correctness, double filtering, or cache-key pollution. |
 | 2026-07-12 | Harden image input with complete bounded container validation and one versioned per-source result cache. | Exact snapshots/digests, serialized lifecycle, and fresh consumer buffers provide deterministic reuse without multiple cache layers, ambient refresh, or pre-evidence performance claims. |
+| 2026-07-12 | Extend the one explicit native smoke with fixed PNG/JPEG affine resources and one malformed PNG. | Shared JVM/native assertions and literal reachability metadata prove the real codec, placement, cache, rendering, diagnostic, and cleanup path without discovery, a second executable, or a cross-platform claim. |
 
 ## Task design traceability
 
@@ -148,4 +149,5 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G6-001 | Bounded PNG/JPEG profile, source-owned decode reservation, explicit registry/context, narrow ImageIO qualification, lifecycle, viewer, and publication wiring | Approved |
 | G6-002 | Exact sidecar snapshot/grammar, pixel-center affine placement/inverse, conservative window planning, true AWT parallelogram drawing, and viewer evidence | Approved |
 | G6-003 | Source-compatible interpolation requests/context, exact core resampling, bounded ImageIO hints, affine output planning, immutable opacity/options, and render evidence | Approved |
-| G6-004 | Full PNG/JPEG validation, exact content snapshots/versioning, one bounded source result cache, serialized read/close lifecycle, and hostile-input evidence | Draft |
+| G6-004 | Full PNG/JPEG validation, exact content snapshots/versioning, one bounded source result cache, serialized read/close lifecycle, and hostile-input evidence | Approved |
+| G6-005 | Fixed native raster resources, explicit codecs, shared semantic/diagnostic scenario, exact reachability metadata, lifecycle evidence, and G6 closeout | Approved |

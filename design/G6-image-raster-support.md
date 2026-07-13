@@ -1222,3 +1222,242 @@ the complete hardening slice. There is no refresh API, public version, cache SPI
 metadata tree, writer, or concurrency framework. If implementation effort must be sequenced inside the
 task, validators/versioning land before cache admission, but the task is complete only when the one
 observable cached hardened source works end to end.
+
+## Native Image raster smoke and G6 closeout (G6-005)
+
+### One existing executable and explicit codec path
+
+G6-005 extends the existing `mundane-map-native-tests` application, its one
+`NativeSmokeMain.runSmoke()` assertion path, and its existing final
+`mundane-map native smoke: OK` sentinel. It adds no native module, executable, JUnit image, scenario
+registry, codec option, or CI job. The support module adds an explicit runtime dependency on
+`mundane-map-io-image` and retains the G5 shapefile dependency. Its raster scenario constructs exactly
+one `AwtRasterDecoders.level1()` registry and requires declaration order `PNG`, then `JPEG`; every open
+receives that registry directly.
+
+The application therefore selects the Level 1 decoder explicitly even though the confined AWT
+adapter still performs G6-001's narrow standard-JDK `ImageReaderSpi` snapshot. No application
+`ImageIO` call, provider class name, service descriptor, `scanForPlugins`, reflection configuration,
+internal `com.sun.*` reference, tracing agent, metadata repository, or fallback is introduced. The
+existing `metadataRepository.enabled=false`, `fallback=false`, and `--no-fallback` settings remain
+exact. If the Java 21 GraalVM baseline cannot reach the standard JDK PNG/JPEG readers under these
+constraints, the implementation task is Blocked rather than widened to a prohibited mechanism.
+Any necessary compatibility correction must preserve the approved JVM semantics, remain inside the
+owning G6 production module, add a focused JVM regression, and introduce no new public API or broad
+initialization/reachability flag.
+
+The top-level success path stays compile-time and sequential: run the approved G2 symbol scenario,
+run the approved G5 shapefile scenario, then call one package-private
+`NativeRasterSmokeScenario.run(...)`. There is no name-to-scenario map or reflective dispatch. I/O and
+workspace/open/direct-request work runs off the EDT. `MapView` mutation, owned binding, offscreen
+paint, and close marshal synchronously through the existing G1 EDT bridge; under the approved G4
+architecture, paint performs its tiny synchronous source fingerprint/decode/read on that EDT. Thread
+tests pin both sides of this boundary rather than claiming all source I/O is off-EDT. The Swing EDT
+remains the only helper thread.
+
+### Five fixed raster resources
+
+The native support module adds exactly these root-BSD-3-Clause runtime resources:
+
+```text
+/io/github/mundanej/map/nativeimage/raster/png-affine-smoke.png
+/io/github/mundanej/map/nativeimage/raster/png-affine-smoke.pgw
+/io/github/mundanej/map/nativeimage/raster/jpeg-affine-smoke.jpg
+/io/github/mundanej/map/nativeimage/raster/jpeg-affine-smoke.jgw
+/io/github/mundanej/map/nativeimage/raster/malformed-idat-crc.png
+```
+
+Adjacent test-only provenance records pin the repository-authored generation program/tool version,
+dimensions/profile, exact length, lowercase SHA-256, semantic pixels, and BSD disposition, but are not
+main/native resources. The implementation records the reviewed length/SHA in package-private literal
+resource constants and tests them against the bytes; it does not regenerate images during a build or
+native run.
+
+The PNG is a deterministic 4 by 4 RGBA image with constant 2-by-2 quadrants in row order:
+
+```text
+top-left     (220, 40, 40,255)    top-right    ( 30,180, 80,255)
+bottom-left  ( 40, 90,220,255)    bottom-right (240,190, 30,128)
+```
+
+Its `.pgw` is the exact 21 ASCII bytes `20\n5\n4\n-18\n1000\n2000\n`. The pixel-center affine
+coefficients are `A=20,D=5,B=4,E=-18,C=1000,F=2000`; the 4-by-4 outer-corner envelope is exactly
+`[988,1934.5,1084,2026.5]`. Point `(990,1950)` is inside that envelope but outside the raster
+parallelogram and is the fixed background probe.
+
+The JPEG is a checked-in deterministic 16 by 12 baseline RGB image with constant 8-by-6 source
+quadrants centered on target colors `(200,50,50)`, `(50,180,70)`, `(50,80,200)`, and `(220,190,40)`.
+The checked bytes, not repeatability of a platform JPEG writer, are authoritative; source-cell probes
+away from block boundaries allow 20 per channel. Its `.jgw` is exact ASCII
+`12\n2\n-3\n-10\n3000\n1000\n`, giving `A=12,D=2,B=-3,E=-10,C=3000,F=1000` and outer envelope
+`[2959.5,884,3187.5,1036]`.
+
+The malformed PNG is a 70-byte, otherwise valid 1-by-1 RGBA structure whose sole IDAT CRC has exactly
+one flipped bit. The CRC begins at absolute byte offset 54. Opening must terminate before source
+publication with `IMAGE_CONTAINER_INVALID`, component `image`, byte offset 54, and exact context
+`format=PNG`, `reason=chunkCrc`. This deliberately reaches G6-004 container hardening rather than the
+earlier signature/header probe. It is one diagnostic fixture, not a native hostile corpus.
+
+G2-007's single Java 21 `resource-config.json` gains five individually `\Q...\E`-quoted includes,
+without lookup-leading slashes, under the unchanged `NativeSmokeMain` reachability condition. After
+G6 it contains exactly 12 entries: the G2 raw icon, six G5 shapefile resources, and these five raster
+resources. A JVM test compares normalized exact JSON and the complete processed main-resource tree.
+Wildcards, directories, provenance/license copies, bundles, services, provider metadata, and any
+unlisted resource fail the test.
+
+### One private fixed-workspace engine
+
+G6 avoids a second implementation of G5's resource-to-`Path` safety rules. Native-support internals
+extract the existing mechanics into one package-private `NativeFixtureWorkspace` engine with two
+compile-time-only factories: `openShapefile()` materializes only the six G5 resources and exposes
+immutable `NativeShapefilePaths`; `openRaster()` materializes only the five G6 resources and exposes
+immutable `NativeRasterPaths`. Each instance owns a separate temporary directory. Callers cannot
+supply a resource name, filename, directory, expected hash, inventory, or algorithm. The G2 raw icon
+retains its direct bounded stream loader because no public API requires a path for it.
+
+`runSmoke()` owns the sequence exactly:
+
+```text
+run approved G2 symbol scenario
+try (shapefileWorkspace = NativeFixtureWorkspace.openShapefile())
+  run approved G5 scenario borrowing shapefileWorkspace.shapefilePaths()
+try (rasterWorkspace = NativeFixtureWorkspace.openRaster())
+  run G6 scenario borrowing rasterWorkspace.rasterPaths()
+print success sentinel
+```
+
+Each scenario must close every cursor/source/view before its borrowed workspace scope ends. A symbol
+failure creates no workspace. A shapefile open/scenario/close failure completes that workspace's
+cleanup and prevents raster workspace creation. A raster failure cleans only its raster workspace.
+Try-with-resources supplies the exact ordering: scenario failure stays primary and workspace-close
+failure is suppressed; a close failure after an otherwise successful scenario is primary. Separate
+inventory instances preserve every G5 resource-failure test and prevent a missing G6 file from
+changing whether the approved G5 scenario can start.
+
+Both factories preserve G5's exact mechanics: literal `Class.getResourceAsStream`, at most
+`expectedLength + 1` bytes, exact length and literal SHA-256, flat unique local names, `CREATE_NEW`,
+ownership recorded before first write, reverse known-path cleanup, no list/walk/enumeration, original
+failure primary with cleanup suppressed, and idempotent close. The only digest call remains literal
+`MessageDigest.getInstance("SHA-256")`; no provider/algorithm input or public loader is added. Refactoring
+must leave the G5 scenario and its resource-failure tests semantically unchanged. After every source
+and owned view closes, successful deletion of each instance's files/directory is part of the shared
+smoke.
+
+### Shared PNG/JPEG semantic scenario
+
+The scenario creates one `CrsRegistry.level1()`, resolves exact key `EPSG:3857` to `mercator`, and
+constructs source metadata exactly as
+`CrsMetadata.recognized(mercator, Optional.of("EPSG:3857"), Optional.empty())`; no identifier parsing or
+CRS guess occurs. Every render view is
+`MapView(crsRegistry, mercator, mercator, SymbolRendererRegistry.builtIn())`, so both map/display
+directions use the registered identity and the source CRS matches the raster-attachment boundary.
+
+The PNG path opens the fixed file through `RasterImages` with that metadata in
+`ImagePlacement.worldFile(...)`, default bounded limits/cache, and the explicit decoder registry. It
+asserts the 4-by-4 metadata, exact affine
+coefficients/envelope/canonical CRS, and clean opening report. An already-cancelled full-window read
+must fail with exact `SOURCE_CANCELLED`, perform no successful cache admission, and leave the source
+reusable.
+
+Two identical full-window 4-by-4 to 2-by-2 `BILINEAR` reads then traverse G6-004 fingerprinting and the
+default result cache. They return distinct consumer `RgbaPixelBuffer` instances with equal contents,
+the exact request/result window and shape, clean reports, and exact output indexes
+`(0,0)/(1,0)/(0,1)/(1,1)` equal to the top-left/top-right/bottom-left/bottom-right RGBA values above.
+Native code does not reach into package-private cache metrics; focused JVM image tests prove the second
+request is a hit, while the shared repeated native call proves that path is reachable and still returns
+independent values.
+
+The still-open PNG source transfers to one owned EPSG:3857 raster binding with bilinear presentation
+and opacity `0.5`. A fixed 192-by-160 opaque-white offscreen view fits with 12 logical pixels. Public
+affine/map-to-screen conversion locates safe quadrant probes; 3-by-3 majority samples allow 20 per
+channel around the single expected source-alpha plus layer-opacity `SrcOver` composition. Exact
+source-grid/world/opaque-output targets are:
+
+| Source grid center | World point | Expected over-white RGB at opacity 0.5 |
+| --- | --- | --- |
+| `(0,0)` | `(1000,2000)` | `(238,148,148)` |
+| `(3,0)` | `(1060,2015)` | `(143,218,168)` |
+| `(0,3)` | `(1012,1946)` | `(148,173,238)` |
+| `(3,3)` | `(1072,1961)` | `(251,239,199)` |
+
+The 3-by-3 majority probe is centered on each public `mapToScreen(worldPoint)` result. The envelope-
+only point `(990,1950)` remains white. Every nonwhite pixel is contained by the transformed envelope
+expanded two logical pixels, and the total nonwhite count lies between 100 and 25,000. View close owns
+and closes the source; a lifecycle assertion confirms a later read is rejected.
+
+The JPEG path separately opens through its world file and the same registry, asserts the 16-by-12
+metadata, exact transform/envelope/CRS, and clean report, then performs two identical full-window
+16-by-12 to 4-by-3 `NEAREST` reads. Results are distinct but equal, have the exact shape, and their four
+output indexes `(0,0)/(3,0)/(0,2)/(3,2)` are within 20 per channel of the declared
+top-left/top-right/bottom-left/bottom-right targets. A separate 192-by-144 white view uses nearest
+interpolation, opacity `1.0`, and 12-pixel fit padding. Its four 3-by-3 majority probes use:
+
+| Source grid center | World point | Expected RGB |
+| --- | --- | --- |
+| `(2,2)` | `(3018,984)` | `(200,50,50)` |
+| `(14,2)` | `(3162,1008)` | `(50,180,70)` |
+| `(2,10)` | `(2994,904)` | `(50,80,200)` |
+| `(14,10)` | `(3138,928)` | `(220,190,40)` |
+
+Each probe centers on `mapToScreen` and allows 20 per channel. Fixed envelope-only point
+`(2965,1020)`, envelope-plus-two containment, and a 100-to-25,000 nonwhite count prove decode,
+placement, fit, and drawing without whole-image identity. Owned close is exact.
+
+Finally, the scenario opens the malformed PNG unplaced through the same explicit registry and asserts
+the exact terminal diagnostic above, no source publication, and no path/provider/raw-byte text. All
+previously returned immutable metadata, reads, and reports remain readable after source/view/workspace
+close. A failure throws one bounded invariant token from
+`raster-registry`, `raster-png-metadata`, `raster-png-bilinear`, `raster-png-opacity`,
+`raster-png-affine`, `raster-jpeg-decode`, `raster-jpeg-affine`, `raster-cache-ownership`,
+`raster-cancel`, `raster-diagnostic`, or `raster-cleanup`; any failure prevents the final sentinel.
+
+`NativeRasterSmokeScenario` and its assertion helper are shared unchanged by JVM and native execution.
+JVM negative controls alter one expected coefficient, sample, opacity, diagnostic, length, or hash and
+must fail the matching invariant. JVM tests also pin decoder order, off-EDT/EDT transfer, cancellation
+reuse, distinct repeated results, exact resource inventory/metadata, primary/suppressed cleanup, and
+post-close file deletion. Architecture tests scan native-support plus image production output and
+preserve every Level 1 prohibition.
+
+### Strict native lane and checkpoint
+
+The implementation validation is intentionally separate: focused native-support/architecture JVM
+checks, then the actual `nativeSmoke`, then `qualityGate` and whitespace. `nativeSmoke` must find a
+Java 21 GraalVM `native-image`, build with no fallback, execute the same assertions, and print the
+sentinel only after all G2/G5/G6 scenarios pass. Missing tooling, a build-only success, a JVM fallback,
+or a skipped runtime is not evidence and prevents this HITL task from becoming Complete. Corpus,
+render-regression, performance, publication, and consumer lanes do not run here.
+
+The named checkpoint is **G6 native raster approval**. A maintainer records reviewed commit,
+reviewer/date, Linux OS/architecture, GraalVM distribution, full Java 21 and `native-image` versions,
+exact focused/native commands and final sentinel, registry order, PNG/JPEG decode/affine/cache-path
+summary, the malformed diagnostic, fixture provenance/length/SHA/license disposition, cleanup result,
+and pass/fail or CI URL. Other-platform evidence may be recorded as supplemental, but this task makes
+no Windows, macOS, all-Linux, or cross-platform Native Image claim.
+
+### G6 holistic simplicity closeout
+
+The completed G6 boundary remains one small raster format slice:
+
+- `mundane-map-io-image` is JDK-only/AWT-free and exposes only its static facade plus immutable
+  open/placement/limit/cache-policy values returning format-neutral `RasterSource`; parsers, channels,
+  versions, cache keys, and validators remain private;
+- API owns the unavoidable toolkit-neutral decoder format/context/registry, affine/grid placement,
+  request/interpolation, and packed RGBA contracts; core owns one affine-window plan and one exact
+  resampling implementation; AWT alone owns the standard JDK ImageIO bridge, Java2D conversion,
+  affine drawing, and presentation options;
+- one explicit application registry selects two fixed codecs, one exact source snapshot/version and
+  serialized lifecycle own one bounded decoded/resampled RGBA cache, and G7 measures before adding any
+  higher render cache;
+- world files locate pixel centers but never invent CRS, and the affine envelope is never substituted
+  for the actual parallelogram; reprojection/warping and GeoTIFF remain Level 2; and
+- normal fixtures, hostile tests, render regression, viewer, and native resources are separate
+  consumers of one production path, not alternate decoders or parsers.
+
+No external dependency, empty module, codec plug-in system, general image model, metadata tree, warp
+framework, worker, discovery, native parser, or performance claim survives the gate. The decoder
+boundary is retained only because `java.desktop` cannot enter the AWT-free format module; every other
+abstraction owns at least one already working semantic/lifecycle boundary. Removing another piece
+would lose bounded decoding, affine placement, deterministic sampling/presentation, hardening/cache
+ownership, or native parity. G6 is therefore simple enough and no simpler while remaining ergonomic:
+consumers supply one explicit registry and receive the same format-neutral raster source used by every
+other layer.

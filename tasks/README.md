@@ -81,8 +81,9 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
 - After G5-002, G5-003, G5-004, G5-006, and G5-007 may proceed in reserved behavior-specific
   package-private source files; one owner must integrate the shared shapefile facade, source, cursor,
   diagnostics, and authoritative project inventory.
-- G5 and G6 may proceed together after G4 once their separate module-registration edits have
-  landed.
+- G5 and G6 may proceed together after G4 once their separate module-registration edits have landed;
+  their production branches remain independent through G6-004. G6-005 is the deliberate native-smoke
+  convergence and waits for G2-007 and G5-010 before integrating the exact shared resource inventory.
 - G9-002 and G9-003 may proceed together after G9-001.
 - Level 2 profile decisions may proceed together after G8-004.
 
@@ -159,7 +160,7 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 | [G6-002 — World-file affine georeferencing](G6-002-world-file-affine-georeferencing.md) | Proposed | AFK | G6-001 | Apply bounded world-file affine georeferencing and CRS metadata. |
 | [G6-003 — Raster requests and rendering controls](G6-003-raster-requests-and-rendering-controls.md) | Proposed | AFK | G6-002, G2-006 | Add windowing, resampling, opacity, interpolation, and affine rendering. |
 | [G6-004 — Raster cache, lifecycle, and hardening](G6-004-raster-cache-lifecycle-and-hardening.md) | Proposed | AFK | G6-003 | Bound caches and malformed inputs while honoring close and cancellation. |
-| [G6-005 — Native Image raster smoke](G6-005-native-image-raster-smoke.md) | Proposed | HITL | G6-004 | Decode and render PNG/JPEG with affine metadata under Native Image. |
+| [G6-005 — Native Image raster smoke](G6-005-native-image-raster-smoke.md) | Proposed | HITL | G2-007, G5-010, G6-004 | Decode and render PNG/JPEG with affine metadata under Native Image. |
 
 ### G7 — Performance evidence and optimization
 
