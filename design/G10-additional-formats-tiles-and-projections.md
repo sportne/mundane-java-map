@@ -1118,3 +1118,482 @@ DTED and GeoTIFF. TIFF writing,
 BigTIFF, LZW/JPEG/predictors, palette/YCbCr/CMYK, arbitrary CRS, multiple IFDs/overviews, masks,
 COG/range access, persistent caches, GDAL, and format-specific acceleration require evidence and new
 tasks.
+
+## SQLite container adapter profiles (G10-004)
+
+### Approval and dependency boundary
+
+The named checkpoint is **G10 SQLite container profile approval**. It independently approves the
+GeoPackage and MBTiles profiles below, one external-driver deployment, the bounded JNI qualification,
+and the later implementation graph. G10-004 creates no module or production code.
+
+The future implementations are two published Level 2 Optional adapters:
+
+```text
+mundane-map-io-geopackage-xerial
+  -> mundane-map-api
+  -> selected mundane-map-core accounting and geometry algorithms
+  -> mundane-map-io-image for embedded PNG/JPEG tiles
+  -> JDK java.sql
+  -> pinned Xerial SQLite JDBC code and Linux native classifiers
+
+mundane-map-io-mbtiles-xerial
+  -> mundane-map-api
+  -> selected mundane-map-core raster algorithms
+  -> mundane-map-io-image for embedded PNG/JPEG tiles
+  -> JDK java.sql
+  -> the same pinned Xerial classifiers
+```
+
+The format name and implementation choice are both visible in the artifact name. There is no generic
+SQLite module, JDBC SPI, database abstraction, shared public container handle, or empty format module.
+The small private connection-policy implementation is duplicated deliberately: the two modules share
+no production dependency merely to hide several fixed statements and cleanup steps. Public signatures
+contain only JDK and MundaneJ values; JDBC, Xerial, SQLite, SQL, statement, result-set, and native
+loader types remain private. `mundane-map-api` is unchanged.
+
+Both tile adapters reuse the complete G6 PNG/JPEG profile through `mundane-map-io-image`; they do not
+reimplement image validation or call ImageIO. G0's normal ban on arbitrary format-module coupling is
+refined to permit an explicitly inventoried, acyclic container/transport-to-codec edge after both
+ends provide working behavior. Architecture tests allowlist only the concrete edges. For this task
+family those are `geopackage-xerial -> image` and `mbtiles-xerial -> image`; reverse edges, cycles,
+transitive toolkit leakage, and an open-ended I/O dependency category remain forbidden.
+
+On 2026-07-13 the approved resolvable dependency is `org.xerial:sqlite-jdbc:3.53.0.0`, the latest
+split release present in Maven Central. The exact artifacts are:
+
+| Artifact | SHA-256 | Use |
+| --- | --- | --- |
+| `sqlite-jdbc-3.53.0.0-without-natives.jar` | `8098b34191dd832a112934e12087e0d430b7e9ae93aee7c155e06f82866b1b2b` | Private JDBC implementation classes |
+| `sqlite-jdbc-3.53.0.0-natives-linux.jar` | `b56611404e866e2fc9bf5b5b7d731d650205a275e6bb4b035e03d5f28b89ddd1` | Upstream Linux SQLite JNI binaries |
+| `sqlite-jdbc-3.53.0.0.pom` | `7c897bfb3502e81d2ec7ed02c0221789805addb1bdce9641e513bf7b61730b7b` | Dependency and license provenance |
+
+The ordinary all-platform JAR, SHA-256
+`303e8150100982f2ed7d1b82d897278ef7744bd494c28ad4e7042b7914591697`, is rejected. The Linux
+classifier still contains upstream binaries for several Linux architectures and libc variants because
+Xerial publishes no narrower classifier; the first supported and tested runtime is Java 21 on Linux
+x86-64 with glibc only. The unused classifier entries are inventoried, not repackaged into a MundaneJ
+JAR, and do not widen the support claim. macOS, Windows, musl, other architectures, Android, a system-
+SQLite mode, and caller-supplied native libraries require separate packaging and evidence decisions.
+
+The implementation task must recheck Maven Central presence, release signatures, current security
+advisories, the exact resolved runtime graph, and all checksums without silently changing versions.
+It records Xerial's Apache-2.0 terms, the retained Zentus BSD notice, SQLite's public-domain status,
+any bundled notice obligations, and the pinned SQLite compile options required by GeoPackage 1.4
+Requirement 9. No version range, rich latest selector, local Maven fallback, or unverified GitHub-
+release binary is accepted.
+
+The code classifier physically contains `META-INF/services/java.sql.Driver`, Native Image feature
+metadata, dormant resource/URL loading paths, JNI declarations, native extraction, and process-global
+loader state. Project bytecode does not use any discovery path: it constructs the pinned
+`org.sqlite.jdbc4.JDBC4Connection` directly with private fixed properties. The external loader still
+extracts and loads its selected JNI library and therefore needs a writable temporary directory. That
+bounded third-party mechanism is accepted only inside these Optional adapters under G0's recorded
+external-artifact qualification. The service descriptor and Native Image metadata are not copied into
+a MundaneJ artifact or explicit native configuration, and no project code calls `DriverManager`,
+`ServiceLoader`, `SQLiteDataSource`, `Class.forName`, reflection, resource lookup, or native loading.
+
+These adapters are JVM-only and have Native Image policy `not-targeted`. Xerial's own reachability
+metadata is not a project compatibility claim. Neither adapter enters the shared native executable,
+and the Linux JVM evidence below cannot be described as Native Image evidence. Any later claim needs
+a new HITL packaging task that proves the exact native library, extraction/static-link policy,
+reachability, cleanup, and format behavior without weakening the Level 1 rules.
+
+Embedded database BLOBs establish the first real non-file consumer of G6's complete image profile.
+G10-042 therefore adds one toolkit-neutral synchronous helper to `mundane-map-io-image`, and G10-043
+reuses it:
+
+```text
+RasterImages.decode(byte[] encodedBytes, SourceIdentity identity,
+                    EncodedRasterDecodeOptions options,
+                    EncodedRasterDecoderRegistry decoders,
+                    CancellationToken cancellation) -> RgbaPixelBuffer
+
+EncodedRasterDecodeOptions(
+    Optional<EncodedRasterFormat> expectedFormat,
+    ImageSourceLimits imageLimits,
+    RasterRequestLimits decodeLimits)
+  defaults()
+  expecting(EncodedRasterFormat)
+  withImageLimits(...)
+  withDecodeLimits(...)
+```
+
+The helper checks cancellation/encoded size, defensively copies the caller array, applies the same
+complete PNG/JPEG header/container validation and explicit decoder registry as the file source, and
+decodes exactly the full native-size image into one independently owned buffer. An absent expected
+format trusts the signature; a present value must match it. It has no suffix, channel, placement,
+world file, cache, source lifecycle, AWT type, or decoder discovery. Accounting includes the caller-
+array copy, validation state, opaque decoder reservation, and returned RGBA buffer. The adapter wraps
+an image diagnostic once with only its stable code; raw BLOBs and nested messages remain private.
+This focused helper is smaller and safer than constructing an unplaced temporary `RasterSource` for
+every tile or making private G6 parsers public.
+
+### One strict read-only SQLite session policy
+
+Each inspection call or returned source owns one direct connection. There is no pool, shared static
+connection, thread-local, connection registry, arbitrary SQL hook, transaction API, or public database
+handle. Inspection closes before returning an immutable catalog. A feature source owns its connection
+until source close and permits G4's one live cursor. A tile source similarly owns one connection and
+performs one serialized raster read at a time. Returned records, pixels, metadata, reports, and catalog
+values are detached and remain valid after connection/source close.
+
+Input is one caller-authorized local `Path`. Before JNI loading, the adapter:
+
+1. rejects null, non-absolute-after-normalization, symbolic-link, non-regular, non-readable, empty,
+   and over-limit files using `NOFOLLOW_LINKS`;
+2. captures a non-null Linux file key, size, and last-modified time;
+3. rejects sibling files with the exact `-journal`, `-wal`, or `-shm` suffixes;
+4. reads and validates the fixed SQLite header, page-size/file-size relation, and format-specific
+   application/user version fields without exposing input bytes; and
+5. constructs its own percent-encoded `file:` URI with `mode=ro&immutable=1`—never a user URI,
+   `:memory:`, `:resource:`, URL, or classpath name.
+
+The same fingerprint and sidecar absence are checked before and after every public inspection, cursor
+advance batch, raster read, and final publication. A mismatch permanently fails the source with a
+stable input-changed diagnostic. `immutable=1` is safe only while the caller prevents concurrent
+mutation; fingerprint checks detect ordinary changes but are not claimed to isolate a file from a
+hostile writer that can preserve all metadata. Applications needing that adversarial boundary must
+copy into a separately secured immutable file before opening.
+
+The private connection uses SQLite `READONLY`, `URI`, and private-cache modes and immediately applies
+and reads back this connection-local policy before format SQL:
+
+```text
+PRAGMA query_only=ON
+PRAGMA trusted_schema=OFF
+PRAGMA foreign_keys=ON
+PRAGMA cell_size_check=ON
+PRAGMA temp_store=MEMORY
+PRAGMA mmap_size=0
+PRAGMA automatic_index=OFF
+PRAGMA cache_size=-8192
+```
+
+It never changes journal mode, attaches a database, loads an extension, executes schema-provided SQL,
+invokes a user function, or writes a temp table. Selected/core objects must be real tables, not views,
+virtual tables, shadow tables, or attached-schema objects. Inert triggers count toward schema limits
+but are neither parsed nor executed because the adapter never writes. Every statement is a private fixed
+`SELECT` or safe PRAGMA. Caller/database identifiers are length checked, contain no NUL, and are
+quoted by doubling every double quote; values are bound parameters. SQL text and native exception
+messages never enter diagnostics.
+
+Private `SQLiteConnection.setLimit` calls reduce string/blob length, SQL length, columns, expression
+depth, compound selects, function arguments, attached databases, LIKE pattern length, bound
+variables, trigger depth, and worker threads before schema inspection. A private Xerial
+`ProgressHandler` runs every 1,000 virtual-machine opcodes, polls the operation token, and charges the
+operation budget prospectively; an interrupt is translated by the atomically recorded reason into
+either cancellation or limit exhaustion. Java loops additionally poll before/after every opaque JDBC
+call, at most every 4,096 rows/bytes/coordinates, and immediately before publication.
+
+SQLite parsing, B-tree pages, page cache, JNI transitions, native result storage, and the driver's
+temporary native extraction are opaque external allocations. The adapter therefore claims bounded
+file size, SQLite limits, an 8-MiB connection page-cache request, VM work, returned rows/blobs,
+project-owned allocations, and operation lifetime—not prospective byte-perfect native allocation.
+That explicit qualification is part of the Optional-adapter approval and is never generalized to a
+JDK-only parser. The first terminal format/cancellation/limit result is primary; statement,
+progress-handler, connection, and temporary cleanup failures are suppressed in that order. Close is
+idempotent and permanent even after cleanup failure.
+
+### GeoPackage 1.4.0 profile
+
+`mundane-map-io-geopackage-xerial` implements a strict, extension-free read-only subset of OGC
+GeoPackage 1.4.0. It requires a case-insensitive `.gpkg` filename suffix, application ID `GPKG`,
+`user_version=10400`, the required core tables,
+and exact declared constraints needed by the selected content. Older/newer versions, extended
+GeoPackages, every row in `gpkg_extensions`, related tables, attributes-only contents, metadata,
+schema/data-column constraints, RTree, WebP, tiled gridded coverage, vector tiles, 3D, and custom
+geometry types are deferred. The object inventory permits required core tables, an optional empty
+`gpkg_extensions`, catalogued feature/tile user tables, their ordinary B-tree indexes and inert
+triggers, and SQLite's fixed internal objects. An attributes/unknown contents row or any other
+application table/view/virtual table is a recognizable unsupported content/extension construct rather
+than silently ignored.
+
+The lean public surface is:
+
+```text
+GeoPackages.inspect(Path, SourceIdentity, GeoPackageInspectOptions, CancellationToken)
+  -> GeoPackageCatalog
+
+GeoPackages.openFeatures(Path, SourceIdentity, String tableName,
+                         GeoPackageFeatureOptions, CancellationToken)
+  -> FeatureSource
+
+GeoPackages.openTiles(Path, SourceIdentity, String tableName, int zoom,
+                      GeoPackageTileOptions, EncodedRasterDecoderRegistry,
+                      CancellationToken)
+  -> RasterSource
+
+GeoPackageCatalog
+  featureTables() -> immutable List<GeoPackageFeatureTable>
+  tileTables() -> immutable List<GeoPackageTileTable>
+  report() -> DiagnosticReport
+
+GeoPackageInspectOptions / GeoPackageFeatureOptions / GeoPackageTileOptions
+  compose GeoPackageLimits with only the relevant G4 source limits/cache policy
+```
+
+Catalog descriptors expose bounded immutable table names, geometry kind/schema/CRS metadata, or tile
+matrix levels and bounds. They expose no connection or lazy operation. Selection is an exact catalog
+name, not a SQL fragment, pattern, ordinal guess, or automatic first table.
+
+The feature profile accepts one ordinary user table per source, one `INTEGER PRIMARY KEY`, and one
+2D geometry column declared as Point, MultiPoint, LineString, MultiLineString, Polygon, MultiPolygon,
+or the corresponding generic Geometry only when every row is one of those types. IDs are the canonical
+decimal primary-key values; rows are emitted in ascending primary-key order. The geometry and primary
+key columns are not duplicated as attributes. Remaining columns map in declaration order:
+
+| GeoPackage declared value | G4 value |
+| --- | --- |
+| BOOLEAN | `LOGICAL`, integer 0/1 only |
+| TINYINT/SMALLINT/MEDIUMINT | range-checked 8/16/32-bit value returned as `Long` |
+| INT/INTEGER | checked 64-bit `Long` |
+| FLOAT | finite, exactly float-representable value returned as `Double` |
+| REAL/DOUBLE | finite `Double` |
+| TEXT | bounded `String` |
+| BLOB | bounded `AttributeBytes` |
+| DATE | strict ISO `LocalDate` |
+| DATETIME | strict RFC 3339 text retained as `TEXT` |
+
+Declared type names are ASCII case-insensitive. `TEXT` and `BLOB` alone may have one parenthesized
+positive decimal maximum within the effective format ceiling; the declared maximum is enforced and
+never used to truncate. Every other parameter, type alias, generated/hidden column, or extended type
+is unsupported. SQLite storage-class disagreement, non-finite numbers, numeric overflow, invalid
+UTF-8/text, invalid exact `YYYY-MM-DD` DATE, invalid exact UTC
+`YYYY-MM-DDTHH:MM:SS.SSSZ` DATETIME, duplicate/blank/over-256-character attribute name, and
+unsupported declared type are terminal schema or record diagnostics. SQL NULL maps to
+`AttributeNull` only for nullable columns.
+
+The selected `gpkg_geometry_columns` row requires `z=0` and `m=0`. Geometry BLOBs require the
+standard `GP` header, version zero, reserved flags zero,
+StandardGeoPackageBinary type, either byte order, SRS ID matching the selected table, and envelope
+indicator zero or XY. XYZ/XYM/XYZM envelopes, extended binary, SQL/MM offsets, Z/M coordinates,
+GeometryCollection, circular/curve/surface types, and trailing bytes are unsupported. WKB types one
+through six map directly to G4 packed singular/multipart values. Counts, offsets, rings, closure,
+finite coordinates, component homogeneity, declared type, and an optional XY header envelope are
+fully validated; the envelope must contain the decoded geometry. Null or standard empty geometry is
+skipped with one bounded stable warning and still charges records examined. There is no repair,
+orientation inference, topology operation, or automatic spatial index.
+
+Feature queries scan in primary-key order through one prepared statement. A valid header envelope may
+reject a row before WKB construction; a missing envelope requires bounded decode. Final inclusive
+intersection uses the decoded geometry envelope. Attribute projection is pushed into the fixed
+selected-column statement, while G4 query accounting remains authoritative for returned values.
+
+Before catalog publication, full `PRAGMA integrity_check` must yield exactly `ok` and
+`PRAGMA foreign_key_check` must yield no row under the same VM/row/cancellation budgets. The three
+required spatial-reference rows `-1`, `0`, and `4326` are present with their mandated numeric
+organization relationships. `gpkg_spatial_ref_sys` is structurally retained. A row whose
+case-insensitive organization is EPSG and
+whose `srs_id` and `organization_coordsys_id` are both 4326 or both 3857 resolves through
+`CrsRegistry.level1()` and retains the bounded definition text as source provenance. The definition is
+not parsed, used as a competing authority, or heuristically matched; this mirrors G10-003's numeric
+GeoKey trust boundary. Every other well-formed row becomes retained-unknown CRS metadata. A geometry/
+header/table SRS mismatch is terminal. Raster rendering still follows G4's no-cross-CRS-warp rule.
+
+The tile profile accepts one core `tiles` content/table, one matrix set, and unique matrix rows for
+zooms `0..22`. Bounds and pixel sizes are finite; matrix/tile dimensions are positive; tile width and
+height are exactly 256; declared pixel size must match the matrix-set extent divided by matrix pixels
+within eight ULPs of the computed finite value. Tile columns/rows are zero-based from the upper-left,
+inside the declared matrix, and logically unique. A caller opens one explicit zoom as a windowed
+`RasterSource` over the complete declared matrix and matrix-set bounds. Missing tile rows are
+transparent pixels with one coalesced warning per read, not an I/O retry or permanent cached value.
+
+Every selected tile is exactly one Level 1 PNG or JPEG BLOB, signature/profile checked through the
+explicit G6 decoder registry, and decodes to 256 by 256. The source has one optional successful-access
+decoded-tile LRU, disabled by default, bounded by entries and exact RGBA bytes. Failed/cancelled reads
+commit no cache promotions/admissions. There is no raw tile API, encoded-byte escape, overview
+selection, automatic zoom choice, reprojection, resampling beyond G4/G6, background prefetch, or disk
+cache.
+
+### MBTiles 1.3 raster profile
+
+`mundane-map-io-mbtiles-xerial` supports a single MBTiles 1.3 raster tileset. MBTiles has no stored
+specification-version field: the optional `metadata.version` is a tileset revision and is never used
+to infer conformance. SQLite application ID zero or the assigned `0x4d504258` (`MPBX`) is accepted;
+another nonzero application ID is unsupported, and `user_version` has no MBTiles meaning. The adapter
+recognizes the profile structurally and requires real `metadata`
+and `tiles` tables. Although MBTiles permits compatible views, the first security profile rejects
+views, virtual tables, extensions, and alternative schemas. Inert triggers are bounded and ignored;
+no adapter statement can fire one. The object inventory otherwise permits ordinary indexes and fixed
+SQLite internal objects only; grids, grid data, or any other application table are unsupported rather
+than silently queried.
+
+The public surface is:
+
+```text
+MbTiles.inspect(Path, SourceIdentity, MbTilesInspectOptions, CancellationToken)
+  -> MbTilesMetadata
+
+MbTiles.open(Path, SourceIdentity, int zoom, MbTilesOpenOptions,
+             EncodedRasterDecoderRegistry, CancellationToken)
+  -> RasterSource
+```
+
+`MbTilesMetadata` is a detached immutable value containing the bounded required `name` and normalized
+format, optional WGS 84 bounds/center/minimum zoom/maximum zoom/type/revision/description/attribution,
+the actual zoom set, and an opening report. Attribution remains plain unrendered text; HTML is not
+interpreted. Metadata names are unique. Unknown rows are bounded and ignored with one warning; grids,
+grid data, JSON/vector-layer metadata, UTFGrid, and arbitrary metadata exposure are outside the first
+profile.
+
+Accepted format values are exact `png`, `jpg`, `image/png`, or `image/jpeg`, normalized to the two G6
+formats. `pbf`, WebP, gzip, mixed image formats, and any other media type are unsupported. The tiles
+schema has exactly the four required compatible columns; every row uses integer zoom/column/row and a
+non-null BLOB. Logical `(zoom,x,tmsY)` coordinates are unique even when no database index declares
+that fact.
+
+A caller selects one existing zoom in `0..22`. TMS rows convert exactly to north-origin XYZ with
+`xyzY = (1L << zoom) - 1 - tmsY`; every coordinate is range checked before conversion. The source
+extent is the smallest tile-aligned rectangle containing actual rows at that zoom, placed against the
+canonical EPSG:3857 world from `CrsRegistry.level1()`. Optional WGS 84 `bounds` and `center` are
+validated and retained as descriptive metadata but do not distort tile placement. Missing positions
+inside the rectangle are transparent with one coalesced warning per read. An empty selected zoom is a
+parameter/profile failure, not a zero-sized source.
+
+Tile reads use one range statement ordered by XYZ row then column, reject duplicates deterministically,
+decode exact 256-by-256 images through the explicit G6 registry, and use the same disabled-by-default
+transactional decoded LRU as GeoPackage. A `MapView` renders only detached raster-read pixels; JDBC and
+native types never cross the source boundary. No vector-tile parser, tile writer/server, TMS public
+mode, remote fetch, multiple tilesets, UTFGrid, attribution renderer, or implicit zoom selection is
+included.
+
+### Limits, diagnostics, and evidence
+
+`GeoPackageLimits` and `MbTilesLimits` are separate immutable typed values. They repeat the small
+common SQLite fields rather than publishing a generic SQL limit contract. Defaults and hard maxima
+are inclusive:
+
+| Ceiling | Default | Hard maximum |
+| --- | ---: | ---: |
+| Input file bytes | 1,073,741,824 | 17,179,869,184 |
+| Schema objects inspected | 512 | 4,096 |
+| Columns in one selected table | 128 | 512 |
+| One identifier UTF-16 characters | 256 | 256 |
+| Metadata/core rows inspected | 4,096 | 65,536 |
+| One decoded text value characters | 1,048,576 | 16,777,216 |
+| Aggregate decoded text characters per operation | 4,194,304 | 67,108,864 |
+| One geometry/tile/attribute BLOB bytes | 33,554,432 | 268,435,456 |
+| Rows examined per operation | 2,000,000 | 100,000,000 |
+| SQLite virtual-machine opcodes per operation | 50,000,000 | 500,000,000 |
+| Project-owned bytes per operation | 536,870,912 | 2,147,483,647 |
+| Zoom levels | 23 | 23 |
+| Zoom | 22 | 22 |
+| Matrix/populated tiles on either axis | 4,194,304 | 8,388,607 |
+| Coordinates in one geometry | 1,000,000 | 10,000,000 |
+| Parts/rings in one geometry | 100,000 | 1,000,000 |
+| Decoded tile-cache entries | 256 | 4,096 |
+| Decoded tile-cache RGBA bytes | 67,108,864 | 536,870,912 |
+
+Disabled cache uses no zero sentinel; it is a distinct policy value. Enabled entry/byte ceilings are
+positive and mutually reachable. Text aggregate is at least one text value, project-owned bytes are
+at least two maximum BLOBs plus one decoded tile and the configured G4 output/intermediate allowance,
+schema rows cover required core objects, zoom-level count is reachable under `0..22`, and every
+product/sum uses prospective checked `long`. Matrix width/height multiplied by 256 must fit a positive
+Java `int`, so the hard tile-axis ceiling is `floor(Integer.MAX_VALUE / 256)`. G4 feature/raster limits
+independently bound returned records, source pixels, output pixels, warnings, and consumer-owned
+payload.
+
+The closed shared adapter diagnostics are:
+
+| Code | Exact context | Meaning |
+| --- | --- | --- |
+| `SQLITE_ADAPTER_UNAVAILABLE` | `reason=unsupportedPlatform|nativeLoad|temporaryDirectory` | The approved native runtime cannot start. |
+| `SQLITE_INPUT_INVALID` | `reason=path|type|sidecar|header|pageLayout` | The local container preflight failed. |
+| `SQLITE_INPUT_CHANGED` | `phase=inspect|cursor|read|publish` | The immutable-input fingerprint changed. |
+| `SQLITE_OPEN_FAILED` | `phase=load|connect|policy` | A bounded connection phase failed. |
+| `SQLITE_QUERY_FAILED` | `operation=catalog|feature|tile|metadata`, `reason=corrupt|interrupt|io|other` | Fixed read SQL failed after translation. |
+
+Format diagnostics are closed here:
+
+| Code | Exact context |
+| --- | --- |
+| `GEOPACKAGE_PROFILE_UNSUPPORTED` | `construct=suffix|applicationId|version|extension|contentType|geometryType|dimension|tileFormat|tileSize|zoom` |
+| `GEOPACKAGE_SCHEMA_INVALID` | `object=spatialRefSys|contents|geometryColumns|tileMatrixSet|tileMatrix|selectedTable`, `field`, `reason=missing|duplicate|type|nullability|constraint|reference|value|view` |
+| `GEOPACKAGE_RECORD_INVALID` | `field=id|geometry|attribute`, `reason=null|storageClass|encoding|range|value` |
+| `GEOPACKAGE_GEOMETRY_EMPTY` | `geometryType=point|multipoint|line|multiline|polygon|multipolygon` |
+| `GEOPACKAGE_TILE_INVALID` | `field=zoom|x|y|data`, `reason=duplicate|range|null|format|size|decode`; `imageCode` is required only for `reason=decode` |
+| `GEOPACKAGE_TILE_MISSING` | `zoom`, `count` |
+| `MBTILES_PROFILE_UNSUPPORTED` | `construct=applicationId|view|extension|format|vector|grid|object|zoom` |
+| `MBTILES_SCHEMA_INVALID` | `object=metadata|tiles`, `field`, `reason=missing|duplicate|type|nullability|constraint|value|view` |
+| `MBTILES_METADATA_INVALID` | `field=name|format|bounds|center|minzoom|maxzoom|type|version|description|attribution`, `reason=missing|duplicate|encoding|syntax|range|order|value` |
+| `MBTILES_TILE_INVALID` | `field=zoom|x|y|data`, `reason=duplicate|range|null|format|size|decode`; `imageCode` is required only for `reason=decode` |
+| `MBTILES_TILE_MISSING` | `zoom`, `count` |
+| `MBTILES_METADATA_IGNORED` | `count` |
+
+Schema-role fields are exactly:
+
+```text
+spatialRefSys  -> srsId | name | organization | organizationCode | definition
+contents       -> tableName | dataType | identifier | description | lastChange |
+                  minX | minY | maxX | maxY | srsId
+geometryColumns -> tableName | columnName | geometryType | srsId | z | m
+tileMatrixSet  -> tableName | srsId | minX | minY | maxX | maxY
+tileMatrix     -> tableName | zoom | matrixWidth | matrixHeight | tileWidth | tileHeight |
+                  pixelXSize | pixelYSize
+selectedTable  -> kind | primaryKey | geometry | columns | rowOrder
+metadata       -> name | value
+tiles          -> zoom | x | y | data
+```
+
+Every `field` value in a schema or tile diagnostic is therefore a closed schema-role token, never an
+input identifier. A required `imageCode` is the exact code from G6's closed image-diagnostic table;
+it is a flat context token rather than a nested cause and no nested context or message is retained.
+Locations use
+`component=geopackage|mbtiles`, public content-table ordinal, physical row ordinal, and optional zero-
+based tile/column/part index. They never expose a filesystem path, URI, SQL, identifier text, metadata
+value, raw BLOB, native path, driver class/message, or SQLite error text.
+
+Shared limits use `SOURCE_LIMIT_EXCEEDED` with
+`scope=sqliteOpen|sqliteQuery|geopackageOpen|geopackageCursor|geopackageRaster|mbtilesOpen|mbtilesRaster`
+and `limit=inputBytes|schemaObjects|columns|identifierCharacters|metadataRows|textValueCharacters|
+textCharacters|blobBytes|rows|vmOpcodes|ownedBytes|zoomLevels|zoom|matrixAxis|coordinates|parts|
+cacheEntries|cacheBytes`. `SOURCE_CANCELLED` and `SOURCE_CLOSE_FAILED` retain their G4 shapes.
+
+Opening precedence is public arguments, already-cancelled token, platform, path/file/header preflight,
+native load/connection policy, core schema, selected profile/schema, CRS/matrix/metadata, operation
+allocation, final fingerprint/cancellation, and publication. Cursor/read precedence is lifecycle,
+fingerprint, plan/limits, fixed query, rows in declared order, BLOB decoding, output accounting, final
+fingerprint/cancellation, cache commit, and publication. A native corrupt/I/O result already
+established before the next cancellation checkpoint remains primary.
+
+Future tests use small checked-in, legally redistributable databases with manifests, generator source,
+tool/driver versions, licenses, and SHA-256 values plus independently generated real-producer samples
+where redistribution is explicit. They cover both byte orders in geometry BLOBs, all six geometry
+types, attributes, both recognized and retained-unknown CRSs, sparse PNG/JPEG tiles, GeoPackage matrix
+math, MBTiles TMS conversion, tolerant rendering, exact/one-over limits, malformed schemas/geometry/
+images, corrupt/truncated databases, URI/path/sidecar canaries, mutation, cancellation through the
+progress handler, lifecycle/cleanup, cache rollback/LRU, and deterministic diagnostics. Architecture
+tests prove external-type isolation, direct construction, exact classifier graph, no AWT, the two
+I/O-codec allowlist edges, and absence of project discovery/native-loading calls.
+
+Each created module joins publication staging and the standalone consumer with its exact classified
+runtime dependencies, artifact/license/checksum verification, and a Java 21 Linux x86-64/glibc JVM
+scenario. The project repository contains only MundaneJ artifacts; G8's post-Level-1 Optional-adapter
+rule constructs a separate exact build-only mirror containing the approved Xerial POM, code classifier,
+and Linux classifier. A fresh offline consumer resolves both adapter artifacts and exactly those two
+classified runtime artifacts, rejects the ordinary/all-platform JAR and every other component, and
+opens one staged fixture. Normal Ubuntu CI must run the real read/query/render tests; unsupported-
+platform tests prove the stable unavailable diagnostic without loading JNI. No Native Image, new
+corpus command, public network, benchmark threshold, or Level 1 release record is changed.
+
+After G10-004 and the global G11-004 adapter approval, create five working cards:
+
+1. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
+   connection policy, and deliver catalog plus Point/MultiPoint feature query/render, publication, and
+   staged-consumer behavior.
+2. `G10-041` — complete line/polygon multipart geometry, attributes, CRS handling, query projection,
+   viewer behavior, and feature hostile-input coverage.
+3. `G10-042` — deliver GeoPackage PNG/JPEG tile matrices, sparse reads, bounded decoded cache,
+   tolerant rendering, independent fixtures, and complete container hardening.
+4. `G10-043` — create `mundane-map-io-mbtiles-xerial` with metadata, TMS conversion, PNG/JPEG sparse
+   raster reads, viewer, publication, and staged-consumer behavior.
+5. `G10-044` — close MBTiles limits/diagnostics/cancellation/cache/mutation/corrupt-database cases,
+   add independent fixtures, and record the exact Linux JVM support evidence for both adapters.
+
+G10-041 and G10-042 are serial after G10-040. G10-043 depends on G10-042 so its MBTiles source reuses
+the already working byte-array decoder rather than racing or duplicating that shared G6 change.
+G10-044 follows G10-043. The two format branches are logically independent after the shared decoder,
+but the task graph also serializes dependency verification, settings/inventory, publication, consumer,
+task-index, and roadmap changes under one integration owner. No module is created by the profile
+decision.

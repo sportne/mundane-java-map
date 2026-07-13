@@ -1461,3 +1461,14 @@ would lose bounded decoding, affine placement, deterministic sampling/presentati
 ownership, or native parity. G6 is therefore simple enough and no simpler while remaining ergonomic:
 consumers supply one explicit registry and receive the same format-neutral raster source used by every
 other layer.
+
+## Approved Level 2 embedded-byte extension
+
+G10-004 establishes GeoPackage and MBTiles as two demonstrated consumers of encoded PNG/JPEG BLOBs.
+Their first tile implementation adds `RasterImages.decode(byte[], SourceIdentity,
+EncodedRasterDecodeOptions, EncodedRasterDecoderRegistry, CancellationToken)`, returning one detached
+native-size `RgbaPixelBuffer`. The helper defensively snapshots bytes and reuses the complete G6
+container validation, limits, accounting, cancellation, and explicit decoder path. An optional
+expected format supports MBTiles metadata; absent means signature-selected PNG/JPEG. It has no suffix,
+placement, cache, temporary `RasterSource`, AWT type, or discovery. This is a Level 2 additive consumer
+surface and does not alter the completed Level 1 file-source or native claim.

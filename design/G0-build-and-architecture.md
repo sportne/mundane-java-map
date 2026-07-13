@@ -96,8 +96,11 @@ mundane-map-io-* -> mundane-map-api [, selected mundane-map-core algorithms]
   `java.desktop`, Swing, Java2D, pointer wiring, and toolkit render caches. Support projects and
   consumer examples may use those APIs to exercise the AWT module, but cannot move them into another
   production boundary.
-- An I/O module is named `mundane-map-io-*` and may depend on `api` and only the specific `core`
-  algorithms it needs. It never depends on `awt` and never exposes toolkit types.
+- An I/O module is named `mundane-map-io-*` and normally depends on `api` and only the specific
+  `core` algorithms it needs. A later container or transport may reuse a lower-level working format
+  codec only through an explicitly inventoried, acyclic, task-approved project edge; architecture
+  tests allowlist each concrete edge rather than opening a general I/O-to-I/O dependency category.
+  It never depends on `awt` and never exposes toolkit types.
 - An optional Level 2 external integration lives in a separately named adapter module. A format
   adapter still keeps the `mundane-map-io-*` prefix and names its implementation boundary explicitly,
   for example `mundane-map-io-geojson-jackson`. External dependencies and their types remain inside
@@ -201,6 +204,14 @@ was used, inventories any statically reachable shaded classes, and proves disabl
 executed. If the external library requires discovery or an unapproved native mechanism for the
 approved capability, the adapter remains JVM-only or the task rejects the dependency; this is not a
 general discovery exception for project code or behavior.
+
+G10-004 approves the first future format-composition edges:
+`mundane-map-io-geopackage-xerial -> mundane-map-io-image` and
+`mundane-map-io-mbtiles-xerial -> mundane-map-io-image`, solely for bounded embedded PNG/JPEG decode.
+Neither edge exists until its source module lands with working behavior and tests. Reverse edges,
+cycles, AWT leakage, generic codec discovery, and arbitrary dependencies between peer format modules
+remain forbidden. The authoritative project inventory and architecture-test allowlist own the exact
+edges when those tasks implement them.
 
 ### G0 design closeout
 

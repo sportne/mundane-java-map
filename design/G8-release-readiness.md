@@ -618,6 +618,32 @@ consumer opens a tiny DTED fixture. G8-004's historical candidate record, suppor
 coordinate manifest, and go/no-go result remain unchanged; a later Level 2 release task will reconcile
 fresh evidence against the then-current inventory.
 
+### Post-Level 1 Optional-adapter consumer rule
+
+G10-004 establishes the first classified native dependency and makes the existing one-repository,
+map-components-only consumer assertion intentionally conditional on a JDK-only inventory. A task that
+adds a working Optional adapter must also declare one exact approved external runtime graph in the
+release contract and create a separate build-only dependency mirror. The mirror contains only the
+pinned Maven POM and exact required binary/classifier artifacts with recomputed SHA-256/SHA-512 values;
+it excludes ordinary/alternate classifiers, transitive surprises, metadata ranges, repositories,
+credentials, sources, and unrelated cache content. It is not part of the release-dry-run repository,
+published manifest, or MundaneJ distribution.
+
+Before the isolated consumer starts, the root build resolves the locked artifacts under dependency
+verification, compares the approved checksums, clears/recreates the mirror, and validates its exact
+tree. The fresh consumer then declares exactly two local Maven repositories—the project staging tree
+and the external mirror—and still runs `--offline` with a new Gradle home and no network/machine-local
+fallback. Its resolution assertion expects the current MundaneJ coordinates plus the exact approved
+external module/classifier artifacts and rejects every other component. The adapter POM and Gradle
+metadata must describe those classifier dependencies precisely; the mirror cannot hide a missing or
+incorrect published dependency.
+
+This additive rule does not alter G8-003/G8-004's historical five-artifact Level 1 evidence. It avoids
+vendoring third-party binaries into MundaneJ JARs or the publication repository while still proving
+that a clean downstream build can resolve and run the staged adapter without network access. The same
+mechanism is reused by any later approved Optional adapter instead of inventing per-library consumer
+bootstraps.
+
 ## Level 1 release readiness and G8 closeout (G8-004)
 
 ### One immutable release candidate

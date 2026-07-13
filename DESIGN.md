@@ -58,7 +58,7 @@ design task; there are no empty speculative design files.
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
-| G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-003 approved |
+| G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-004 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -132,6 +132,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-13 | Import a strict static SVG marker subset directly into existing immutable symbol values. | Secure JDK StAX, exact representability rules, and reuse of the built-in vector renderer deliver useful artwork without a DOM, SVG scene graph, renderer plugin, or arbitrary-SVG promise. |
 | 2026-07-13 | Isolate bounded GeoJSON support in one Jackson Core adapter. | A maintained token stream substantially reduces generic JSON risk while a byte snapshot, packed index, closed RFC 7946 profile, and non-leaking optional module preserve deterministic source behavior and the JDK-only Level 1 boundary. |
 | 2026-07-13 | Read a strict GeoTIFF subset in one JDK-only module with explicit raster and elevation openers. | Caller-selected cell-area versus sample-post semantics, bounded private codecs, and reuse of G6/G9 contracts avoid heuristic routing, opaque ImageIO metadata, a generic TIFF model, and premature GDAL/JNI. |
+| 2026-07-13 | Isolate GeoPackage and MBTiles in two Linux JVM-only Xerial adapters. | Pinned split classifiers, direct read-only construction, fixed format facades, and reuse of G6 image decoding make SQLite containers useful without leaking JDBC, widening Level 1, or claiming unsupported native platforms. |
 
 ## Task design traceability
 
@@ -193,3 +194,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G10-001 | Secure static SVG grammar, bounded StAX importer, direct immutable marker-symbol output, render/native/publication integration, and named profile approval | Approved |
 | G10-002 | Strict 2D RFC 7946 profile, typed flat properties/IDs, bounded byte-indexed source, isolated Jackson Core adapter, stable diagnostics, and five later vertical slices | Approved |
 | G10-003 | Classic TIFF/GeoKey profile, explicit area-raster/post-elevation routing, bounded snapshot/codecs, stable diagnostics, and nine later vertical slices | Approved |
+| G10-004 | Pinned Linux Xerial boundary, strict GeoPackage/MBTiles profiles, read-only SQLite policy, bounded diagnostics, and five later vertical slices | Approved |
