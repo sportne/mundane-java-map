@@ -1135,3 +1135,193 @@ provenance; G9-007 owns memory/read measurements. G9-004 runs the DTED module an
 the normal quality gate, and whitespace only. It does not run publication, corpus, render-regression,
 performance, or Native Image lanes and introduces no cache, lazy source, native code, dependency,
 viewer, or public parser model.
+
+## Elevation position-query policy (G9-005)
+
+### One format-neutral query operation
+
+Coordinate lookup is a core operation over the G9-001 source, not a DTED method and not another source
+interface. The public surface is deliberately three small types:
+
+```text
+// mundane-map-api
+ElevationQueryMode = NEAREST | BILINEAR
+
+ElevationValue(double value, ElevationUnit unit)
+
+// mundane-map-core
+ElevationQueries.query(
+    ElevationSource source,
+    CrsDefinition sourceCrs,
+    Coordinate position,
+    ElevationQueryMode mode) -> Optional<ElevationValue>
+```
+
+`ElevationQueryMode` is elevation-specific. It does not reuse G6's `RasterInterpolation`, which
+chooses color-pixel resampling and has different ownership and no-data semantics. `ElevationValue` is
+an immutable record that requires a finite value and non-null unit, canonicalizes either signed zero
+to positive zero, and retains the source's exact declared unit. It performs no metre conversion and
+adds no arithmetic, comparison tolerance, or format provenance.
+
+`ElevationQueries` is a stateless, non-instantiable core utility. It does not retain, own, close,
+mutate, synchronize, or adapt the source. The caller continues to own and externally serialize that
+source, including against direct `sample`, other queries, and close. The operation snapshots immutable
+metadata once and performs no callback, I/O, cache lookup, worker scheduling, retry, prefetch, or
+format dispatch. There is no query request/result hierarchy, strategy interface, source default
+method, DTED overload, registry, SPI, or service discovery.
+
+Absence has one intentionally small representation: `Optional.empty()` means either the position is
+inside the declared CRS domain but outside the grid's inclusive sample bounds, or a required source
+post is no-data. Both are ordinary query results, not diagnostics. The caller can distinguish the
+outside case beforehand with `sampleBounds` if needed; adding a public reason enum would complicate
+the common numeric lookup without changing either response. A present value always carries its unit.
+
+### The caller labels the source-coordinate tuple explicitly
+
+A raw `Coordinate` carries no CRS, so every query supplies `sourceCrs`. The position is already in
+that definition; the operation performs no transform. A caller starting in another CRS must resolve
+and apply an explicit G4 direct `CrsOperation` first. There is no authority-axis swap, range-based
+guess, longitude wrap, antimeridian normalization, datum conversion, or implicit Web Mercator path.
+For geographic definitions, the project-wide visualization convention remains x longitude east and
+y latitude north; projected definitions remain x easting and y northing.
+
+The explicit boundary also completes G9-001's retained-unknown rule:
+
+- when source metadata is recognized, its complete `CrsDefinition` must equal `sourceCrs`, including
+  identifier, kind, axes, units, and coordinate domain. A mismatch is the existing
+  `CRS_DEFINITION_MISMATCH`, with metadata as `expectedCrs` and the supplied definition as
+  `actualCrs`;
+- when metadata is retained-unknown, the supplied recognized geographic or projected definition is
+  the caller's explicit assertion for those sample bounds. Retained identifiers/text are neither
+  compared nor reparsed, and metadata is not mutated or relabeled. Querying with equal retained
+  unknown text never creates compatibility by itself.
+
+G4 construction already permits only geographic or projected `CrsDefinition` values; unknown CRS is
+a `CrsMetadata` state with no definition. G9 therefore adds no impossible unknown-definition branch
+or registry-membership test. The caller's explicit structurally recognized definition is enough for
+axis-aligned source-coordinate interpolation, even if no transform involving it is registered.
+
+Before grid-bound testing, the complete `sampleBounds` must lie inside `sourceCrs.coordinateDomain()`.
+The first offending endpoint in order `minX`, `maxX`, `minY`, `maxY` produces
+`CRS_ENVELOPE_OUT_OF_DOMAIN`. The position is then checked x before y against that same closed domain;
+an offending ordinate produces `CRS_COORDINATE_OUT_OF_DOMAIN`. Only a CRS-valid position is compared
+with the inclusive sample bounds and allowed to return empty for being outside.
+
+These are ordinary G4 `CrsException`/`CrsProblem` outcomes, not source diagnostics, and carry no source
+identity. Context is lexicographically canonical and uses only G4's existing bounded keys:
+
+| Code | Complete context |
+| --- | --- |
+| `CRS_DEFINITION_MISMATCH` | `actualCrs=<supplied identifier>`, `expectedCrs=<metadata identifier>`, `operation=elevationQuery` |
+| `CRS_ENVELOPE_OUT_OF_DOMAIN` | `axis=x|y`, `maximum`, `minimum`, `operation=elevationQuery`, `sourceCrs`, `value=<first offending endpoint>` |
+| `CRS_COORDINATE_OUT_OF_DOMAIN` | `axis=x|y`, `maximum`, `minimum`, `operation=elevationQuery`, `sourceCrs`, `value=<offending ordinate>` |
+
+CRS values are bounded canonical identifiers; numeric members use locale-independent
+`Double.toString`. None includes retained unknown text or a source ID.
+
+The operation validates non-null parameters in declaration order, then rejects a closed source with
+`IllegalStateException`. It calls `metadata()` exactly once next; a null result violates the source
+contract and is `IllegalStateException` before recognized/unknown/mismatch/domain handling, while a
+runtime failure thrown by `metadata()` propagates unchanged. A `Coordinate` has already enforced
+finite ordinates. After the CRS checks, source-contract violations such as a null `OptionalDouble` or
+present non-finite sample are likewise `IllegalStateException`; unexpected source runtime failures
+propagate unchanged. There is no `SourceException`, `DiagnosticReport`, warning, or new
+`ELEVATION_*` code.
+
+### Inverse lookup uses the metadata's exact post coordinates
+
+The familiar normalized-position equations are explanatory only:
+
+```text
+columnPosition = (x - minX) / (maxX - minX) * (columnCount - 1)
+rowPosition    = (maxY - y) / (maxY - minY) * (rowCount - 1)
+```
+
+The implementation must not cast those expressions directly. Rounded spacing and endpoint special
+cases could then disagree with `ElevationSourceMetadata.sampleCoordinate`. Instead it binary-searches
+that exact metadata function: column searches call `sampleCoordinate(mid, 0).x()` over the strictly
+increasing west-to-east sequence, and row searches call `sampleCoordinate(0, mid).y()` over the
+strictly decreasing north-to-south sequence. Reusing the public coordinate function is preferable to
+adding axis methods or duplicating its convex interpolation solely to avoid at most 62 short-lived
+coordinate values.
+
+Each binary search uses `low + ((high - low) >>> 1)` and never computes `lastIndex + 1`. Exact double
+equality with a post produces one index; otherwise the insertion point produces adjacent indexes
+`i-1` and `i`. The algorithm therefore remains safe for a conforming custom source whose dimension is
+near `Integer.MAX_VALUE`. The inclusive endpoints are handled exactly, and
+`Math.nextDown(minimum)`/`Math.nextUp(maximum)` return empty when still inside the CRS domain. There is
+no tolerance, clamping, extrapolation, half-post extension, or use of G9-002's render support bounds.
+
+For a strict interior column bracket, with west/east post coordinates `xWest < x < xEast`, the weight
+is `(x - xWest) / (xEast - xWest)`. For a strict interior row bracket, with
+`yNorth > y > ySouth`, it is `(yNorth - y) / (yNorth - ySouth)`. Exact post equality is handled before
+division. If floating arithmetic rounds a mathematically strict interior quotient to zero or one,
+only that quotient is normalized respectively to `Double.MIN_VALUE` or `Math.nextDown(1.0)`. This
+preserves the positive-contributor/no-data rule without moving the coordinate, adding an epsilon, or
+accepting an outside value.
+
+### Exact nearest and bilinear behavior
+
+`NEAREST` chooses independently on each bracketed axis by comparing its two nonnegative coordinate
+distances. Exact equality chooses the lower numeric index. Column zero is west and row zero is north,
+so an exact two-axis tie selects the north-west post. This is regular-grid coordinate-space distance;
+geographic lookup does not become great-circle distance and projected lookup does not change the
+source unit.
+
+`BILINEAR` visits only distinct positive-weight contributors in deterministic row-major order:
+north-west, north-east, south-west, south-east. An exact post reads one sample, an exact grid line or
+outer edge reads two, and a strict cell interior reads four. It interpolates west/east first and then
+north/south. One shared private convex interpolation function uses:
+
+```text
+t == 0 -> a
+t == 1 -> b
+same-sign a,b -> Math.fma(t, b - a, a)
+opposite-sign a,b -> Math.fma(1 - t, a, t * b)
+```
+
+Endpoint cases run before subtraction. Same-sign subtraction cannot exceed the finite magnitude
+range; the opposite-sign form avoids `b - a` overflow. Each present source sample is checked finite
+and canonicalized to positive zero before the branch; “same sign” then means both nonnegative or both
+negative. Every result must remain finite and either signed zero is canonicalized. This pins
+evaluation order and handles finite extremes such as
+`-Double.MAX_VALUE` to `Double.MAX_VALUE` without `BigDecimal`, relaxed equality, or saturation.
+
+Nearest reads only its selected post and returns empty exactly when that post is no-data. Bilinear
+does not read structurally zero-weight neighbors created by an exact row/column match. If any visited
+positive-weight contributor is no-data, it stops at that first contributor in the stated order and
+returns empty: there is no read of later contributors, renormalization, nearest fallback, fill value,
+warning, or search for another post. Consequently an exact valid post succeeds even when every
+surrounding post is void, while an edge depends only on its two edge posts.
+
+### Lifecycle, evidence, and task boundary
+
+One query performs at most 62 binary-search comparisons and one to four failure-free `sample` calls.
+It allocates no retained operation state and has no unbounded loop. Adding `CancellationToken`, limits,
+or reports would not improve this eager operation and would falsely imply a solution for future lazy
+I/O. If G9-007 evidence justifies a fallible lazy/windowed source, that work must define a separate
+bounded operation with cancellation, reports, ownership, and cleanup; it cannot weaken
+`ElevationSource.sample` or this query silently.
+
+API tests cover both mode constants and every `ElevationValue` unit, finite rejection, signed-zero
+canonicalization, equality, Javadocs, and null behavior. Core tests use analytically checkable
+non-square planes and recording sources to cover exact posts, strict interiors, every edge/corner and
+grid line, horizontal/vertical/simultaneous nearest ties, one/two/four sample calls and exact order,
+every positive/zero-weight no-data pattern, outside adjacent ULPs, both CRS kinds, recognized equality
+and mismatch, retained-unknown assertion, CRS-bound and grid-bound precedence, closed sources, source
+contract violations including null metadata and null/non-finite samples, ownership, extreme
+bounds/elevations, quotient endpoint rounding, and indexes near `Integer.MAX_VALUE`.
+
+DTED integration changes tests only. One independently generated fixture for each Level 0/1/2 is
+opened through `DtedFiles`, then queried through the same core utility at asymmetric west/east and
+north/south posts, an interior nearest/bilinear position, and Level 2 void neighborhoods. G9-003's
+west-to-east/south-to-north transpose remains the only format orientation logic; the core utility has
+no DTED branch and `mundane-map-io-dted` production code gains no interpolation.
+
+Architecture tests keep the two public values in API and the algorithm in core, all JDK-only, and
+forbid AWT, DTED, raster-interpolation, format, adapter, discovery, or mutable-static leakage through
+the contracts. Focused API/core/DTED/architecture checks run before the normal quality gate and
+whitespace. Native, corpus, rendering, performance, and publication lanes remain separate. Bicubic
+interpolation, CRS transformation, datum or unit conversion, slope/aspect, terrain modeling, a typed
+absence reason, alternate no-data policy, source method, cache, query SPI, and format-specific API are
+outside this task.
