@@ -53,7 +53,7 @@ design task; there are no empty speculative design files.
 | G2 | [Symbols and vector graphics](design/G2-symbols-and-vector-graphics.md) | G2-001 through G2-007 approved |
 | G3 | [Interaction and measurement](design/G3-interaction-and-measurement.md) | G3-001 through G3-004 approved |
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
-| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-004 approved |
+| G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-005 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -97,6 +97,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Bound Level 1 shapefiles to explicit 2D SHP/SHX/DBF/CPG/PRJ behavior and reject Z/M reduction. | A fixed geometry, sidecar, encoding, limit, diagnostic, and recovery profile is useful for ordinary maps without becoming an implicit general GIS compatibility promise. |
 | 2026-07-12 | Open shapefiles through one static format facade backed by a private positional source. | Returning `FeatureSource` keeps parser/channel types private while an explicit opening token, options, and owned channel make the first real file slice cancellable, bounded, and testable. |
 | 2026-07-12 | Treat SHX as a fully prevalidated packed address table with sequential fallback. | One private long per physical record improves deterministic addressing without exposing random access, pretending to be a spatial index, or trusting a partial sidecar. |
+| 2026-07-12 | Classify shapefile rings with one bounded structural algorithm and packed operation state. | Exact orientation, strict hole association, up-front allocation reservation, and terminal ambiguity preserve useful polygons without implying repair or a general topology engine. |
 
 ## Task design traceability
 
@@ -128,3 +129,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G5-002 | Static opener/options/limits, component snapshot, bounded positional SHP null/point/multipoint source, module/publication wiring, viewer, and lifecycle evidence | Approved |
 | G5-003 | Packed SHX preflight, exact SHP cross-check, missing/ignored fallback, indexed cursor equivalence, and lifecycle evidence | Approved |
 | G5-004 | Shared bounded multipart decoding, exact PolyLine validation, packed singular/multipart mapping, and viewer evidence | Approved |
+| G5-005 | Shape-5 activation, bounded ring validation/association, honest worst-case allocation, stable polygon mapping, and viewer evidence | Approved |

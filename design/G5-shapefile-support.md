@@ -145,19 +145,22 @@ become polygon components in their original ring order. Nested clockwise islands
 polygon components.
 
 Hole association is bounded and exact for the promised relationship. For each hole, the classifier
-checks shells in source order, first by strict bounding-box containment, then by a point-in-ring test,
-then by all hole-edge/shell-edge pairs needed to reject crossing or touching. Each bounding-box test,
+checks shells in source order. One charged bounds-relation test rejects closed-disjoint envelopes,
+distinguishes strict containment, and retains non-strict overlap/touch for contact checking. Strict
+containment receives the charged point-in-ring test; every non-disjoint hole/shell relation receives
+the charged hole-edge/shell-edge pairs needed to reject crossing or touching. Each bounds test,
 point-versus-shell-edge step, and segment-pair test prospectively charges one
 `topologyComparisons` unit. A shell is a candidate only when the hole is strictly inside with no edge
 or vertex contact; the candidate with smallest absolute area wins, and holes retain source order
-within it. Hole-to-candidate-shell edge or vertex touching, an orphan hole, equal competing innermost
+within it. Any intersecting/touching hole-shell relation, an orphan hole, equal competing innermost
 shells, or another undecidable association terminates the record with
 `SHAPEFILE_RING_TOPOLOGY_AMBIGUOUS`. The counter checks cancellation within 4,096 comparisons and
 terminates with `SOURCE_LIMIT_EXCEEDED` before comparison `maximum + 1`.
 
 This is deliberately a structural polygon profile. It does not perform shell-shell, hole-hole, or
 within-ring simplicity analysis beyond whole-ring area and the hole-association checks above. A ring
-that self-crosses away from the association test, or peer shells/holes that overlap, is therefore
+that self-crosses away from the association test, or shell-shell and hole-hole peers that overlap, is
+therefore
 published in source order and rendered by G4's existing even-odd component rules without a claim of
 OGC/simple-polygon validity or repair. Dedicated fixtures make that acceptance boundary observable;
 G5 does not label such input clean according to a broader topology standard it never implements. The
@@ -777,7 +780,6 @@ Decimal counters/sizes are bounded by G4's scalar formatting rules.
 | MultiPoint count is zero or negative | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=pointCount` |
 | MultiPoint count exceeds configured `points` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=points`, `maximum=<limit>`, `requested=<count>`, `scope=shapefileCursor` |
 | MultiPoint ordinate count cannot fit a Java array after configured limits pass | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=arrayCapacity` |
-| Checked MultiPoint derived-size arithmetic overflows | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=overflow` |
 | MultiPoint payload differs from the checked size derived from its count | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `recordStart + 4` | `reason=unexpectedSize`, `expectedBytes=<derived content bytes>`, `actualBytes=<declared content bytes>` |
 | Prospective Point allocation exceeds `parserAllocationBytes` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, content start | `limit=parserAllocationBytes`, `maximum=<limit>`, `requested=<prospective bytes>`, `scope=shapefileCursor` |
 | Prospective MultiPoint allocation exceeds `parserAllocationBytes` | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=parserAllocationBytes`, `maximum=<limit>`, `requested=<prospective bytes>`, `scope=shapefileCursor` |
@@ -804,7 +806,7 @@ is copied. This slice has no successful cursor warning: diagnostics are empty or
 Focused fixtures are independently written byte-level test builders, not production parsing helpers.
 They cover header fields/endian/size; arbitrary ignored Z/M bits; signed zeros; empty/all-null type 0;
 Point/MultiPoint with interleaved nulls; IDs/order/query filtering; conservative/rejected boxes; every
-staged/permanent/mismatched type; zero/negative/overflow counts; exact/short/overlong payloads;
+staged/permanent/mismatched type; zero/negative/maximum counts and Java-array capacity; exact/short/overlong payloads;
 applicable format and G4 limits at minus/equal/plus one; allocation of both coordinate arrays;
 cancellation at each checkpoint; cursor/source states and reuse; channel mutation; I/O/close cleanup;
 and exact diagnostics. Path fixtures cover lower/upper/mixed-case names, same-file hard-link aliases,
@@ -1075,7 +1077,12 @@ PolylineDecoder    -> LineStringGeometry | MultiLineStringGeometry
 `ShpMultipartReader` owns the common PolyLine/Polygon prefix, count, part-table, coordinate, bounds,
 and cancellation mechanics through a two-phase private boundary. `preflight(...)` uses fixed scratch
 only and returns scalar-only `ShpMultipartPlan` values: counts, exact byte positions/size, validated
-record box, and the exact internal `minimumCoordinatesPerPart` (two for PolyLine, four for Polygon).
+record box, the exact internal `minimumCoordinatesPerPart`, and caller-supplied aggregate/span
+diagnostic code/reason constants. PolyLine supplies minimum two,
+`SHAPEFILE_PART_TABLE_INVALID/insufficientPoints` for the aggregate, and
+`SHAPEFILE_PART_TABLE_INVALID/tooShort` for a span; Polygon's owning design supplies its own fixed
+scalars. The reader never infers shape semantics
+from the minimum.
 The shape decoder computes and prospectively charges common arrays plus its own complete output/
 classifier copies. Only after that succeeds does `materialize(plan, ...)` allocate/fill common arrays
 and return a cursor-confined `ShpMultipartPayload` owning one canonical packed `double[]`, one
@@ -1260,3 +1267,273 @@ and task dependency remain SHX-independent.
 
 G5-004 validation runs the focused format and viewer checks, the normal gate, and whitespace. It does
 not run corpus, render-regression, native, fuzz, or performance lanes owned by later tasks.
+
+### Polygon holes and multipart slice (G5-005)
+
+#### Slice boundary and private decoder
+
+G5-005 replaces only the staged `profile=polygon` branch. A valid SHP header type `5` becomes a
+current supported type and publishes its validated XY box as the conservative source extent. A
+type-5 file accepts exact four-byte null records; every non-null record must have shape code `5`
+under the existing record-type check. PolyLine and the point shapes are unchanged, and Z/M and
+MultiPatch remain unsupported.
+
+No public API, option, limit, module, command, or diagnostic code is added. The only new production
+peer is package-private `PolygonDecoder` in `io.github.mundanej.map.io.shapefile`; there is no
+`internal.shp.polygon` subpackage, public format geometry, ring abstraction, topology service, or
+decoder registry. It reuses G5-004's same-package `ShpMultipartReader`, `ShpMultipartPlan`, and
+`ShpMultipartPayload`:
+
+```text
+ShpMultipartReader.preflight(
+    ...,
+    minimumCoordinatesPerPart = 4,
+    aggregateMinimumCode = SHAPEFILE_RING_INVALID,
+    aggregateMinimumReason = tooShort,
+    spanMinimumCode = SHAPEFILE_RING_INVALID,
+    spanMinimumReason = tooShort)
+    -> scalar ShpMultipartPlan
+PolygonDecoder reserves the complete polygon operation
+ShpMultipartReader.materialize(plan, ...)
+    -> validated source-order ShpMultipartPayload
+PolygonDecoder
+    -> PolygonGeometry | MultiPolygonGeometry
+```
+
+The common reader continues to own record layout, count/limit/capacity checks, exact derived size,
+record and file bounds, part starts, coordinate reads, signed-zero canonicalization, and short-read
+handling. `PolygonDecoder` owns ring closure, signed area/orientation, hole association, output order,
+and polygon-specific diagnostics. The reader does not acquire a shape switch or callback. Its
+scalar plan carries the caller-selected minimum plus the exact aggregate/span diagnostic code and
+reason scalars; the common reader never infers a shape from the number four. PolyLine supplies
+`SHAPEFILE_PART_TABLE_INVALID/reason=insufficientPoints` for aggregate failure and
+`SHAPEFILE_PART_TABLE_INVALID/reason=tooShort` for a materialized span. Polygon supplies
+`SHAPEFILE_RING_INVALID/reason=tooShort` for both. These fixed package constants are passed explicitly,
+not selected by a reader switch, callback, registry, or arbitrary external configuration.
+
+If G5-003 is present, indexed and sequential cursors dispatch the same validated frame to this
+decoder; indexed record-number and length checks still precede payload work. G5-005 otherwise has no
+SHX dependency. One owner integrates the cursor switch when parallel branches meet.
+
+#### Record validation and precedence
+
+Polygon uses the exact G5-004 multipart layout and exact content size
+`44 + 4 * NumParts + 16 * NumPoints`. After frame/type checks and the fixed 44-byte prefix, processing
+is deterministic:
+
+1. Require positive `NumParts`, apply `parts`, require positive `NumPoints`, and apply `points`.
+2. Check `NumParts + 1`, `2 * NumPoints`, every byte expression, and every required array capacity.
+   Polygon additionally requires checked `POLYGON_EXACT_LIMBS * NumParts` to fit one Java `int[]`;
+   this shape-specific capacity failure precedes aggregate ring-size, derived-size, and allocation-
+   budget checks. Then require `NumPoints >= 4 * NumParts` with checked arithmetic as the necessary
+   aggregate ring-size preflight.
+3. Require the declared content size to equal the checked derived size and validate the record box.
+4. Prospectively charge the complete count-derived polygon reservation below. Only then may the
+   common reader allocate its fenceposts and packed coordinates.
+5. Materialize the source-order part table and coordinates. Part zero starts at zero, later starts
+   strictly increase, every start is below `NumPoints`, and every span through the synthetic final
+   fence has at least four entries. Coordinates are finite, canonical, and inside both record and file
+   boxes exactly as in G5-004.
+6. Validate every ring in source order before classifying any hole. Require exact canonical first/
+   last coordinate equality, then compute the bounded signed-area representation below and require a
+   nonzero result. A negative signed area is a clockwise shell; a positive area is a counterclockwise
+   hole. Orientation is never reversed or repaired.
+7. Classify holes in source order against shells in source order using the exact bounded algorithm
+   below. Any unclassifiable relationship terminates the record and cursor; no ring, record, or
+   diagnostic is skipped.
+8. Build source-stable polygon groups, construct the immutable G4 geometry, then apply the inclusive
+   query-envelope test. Only after full validation and filtering does the existing cursor publish
+   `record:<ordinal>` and charge returned G4 payload.
+
+Shared frame, length, count, limit, capacity, bounds, table, coordinate, and I/O failures therefore
+precede all ring failures. Across rings, closure/area validation completes in source order before the
+first association comparison, so a later malformed ring cannot be hidden by an earlier orphan hole.
+A filtered polygon is still completely validated; header/record boxes never bypass payload or
+topology work.
+
+#### Exact binary64 area and predicates
+
+Each ring retains all source coordinates including its repeated close and any consecutive duplicate
+vertices. Its shoelace terms visit edges `start..end - 2`, including the final edge into the repeated
+close. Orientation, zero-area, equality, point tests, and segment contact use the exact values of the
+accepted binary64 ordinates; no common scaling, rounded subtraction, epsilon, `BigInteger`,
+`BigDecimal`, or per-edge object is permitted.
+
+`PolygonDecoder` decomposes each finite double from raw bits into sign, an unsigned significand of at
+most 53 bits, and a power of two in the exact identity `value = sign * significand * 2^exponent`.
+Subnormal zero/nonzero and normal values are handled directly; canonical zero contributes nothing.
+A coordinate product therefore has at most 106 significant bits and an exponent from -2148 upward.
+The decoder multiplies the two significands into four base-2^32 limbs and adds/subtracts that shifted
+product into a fixed sign/magnitude accumulator.
+
+The exact bound is closed and independent of input magnitudes: a product's lowest possible bit is
+2^-2148; a cross-product difference is below 2^2049; and summing fewer than `Integer.MAX_VALUE`
+edges is below 2^2080. `POLYGON_EXACT_LIMBS = 133` 32-bit limbs therefore covers 4,256 bits and the
+entire exponent range with margin. Carry/borrow beyond that fixed segment is an implementation
+invariant failure, never a hostile-input diagnostic. Tests derive these bounds independently and use
+extreme normal/subnormal coordinates.
+
+Ring `i` accumulates every exact `x[j] * y[j+1] - x[j+1] * y[j]` directly into segment
+`i * POLYGON_EXACT_LIMBS` of one packed `int[]`. Zero magnitude is `reason=zeroArea`; the exact sign is
+clockwise/counterclockwise orientation. Absolute area comparison scans two fixed segments from their
+highest limb down, so equality and smallest-shell selection are exact without reconstructing a
+floating value. The existing packed ownership/role array carries the sign/role state; no area object
+or per-ring limb array exists.
+
+An orientation predicate clears one fixed 133-limb scratch segment and accumulates the algebraically
+exact six raw products for `orient(a,b,c)`: `cross(b,c) - cross(a,c) + cross(a,b)`. Its exact sign/zero
+drives ray crossings and segment intersection. Closed-interval coordinate comparisons use the
+original canonical doubles. `PolygonDecoder` polls cancellation before every orientation predicate
+and counts every limb clear/read/write/carry/borrow plus each ring edge as controlled primitive work.
+Area accumulation, area comparison, predicate scratch work, and later packed grouping therefore poll
+at no more than 4,096 such primitive units, independently of the higher-level topology-comparison
+counter. These operations are exact for the supplied finite binary64 coordinates; they make no
+arbitrary-real or general topology claim.
+
+#### Bounded shell and hole classification
+
+Ring bounds, signed area representations, ownership, group cursors, and output order are packed
+primitive arrays indexed by the source ring number. Shells are polygon components in source-ring
+order, including clockwise shells nested inside another shell or hole. A nested clockwise island is
+therefore a separate polygon component, not a hole reversal or inferred hierarchy.
+
+For each counterclockwise hole, inspect every clockwise shell in source order:
+
+1. Prospectively charge one `topologyComparisons` unit and classify the closed ring envelopes as
+   disjoint, overlapping/touching, or strict containment. Strict containment is exactly
+   `hole.minX > shell.minX`, `hole.minY > shell.minY`, `hole.maxX < shell.maxX`, and
+   `hole.maxY < shell.maxY`. Closed-disjoint bounds perform no edge work. A non-strict overlap can
+   never become a candidate, but still enters the contact phase so ordinary bound-touch/crossing is
+   not mislabeled orphan.
+2. For strict containment only, test the hole's first coordinate against the shell with an even-odd
+   horizontal ray. Edges are visited once in ring order and prospectively charged once each. For an
+   edge `(a,b)`, upward `a.y <= p.y < b.y` with positive exact orientation, or downward
+   `b.y <= p.y < a.y` with negative orientation, toggles inside. Exact zero whose point lies on the
+   closed edge is immediate `reason=contact`. Retain the final inside/outside result.
+3. For every non-disjoint envelope relation, compare every hole edge with every shell edge, charging
+   before each pair. Exact endpoint equality, an exact-zero orientation on a closed segment,
+   collinear overlap, or a proper crossing is contact and terminates the record with
+   `reason=contact`. With no contact, the shell is a candidate only when bounds were strict and the
+   retained point result was inside.
+
+Among candidates, the shell with the smallest comparable absolute area wins. An equal candidate marks
+a tie; a later strictly smaller candidate replaces the winner and clears that tie. A tie still set
+after the final shell produces `reason=equalInnermost`; no candidate produces `reason=orphan`. A
+contact discovered in any overlapping shell relation is terminal even if a different shell could
+contain the hole.
+Holes retain source order within the selected shell.
+
+The topology counter is cumulative for the cursor, not reset per ring or record. Before any comparison
+that would exceed the configured maximum, failure reports requested `maximum + 1`; equality succeeds.
+If the current total and configured maximum are both `Long.MAX_VALUE`, the prospective increment is
+detected before arithmetic and fails with the common saturated `requested=Long.MAX_VALUE` sentinel;
+the equality of those two context values does not turn overflow into acceptance.
+One package-private static production seam on `PolygonDecoder`,
+`checkTopologyIncrement(SourceIdentity, DiagnosticLocation, current, maximum) -> long`, owns this
+prospective arithmetic and exact report construction. On success it returns `current + 1`, which the
+classifier uses as its new cumulative total. It throws `SourceException` before addition when
+`current == Long.MAX_VALUE`, reporting saturated `requested=Long.MAX_VALUE`; otherwise it throws when
+the computed value exceeds the configured maximum. Ordinary classification calls it; a direct unit
+test sets both counters to `Long.MAX_VALUE` without requiring an impossible SHP fixture or adding a
+helper type.
+Cancellation is checked before each classification phase and at most every 4,096 charged comparisons.
+The stricter limb/edge cadence above can poll more frequently inside one comparison. Ring validation
+and the later linear grouping loops use the same 4,096-primitive cadence even though they do not
+consume topology units. No shell-shell, hole-hole, or within-ring simplicity comparisons are added.
+
+After classification, linear counting placement avoids a second quadratic loop. The ownership array
+stores each shell's polygon ordinal and each hole's source-shell index; one packed count/cursor array
+and one packed source-ring-order array place each shell first and its holes afterward. Shell groups
+remain in shell source order, and holes in a group remain in hole source order.
+
+#### Geometry mapping and allocation reservation
+
+One shell maps to `PolygonGeometry`; more than one maps to packed `MultiPolygonGeometry`. For the
+singular value, the decoder allocates one primitive slice per final exterior/hole ring and lets each
+`CoordinateSequence` make its required defensive copy; only the final immutable hole reference list
+is retained. For multipart output, it allocates one reordered packed ordinate array, ring fenceposts,
+and polygon-ring fenceposts and passes them through the G4 defensive factories. The parser creates no
+point object, candidate object, ring carrier, per-edge object, or list of parser rings. The unavoidable
+public `PolygonGeometry` coordinate values are not treated as parser classifier objects.
+
+Because the shell count is unknown before materialization, allocation acceptance cannot depend on a
+later favorable classification. Let `p = NumParts` and `n = NumPoints`. Before the first common
+variable allocation, checked arithmetic reserves all of these cumulative logical capacities:
+
+- common payload: `4 * (p + 1)` fencepost bytes plus `16 * n` packed-coordinate bytes;
+- polygon classifier: `32 * p` ring-bound bytes, checked
+  `4 * POLYGON_EXACT_LIMBS * p` exact-area bytes, three `4 * p` ownership/count/order arrays, and one
+  fixed `4 * POLYGON_EXACT_LIMBS` predicate scratch; and
+- the larger possible public-output branch: `32 * n` bytes for input/reordered ordinates and their
+  immutable coordinate copies, plus `16 * (p + 1)` bytes covering parser/API ring and polygon
+  fenceposts. This offset allowance also exceeds the singular branch's at-most `8 * (p - 1)` retained
+  hole-reference slots and any parser reference slots used to assemble that immutable list.
+
+The reservation is derived only from accepted counts, is charged once to the existing cumulative
+`parserAllocationBytes` counter, and is never refunded after a malformed, filtered, or singular
+record. Actual allocations must fit their reserved category; an implementation may reuse a packed
+array or consume less than the worst-case branch but may not allocate an uncharged representation.
+This deliberately accepts some conservative rejection near the ceiling in exchange for deterministic
+pre-allocation safety. Configured `parts` and `points`, checked arithmetic, and Java capacities retain
+their G5-004 precedence before this allocation check.
+
+Cancellation is additionally checked before reservation, every variable allocation, every output
+copy/factory call, and publication. A failure discards all operation arrays, terminates and releases
+the cursor slot once, and leaves the serialized source available to a new cursor. No charge refund,
+resynchronization, partial geometry, or recoverable record skip occurs.
+
+#### Polygon diagnostics
+
+The first applicable condition below wins after shared G5-002/G5-003 framing and G5-004 common
+prefix/count/size/bounds checks. Source part indexes and byte offsets are zero-based; record number is
+the trusted expected physical ordinal. Context keys are exactly those shown and retain G4 lexical
+ordering.
+
+| Condition | Code | Location | Context |
+| --- | --- | --- | --- |
+| Packed exact-area limb array cannot fit after configured limits | `SHAPEFILE_RECORD_LENGTH_INVALID` | `shp`, expected record, `contentStart + 36` | `reason=arrayCapacity` |
+| `NumPoints` is below checked `4 * NumParts` | `SHAPEFILE_RING_INVALID` | `shp`, expected record, `contentStart + 40` | `reason=tooShort` |
+| Prospective complete polygon storage exceeds allocation | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, `contentStart + 36` | `limit=parserAllocationBytes`, `maximum=<limit>`, `requested=<cumulative bytes after reservation>`, `scope=shapefileCursor` |
+| A materialized part span has fewer than four entries | `SHAPEFILE_RING_INVALID` | `shp`, expected record, short ring, its part-table field | `reason=tooShort` |
+| Ring first and last canonical pairs differ | `SHAPEFILE_RING_INVALID` | `shp`, expected record, offending ring, last coordinate X field | `reason=open` |
+| Exact signed-area accumulator is zero | `SHAPEFILE_RING_INVALID` | `shp`, expected record, offending ring, its part-table field | `reason=zeroArea` |
+| Next topology comparison exceeds its ceiling | `SOURCE_LIMIT_EXCEEDED` | `shp`, expected record, current hole ring, its part-table field | `limit=topologyComparisons`, `maximum=<limit>`, `requested=<maximum + 1 saturated at Long.MAX_VALUE>`, `scope=shapefileCursor` |
+| Hole touches or crosses an overlapping shell | `SHAPEFILE_RING_TOPOLOGY_AMBIGUOUS` | `shp`, expected record, hole ring, its part-table field | `reason=contact` |
+| Hole has no candidate shell | `SHAPEFILE_RING_TOPOLOGY_AMBIGUOUS` | `shp`, expected record, hole ring, its part-table field | `reason=orphan` |
+| Hole has equal smallest-area candidate shells | `SHAPEFILE_RING_TOPOLOGY_AMBIGUOUS` | `shp`, expected record, hole ring, its part-table field | `reason=equalInnermost` |
+
+Part-table field offsets remain `contentStart + 44 + 4 * partIndex`; the last-coordinate X field is
+the coordinate-area start plus `16 * (ringEnd - 1)`. An aggregate too-short failure has no part index
+because no table entry has yet identified the first short ring. For an individual short span, the
+first such source ring wins. Closure wins over zero area for a ring; all structural ring failures win
+over association. During association, hole order, shell order, bounds, point edges, and edge pairs
+fix the diagnostic and limit/cancellation position. No coordinates, areas, malformed bytes, or shell
+candidate identifiers enter context.
+
+Structurally accepted self-crossing rings and overlapping shell-shell or hole-hole peers remain inside
+G5-001's explicit non-validity boundary. A self-crossing ring whose exact whole-ring area is zero still
+fails `zeroArea`; a nonzero one is retained. Polygon rendering uses the existing component-local
+even-odd rule: each shell plus its assigned holes is one fill path, and distinct polygon components
+are painted independently in shell order. The reader never unions all record rings into one path.
+
+#### Evidence and viewer behavior
+
+Hand-built SHP-only fixtures cover one shell, one shell with holes, several disjoint shells, multiple
+holes, holes preceding shells, nested clockwise islands, canonical signed-zero closure, consecutive
+duplicates, and stable singular/multipart packed order. Negative matrices cover every short/open/
+zero-area reason, all-hole input, orphan/contact/equal-innermost holes, non-finite and bounds failures,
+truncated table/coordinates, count/capacity/allocation boundaries, topology minus/equal/plus one,
+cancellation at every phase, cursor cleanup/reuse, and full validation of an off-query malformed
+record. Separate fixtures pin accepted nonzero-area self-crossing rings and overlapping shell-shell or
+hole-hole peers without calling them generally valid.
+
+The unchanged `shapefile-viewer <path.shp> <EPSG:4326|EPSG:3857>` command uses its explicit fill
+symbol for a temporary type-5 fixture. Source assertions prove record identity, source-stable shell/
+hole order, singular versus packed multipart mapping, fit, and file release. Offscreen assertions
+sample a shell interior, assigned-hole interior, disjoint-shell interior, gap, and nested-island
+interior. They also use path winding where helpful to prove each component's even-odd path is local;
+there is no whole-image golden or bundled corpus. A paired valid SHX fixture, when G5-003 is present,
+pins indexed/sequential equality without making SHX a dependency.
+
+G5-005 validation runs the focused format and viewer checks, the normal gate, and whitespace. It does
+not run corpus, render-regression, native, deterministic fuzz, or performance lanes owned later.
