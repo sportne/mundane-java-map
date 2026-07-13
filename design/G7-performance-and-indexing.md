@@ -1018,3 +1018,295 @@ polygon candidate-or-fallback behavior are sufficient. There is no source simpli
 padding, retained level-of-detail hierarchy, general topology library, custom-renderer protocol, or
 cache. G7-004 receives an optimized uncached path and evidence rather than an abstraction built for a
 cache that may not be justified.
+
+## Render-cache evidence and performance acceptance (G7-004)
+
+### Two removable AWT candidates, not a cache framework
+
+G7-004 evaluates exactly two private candidates: retained G7-003 screen plans and untransformed
+Java2D templates for toolkit-neutral vector paths. A candidate exists in production only if the exact
+same-binary evidence rules below retain it. Failure, ambiguity, incomplete canonical evidence, or a
+threshold miss deletes that candidate's partition, modes, evidence rows, metrics, and candidate-only
+tests before this task completes. Zero retained partitions is a successful result; if both are
+rejected, the cache owner itself is deleted.
+
+There is no cache in API or core, generic cache/key/weight/loader interface, public `MapView` option,
+system property, service, listener, runtime timing choice, or application-visible metric. One private
+`AwtRenderCache`, when at least one candidate survives, belongs to exactly one `MapView` and is
+accessed only on the EDT. It has one small typed partition per retained candidate rather than a
+pluggable namespace. It creates no thread, executor, lock, weak/soft reference, shutdown hook, or
+process-global state. A package-private AWT evidence mode and same-package support bridge may isolate
+candidate configurations during this task; architecture checks keep those types out of published
+APIs, formats, and examples and remove modes for rejected candidates.
+
+The G6-004 cache owned by each `ImageRasterSource` remains the only decoded/resampled raster-pixel
+cache. AWT still converts an independently owned `RgbaPixelBuffer` for one paint and releases the
+Java2D image afterward. This task does not retain encoded bytes, decoded pixels, resampled pixels,
+Java2D raster images, affine raster plans, remote data, or disk entries and does not add a raster
+cache metric or invalidation layer. The existing `affine-raster-pan` row therefore remains unchanged.
+
+### Screen-plan candidate
+
+`SCREEN_PLAN` stores one complete immutable `ScreenGeometryOptimization` produced by G7-003. It may
+serve only the same built-in paint path; hit, hover, click, selection, measurement, endpoint markers
+and bearings, query, extent, fit, source identity, and diagnostics always use authoritative uncached
+geometry. Custom symbol renderers bypass it. A source-backed lookup happens only after G4's staged
+query has won `ACTIVE -> SUCCEEDED`; from that point the approved feature paint is uncancellable.
+
+Reuse is enabled only for snapshot bindings whose layer is the exact core `InMemoryLayer` and feature
+bindings whose source is the concrete core `InMemoryFeatureSource`, including its explicit indexed
+factory. Those implementations snapshot immutable feature/record/geometry references and return the
+same geometry objects for their lifetimes. The general `Layer` contract permits a new current
+snapshot on each call, and a general `FeatureSource` promises stable IDs and immutable yielded values,
+not repeat-query object identity; other layers, shapefile, future format, and consumer sources
+therefore bypass this candidate even if they happen to reuse an object today. This is one private AWT
+eligibility check, not a public marker interface, source capability, renderer SPI, or inferred warmup
+policy. Evidence rows use the already declared in-memory source and tests include equal-but-fresh
+layer/source fixtures that deterministically bypass rather than growing a miss-only cache.
+
+Its exact private key is the ordered tuple:
+
+```text
+binding attachment token identity
+immutable geometry object identity
+resolved geometry-to-display operation identity
+exact MapViewport value
+expanded logical-screen clip rectangle
+0.25 logical-pixel tolerance bits
+geometry role (`LINE` or `POLYGON`)
+```
+
+The attachment token distinguishes legacy/source bindings and changes on remove/re-add or source
+replacement. Geometry identity is an intentional immutable version token: equal but distinct values
+miss, avoiding an O(N) structural hash and any stale hit after a replacement. For an in-memory layer,
+the resolved operation is the view's immutable map-to-display instance; for an in-memory feature
+source, it is the binding-owned source-to-display instance. Neither is a CRS text guess. Exact
+`MapViewport` includes component width/height, center, and units per pixel. The expanded clip includes
+G7-003's one-pixel antialias margin plus the applicable exact half-stroke, so a style-margin change
+misses without putting color, opacity, catalog name, or unrelated symbol state in the key.
+Eligibility is decided before lookup and is not itself keyed: only the two built-in line/polygon roles
+above are eligible. A fallback/optimized outcome is a value result and never a key input. Polygon
+fill, outline, and hatch clipping share the same plan only when their exact expanded clip matches.
+
+Viewport/style/operation/geometry changes normally produce safe key misses; returning to the exact
+immutable state may hit. Removing or replacing a binding purges entries bearing its attachment token.
+Closing the view clears the partition. Old viewport entries need no eager scan and remain bounded by
+LRU. No cached clip intersection becomes a semantic endpoint, no source version string is inferred,
+and no mutable caller value is retained.
+
+The provisional production limits are:
+
+| Limit | Value |
+| --- | ---: |
+| Entries | 8,192 |
+| Logical retained bytes | 33,554,432 |
+| Logical bytes per entry | 4,194,304 |
+
+Logical weight reuses G4/G7's primitive accounting: eight bytes per retained reference slot, eight
+per retained double, four per retained int, and one per retained byte. It traverses the fixed private
+key/value shape and charges every distinct packed array reachable only because of the entry exactly
+once by identity: the source geometry's coordinates/part/component offsets; authoritative projected
+screen geometry; distinct render geometry; structural mapping/outcome arrays; and the key/value
+reference slots. The standalone attachment token has no binding/source back-reference, and the
+resolved operation is already view-owned, so those borrowed objects contribute only their cache
+reference slots. Source geometry is charged conservatively even when a legacy layer also owns it.
+Exact per-geometry formulas, alias cases, equality, plus-one, and checked overflow are pinned by tests.
+Object headers/alignment are not invented as exact heap facts. Count, per-entry, and total logical
+limits provide deterministic bounds; JFR may attribute actual allocation on the reference JDK but is
+not retained-memory accounting.
+
+### Vector-template candidate
+
+`VECTOR_TEMPLATE` retains the approved private untransformed pair of `Path2D.Double` values created
+from one immutable toolkit-neutral `VectorPath`: `strokePath` contains every subpath and `fillPath`
+contains only explicitly closed subpaths. Only the built-in AWT vector renderer can use it.
+Placement, anchor, map/screen size, transform, rotation, offset, color, stroke, opacity, catalog name, composite order,
+and feature identity are applied after lookup and do not multiply templates. Raster icons, hatch
+lattices, line centerlines, endpoint placement, custom renderers, and composite containers are not
+cached.
+
+Its exact key is `VectorPath` object identity. Level 1's even-odd winding rule is fixed and therefore
+is not a speculative key field. Equal distinct paths intentionally miss. Neither cached path is ever
+returned, appended to, or transformed in place. For every placement, AWT derives fresh
+screen-coordinate `Shape` values with `AffineTransform.createTransformedShape`, preserving G2's rule
+that marker scaling is never installed on the child `Graphics2D` and cannot scale `SymbolStroke`
+twice. A catalog/registry change that supplies a new path identity misses naturally, while another
+immutable symbol referring to the same path may reuse the pair. The instance registry is immutable
+and custom registrations cannot access this cache.
+
+The provisional production limits are:
+
+| Limit | Value |
+| --- | ---: |
+| Entries | 512 |
+| Logical retained bytes | 4,194,304 |
+| Logical bytes per entry | 262,144 |
+
+`VectorPath` itself has no construction ceiling. Before allocating either Java2D path, the converter
+scans its checked command/ordinate counts once, derives exact stroke-stream and closed-fill-stream
+command/ordinate counts, and computes the complete logical entry weight with checked `long`
+arithmetic. Weight charges the retained key/path reference slots, the key path's packed opcode and
+ordinate arrays, and both converted streams at one byte per used command plus eight bytes per used
+ordinate. If the exact weight exceeds the per-entry or total partition limit, conversion is bypassed
+before candidate allocation and no entry is evicted. It is deliberately not called a `Path2D` heap-
+size estimate; the JDK implementation owns spare capacity and headers. Count/per-entry/total limits
+bound retained logical input, while reference JFR records actual allocation behavior. The partition
+is view-global because templates have path identity rather than binding ownership and is cleared on
+view close.
+
+### Admission, LRU, and lifecycle
+
+Each retained typed partition uses deterministic LRU state backed by an insertion-order
+`LinkedHashMap` on the EDT. Promotion is an explicit remove/reinsert after successful use, so lookup
+itself cannot mutate state for work that later fails:
+
+1. A lookup reports one request and hit or miss but does not yet mutate LRU/storage state.
+2. A miss builds and uses the complete candidate while retaining no partial state.
+3. Construction failure, source cancellation before success publication, an incomplete value, or a
+   renderer failure before that value's leaf returns normally causes no admission, promotion, or
+   eviction. Earlier independently completed values remain valid.
+4. A disabled or logically oversized value reports bypass and performs the ordinary uncached render;
+   it evicts nothing. There is no truncated entry.
+5. After successful leaf rendering, a hit is promoted exactly once. A fitting missed value evicts the
+   eldest successful-access entries in exact order until both the count and logical-byte budgets can
+   hold it, then admits it as newest.
+6. Replacement subtracts the old exact weight before checked admission. Accounting overflow fails the
+   candidate path and falls back uncached without altering the partition.
+
+The cache holds only immutable/private completed values. One cache event record is folded into the
+operation-local package-private AWT paint result already used by G7 evidence. It carries the batch's
+checked event sums, ending entries/bytes, and maximum entries/bytes observed during that batch,
+including its starting retained state; the cache owner keeps no cumulative telemetry or lifetime
+peak. Same-package tests and the non-published support bridge can consume that result, but `MapView`
+stores no public or queryable last metrics. Cross-thread cancellation never touches cache state, and
+non-EDT cache access is impossible through production entry points and rejected by direct tests.
+
+### Append-only same-binary evidence
+
+All G7-001, G7-002, and G7-003 scenario IDs, order, fixtures, viewport traces, batches, throughput,
+cache labels, optimizer/index modes, and frozen semantic oracles remain unchanged. Existing rows are
+the same-binary disabled comparisons; no checked-in report from another build is used as a timing
+baseline. G7-004 appends these candidate rows in order while their candidate exists:
+
+1. `small-vector-render-screen-cache-cold`;
+2. `small-vector-render-screen-cache-warm`;
+3. `dense-vector-render-screen-cache-cold`;
+4. `dense-vector-render-screen-cache-warm`;
+5. `vector-pan-sequence-screen-cache-cold`;
+6. `vector-pan-sequence-screen-cache-warm`;
+7. `vector-zoom-sequence-screen-cache-cold`;
+8. `vector-zoom-sequence-screen-cache-warm`;
+9. `symbol-heavy-render-template-cache-cold`; and
+10. `symbol-heavy-render-template-cache-warm`.
+
+Screen rows use the G7-003 Level 1 optimizer and only `SCREEN_PLAN`; template rows retain the original
+symbol fixture's optimizer state and enable only `VECTOR_TEMPLATE`. Every descendant reuses the exact
+corresponding profile fixture, viewport/trace, symbols, batch, throughput, and frozen semantic oracle.
+Query, hit, shapefile, raster, index-comparison, and original rows remain untouched.
+
+The schema-v1 `viewCacheState` domain is extended only for appended rows with exact values
+`SCREEN_PLAN_COLD_EACH_SAMPLE`, `SCREEN_PLAN_WARM_PRESEEDED`,
+`VECTOR_TEMPLATE_COLD_EACH_SAMPLE`, and `VECTOR_TEMPLATE_WARM_PRESEEDED`. Cold `prepareSample`
+clears only its candidate partition immediately before the timed batch. Warm `setupScenario` performs
+one complete untimed identical batch, verifies its oracle, resets semantic view state, and then
+retains cache state through warmup and measurement samples. Thus warm means preseeded even when
+`performanceWarmups=0`; it never claims a cold OS/filesystem/JIT state. Each timed batch creates one
+fresh operation-local accumulator and reports only its checked event sums plus that batch's ending and
+maximum cache state, so preseed and warmup work cannot pollute a measurement.
+
+Candidate rows append exact evidence-counter keys in this order:
+
+```text
+<screenPlan|vectorTemplate>CacheRequests
+<screenPlan|vectorTemplate>CacheHits
+<screenPlan|vectorTemplate>CacheMisses
+<screenPlan|vectorTemplate>Builds
+<screenPlan|vectorTemplate>CacheAdmissions
+<screenPlan|vectorTemplate>CacheEvictions
+<screenPlan|vectorTemplate>CacheBypasses
+<screenPlan|vectorTemplate>BuildUnits
+<screenPlan|vectorTemplate>CacheCurrentEntries
+<screenPlan|vectorTemplate>CacheCurrentLogicalBytes
+<screenPlan|vectorTemplate>CachePeakEntries
+<screenPlan|vectorTemplate>CachePeakLogicalBytes
+```
+
+All values are non-negative checked `long` JSON integers; overflow fails the sample rather than
+saturating. Screen build units are newly owned render coordinates; template build units are path
+commands plus ordinates. Existing optimized rows additionally report `screenPlanBuilds`, and the
+original `symbol-heavy-render` reports `vectorTemplateBuilds`, so reduction has an exact same-workload
+denominator. These counters are observation facts, not public production telemetry. Current and peak
+logical bytes use the declared formulas; allocation remains optional JFR evidence.
+
+Raw nanos, exact integer median, nearest-rank p95, and existing throughput remain authoritative.
+Candidate comparisons use checked `BigInteger` cross-products, never floating ratios:
+
+```text
+atMost(candidate, baseline, p/q) iff q*candidate <= p*baseline
+atLeast(part, whole, p/q)       iff q*part >= p*whole
+buildReduction >= p/q           iff q*(baselineBuilds-candidateBuilds) >= p*baselineBuilds
+```
+
+Negative differences, zero denominators, overflow before `BigInteger` conversion, missing rows,
+semantic mismatch, filtered investigation, noncanonical profile/configuration, bypass/eviction where
+forbidden, or counter inconsistency means `not evaluated` or rejection as specified below; it never
+silently passes.
+
+### Predeclared retain/delete rules
+
+Only one unfiltered canonical `BASELINE` run with the task-owned JVM settings and every comparison row
+may decide production retention. The screen-plan candidate is retained if and only if all conditions
+hold:
+
+- each warm dense, pan, and zoom row has hit rate at least 4/5 and reduces screen-plan builds by at
+  least 4/5 versus its unchanged optimized row;
+- at least two of those three warm medians are at most 9/10 of their optimized median, and none is
+  greater than 21/20;
+- cold dense, pan, and zoom medians are each at most 21/20 of their optimized median, and the cold
+  small median is at most 11/10 of `small-vector-render-optimized`;
+- every semantic digest matches, every cache/counter/budget invariant passes, and the default-budget
+  fixed rows report zero bypasses and evictions.
+
+The vector-template candidate is retained if and only if its warm symbol row has hit rate and build
+reduction at least 99/100, its warm median is at most 19/20 of the unchanged `symbol-heavy-render`
+median, its cold median is at most 51/50, its semantic digest matches, all invariants pass, it reports
+zero bypasses/evictions, and peak logical retained bytes do not exceed 4,194,304.
+
+Equality passes. A rejected candidate is removed completely rather than left disabled, documented as
+future work, or selected at runtime. JFR may corroborate where time/allocation moved, but cannot waive
+a formula. Duration rules are a one-time complexity decision on the recorded reference environment;
+`performanceEvidence` continues to fail only on configuration, semantics, counters, cleanup, or
+report construction and never becomes a recurring wall-clock quality gate.
+
+### Checked-in acceptance record and G7 closeout
+
+Implementation completion replaces the pending cells in this concise table and records the source
+report SHA-256, exact revision, reference Java/OS/CPU-count/heap/GC/configuration, candidate counters,
+median/p95 cross-products, retained/rejected result, final budgets, known limits, and any unmet
+advisory goal. Raw reports/JFR remain ignored build artifacts. No number is described as a portable
+FPS, latency SLA, heap measurement, or cross-platform guarantee.
+
+| Candidate | Canonical reference evidence | Decision | Final limits/known limits |
+| --- | --- | --- | --- |
+| Screen plan | Pending G7-004 implementation evidence | Pending | Provisional limits above |
+| Vector template | Pending G7-004 implementation evidence | Pending | Provisional limits above |
+
+Tests pin exact keys and identity misses, weights and limit edges, successful-hit promotion, LRU ties,
+oversized no-eviction, build/use/admission order, source publication/cancellation, binding purge, close,
+EDT confinement, immutable templates, custom-renderer bypass, authoritative interactions/endpoints,
+and cached/uncached portable rendering equivalence. Performance tests pin append-only scenario order,
+profile cardinalities, cold clearing, zero-warmup preseed, operation-local deltas, counter order/units,
+oracle inheritance, comparison arithmetic, candidate removal, filtered `not evaluated`, and one
+deterministic acceptance rendering. Architecture tests forbid public/generic/global cache state, core
+or format cache code, raster duplication, public metrics/modes, external/native dependencies, and
+prohibited mechanisms. Validation includes AWT/performance/architecture checks,
+`renderRegression`, `performanceEvidence`, `qualityGate`, and whitespace.
+
+G7 therefore closes with one evidence lane, one explicitly selected packed in-memory index, one fixed
+operation-local screen optimizer, and zero or one private MapView cache owner containing only
+evidence-retained typed partitions. G6 remains the sole raster-pixel cache. Ordinary developers choose
+`InMemoryFeatureSource.openIndexed(...)` explicitly when an index is wanted; MapView otherwise has
+fixed invisible defaults. There is no public performance policy, generic cache/index/topology
+framework, automatic data-structure chooser, source LOD, native acceleration, or duplicate rendering
+state. This is the smallest design that preserves bounded work and leaves observable complexity only
+where recorded evidence pays for it.

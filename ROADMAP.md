@@ -81,8 +81,8 @@ architectural requirement. Level 1 is complete only when
 ### G7 — Performance evidence and optimization
 
 - Establish repeatable large-data and JFR evidence before optimization.
-- Add a packed spatial index, viewport queries, clipping, scale-aware simplification, and bounded
-  caches, measuring after each meaningful change.
+- Add a packed spatial index, viewport queries, clipping, and scale-aware simplification, then retain
+  only private bounded render-cache candidates that pass predeclared evidence rules.
 - Do not add a custom native performance library without separate benchmark evidence and a new
   decision. See the [G7 task set](tasks/README.md#g7--performance-evidence-and-optimization).
 
