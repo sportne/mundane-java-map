@@ -214,7 +214,7 @@ already implementation tasks, while any broader follow-up still requires a new c
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G10-001 — Secure SVG import profile and first slice](G10-001-secure-svg-import-profile-and-first-slice.md) | Proposed | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
-| [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Decide the RFC 7946 profile and dependency boundary before implementation. |
+| [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](G10-003-geotiff-raster-and-elevation-profile-decision.md) | Proposed | HITL | G8-004, G9-001 | Decide image/elevation routing, tags, compression, tiling, CRS, and limits. |
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide GeoPackage/MBTiles scope and isolate SQLite implementation types. |
 | [G10-005 — GPX and KML source profiles](G10-005-gpx-and-kml-source-profiles.md) | Proposed | HITL | G8-004 | Bound first track/waypoint and static-feature profiles. |

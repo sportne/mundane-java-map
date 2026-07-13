@@ -98,20 +98,23 @@ mundane-map-io-* -> mundane-map-api [, selected mundane-map-core algorithms]
   production boundary.
 - An I/O module is named `mundane-map-io-*` and may depend on `api` and only the specific `core`
   algorithms it needs. It never depends on `awt` and never exposes toolkit types.
-- An optional Level 2 external integration lives in a separately named adapter module. External
-  dependencies and their types remain inside that adapter and do not enter `mundane-map-api`.
+- An optional Level 2 external integration lives in a separately named adapter module. A format
+  adapter still keeps the `mundane-map-io-*` prefix and names its implementation boundary explicitly,
+  for example `mundane-map-io-geojson-jackson`. External dependencies and their types remain inside
+  that adapter and do not enter `mundane-map-api`.
 - Test, native, architecture, and example modules are not published.
 
 The build has one authoritative project inventory with an entry for every included subproject. The
 category describes the architectural dependency boundary, while separate properties record release
 level, publication eligibility, and Native Image policy:
 
-- **JDK-only runtime**: `api`, `core`, `awt`, and each `mundane-map-io-*` module after it provides
-  working behavior and tests. An entry declares Level 1 or Level 2 independently of this category, so
-  a dependency-free Level 2 format such as DTED remains a JDK-only runtime module without joining the
-  Level 1 release. Every Level 1 entry is native-targeted with no per-module opt-out. A Level 2 entry
-  explicitly says whether Native Image is targeted; its native-verification task can change that
-  property without changing the module's category or release level.
+- **JDK-only runtime**: `api`, `core`, `awt`, and each dependency-free `mundane-map-io-*` module after
+  it provides working behavior and tests. An entry declares Level 1 or Level 2 independently of this
+  category, so a dependency-free Level 2 format such as DTED remains a JDK-only runtime module without
+  joining the Level 1 release. An I/O-prefixed module with an approved external dependency is instead
+  categorized as an Optional adapter. Every Level 1 entry is native-targeted with no per-module
+  opt-out. A Level 2 entry explicitly says whether Native Image is targeted; its native-verification
+  task can change that property without changing the module's category or release level.
 - **Optional adapter**: a Level 2 integration that isolates an external dependency. Its publication
   and Native Image policies are explicit, and it cannot become part of the Level 1 runtime graph.
 - **Support**: architecture tests, native smoke, performance evidence, examples, and consumer
@@ -187,6 +190,17 @@ narrowest scope, and adds a neighboring negative fixture proving that real direc
 Broad package suppressions and silent test exclusions are not permitted. For example, inherited JDK
 behavior such as Swing's serialization ancestry may be excluded from an ancestry matcher, but
 application serialization calls remain prohibited.
+
+An approved Optional adapter may depend on a third-party JAR that physically contains its own service
+descriptor or shaded implementation classes even when the adapter uses neither. That fact is recorded
+in the dependency/license/mechanism inventory; the descriptor is not copied into a MundaneJ artifact,
+project resource tree, explicit native resource configuration, or application registry. Project
+bytecode still constructs the approved concrete implementation directly and may not call discovery.
+A Native Image claim additionally proves that no service registration or metadata-repository fallback
+was used, inventories any statically reachable shaded classes, and proves disabled paths were not
+executed. If the external library requires discovery or an unapproved native mechanism for the
+approved capability, the adapter remains JVM-only or the task rejects the dependency; this is not a
+general discovery exception for project code or behavior.
 
 ### G0 design closeout
 

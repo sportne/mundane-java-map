@@ -324,3 +324,378 @@ Focused module/architecture checks run before `renderRegression`, the separate r
 publication/consumer smoke, `qualityGate`, and whitespace. No corpus, performance, or new specialized
 lane runs. Two public types, one private streaming importer, existing immutable symbols/renderer, and
 one inline native/consumer case are sufficient; every broader SVG feature remains a new task.
+
+## GeoJSON feature-source profile decision (G10-002)
+
+### One optional adapter, not two parser stacks
+
+The named HITL checkpoint is **G10 GeoJSON profile approval**. It approves the exact RFC 7946 subset,
+the external-parser boundary, limits, diagnostics, and follow-up graph below before any GeoJSON module
+is created. G10-002 itself changes design and task records only.
+
+The approved implementation strategy is one explicitly optional adapter,
+`mundane-map-io-geojson-jackson`. Its first working slice pins
+`tools.jackson.core:jackson-core:3.1.5`, selected on 2026-07-13 as the latest Maven Central patch on the
+3.1 LTS line rather than the newer non-LTS 3.2 line. The approved JAR SHA-256 is
+`9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2`. Dependency locking,
+artifact/POM provenance, Apache-2.0 license/notice review, and an exact resolved runtime graph are
+mandatory. The implementation checkpoint rechecks security advisories and artifact availability
+without using a version range or silently changing the approved version. It uses Jackson Core's token
+stream only—no databind, annotations, tree model, object mapper, polymorphic type handling, provider
+lookup, or application serialization.
+
+The 3.1.5 artifact shades FastDoubleParser/Schubfach classes and contains
+`META-INF/services/tools.jackson.core.TokenStreamFactory`. Approval records the bundled upstream
+versions/notices/licenses as artifact content even though the adapter disables both fast-number
+features and never invokes service discovery. The service descriptor is not copied into a MundaneJ
+artifact or native resource configuration. Direct `JsonFactory` construction and architecture tests
+prove it is operationally irrelevant; G10-024 must separately prove that Native Image uses no service
+registration or metadata-repository fallback, inventory any statically reachable shaded classes, and
+prove the disabled fast paths are not executed. If the dependency cannot satisfy that bounded native
+path, the adapter remains explicitly JVM-only rather than weakening the project's discovery rules.
+
+This external dependency is justified by correct JSON tokenization, Unicode escape handling, numeric
+lexing, byte locations, and maintained malformed-input behavior. Reimplementing those concerns in a
+map library would create a security-sensitive generic JSON parser larger than the GeoJSON adapter.
+The rejected existing MundaneJ JSON-binding parser materializes an input-backed character model,
+exposes unsuitable character offsets, and lacks the parser-work, nesting, duplicate-member, and
+allocation controls required here. If the maintainer rejects Jackson at the checkpoint, this design
+must be revised to one bounded JDK-only tokenizer before implementation; the project will not ship
+parallel Jackson and home-grown GeoJSON modules or a speculative parser SPI.
+
+The optional adapter depends only on `mundane-map-api`, the exact G4 accounting/query utilities in
+`mundane-map-core`, Jackson Core, and `java.base`. It is AWT-free and named as an implementation
+choice rather than occupying a generic `mundane-map-io-geojson` artifact. Public signatures contain
+only JDK and MundaneJ values; Jackson types, factories, tokens, constraints, locations, and exceptions
+remain private. Construction directly creates the pinned `JsonFactory`; there is no `ServiceLoader`,
+classpath scan, reflection, static mutable factory, automatic module discovery, or JSON renderer.
+`mundane-map-api` remains unchanged.
+
+The implementation module is classified as a Published Level 2 **Optional adapter**, not a JDK-only
+runtime module and never part of the Level 1 graph. Its publication and consumer additions follow the
+append-only inventory rule established by G9/G10-001. Native Image remains unclaimed until the final
+follow-up proves the exact parser/source/render path; successful JVM parsing alone does not change
+that policy.
+
+Every complete opening pass creates one private immutable factory, and every live cursor creates one
+more; neither the source, a static field, nor a thread-local retains a factory after that operation or
+cursor ends. The exact Jackson 3.1.5 builder recipe is:
+
+```text
+JsonFactory.builder()
+  disable TokenStreamFactory.Feature.CHARSET_DETECTION
+  disable TokenStreamFactory.Feature.CANONICALIZE_PROPERTY_NAMES
+  disable TokenStreamFactory.Feature.INTERN_PROPERTY_NAMES
+  disable StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION
+  disable StreamReadFeature.USE_FAST_DOUBLE_PARSER
+  disable StreamReadFeature.USE_FAST_BIG_NUMBER_PARSER
+  disable JsonReadFeature.ALLOW_JAVA_COMMENTS
+  disable JsonReadFeature.ALLOW_YAML_COMMENTS
+  disable JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER
+  disable JsonReadFeature.ALLOW_SINGLE_QUOTES
+  disable JsonReadFeature.ALLOW_RS_CONTROL_CHAR
+  disable JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS
+  disable JsonReadFeature.ALLOW_UNQUOTED_PROPERTY_NAMES
+  disable JsonReadFeature.ALLOW_LEADING_DECIMAL_POINT_FOR_NUMBERS
+  disable JsonReadFeature.ALLOW_LEADING_PLUS_SIGN_FOR_NUMBERS
+  disable JsonReadFeature.ALLOW_LEADING_ZEROS_FOR_NUMBERS
+  disable JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS
+  disable JsonReadFeature.ALLOW_TRAILING_DECIMAL_POINT_FOR_NUMBERS
+  disable JsonReadFeature.ALLOW_MISSING_VALUES
+  disable JsonReadFeature.ALLOW_TRAILING_COMMA
+  recyclerPool(JsonRecyclerPools.nonRecyclingPool())
+  streamReadConstraints(exact effective depth/name/string/number/document ceilings)
+  build
+```
+
+Construction tests read every configured feature back and fail closed on a version/API mismatch; a
+future dependency upgrade must explicitly classify every newly added read feature before use. The
+non-recycling pool creates operation-owned buffers and retains none after parser close. Property-name
+canonicalization/interning is off, input content is excluded from locations, and the project parses
+raw numeric token text with its own bounded JDK conversions. Parsers are closed once with the first
+failure primary. There is no factory cache, recycler cache, shared symbol table, or retained untrusted
+name outside the charged operation/source values.
+
+### Exact document and object profile
+
+The normative format is [RFC 7946](https://www.rfc-editor.org/rfc/rfc7946), with strict JSON syntax
+from [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) and the duplicate-member/Unicode discipline of
+[RFC 7493](https://www.rfc-editor.org/rfc/rfc7493). One local file or caller-owned byte array contains
+exactly one document and trailing whitespace only. GeoJSON Text Sequences, JSON Lines, streams,
+readers, URLs, network retrieval, UTF-16/32, and concatenated documents are outside the profile.
+
+Input is strictly decoded and validated as UTF-8 before semantic parsing. One leading UTF-8 BOM is
+accepted, omitted from parser offsets, and records one opening warning `GEOJSON_UTF8_BOM_IGNORED`;
+any other BOM or malformed/unmappable sequence is terminal. Escaped or literal strings must represent
+Unicode scalar values: unpaired surrogate escapes are rejected. The parser enables no comment,
+single-quote, unquoted-name, trailing-comma, missing-value, leading-zero, arbitrary-backslash,
+non-numeric-number, or other permissive read feature. Every object, including an ignored foreign
+subtree, rejects a duplicate member before later semantic validation.
+
+Member order has no meaning. All byte fences are absolute indexes into the owned original byte array:
+the first document token starts at index zero or three after the optional BOM; a value fence is
+`[startInclusive,endExclusive)`, from its first non-whitespace byte through exactly one byte after its
+closing scalar/string/object/array token. Whitespace following a value is outside its fence. Slice
+tests pin root/feature/member fences with ASCII, multibyte UTF-8, escapes, nested foreign values, and
+the BOM, rather than trusting a parser location without a base-offset oracle.
+
+Opening is two explicit phases over the same immutable bytes:
+
+1. A structural pass visits every token in the complete document, calls the string accessor for every
+   property name and string value, validates Unicode scalars, maintains a charged duplicate-name set
+   for every active object, applies every structural counter/cancellation checkpoint, and establishes
+   exact fences. It never calls `skipChildren`, including for foreign members.
+2. A semantic pass scans each supported object's immediate members into a bounded temporary
+   name/value-fence table, then reparses the recognized value slices in the fixed order below. It may
+   jump across a foreign fence already proved by phase one, but creates no extension value or generic
+   tree. Feature processing retains only the final feature fence/envelope/index entry.
+
+A cursor performs the same bounded immediate-member/semantic scan on one retained Feature or bare-
+geometry fence, using a cursor-owned factory. It visits rather than blindly skips foreign/property
+content even under `AttributeSelection.NONE`, but avoids constructing unrequested strings/attributes.
+Every parser location is converted to an absolute checked array index before use; invalid or
+non-monotone locations are an internal invariant failure, never an untrusted index.
+
+Exact, case-sensitive core members are:
+
+| Object | Required | Optional | Outcome |
+| --- | --- | --- | --- |
+| `FeatureCollection` | `type`, `features` | `bbox`, foreign members | Emits zero or more records. |
+| `Feature` | `type`, `geometry`, `properties` | `id`, `bbox`, foreign members | Emits one record unless geometry is null. |
+| geometry | `type`, `coordinates` | `bbox`, foreign members | Emits one immutable geometry. |
+
+The document root may be a `FeatureCollection`, one `Feature`, or one of the six supported geometry
+objects. A bare geometry becomes one record with ID `geometry:0`, empty name, and empty attributes.
+An array, scalar, null, or any other object root is rejected. `FeatureCollection.features` contains
+only Feature objects; nested collections are unsupported.
+
+`Feature.geometry=null` is the one recovery rule. The physical feature is fully syntax/profile/limit
+validated, records one `GEOJSON_NULL_GEOMETRY_SKIPPED` opening warning, and emits no record. A
+collection containing only null geometries is a valid empty source with absent extent. Empty
+coordinate arrays and empty geometry components are not converted to null and are rejected.
+
+The exact 2D geometry profile is:
+
+| GeoJSON type | Required shape | MundaneJ value |
+| --- | --- | --- |
+| `Point` | exactly one two-number position | `PointGeometry` |
+| `MultiPoint` | one or more positions | `MultiPointGeometry` |
+| `LineString` | at least two positions | `LineStringGeometry` |
+| `MultiLineString` | one or more lines, each with at least two positions | `MultiLineStringGeometry` |
+| `Polygon` | one or more rings, each at least four positions with exact first/last closure | `PolygonGeometry` |
+| `MultiPolygon` | one or more polygons, each satisfying the Polygon rule | `MultiPolygonGeometry` |
+
+Every position has exactly longitude then latitude. A third/fourth ordinate is unsupported rather
+than silently discarded. Coordinate tokens must be finite when converted to `double`; longitude is
+inclusive `[-180,180]`, latitude inclusive `[-90,90]`, and negative zero is canonicalized to positive
+zero. Geometry, part, polygon, and ring declaration order is preserved. The first polygon ring is the
+exterior and later rings are holes. Orientation is neither changed nor rejected, matching RFC 7946's
+backward-compatibility rule; containment, self-intersection, repair, topology, and antimeridian
+wrapping remain out of scope. A segment from positive to negative dateline longitude is exposed
+literally under the Level 1 x/y rendering/query convention.
+
+`GeometryCollection` is rejected for the first profile: the sealed API has no heterogeneous geometry
+value and splitting it into records would invent IDs and feature semantics. Nested coordinates,
+empty components, insufficient line/ring cardinality, open rings, and non-number ordinates terminate
+without repair.
+
+An optional `bbox` on any supported GeoJSON object must contain exactly four finite numbers in RFC
+order: west, south, east, north. Longitudes and latitudes use the same closed ranges; south must not
+exceed north, while east may be less than west for an RFC antimeridian box. It is syntax/range
+evidence only: it is not compared with coordinates or retained because G4's one `Envelope` cannot
+represent a wrapping longitude interval. Source extent is computed from emitted coordinates.
+
+The obsolete `crs` member is explicitly rejected wherever it occurs on a GeoJSON object; it is not
+treated as an ignorable extension. Every other foreign member is structurally parsed, included in all
+depth/token/member/string/number/allocation/cancellation counters, and skipped without a warning or
+retained extension tree. Unknown core-member spelling is therefore just a foreign member and cannot
+satisfy a required exact member.
+
+### CRS, IDs, names, and properties
+
+RFC 7946 coordinates use the OGC CRS84 longitude/latitude tuple. At this format boundary the adapter
+normalizes that tuple directly to the library's identical x/y visualization convention and obtains
+the canonical definition with `CrsRegistry.level1().resolve("EPSG:4326")`. Metadata is
+`CrsMetadata.recognized` with both the declared-identifier and retained-definition optionals empty.
+This format-owned normalization is not a new `CRS:84` registry alias, WKT recognition, caller
+override, datum operation, or change to EPSG's authority-axis order.
+
+Every emitted source ID is deterministic and collision-separated by origin:
+
+```text
+Feature id string  -> string:<exact value>
+Feature id number  -> number:<canonical BigDecimal value>
+Feature id absent  -> record:<zero-based physical feature index>
+bare geometry      -> geometry:0
+```
+
+String IDs may be empty, but every prefixed result is governed by this adapter's fixed 256 UTF-16-
+character emitted-ID bound; G4 does not otherwise limit feature-ID length. Exceeding it is
+`GEOJSON_VALUE_INVALID field=id reason=length` before ID-set allocation. A numeric ID uses a valid
+bounded JSON number, maps negative zero to `BigDecimal.ZERO`, strips insignificant trailing zeros,
+and uses `BigDecimal.toString()`; `1`, `1.0`, and `1e0` therefore have one identity. Boolean, null,
+array, and object IDs are invalid. Duplicate emitted IDs among non-null geometries terminate at open
+with G4's `SOURCE_DUPLICATE_FEATURE_ID` and exact zero-based `firstIndex`/`duplicateIndex`; skipped
+null geometries do not occupy source identity. Supplied and synthetic prefixes cannot collide.
+`FeatureRecord.name` remains empty—the adapter does not privilege a property named `name`—and all
+properties remain queryable attributes.
+
+`properties` is either null, meaning an empty attribute map, or one flat object. Member order becomes
+attribute order. A property name must satisfy G4's nonblank 256-character key rule. Values map exactly:
+
+| JSON value | Attribute value |
+| --- | --- |
+| string | `String` |
+| true/false | `Boolean` |
+| null | `AttributeNull.INSTANCE` |
+| integral mathematical value within signed 64-bit range | `Long` |
+| other approved number | normalized `BigDecimal` |
+
+There is no date inference, floating `Double` property, raw JSON text, binary encoding, array, nested
+object, arbitrary number subclass, or Jackson node. A property array/object is
+`GEOJSON_PROFILE_UNSUPPORTED construct=nestedProperty`. JSON numbers are limited to 128 token
+characters by default and at most 34 significant decimal digits. The signed lexical exponent is
+parsed with checked decimal arithmetic and must be in `[-308,308]` before `BigDecimal` construction;
+the normalized value's adjusted exponent must also be in that range. All coordinate, ID, property,
+and bbox numbers use that same guard before field-specific conversion. A property number whose exact
+mathematical value fits `long` becomes `Long`, regardless of decimal/exponent spelling. Every other
+property number becomes `BigDecimal.ZERO` when numerically zero or
+`value.stripTrailingZeros()` otherwise; negative scale is retained, so equal approved spellings have
+equal attribute values without an unbounded `toPlainString`. Metadata schema is absent because fields
+may differ per record. G4 query projection and payload limits still apply when a cursor constructs the
+selected attributes.
+
+### Bounded snapshot source and query behavior
+
+The eventual public facade exposes only `GeoJsonSources`, immutable `GeoJsonLimits`, and overloads for
+a regular local `Path` or caller byte array with `SourceIdentity`, `FeatureSourceLimits`, and
+`CancellationToken`. Exact signatures land with G10-020 after API compile sketches. A path open reads
+and closes one bounded file; a byte-array open defensively copies. The successful source owns one exact
+UTF-8 byte snapshot, so later filesystem/caller mutation cannot change metadata, offsets, or records.
+It owns no path, channel, parser, token, thread, executor, cache, or external handle after open.
+
+Opening performs a complete bounded token/semantic pass and retains compact primitive feature entries:
+byte start/end fences, physical index, null/emitted flag, and four coordinate-envelope doubles for an
+emitted feature. A temporary ID set proves uniqueness and is discarded. Metadata has exact exposed
+feature count, computed optional extent, absent schema, canonical EPSG:4326, effective query limits,
+and the BOM/null-geometry warning report. The input and index are charged before source publication.
+Close first invalidates the source/live cursor, then drops its input/index references; immutable
+metadata, reports, and already yielded records remain valid.
+
+One cursor scans physical entries in document order and calls G4 `recordExamined()` for every Feature,
+including null and bounds-filtered entries, and for the one synthetic entry represented by a bare
+geometry root. It tests the retained envelope before reparsing. A matching entry is reparsed from its
+bounded byte slice, applies `ALL|NONE|ONLY` without exposing a JSON value,
+constructs one immutable record, and charges `recordReturned` before publication. `NONE` need not
+materialize properties during the cursor pass, but opening has already validated them. This preserves
+source order and one-live-cursor/cancellation/lifecycle semantics without materializing the complete
+record set or performing network/disk I/O during rendering. No spatial index is added before evidence.
+
+All controlled byte/token/member/string/coordinate/property loops poll cancellation at most every
+4,096 primitive units and immediately before source/current publication. A Jackson call is an opaque
+bounded token step checked before and after. Opening cancellation publishes no source; cursor
+cancellation follows G4 and leaves an open parent reusable. There is no background parsing or
+asynchronous callback.
+
+`GeoJsonLimits` is an immutable typed value. Count/character/input fields are positive `int` values;
+owned bytes is positive `long`. Constructor and complete withers enforce hard maxima and
+`perFeatureProperties <= totalPropertyValues`, `positionsPerGeometry <= totalPositions`, and
+`scalarCharacters <= aggregateCharacters`. Let `propertyContainers` be the checked ceiling division
+of `totalPropertyValues` by `perFeatureProperties`; it must not exceed `physicalFeatures`. The exact
+minimum member budget that can expose the total-property ceiling is `totalPropertyValues + 3` when
+one root Feature suffices, otherwise `totalPropertyValues + 3 * propertyContainers + 2` for the
+required FeatureCollection and Feature members. That checked result must not exceed `objectMembers`.
+The corresponding checked minimum for the physical-feature ceiling is three members for one root
+Feature, otherwise `3 * physicalFeatures + 2`; it too must fit `objectMembers`. Finally, using checked
+`long` arithmetic, the value requires
+`tokens >= 4 * totalPositions + 2 * objectMembers + 32`. These are conservative reachability
+invariants: each 2D position has four tokens and each member has at least a name/value pair before
+container/root overhead. A failed constructor/wither leaves no value. Input and owned-byte ceilings
+remain independently tighten-able and may intentionally become the first effective bound. Defaults
+and hard maxima are:
+
+| Open-time ceiling | Default | Hard maximum |
+| --- | ---: | ---: |
+| Encoded input bytes | 16,777,216 | 268,435,456 |
+| JSON nesting depth, root = 1 | 64 | 128 |
+| Tokens | 16,000,000 | 134,217,728 |
+| Object members | 2,000,000 | 16,000,000 |
+| Physical features | 100,000 | 1,000,000 |
+| Total coordinate positions | 2,000,000 | 16,000,000 |
+| Positions in one geometry | 1,000,000 | 16,000,000 |
+| Total parts/rings/polygons | 250,000 | 2,000,000 |
+| Properties in one Feature | 256 | 4,096 |
+| Total property values | 1,000,000 | 8,000,000 |
+| Characters in one member name | 256 | 256 |
+| Characters in one scalar string | 65,536 | 1,048,576 |
+| Aggregate decoded string characters | 16,777,216 | 134,217,728 |
+| Characters in one number token | 128 | 256 |
+| Conservatively owned open-time bytes | 268,435,456 | 1,073,741,824 |
+| Retained opening warnings | 256 | 4,096 |
+
+Counts include ignored foreign subtrees, null geometries, member names/values, repeated ring closure,
+the retained input copy, member-range/object-stack work, temporary duplicate/ID state, packed index,
+and simultaneously live defensive copies. Logical charges use G4's primitive/reference table with no
+identity deduplication, checked `long` prospective arithmetic, equality acceptance, and maximum-plus-
+one rejection. The reader retains at most the input hard maximum and probes one extra byte separately;
+it never allocates `maximumInputBytes + 1`. Jackson's `StreamReadConstraints` is configured no looser
+than the public values, while project counters remain authoritative and map every overrun to the same
+stable public outcome. Constructor tests exercise every individual hard maximum, every cross-field
+equality and one-less violation, and checked overflow before implementation tests exercise each
+runtime ceiling in isolation, including a total-property fixture that uses the minimum required
+Feature containers and members.
+
+### Diagnostics, verification, and decomposition
+
+Every diagnostic uses the caller source ID and component `geojson`; a feature-local result has its
+positive physical record number, while other location fields and raw parser byte/character offsets are
+absent. No path, member/property name, value, JSON snippet, Jackson class/message/location, or cause
+message enters a stable message or context. The exact first-profile outcomes are:
+
+| Code | Severity/context | Meaning |
+| --- | --- | --- |
+| `GEOJSON_UTF8_BOM_IGNORED` | warning, empty context | One leading UTF-8 BOM was consumed. |
+| `GEOJSON_NULL_GEOMETRY_SKIPPED` | warning, empty context | One fully validated Feature emitted no record. |
+| `GEOJSON_IO_FAILED` | error; `operation=open|size|read|close`, `reason=notFound|accessDenied|closed|other` | Bounded local I/O failed. |
+| `GEOJSON_ENCODING_INVALID` | error; `reason=unsupportedBom|malformedUtf8|unicodeScalar` | Input is outside the UTF-8/Unicode profile. |
+| `GEOJSON_JSON_INVALID` | error; `reason=syntax|trailingContent|duplicateMember` | Strict JSON structure is invalid. |
+| `GEOJSON_PROFILE_UNSUPPORTED` | error; `construct=root|nestedCollection|geometryCollection|emptyGeometry|positionArity|nestedProperty|legacyCrs` | Well-formed content is outside the supported profile. |
+| `GEOJSON_VALUE_INVALID` | error; `field=type|features|geometry|properties|id|bbox|coordinates|propertyName|propertyValue`, `reason=missing|null|kind|cardinality|closure|range|nonFinite|length|number` | A supported member has an invalid value. |
+
+`SOURCE_DUPLICATE_FEATURE_ID`, `SOURCE_LIMIT_EXCEEDED`, `SOURCE_CANCELLED`, and
+`SOURCE_CLOSE_FAILED` retain their exact G4 shapes. GeoJSON open limits use `scope=geojsonOpen` and
+closed limit tokens matching the table's accessor names; query limits use the existing G4 scope.
+Foreign-member skip is intentionally silent, so warning omission counts only BOM/null-geometry
+warnings.
+
+Deterministic precedence is public arguments/lifecycle, already-cancelled token, input bytes,
+open-time owned bytes, UTF-8/BOM, strict token syntax, prospective structural limits, duplicate member
+at its encounter, then object semantics in `type`, prohibited `crs`, required members, `id`,
+`geometry/coordinates`, `properties`, `bbox`, and foreign-member order. Coordinate and property tokens
+retain document order; output count/ID duplication/final allocation and cancellation precede source
+publication. The first terminal error remains primary; cleanup is suppressed.
+
+No production test lands in G10-002. The approval packet contains representative RFC fixtures for all
+six geometries, member-order permutations, BOM, null geometry, flat properties/IDs/bbox/foreign
+members, plus rejection tables for duplicates, invalid Unicode/JSON/numbers, Z/M, empty/malformed
+geometry, nested properties, legacy CRS, exact/one-over limits, and cancellation. It also records the
+pinned dependency graph/license and direct-construction/native risk analysis.
+
+After approval, create these serial, one-to-five-day implementation cards; none exists merely to make
+an empty module:
+
+1. `G10-020` — create the optional adapter with bounded byte snapshot/index/cursor, Feature and
+   FeatureCollection Point/MultiPoint, IDs/properties/query lifecycle, publication staging, and an
+   offline consumer.
+2. `G10-021` — add line, polygon, and multipart geometry through query and tolerant map rendering.
+3. `G10-022` — close every diagnostic/limit/cleanup case and add deterministic bounded mutation
+   testing.
+4. `G10-023` — add a small provenance-recorded RFC/real-producer fixture set and runnable GeoJSON
+   viewer; extend `renderRegression` without a new corpus command.
+5. `G10-024` — extend the one native executable with explicit Jackson construction, one valid
+   query/render and one exact malformed outcome, then record the bounded Linux claim.
+
+G10-021 depends on G10-020; G10-022 depends on G10-021; G10-023 depends on G10-022; G10-024 depends
+on G10-023. Shared publication/native inventories follow the append-only single-owner rule. Broader
+properties, GeometryCollection, Z/M, sequences, remote retrieval, writing, alternate parsers, and
+format-specific performance optimization require new evidence and tasks.

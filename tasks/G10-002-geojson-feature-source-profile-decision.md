@@ -7,43 +7,51 @@ Type: HITL
 
 ## Goal
 
-Select a bounded RFC 7946 GeoJSON profile and parser-dependency strategy that can later become
-reviewable `FeatureSource` vertical slices.
+Approve a bounded RFC 7946 feature-source profile and one isolated Jackson Core adapter strategy,
+then decompose the working vertical slices without creating a module in this task.
 
 ## Context
 
-Level 1 supplies format-neutral feature sources, CRS diagnostics, parser-limit conventions, and
-multipart geometry. GeoJSON has recursive values, foreign members, geometry collections, and a fixed
-WGS 84 coordinate model that require an explicit support decision.
+Level 1 supplies format-neutral sources, packed multipart geometry, canonical attributes, CRS
+normalization, limits, and diagnostics. GeoJSON adds recursive JSON, foreign members, fixed CRS84
+longitude/latitude tuples, null geometry, and an optional external parser boundary.
 
 ## Scope
 
-Record decisions for Feature/FeatureCollection and geometry coverage, null geometry, properties and
-numeric representation, `bbox`, foreign members, coordinate order/CRS behavior, streaming versus
-materialization, duplicate keys, diagnostics, and byte/depth/member/coordinate/allocation limits.
-Compare a JDK-only parser with an isolated optional JSON adapter and define Native Image implications.
-Create the ordered implementation tasks after approval.
+Complete **G10 GeoJSON profile approval** for strict UTF-8 RFC 7946 FeatureCollection, Feature, and six
+2D geometry roots; null-geometry recovery; flat scalar properties; typed IDs; `bbox`; foreign members;
+CRS84-to-EPSG:4326 normalization; bounded byte snapshot/index/cursor behavior; diagnostics and exact
+limits. Approve one `mundane-map-io-geojson-jackson` optional adapter using pinned Jackson Core with no
+external type leakage, non-recycling/direct parser construction, and a complete shaded/service-content
+audit; record G10-020 through G10-024 for creation only after approval.
 
 ## Out of scope
 
-Production parsing, creating `mundane-map-io-geojson`, nonstandard CRS members, GeoJSON Text Sequences,
-writing/export, remote retrieval, and leaking a JSON library's node types into public APIs.
+Production parsing or module creation; GeometryCollection, empty or Z/M geometry, recursive property
+values, nonstandard/legacy CRS, JSON sequences/lines, remote retrieval, writing/export, alternate
+parallel parsers, and Jackson types in public contracts.
 
 ## Acceptance criteria
 
-- A maintainer approves a profile matrix tied to RFC 7946 and records each supported, rejected, or
-  deferred behavior.
-- The decision documents immutable property mapping, stable diagnostics, explicit input limits, and
-  WGS 84/axis-order handling.
-- Dependency evaluation records complexity, maintenance, license, module isolation, and Native Image
-  consequences; an external library is selected only if the benefit is substantial.
-- Follow-up tasks are decomposed into one-to-five-day working slices and add no module before the first
-  parser/source behavior and tests.
+- **G10 GeoJSON profile approval** records the exact document/member/geometry/property/ID/bbox/foreign
+  matrix, null recovery, coordinate and CRS normalization, parser/source ownership, limits,
+  diagnostics, and deterministic precedence.
+- The approved source design preserves record order, packed immutable values, one-cursor query
+  semantics, exact feature count/extent, dynamic attributes, stable IDs, bounded warnings, and no
+  input mutation or renderer/parser-type leakage.
+- The dependency record pins Jackson Core 3.1.5 and its checksum, license/provenance/runtime and shaded
+  contents, exact strict factory controls and direct construction, explains the substantial tokenizer
+  benefit, isolates it as an Optional adapter, and leaves Native Image unclaimed until executable
+  evidence.
+- G10-020 through G10-024 are ordered one-to-five-day slices covering the first working module,
+  geometry completion/rendering, hostile hardening, fixture/viewer evidence, and Native Image; none is
+  created as an empty scaffold.
 
 ## Required tests
 
-No production tests. Review proposed fixtures against representative RFC 7946 examples and verify the
-follow-up dependency graph covers valid, malformed, limit, rendering, corpus, and native paths.
+No production tests. Review representative RFC examples and negative/limit/cancellation fixture
+tables, dependency/license evidence, parser-boundary compile sketches, and the follow-up graph's
+valid, malformed, rendering, fixture, publication/consumer, and native coverage.
 
 ## Validation
 
@@ -55,5 +63,6 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: the maintainer chooses the supported profile and JDK-only versus isolated-adapter
-strategy, then approves the decomposed implementation tasks. This card does not authorize a module.
+HITL checkpoint: **G10 GeoJSON profile approval**. The selected strategy is one isolated Jackson Core
+adapter; rejection reopens this design for one bounded JDK tokenizer rather than authorizing both.
+This card does not create or register a module.

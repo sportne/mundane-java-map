@@ -118,8 +118,8 @@ empty module, and broader follow-up remains separately decomposed.
 ### G10 — Additional formats, tiles, and projections
 
 - A secure static SVG import subset; general SVG is not promised.
-- GeoJSON, GeoTIFF, GeoPackage, GPX, KML, MBTiles, remote tile sources, and a use-case-selected
-  additional projection.
+- GeoJSON through one bounded optional Jackson Core adapter; GeoTIFF, GeoPackage, GPX, KML, MBTiles,
+  remote tile sources, and a use-case-selected additional projection.
 - GeoTIFF remains Level 2 and routes elevation samples through the G9 model.
 - SQLite-backed formats and any PROJ use remain isolated optional adapters. See the
   [G10 task set](tasks/README.md#g10--additional-formats-tiles-and-projections).
