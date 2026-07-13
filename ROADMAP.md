@@ -30,6 +30,10 @@ G2-004 completes working marker, line, and fill roles with solid lines, outward-
 markers, even-odd solid fills, optional outlines, and allocation-bounded diagonal hatch layouts.
 The basic viewer now uses these symbols directly; the deprecated style branch remains separately
 verified during the Level 1 migration window.
+G2-005 adds bounded toolkit-neutral raster icons, immutable exact-name catalogs, and one explicit,
+instance-owned AWT renderer registry. Built-in and consumer renderers now share a validated
+paint-scoped context, same-role recursion, stable diagnostics, and derived endpoint/outline behavior
+without discovery or global mutable registration.
 
 ## Level 1
 

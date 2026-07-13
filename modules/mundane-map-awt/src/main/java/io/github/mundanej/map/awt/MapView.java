@@ -10,13 +10,13 @@ import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.HatchFillSymbol;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
-import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
-import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
+import io.github.mundanej.map.api.RasterIconSymbol;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
@@ -53,11 +53,13 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
@@ -76,6 +78,7 @@ public final class MapView extends JComponent {
     private static final double ZOOM_STEP = 1.2;
 
     private final Projection projection;
+    private final SymbolRendererRegistry symbolRenderers;
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private List<Layer> layers = List.of();
     private MapViewport viewport = MapViewport.initial(DEFAULT_WIDTH, DEFAULT_HEIGHT);
@@ -83,7 +86,13 @@ public final class MapView extends JComponent {
 
     /** Creates an empty view using the supplied source-to-world projection. */
     public MapView(Projection projection) {
+        this(projection, SymbolRendererRegistry.builtIn());
+    }
+
+    /** Creates an empty view using an explicit immutable symbol renderer registry. */
+    public MapView(Projection projection, SymbolRendererRegistry symbolRenderers) {
         this.projection = Objects.requireNonNull(projection, "projection");
+        this.symbolRenderers = Objects.requireNonNull(symbolRenderers, "symbolRenderers");
         setOpaque(true);
         setBackground(Color.WHITE);
         setPreferredSize(new Dimension(DEFAULT_WIDTH, DEFAULT_HEIGHT));
@@ -177,62 +186,198 @@ public final class MapView extends JComponent {
     }
 
     private void renderFeature(Graphics2D graphics, Feature feature) {
-        Geometry geometry = feature.geometry();
         Symbol symbol = feature.symbol();
-        if (symbol instanceof FeatureStyle style) {
-            renderLegacyFeature(graphics, geometry, feature, style);
-            return;
+        if (!(symbol instanceof FeatureStyle)
+                && symbol.role() != geometryRole(feature.geometry())) {
+            throw roleMismatch(feature, new SymbolSnapshot(symbol.role(), symbol.rendererKey()));
         }
-        SymbolSnapshot symbolSnapshot = new SymbolSnapshot(symbol.role(), symbol.rendererKey());
-        if (geometry instanceof PointGeometry point) {
-            if (!(symbol instanceof MarkerSymbol || symbol instanceof CompositeSymbol)
-                    || symbolSnapshot.role() != SymbolRole.MARKER) {
-                throw roleMismatch(feature, symbolSnapshot);
-            }
-            Rectangle2D bounds = renderMarker(graphics, point, symbol, symbolSnapshot);
-            renderPointLabel(graphics, feature.name(), bounds);
-            return;
+        Optional<Coordinate> markerAnchor =
+                feature.geometry() instanceof PointGeometry point
+                        ? Optional.of(toScreen(point.coordinate()))
+                        : Optional.empty();
+        AwtSymbolRenderContext context =
+                context(
+                        graphics,
+                        symbol.role(),
+                        feature.id(),
+                        feature.geometry(),
+                        feature.geometry(),
+                        1.0,
+                        false,
+                        OptionalDouble.empty(),
+                        markerAnchor);
+        SymbolRenderResult result = dispatch(symbol, context);
+        if (feature.geometry() instanceof PointGeometry) {
+            Envelope bounds = result.nominalMarkerBounds().orElseThrow();
+            renderPointLabel(graphics, feature.name(), rectangle(bounds));
         }
-        if (geometry instanceof LineStringGeometry line) {
-            if (!(symbol instanceof LineSymbol || symbol instanceof CompositeSymbol)
-                    || symbolSnapshot.role() != SymbolRole.LINE) {
-                throw roleMismatch(feature, symbolSnapshot);
-            }
-            renderLineSymbol(
-                    graphics,
-                    symbol,
-                    symbolSnapshot,
-                    List.of(toScreen(line.coordinates())),
-                    screenBasis(),
-                    feature.id(),
-                    false,
-                    1.0);
-            return;
-        }
-        if (geometry instanceof PolygonGeometry polygon) {
-            if (!(symbol instanceof io.github.mundanej.map.api.FillSymbol
-                            || symbol instanceof CompositeSymbol)
-                    || symbolSnapshot.role() != SymbolRole.FILL) {
-                throw roleMismatch(feature, symbolSnapshot);
-            }
-            renderFillSymbol(
-                    graphics,
-                    symbol,
-                    symbolSnapshot,
-                    screenPolygon(polygon),
-                    screenBasis(),
-                    feature.id(),
-                    1.0);
-            return;
-        }
-        if (symbolSnapshot.role() != geometryRole(geometry)) {
-            throw roleMismatch(feature, symbolSnapshot);
-        }
-        throw rendererNotRegistered(symbolSnapshot);
     }
 
-    private void renderLegacyFeature(
-            Graphics2D graphics, Geometry geometry, Feature feature, FeatureStyle style) {
+    private AwtSymbolRenderContext context(
+            Graphics2D graphics,
+            SymbolRole role,
+            String featureId,
+            Geometry featureGeometry,
+            Geometry renderGeometry,
+            double inheritedOpacity,
+            boolean closedRing,
+            OptionalDouble endpointBearing,
+            Optional<Coordinate> markerAnchor) {
+        return new AwtSymbolRenderContext(
+                graphics,
+                role,
+                featureId,
+                featureGeometry,
+                renderGeometry,
+                projection,
+                viewport(),
+                inheritedOpacity,
+                closedRing,
+                endpointBearing,
+                markerAnchor,
+                screenBasis(),
+                this);
+    }
+
+    private SymbolRenderResult dispatch(Symbol symbol, AwtSymbolRenderContext context) {
+        SymbolSnapshot snapshot = new SymbolSnapshot(symbol.role(), symbol.rendererKey());
+        AwtSymbolRenderer renderer = symbolRenderers.find(snapshot.role(), snapshot.rendererKey());
+        if (renderer == null) {
+            throw rendererNotRegistered(snapshot);
+        }
+        if (!renderer.supports(symbol)) {
+            throw rendererValueMismatch(snapshot);
+        }
+        SymbolRenderResult result = renderer.render(symbol, context);
+        boolean markerResult = result != null && result.nominalMarkerBounds().isPresent();
+        boolean valid =
+                result != null
+                        && (context.role() == SymbolRole.LEGACY_GEOMETRY
+                                ? markerResult
+                                        == (context.renderGeometry() instanceof PointGeometry)
+                                : markerResult == (context.role() == SymbolRole.MARKER));
+        if (!valid) {
+            throw rendererFailure(
+                    SymbolException.RENDERER_INVALID_RESULT,
+                    "Renderer returned an incompatible result",
+                    snapshot);
+        }
+        return result;
+    }
+
+    SymbolRenderResult renderChild(Symbol child, AwtSymbolRenderContext parent, double multiplier) {
+        AwtSymbolRenderContext childContext =
+                context(
+                        parent.parentGraphics(),
+                        parent.role(),
+                        parent.featureId(),
+                        parent.featureGeometry(),
+                        parent.renderGeometry(),
+                        parent.inheritedOpacity() * multiplier,
+                        parent.closedRing(),
+                        parent.endpointBearingDegrees(),
+                        parent.markerAnchorScreen());
+        return dispatch(child, childContext);
+    }
+
+    SymbolRenderResult renderBuiltIn(Symbol value, AwtSymbolRenderContext context) {
+        if (value instanceof CompositeSymbol composite) {
+            SymbolRenderResult result = SymbolRenderResult.none();
+            for (Symbol child : composite.children()) {
+                result = result.union(context.renderChild(child, composite.opacity()));
+            }
+            return result;
+        }
+        if (value instanceof FeatureStyle style) {
+            Rectangle2D bounds =
+                    renderLegacyFeature(context.parentGraphics(), context.renderGeometry(), style);
+            return bounds == null
+                    ? SymbolRenderResult.none()
+                    : SymbolRenderResult.markerBounds(envelope(bounds));
+        }
+        if (value instanceof VectorMarkerSymbol marker) {
+            Coordinate anchor = context.markerAnchorScreen().orElseThrow();
+            Rectangle2D bounds =
+                    renderMarkerSymbol(
+                            context.parentGraphics(),
+                            marker,
+                            new SymbolSnapshot(marker.role(), marker.rendererKey()),
+                            anchor,
+                            context.mapScreenBasis(),
+                            context.inheritedOpacity(),
+                            context.endpointBearingDegrees());
+            return SymbolRenderResult.markerBounds(envelope(bounds));
+        }
+        if (value instanceof RasterIconSymbol icon) {
+            return renderRasterIcon(icon, context);
+        }
+        if (value instanceof SolidLineSymbol line
+                && context.renderGeometry() instanceof LineStringGeometry) {
+            renderRegisteredLine(line, context);
+            return SymbolRenderResult.none();
+        }
+        if ((value instanceof SolidFillSymbol || value instanceof HatchFillSymbol)
+                && context.renderGeometry() instanceof PolygonGeometry) {
+            renderRegisteredFill(value, context);
+            return SymbolRenderResult.none();
+        }
+        throw rendererValueMismatch(new SymbolSnapshot(value.role(), value.rendererKey()));
+    }
+
+    private SymbolRenderResult renderRasterIcon(
+            RasterIconSymbol icon, AwtSymbolRenderContext context) {
+        Envelope viewBox = new Envelope(0.0, 0.0, icon.width(), icon.height());
+        MarkerTransform transform =
+                context.endpointBearingDegrees().isPresent()
+                        ? SymbolTransforms.markerAtScreenBearing(
+                                viewBox,
+                                icon.placement(),
+                                context.markerAnchorScreen().orElseThrow(),
+                                context.mapScreenBasis(),
+                                context.endpointBearingDegrees().orElseThrow())
+                        : SymbolTransforms.marker(
+                                viewBox,
+                                icon.placement(),
+                                context.markerAnchorScreen().orElseThrow(),
+                                context.mapScreenBasis());
+        double opacity = context.inheritedOpacity() * icon.opacity();
+        if (opacity > 0.0) {
+            BufferedImage image =
+                    new BufferedImage(icon.width(), icon.height(), BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < icon.height(); y++) {
+                for (int x = 0; x < icon.width(); x++) {
+                    int rgba = icon.rgbaAt(x, y);
+                    image.setRGB(x, y, (rgba << 24) | ((rgba >>> 8) & 0x00ff_ffff));
+                }
+            }
+            Graphics2D child = context.createGraphics();
+            try {
+                child.setComposite(
+                        AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) opacity));
+                child.setRenderingHint(
+                        RenderingHints.KEY_INTERPOLATION,
+                        icon.interpolation() == RasterInterpolation.NEAREST
+                                ? RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR
+                                : RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                child.drawImage(
+                        image,
+                        new AffineTransform(
+                                transform.m00(),
+                                transform.m10(),
+                                transform.m01(),
+                                transform.m11(),
+                                transform.m02(),
+                                transform.m12()),
+                        null);
+            } finally {
+                child.dispose();
+            }
+        }
+        return SymbolRenderResult.markerBounds(transform.nominalScreenBounds());
+    }
+
+    private Rectangle2D renderLegacyFeature(
+            Graphics2D graphics, Geometry geometry, FeatureStyle style) {
         graphics.setStroke(
                 new BasicStroke(
                         (float) style.strokeWidth(),
@@ -240,8 +385,7 @@ public final class MapView extends JComponent {
                         BasicStroke.JOIN_ROUND));
 
         if (geometry instanceof PointGeometry point) {
-            Rectangle2D bounds = renderLegacyPoint(graphics, point, style);
-            renderPointLabel(graphics, feature.name(), bounds);
+            return renderLegacyPoint(graphics, point, style);
         } else if (geometry instanceof LineStringGeometry line) {
             if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
                 Path2D path = path(line.coordinates(), false);
@@ -251,6 +395,7 @@ public final class MapView extends JComponent {
         } else if (geometry instanceof PolygonGeometry polygon) {
             renderPolygon(graphics, polygon, style);
         }
+        return null;
     }
 
     private Rectangle2D renderLegacyPoint(
@@ -271,26 +416,6 @@ public final class MapView extends JComponent {
         return marker.getBounds2D();
     }
 
-    private Rectangle2D renderMarker(
-            Graphics2D graphics,
-            PointGeometry point,
-            Symbol symbol,
-            SymbolSnapshot symbolSnapshot) {
-        Coordinate projected = projection.project(point.coordinate());
-        MapViewport viewportSnapshot = viewport();
-        Coordinate screen = viewportSnapshot.worldToScreen(projected);
-        Coordinate xScreen =
-                viewportSnapshot.worldToScreen(new Coordinate(projected.x() + 1.0, projected.y()));
-        Coordinate yScreen =
-                viewportSnapshot.worldToScreen(new Coordinate(projected.x(), projected.y() + 1.0));
-        MapScreenBasis basis =
-                MapScreenBasis.of(
-                        new Coordinate(xScreen.x() - screen.x(), xScreen.y() - screen.y()),
-                        new Coordinate(yScreen.x() - screen.x(), yScreen.y() - screen.y()));
-        return renderMarkerSymbol(
-                graphics, symbol, symbolSnapshot, screen, basis, 1.0, OptionalDouble.empty());
-    }
-
     private Rectangle2D renderMarkerSymbol(
             Graphics2D graphics,
             Symbol symbol,
@@ -301,28 +426,6 @@ public final class MapView extends JComponent {
             OptionalDouble outwardBearing) {
         if (symbolSnapshot.role() != SymbolRole.MARKER) {
             throw rendererValueMismatch(symbolSnapshot);
-        }
-        if (CompositeSymbol.RENDERER_KEY.equals(symbolSnapshot.rendererKey())) {
-            if (!(symbol instanceof CompositeSymbol composite)) {
-                throw rendererValueMismatch(symbolSnapshot);
-            }
-            double childOpacity = inheritedOpacity * composite.opacity();
-            Rectangle2D result = null;
-            for (Symbol child : composite.children()) {
-                SymbolSnapshot childSnapshot =
-                        new SymbolSnapshot(child.role(), child.rendererKey());
-                Rectangle2D childBounds =
-                        renderMarkerSymbol(
-                                graphics,
-                                child,
-                                childSnapshot,
-                                featureScreen,
-                                basis,
-                                childOpacity,
-                                outwardBearing);
-                result = result == null ? childBounds : result.createUnion(childBounds);
-            }
-            return result;
         }
         if (!VectorMarkerSymbol.RENDERER_KEY.equals(symbolSnapshot.rendererKey())) {
             throw rendererNotRegistered(symbolSnapshot);
@@ -398,77 +501,60 @@ public final class MapView extends JComponent {
                 OptionalDouble.empty());
     }
 
-    private void renderLineSymbol(
-            Graphics2D graphics,
-            Symbol symbol,
-            SymbolSnapshot snapshot,
-            List<CoordinateSequence> parts,
-            MapScreenBasis basis,
-            String featureId,
-            boolean suppressEndpoints,
-            double inheritedOpacity) {
-        if (snapshot.role() != SymbolRole.LINE) {
-            throw rendererValueMismatch(snapshot);
-        }
-        if (CompositeSymbol.RENDERER_KEY.equals(snapshot.rendererKey())) {
-            if (!(symbol instanceof CompositeSymbol composite)) {
-                throw rendererValueMismatch(snapshot);
-            }
-            double opacity = inheritedOpacity * composite.opacity();
-            for (Symbol child : composite.children()) {
-                renderLineSymbol(
-                        graphics,
-                        child,
-                        new SymbolSnapshot(child.role(), child.rendererKey()),
-                        parts,
-                        basis,
-                        featureId,
-                        suppressEndpoints,
-                        opacity);
-            }
+    private void renderRegisteredLine(SolidLineSymbol line, AwtSymbolRenderContext context) {
+        LineStringGeometry geometry = (LineStringGeometry) context.renderGeometry();
+        CoordinateSequence screen = toScreen(geometry.coordinates());
+        LineEndpointBearings bearings =
+                LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+        if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
             return;
         }
-        if (!SolidLineSymbol.RENDERER_KEY.equals(snapshot.rendererKey())) {
-            throw rendererNotRegistered(snapshot);
+        double opacity = context.inheritedOpacity() * line.opacity();
+        paintLinePart(
+                context.parentGraphics(), screen, line.stroke(), context.mapScreenBasis(), opacity);
+        if (context.closedRing()) {
+            return;
         }
-        if (!(symbol instanceof SolidLineSymbol line)) {
-            throw rendererValueMismatch(snapshot);
+        if (line.startMarker().isPresent() && bearings.startBearingDegrees().isPresent()) {
+            dispatchEndpoint(
+                    line.startMarker().orElseThrow(),
+                    context,
+                    opacity,
+                    geometry.coordinates().coordinate(0),
+                    screen.coordinate(0),
+                    bearings.startBearingDegrees().orElseThrow());
         }
-        double opacity = inheritedOpacity * line.opacity();
-        for (int partIndex = 0; partIndex < parts.size(); partIndex++) {
-            CoordinateSequence part = parts.get(partIndex);
-            LineEndpointBearings bearings =
-                    LineTangents.outwardScreenBearings(part, featureId, partIndex);
-            if (bearings.startBearingDegrees().isEmpty()
-                    && bearings.endBearingDegrees().isEmpty()) {
-                continue;
-            }
-            paintLinePart(graphics, part, line.stroke(), basis, opacity);
-            if (!suppressEndpoints) {
-                if (line.startMarker().isPresent() && bearings.startBearingDegrees().isPresent()) {
-                    Symbol marker = line.startMarker().orElseThrow();
-                    renderMarkerSymbol(
-                            graphics,
-                            marker,
-                            new SymbolSnapshot(marker.role(), marker.rendererKey()),
-                            part.coordinate(0),
-                            basis,
-                            opacity,
-                            bearings.startBearingDegrees());
-                }
-                if (line.endMarker().isPresent() && bearings.endBearingDegrees().isPresent()) {
-                    Symbol marker = line.endMarker().orElseThrow();
-                    renderMarkerSymbol(
-                            graphics,
-                            marker,
-                            new SymbolSnapshot(marker.role(), marker.rendererKey()),
-                            part.coordinate(part.size() - 1),
-                            basis,
-                            opacity,
-                            bearings.endBearingDegrees());
-                }
-            }
+        if (line.endMarker().isPresent() && bearings.endBearingDegrees().isPresent()) {
+            int last = geometry.coordinates().size() - 1;
+            dispatchEndpoint(
+                    line.endMarker().orElseThrow(),
+                    context,
+                    opacity,
+                    geometry.coordinates().coordinate(last),
+                    screen.coordinate(last),
+                    bearings.endBearingDegrees().orElseThrow());
         }
+    }
+
+    private void dispatchEndpoint(
+            Symbol marker,
+            AwtSymbolRenderContext owner,
+            double inheritedOpacity,
+            Coordinate sourceEndpoint,
+            Coordinate screenEndpoint,
+            double bearing) {
+        dispatch(
+                marker,
+                context(
+                        owner.parentGraphics(),
+                        SymbolRole.MARKER,
+                        owner.featureId(),
+                        owner.featureGeometry(),
+                        new PointGeometry(sourceEndpoint),
+                        inheritedOpacity,
+                        false,
+                        OptionalDouble.of(bearing),
+                        Optional.of(screenEndpoint)));
     }
 
     private static void paintLinePart(
@@ -492,41 +578,13 @@ public final class MapView extends JComponent {
         }
     }
 
-    private void renderFillSymbol(
-            Graphics2D graphics,
-            Symbol symbol,
-            SymbolSnapshot snapshot,
-            ScreenPolygon polygon,
-            MapScreenBasis basis,
-            String featureId,
-            double inheritedOpacity) {
-        if (snapshot.role() != SymbolRole.FILL) {
-            throw rendererValueMismatch(snapshot);
-        }
-        if (CompositeSymbol.RENDERER_KEY.equals(snapshot.rendererKey())) {
-            if (!(symbol instanceof CompositeSymbol composite)) {
-                throw rendererValueMismatch(snapshot);
-            }
-            double opacity = inheritedOpacity * composite.opacity();
-            for (Symbol child : composite.children()) {
-                renderFillSymbol(
-                        graphics,
-                        child,
-                        new SymbolSnapshot(child.role(), child.rendererKey()),
-                        polygon,
-                        basis,
-                        featureId,
-                        opacity);
-            }
-            return;
-        }
-        if (SolidFillSymbol.RENDERER_KEY.equals(snapshot.rendererKey())) {
-            if (!(symbol instanceof SolidFillSymbol fill)) {
-                throw rendererValueMismatch(snapshot);
-            }
-            double opacity = inheritedOpacity * fill.opacity();
+    private void renderRegisteredFill(Symbol symbol, AwtSymbolRenderContext context) {
+        PolygonGeometry geometry = (PolygonGeometry) context.renderGeometry();
+        ScreenPolygon polygon = screenPolygon(geometry);
+        if (symbol instanceof SolidFillSymbol fill) {
+            double opacity = context.inheritedOpacity() * fill.opacity();
             if (opacity > 0.0 && fill.fill().alpha() > 0) {
-                Graphics2D child = (Graphics2D) graphics.create();
+                Graphics2D child = context.createGraphics();
                 try {
                     child.setComposite(
                             AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) opacity));
@@ -536,19 +594,48 @@ public final class MapView extends JComponent {
                     child.dispose();
                 }
             }
-            renderOutline(graphics, fill.outline(), polygon, basis, featureId, opacity);
-            return;
+            fill.outline()
+                    .ifPresent(
+                            outline ->
+                                    renderRegisteredOutline(outline, geometry, context, opacity));
+        } else if (symbol instanceof HatchFillSymbol hatch) {
+            double opacity = context.inheritedOpacity() * hatch.opacity();
+            paintHatch(
+                    context.parentGraphics(),
+                    hatch,
+                    polygon,
+                    context.mapScreenBasis(),
+                    context.featureId(),
+                    opacity);
+            hatch.outline()
+                    .ifPresent(
+                            outline ->
+                                    renderRegisteredOutline(outline, geometry, context, opacity));
         }
-        if (HatchFillSymbol.RENDERER_KEY.equals(snapshot.rendererKey())) {
-            if (!(symbol instanceof HatchFillSymbol hatch)) {
-                throw rendererValueMismatch(snapshot);
-            }
-            double opacity = inheritedOpacity * hatch.opacity();
-            paintHatch(graphics, hatch, polygon, basis, featureId, opacity);
-            renderOutline(graphics, hatch.outline(), polygon, basis, featureId, opacity);
-            return;
+    }
+
+    private void renderRegisteredOutline(
+            Symbol outline,
+            PolygonGeometry polygon,
+            AwtSymbolRenderContext owner,
+            double inheritedOpacity) {
+        List<CoordinateSequence> rings = new ArrayList<>();
+        rings.add(polygon.exterior());
+        rings.addAll(polygon.holes());
+        for (CoordinateSequence ring : rings) {
+            dispatch(
+                    outline,
+                    context(
+                            owner.parentGraphics(),
+                            SymbolRole.LINE,
+                            owner.featureId(),
+                            owner.featureGeometry(),
+                            new LineStringGeometry(ring),
+                            inheritedOpacity,
+                            true,
+                            OptionalDouble.empty(),
+                            Optional.empty()));
         }
-        throw rendererNotRegistered(snapshot);
     }
 
     private void paintHatch(
@@ -607,28 +694,6 @@ public final class MapView extends JComponent {
         } finally {
             child.dispose();
         }
-    }
-
-    private void renderOutline(
-            Graphics2D graphics,
-            java.util.Optional<Symbol> outline,
-            ScreenPolygon polygon,
-            MapScreenBasis basis,
-            String featureId,
-            double inheritedOpacity) {
-        if (outline.isEmpty()) {
-            return;
-        }
-        Symbol line = outline.orElseThrow();
-        renderLineSymbol(
-                graphics,
-                line,
-                new SymbolSnapshot(line.role(), line.rendererKey()),
-                polygon.rings(),
-                basis,
-                featureId,
-                true,
-                inheritedOpacity);
     }
 
     private static void renderPointLabel(
@@ -746,6 +811,10 @@ public final class MapView extends JComponent {
     private static Rectangle2D rectangle(Envelope bounds) {
         return new Rectangle2D.Double(
                 bounds.minX(), bounds.minY(), bounds.width(), bounds.height());
+    }
+
+    private static Envelope envelope(Rectangle2D bounds) {
+        return new Envelope(bounds.getMinX(), bounds.getMinY(), bounds.getMaxX(), bounds.getMaxY());
     }
 
     private static SymbolRole geometryRole(Geometry geometry) {

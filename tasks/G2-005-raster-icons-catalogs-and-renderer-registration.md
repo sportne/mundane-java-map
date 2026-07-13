@@ -1,6 +1,6 @@
 # G2-005 — Raster Icons, Catalogs, and Renderer Registration
 
-Status: Proposed
+Status: Complete
 Depends on: G2-004
 Gate: G2
 Type: AFK
@@ -12,9 +12,10 @@ renderers through an explicit registry with stable failure diagnostics.
 
 ## Context
 
-G2-002 and G2-003 provide vector symbols and placement. `DESIGN.md` forbids runtime discovery and
-confines Java2D to `mundane-map-awt`. Raster icons therefore need an immutable primitive pixel form
-at the public boundary, while Java2D conversion and renderer implementations stay in AWT.
+G2-002 through G2-004 provide vector symbols, placement, lines, and fills. The
+[G2 design](../design/G2-symbols-and-vector-graphics.md) forbids runtime discovery and confines
+Java2D to `mundane-map-awt`. Raster icons therefore need an immutable primitive pixel form at the
+public boundary, while Java2D conversion and renderer implementations stay in AWT.
 
 ## Scope
 
@@ -66,3 +67,11 @@ git diff --check
 Use packed primitive pixel storage rather than one object per pixel. Encoded PNG/JPEG loading belongs
 to the later raster-source slice; the native resource smoke may supply an explicitly decoded bounded
 fixture through a narrow loader owned by AWT.
+
+Completed on 2026-07-13. The API now owns bounded defensive RGBA icon values, shared interpolation,
+and immutable exact-name catalogs with structured duplicate/missing diagnostics. Each `MapView` owns
+an immutable explicit AWT renderer registry; its source-listed built-ins cover legacy, vector/raster
+markers, composites, lines, solid fills, and hatches while isolated custom registries have no hidden
+fallback. Paint-scoped contexts expose safe graphics copies, same-role recursion, derived endpoint
+and closed-ring context, and validated results. Offscreen tests cover raster placement, all anchors,
+rotation, size units, alpha, interpolation, composition, labels, and graphics-state isolation.

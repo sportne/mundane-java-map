@@ -23,6 +23,21 @@ public final class SymbolException extends RuntimeException {
     /** A bounded hatch layout requires more candidate segments than permitted. */
     public static final String HATCH_SEGMENT_LIMIT_EXCEEDED = "SYMBOL_HATCH_SEGMENT_LIMIT_EXCEEDED";
 
+    /** A named symbol catalog contains an exact duplicate name. */
+    public static final String CATALOG_DUPLICATE = "SYMBOL_CATALOG_DUPLICATE";
+
+    /** A required exact symbol catalog name is absent. */
+    public static final String CATALOG_MISSING = "SYMBOL_CATALOG_MISSING";
+
+    /** Application code attempted to register a reserved built-in renderer key. */
+    public static final String RENDERER_RESERVED_KEY = "SYMBOL_RENDERER_RESERVED_KEY";
+
+    /** A renderer registry already contains the same role and key. */
+    public static final String RENDERER_DUPLICATE = "SYMBOL_RENDERER_DUPLICATE";
+
+    /** A renderer returned a result incompatible with its registered role. */
+    public static final String RENDERER_INVALID_RESULT = "SYMBOL_RENDERER_INVALID_RESULT";
+
     private final String code;
     private final Map<String, String> context;
 
