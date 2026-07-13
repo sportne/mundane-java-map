@@ -219,3 +219,200 @@ CI job are sufficient. There is no native test framework, scenario/plugin regist
 corpus, broad metadata, private cache instrumentation, native benchmark, or platform matrix. This is
 the smallest final Native Image boundary that proves all Level 1 dependencies coexist and leaves a
 reviewable release claim.
+
+## Public API, Javadocs, and examples review (G8-002)
+
+### One bounded release-review inventory
+
+G8-002 reviews every project-declared public/protected declaration in the five published Level 1
+modules and the consumer-facing entry points/headless factories of five examples. G0's authoritative
+project inventory supplies module/release classification; G8 neither copies it into another Gradle
+list nor creates an API-manifest subsystem. At execution time, each module's generated
+`allclasses-index.html` and member index are the exhaustive declaration checklist:
+
+| Published module | Public package and contract families |
+| --- | --- |
+| `mundane-map-api` | Geometry/features; symbols/vector paths/catalogs/icons; tools/selection; CRS/projection; feature/raster sources; diagnostics/cancellation/limits; distance/measurement; encoded-raster decoder boundary |
+| `mundane-map-core` | Snapshots/sources; viewport/CRS/projections; symbol transforms/layout; tool/hit/distance algorithms; accounting/resampling; explicit spatial index; screen optimizer |
+| `mundane-map-awt` | `MapView`/bindings; explicit symbol registry/contexts/results; measurement tool; raster decoder factory and render options |
+| `mundane-map-io-shapefile` | `Shapefiles`, open options/limits, and DBF encoding profile |
+| `mundane-map-io-image` | `RasterImages`, open options/placement/limits/cache policy |
+
+The examples are `BasicViewer`, `SymbolGallery`, `MeasurementViewer`, `ShapefileViewer`, and
+`RasterViewer`. The task records one disposition per module/package and example in its Notes; it does
+not check in `javap` dumps, generated HTML, an ABI baseline, or a general review database. There is no
+released/tagged API baseline yet, so G8 cannot honestly claim compatibility with development
+snapshots or justify a binary-compatibility plugin.
+
+### Compatibility and coherence disposition
+
+`Layer` and `InMemoryLayer` remain supported, non-deprecated small-snapshot APIs. They are the
+ergonomic choice for already available embedded data; source bindings provide bounded/lazy behavior
+without replacing them. Deprecated `FeatureStyle` remains supported through the first Level 1 `0.x`
+release with documented migration to role-specific symbols and intended removal before `1.0.0`, as
+G2 approved. G8 does not reopen the approved G2 symbol migration, G4 source/CRS contracts, geometry
+roles, format profiles, or G7 evidence choices.
+
+Documentation fixes, missing validation, defensive-copy defects, and source-compatible consistency
+corrections stay in the owning module with focused regression tests. A source- or binary-incompatible
+correction requires an individually recorded maintainer decision at the named checkpoint, including
+the defect, affected declaration/callers, migration, and why deferral is worse. Naming cleanup,
+package moves, speculative overloads, and convenience types are deferred. G8-004 selects the release
+version, so this task invents no `@since` version or final long-term support promise.
+
+The review checks that canonical overloads own validation and conveniences delegate with identical
+defaults; non-null versus `Optional` use is consistent; values are deeply immutable with defensive
+array/collection copies; units and coordinate spaces are explicit; borrowed/owned/close/cancel/EDT
+rules agree across contracts; exception versus stable diagnostic categories are coherent; registries
+are explicit/instance-owned; and public signatures preserve module purity. Architecture tests—not
+manual taste—verify API/core have no AWT/external types, format APIs do not leak parser/provider types,
+and public data structures expose no mutable storage.
+
+### Strict useful Javadocs
+
+The existing Java 21 Javadoc tasks gain exact offline settings: UTF-8 input/output, all doclint groups,
+`-Werror`, and `-notimestamp`. No remote `-link`, network lookup, doclet, aggregate site, or new plugin
+is introduced. Local `{@link}`, `{@linkplain}`, and `@see` references must resolve.
+
+The universal `config/checkstyle/checkstyle.xml` and its ordinary `checkstyleMain`/`checkstyleTest`
+tasks remain unchanged and continue to enforce style in all production, test, example, and support
+projects. The existing `mundane-map.publishing-conventions` marker—already applied only to G0's exact
+published-project inventory—registers one additional `checkstylePublicApi` task over
+`sourceSets.main.allJava` and attaches it to that project's `check`. It uses a second lean
+`config/checkstyle/checkstyle-public-api.xml` containing exactly:
+
+```text
+JavadocPackage
+MissingJavadocType(scope=protected)
+MissingJavadocMethod(scope=protected, allowedAnnotations=Override)
+JavadocVariable(accessModifiers=public,protected; tokens=VARIABLE_DEF,ENUM_CONSTANT_DEF)
+```
+
+Thus public and protected top-level/nested types, constructors, non-override methods, fields, and enum
+constants in the five published main source sets require documentation; package-info is mandatory.
+Record components are handled by type-level `@param` under doclint. A method annotated `@Override` may
+omit a repeated comment only when the inherited behavior is unchanged; the release review still
+requires explicit Javadoc when an override strengthens validation, lifecycle, exceptions, or units.
+There are no generated Level 1 main sources or blanket suppression. This second task does not run on
+tests/examples/support projects and does not disable their existing Checkstyle tasks.
+
+Every package exporting public declarations gets substantive `package-info.java`. Documentation is
+specific by family:
+
+- immutable values state equality/canonicalization, defensive copying, bounds, and units;
+- CRS/geometry state x/y convention and source/map/display/logical-screen coordinate space/domains;
+- sources/cursors/views state ownership, external serialization or EDT confinement, one-live-cursor,
+  close/cancel arbitration, and which immutable results survive close;
+- registries state instance ownership, exact key matching, duplicate behavior, and absence of
+  discovery/global mutation;
+- diagnostics state stable code/severity/location/ordered-context versus non-contractual message/cause;
+- limits/formats state defaults, equality/plus-one behavior, supported profile, sidecars, encoding,
+  and CRS boundaries; and
+- deprecated declarations state the supported migration and removal-before-1.0 intent without a
+  guessed release number.
+
+Record accessors are documented by type-level `@param` tags. An `Object`/interface override may inherit
+documentation only when it strengthens no semantics; otherwise its exact behavior is documented.
+Compiler/Javadoc warnings are errors in this gate. There is no JPMS descriptor, nullability annotation
+dependency, documentation hierarchy, or source generator.
+
+### Consumer-oriented README
+
+`README.md` is rewritten from observed final source, not from the roadmap. It names exactly the five
+published modules and five examples, Java 21 consumer baseline, JDK-only Level 1 runtime, Swing/Java2D
+boundary, explicit CRS/symbol/decoder registry construction, ownership/close behavior, and a small
+compiling example using the final symbol/source contracts. It summarizes the bounded shapefile and
+PNG/JPEG/world-file profiles, exact EPSG:4326/EPSG:3857 boundary, independent verification lanes, and
+major Level 2 exclusions.
+
+Pre-1.0 wording says compatibility is managed and intentional: documented `0.x` migrations may occur
+with release notes, while deprecated `FeatureStyle` has the disposition above. It does not say APIs
+may change "freely," claim unreleased compatibility, advertise empty/future modules as current, or
+make an evidence claim that depends on G8-001 finishing first. Because G8-001 and G8-002 are deliberate
+parallel branches, this task writes the exact provisional Native Image statement:
+
+> Release verification targets GraalVM Java 21 on Ubuntu 24.04 Linux x86_64; Native Image
+> compatibility remains unverified until the G8 Linux Native Image release-lane checkpoint is
+> approved. Windows, macOS, Linux AArch64, other distributions, and cross-platform compatibility are
+> unverified.
+
+G8-004, which runs only after G8-003 has joined both branches, is the sole owner that replaces this
+status with G8-001's recorded evidence and final approved support wording. Architecture rationale
+stays in `DESIGN.md`; README remains a concise consumer entry point and no `docs/` tree is created.
+
+### Five real examples, no example framework
+
+The examples remain independent small applications. They share production values/renderers/parsers,
+not a new example framework or copied test utility. Every Swing construction/mutation occurs on the
+EDT. Each project exposes a package-private or public-as-already-required headless factory used by its
+tests; automated tests never open a frame or require a display.
+
+Automated evidence is exact by example:
+
+- basic viewer: final point/line/polygon roles, fit, pan/zoom navigation, pointer observation, and one
+  invariant offscreen render;
+- symbol gallery: the committed G2 case matrix, explicit catalog/registry, selection of every tab,
+  and existing portable render scenarios;
+- measurement viewer: planar and geographic strategies/tabs, preview/complete/undo/cancel state,
+  navigation coexistence, formatting, and offscreen overlay;
+- shapefile viewer: argument/override parsing, temporary supported fixtures, bounded preview,
+  opening/latest warning and terminal diagnostic presentation, and cleanup; and
+- raster viewer: normalized and world-file modes, nearest/bilinear/opacity controls, explicit decoder
+  registry, structured failures, affine render, and cleanup.
+
+Examples call production parsers/renderers only. They do not embed shapefile/image parsing, copy a
+CRS registry, manufacture a second diagnostic model, or retain test/corpus logic in main sources.
+Generic diagnostic presentation displays stable code, severity, the viewer's fixed source identity,
+bounded ordered context, and component/record/part/field/byte location when present. The shapefile
+loader always supplies `SourceIdentity("shapefile-viewer", "Shapefile")`; the raster loader always
+supplies `SourceIdentity("raster-viewer", "Raster image")`. Neither copies the argument, filename, or
+parent path into metadata/status/diagnostic presentation. It never parses messages or shows raw bytes,
+provider text, retained PRJ, credentials, or absolute paths. Tests open valid and failing fixtures
+beneath a directory containing a unique sensitive sentinel and assert that the absolute path,
+filename, and sentinel are absent from every presentation-model string while the fixed identity and
+structured location remain. Opening and latest operation reports remain visibly distinct.
+
+The first three applications are deterministic no-argument demonstrations. The two format viewers
+remain honest file consumers. Their repository-relative review inputs are fixed and their `run` tasks
+use the root project as working directory:
+
+```text
+modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/shapefile-corpus/
+  data/generated-polygon-hole-windows1252-3857/
+  generated-polygon-hole-windows1252-3857.shp
+
+modules/mundane-map-io-image/src/test/resources/io/github/mundanej/map/io/image/
+  rotated-sheared.png
+  rotated-sheared.pgw
+```
+
+The first is G5-009's licensed corpus polygon/hole, Windows-1252, EPSG:3857 case and uses retained PRJ
+without an override. The second is G6-002's checked repository-authored rotated/sheared PNG/PGW and is
+opened with explicit `--world-file EPSG:3857`; it is not a G6-005 native resource. G6's otherwise
+unnamed fixture adopts these stable filenames during its implementation without changing its approved
+content/profile. Automated example tests continue to use tiny temporary fixtures rather than making
+normal checks execute the corpus lane.
+
+### Manual checkpoint and verification
+
+The HITL checkpoint is **G8 Level 1 API, Javadoc, and example approval**. The maintainer manually runs
+and closes each application before the next:
+
+- basic: point/line/polygon, fit, pan, zoom, pointer coordinates;
+- gallery: every tab, pan/zoom, and G2's visual checklist;
+- measurement: both CRS tabs, preview/add/Backspace/Escape, units, pan, and wheel;
+- shapefile: polygon/hole, non-ASCII attribute preview, metadata/diagnostics, and clean close; and
+- raster: rotated/sheared placement, nearest/bilinear, opacity, status, and clean close.
+
+Task Notes record reviewed commit, reviewer/date, Java version, OS/architecture/window system/display
+scale, exact commands, per-example result, module/package/API/Javadoc dispositions, `Layer` and
+`FeatureStyle` decisions, any approved incompatible correction, and blocker. A missing capability or
+architectural contradiction is returned to its owning gate; it does not authorize G8 to add a new
+feature.
+
+Focused module/example/architecture checks and explicit Javadocs run first, followed by the separate
+`renderRegression`, normal `qualityGate`, and whitespace. Native, corpus, performance, publication,
+and consumer lanes remain owned by G8-001/G8-003/G8-004 and are not folded into this review. Five
+module indexes, strict project-owned documentation rules, five headless tests, and one visual approval
+are sufficient; there is no ABI service, aggregate docs site, common example runtime, or release
+governance framework.
