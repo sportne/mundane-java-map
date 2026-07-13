@@ -765,7 +765,8 @@ source close, and retained metadata/report behavior. Malformed tables, checksum 
 at every boundary, fuzzing, and real producer data belong to G9-004/G9-006.
 
 The working module is added to the authoritative inventory as JDK-only Level 2 runtime and Published,
-but not Level 1 release or Native-targeted. The publication contract consequently expands from the
+but not Level 1 release; it is not Native-targeted until G9-008 proves that path. The publication
+contract consequently expands from the
 historical five Level 1 coordinates to the current six-coordinate set by adding
 `io.github.mundanej:mundane-map-io-dted`. In the same change, the staging verifier checks its binary,
 sources, Javadocs, module metadata, POM scopes, license, and checksums; the standalone Java 21
@@ -1761,3 +1762,178 @@ to authenticate inputs but is not a task dependency of `performanceEvidence`; th
 run, targeted optional JFR workflow, normal quality gate, and whitespace run. Corpus acquisition,
 native smoke, render regression, publication, and consumer lanes remain separate. Four scenarios, one
 fresh memory probe, one analytical model, and one decision record are sufficient.
+
+## Native Image DTED smoke and G9 closeout (G9-008)
+
+### One descendant scenario in the existing executable
+
+G9-008 extends `mundane-map-native-tests`; it does not create a second executable, test framework,
+native module, parser, image, workflow, or registry. The support project adds one explicit project
+dependency on `mundane-map-io-dted`, making that JDK-only production module Native-targeted from this
+task forward. API, core, AWT, shapefile, and image dependencies remain unchanged. G8's five-dependency,
+12-resource Level 1 checkpoint is historical evidence, while the current Level 2 executable has six
+production dependencies and 13 resources.
+
+`NativeSmokeMain.runSmoke()` keeps every approved Level 1 call and the exact final sentinel. Its
+compile-time sequence becomes:
+
+```text
+run G2 symbol scenario
+open/run/close G5 shapefile workspace
+open/run/close G6 image workspace
+run G8 Level 1 aggregate scenario
+open/run/close G9 DTED workspace
+print "mundane-map native smoke: OK"
+```
+
+The G8 scenario remains unchanged and completes before any DTED workspace exists. A prior failure
+prevents DTED setup; a DTED setup/scenario/cleanup failure prevents the sentinel. Try-with-resources
+keeps a scenario failure primary and suppresses a later workspace-cleanup failure; a clean-path
+cleanup failure is primary. `runSmoke()` twice in one JVM remains mandatory and must leave no mutable
+static scenario, view, source, registry, path, or workspace state.
+
+The G9 code is one package-private `NativeDtedSmokeScenario` plus an `openDted()` branch in the existing
+package-private `NativeFixtureWorkspace`. There is no scenario SPI/name lookup. File extraction,
+facade open, metadata, and coordinate queries run on the calling thread. Map binding, style changes,
+painting, and view close run synchronously on the EDT through the existing bridge. Ownership has three
+explicit states: before `ownedElevation` returns, the scenario still owns and directly closes the
+source on failure; after that factory succeeds but before view attachment, the binding owns the source
+and an attachment failure closes the unattached binding on the EDT; after attachment succeeds, the
+view owns and closes the binding/source. No cleanup path relies on a second source close.
+
+### One approved resource and fixed workspace
+
+The exact G9-006 dataset `gdal-zone-v-l0-complete` is copied byte-for-byte at implementation time to
+this native-support main resource:
+
+```text
+io/github/mundanej/map/nativeimage/dted/zone-v-l0-smoke.dt0
+```
+
+The Java lookup literal is exactly
+`/io/github/mundanej/map/nativeimage/dted/zone-v-l0-smoke.dt0`; its leading slash makes the
+`Class.getResourceAsStream` lookup absolute. The resource-config regular-expression entry is exactly
+the separately quoted no-leading-slash pattern
+`\Qio/github/mundanej/map/nativeimage/dted/zone-v-l0-smoke.dt0\E`.
+
+It is exactly 8,762 bytes and retains the approved manifest SHA-256, project-owned synthetic formula,
+BSD-3-Clause data basis, GDAL 3.13.0 producer provenance, and `w001/s81.dt0` original identity. The
+approved SHA is repeated as a literal test/workspace authority and in the HITL record; tests do not
+read the corpus source set during `check`. The corpus manifest, recipe, expectations, and license
+files are not copied or packaged. The resource is native-support evidence only and cannot enter a
+published module/artifact.
+
+The single Java 21 resource configuration appends exactly one individually quoted literal path,
+without a lookup-leading slash, under the unchanged `NativeSmokeMain` condition. Exact normalized JSON
+and processed-resource-tree tests require 13 entries: the prior icon, six shapefile, five image, and
+one DTED file. Wildcards, directories, bundles, services, reflection/proxy/JNI/serialization metadata,
+tracing output, metadata-repository entries, and class-initialization flags remain forbidden.
+
+`NativeFixtureWorkspace.openDted()` uses literal `Class.getResourceAsStream`, reads at most 8,763
+bytes, and rejects absent, short, long, or wrong-hash content with bounded invariant token
+`dted-resource`. It creates a fresh temporary directory, writes the verified bytes with `CREATE_NEW`
+as the known filename `s81.dt0`, then writes exactly its first 8,761 bytes as
+`s81-truncated.dt0`. Ownership is recorded before each write. Immutable `NativeDtedPaths` exposes only
+the two known paths to the scenario. Reverse cleanup deletes those files and the directory without
+list/walk/enumeration, follows existing primary/suppressed/idempotent rules, and proves immediate
+deletion after all sources/views close.
+
+### Shared JVM/native success and diagnostic assertions
+
+The scenario resolves canonical EPSG:4326 from one explicit `CrsRegistry.level1()`. It opens the valid
+path through `DtedFiles` with defaults and fixed `SourceIdentity("native-dted")`, then requires:
+
+- 21 columns, 121 rows, `Envelope(-1,-81,0,-80)`, recognized EPSG:4326, metres, north-to-south rows,
+  and an empty opening report;
+- exact NW/NE/SW/SE samples `1500/2500/-500/500` and center `(10,60)=1000`;
+- `ElevationQueries` at exact coordinate `(-0.5,-80.5)` with `NEAREST` returns `1000 METRE`; and
+- `BILINEAR` at the exact metadata-coordinate midpoint of columns 7/8 and rows 37/38 returns
+  `1250.5 METRE` within `max(1e-12, abs(expected)*1e-12)`.
+
+No test re-parses the DTED headers or calls a format-specific query. The center/midpoint expectations
+derive from the approved G9-006 formula and direct samples, so query and parser do not oracle
+themselves.
+
+On the EDT, the source transfers into one owned elevation binding in a 144-by-144 EPSG:4326 identity
+`MapView` centered at `(-0.5,-80.5)` with exactly `1/120` degree per logical pixel. Its sample bounds
+map to screen `[12,12]..[132,132]`. Explicit nearest render options and opacity one use this opaque
+metre-valued ramp with transparent-black no-data and no hillshade:
+
+| Elevation | RGBA |
+| ---: | --- |
+| -500 | `(24,64,180,255)` |
+| 1000 | `(40,170,90,255)` |
+| 2500 | `(230,120,35,255)` |
+
+The first paint uses a fresh opaque-white ARGB image. Five-by-one regions centered at exact screens
+`(36,36)`, `(108,36)`, `(36,108)`, and `(108,108)` must have a strict majority within 18 per RGBA
+channel of the independently calculated colors `(78,160,79,255)`, `(154,140,57,255)`,
+`(30,106,144,255)`, and `(37,149,108,255)` for respective values `1300`, `1900`, `100`, and `700`.
+The transformed
+nonwhite bounds stay within `[12,12]..[132,132]`, pixel `(4,4)` stays exact white, and the nonwhite
+count is in `[13,000,15,000]`. These color/bounds/count relationships prove the real path without a
+cross-platform whole-image golden.
+
+The view then replaces only the style with
+`originalStyle.withHillshade(ElevationHillshade.defaults())`, retaining the ramp, no-data color,
+render options, and layer opacity, and paints a second fresh white image. It must retain the same
+nonwhite bounds/background and have strictly no greater RGB
+luminance at every finite interior probe; the checked sum over screen rectangle `[24,24]..[120,120]`
+must be at most 95 percent of the unshaded sum. Alpha and footprint remain unchanged. The test does not
+assert exact shaded pixels, font output, a cache hit, or performance.
+
+After the owned view closes, the scenario opens `s81-truncated.dt0` under identity
+`native-dted-malformed`. It requires the complete terminal `SourceException` report:
+
+```text
+code=DTED_FILE_LENGTH_MISMATCH
+severity=ERROR
+component=dted
+byteOffset=absent
+context={actualBytes=8761, expectedBytes=8762}
+omittedCount=0
+```
+
+Message/cause/path text is not asserted. JVM tests and the native executable call the same scenario
+methods, not parallel weak assertions. Stable bounded failure tokens are `dted-resource`,
+`dted-metadata`, `dted-query`, `dted-render`, `dted-hillshade`, `dted-diagnostic`, and `dted-cleanup`.
+
+### Native policy, approval, and holistic G9 closeout
+
+Architecture inventory now classifies `mundane-map-io-dted` as Published, JDK-only Level 2 runtime,
+and Native-targeted. It applies the full bans on reflection, classpath/resource enumeration, service
+discovery, dynamic proxies, Java serialization, JNI, `Unsafe`, internal JDK APIs, and external/native
+dependencies to API, core, AWT, shapefile I/O, image I/O, DTED I/O, plus native support. The literal
+support-only resource lookup remains the sole exception. Tests also pin the six dependency projects,
+13 resources, no corpus-task/resource
+coupling, root `nativeSmoke -> nativeRun` graph, metadata repository disabled, and no fallback.
+
+The existing Ubuntu 24.04 Linux x86_64 GraalVM Java 21 workflow remains the sole authoritative lane;
+G9 adds no matrix, command, artifact scope, timeout, secret, or executable upload. The named checkpoint
+is **G9 native DTED approval**. Task Notes record commit/workflow URL, reviewer/date, exact runner and
+Java/native-image versions, command/sentinel, G9-007 eager-or-follow-up decision, dataset/resource
+path/length/hash/provenance/license, 13-resource inventory, metadata/query/render/hillshade/diagnostic/
+cleanup outcomes, and this exact bounded claim:
+
+> A representative DTED Level 0 read, query, colorize, hillshade, render, and malformed-length path is
+> verified with GraalVM Native Image Java 21 on the recorded Ubuntu 24.04 Linux x86_64 lane. DTED
+> Levels 1 and 2 are JVM/corpus-verified, not Native Image-verified.
+
+Windows, macOS, Linux AArch64, other environments, other DTED levels, and general terrain workloads
+remain unclaimed. The exact scenario and closeout below assume G9-007 evidence retains the eager path.
+If G9-007 instead creates a fallible/windowed implementation task, that result reopens this design:
+G9-008 first adds the task as a dependency, amends and re-reviews its source lifecycle/scenario and G9
+closeout, then exercises the accepted default. It cannot approve an obsolete eager path. Missing or
+failed tooling/evidence makes the implementation task Blocked, never a waiver or weaker claim.
+
+Subject to the recorded eager outcome above, the G9 holistic audit retains one numeric elevation
+source, one packed eager implementation, one stateless query policy, reuse of the raster request/pixel
+path, one strict DTED facade, one separate corpus lane, and one descendant native scenario. A contrary
+G9-007 outcome leaves this closeout pending until the required amended design is approved. DTED
+remains elevation—not
+a generic image—and no API inherits from `RasterSource`. CRS, diagnostics, limits, ownership,
+cancellation, and explicit construction remain shared boundaries rather than format duplicates. No
+empty module, lazy/source hierarchy, terrain framework, native parser, resource registry, or general
+GIS abstraction is justified by G9. Focused native-support/architecture JVM checks run before the
+separate real `nativeSmoke`, then `qualityGate` and whitespace; corpus, performance, rendering,
+publication, and consumer lanes do not rerun here.

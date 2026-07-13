@@ -220,6 +220,12 @@ corpus, broad metadata, private cache instrumentation, native benchmark, or plat
 the smallest final Native Image boundary that proves all Level 1 dependencies coexist and leaves a
 reviewable release claim.
 
+The five production dependencies and 12 resources above are the immutable G8 Level 1 checkpoint
+snapshot. G9-008 later appends the already-published DTED module and one approved Level 0 resource to
+this same executable, producing a current six-production-dependency/13-resource Level 2 inventory.
+That descendant extension must not rewrite the G8 approval record or imply that DTED was part of the
+Level 1 native claim.
+
 ## Public API, Javadocs, and examples review (G8-002)
 
 ### One bounded release-review inventory
