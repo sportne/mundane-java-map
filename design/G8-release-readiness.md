@@ -416,3 +416,173 @@ and consumer lanes remain owned by G8-001/G8-003/G8-004 and are not folded into 
 module indexes, strict project-owned documentation rules, five headless tests, and one visual approval
 are sufficient; there is no ABI service, aggregate docs site, common example runtime, or release
 governance framework.
+
+## Publication and downstream consumer smoke (G8-003)
+
+### One exact five-artifact contract
+
+G8-003 hardens G0's existing local Maven staging and adds one downstream consumer. G0's authoritative
+project inventory still decides which projects exist and are published. One release-contract table
+then pins the artifact coordinates and dependency metadata that a consumer must receive; it is a
+release assertion, not a second module inventory:
+
+| Artifact | POM compile / Gradle `apiElements` | POM runtime-only / extra `runtimeElements` |
+| --- | --- | --- |
+| `mundane-map-api` | none | none |
+| `mundane-map-core` | `mundane-map-api` | none |
+| `mundane-map-awt` | `mundane-map-api`, `mundane-map-core` | none |
+| `mundane-map-io-shapefile` | `mundane-map-api` | `mundane-map-core` |
+| `mundane-map-io-image` | `mundane-map-api` | `mundane-map-core` |
+
+Every coordinate is `io.github.mundanej:<artifact>:${map.version}`. The verifier rejects a missing or
+extra coordinate; external, version-range, classifier, platform, or duplicate dependency; a Gradle
+project path; and any POM `repositories` or `distributionManagement`. It checks the `.module`
+component identity, Java 21 `apiElements`/`runtimeElements`, exact dependency variants, and sources/
+Javadocs variants against the same row. There is no BOM or umbrella artifact for five modules.
+
+POM metadata has exact project URL `https://github.com/sportne/mundane-java-map`, BSD 3-Clause name/
+URL with repository distribution, developer ID `sportne`, SCM URL, and connection
+`scm:git:https://github.com/sportne/mundane-java-map.git`; name/description come from the declared
+project. It contains no credential, local path, repository, unresolved property, snapshot other than
+the selected version, or guessed organization/person field.
+
+### Repair ordering at the real write tasks
+
+The current root graph orders only `publishAllPublicationsToReleaseDryRunRepository` aggregates after
+`cleanReleaseDryRun`. Their individual `publishMavenJavaPublicationToReleaseDryRunRepository`
+dependencies can still race the delete when `org.gradle.parallel=true`; the observed partial staging
+tree is consistent with that defect. G8 fixes the real graph:
+
+```text
+cleanReleaseDryRun
+  -> five actual mavenJava releaseDryRun publish tasks
+       (shared-repository write actions serialized in inventory order)
+  -> stageReleaseDryRun
+  -> validateReleaseDryRun
+  -> publicationDryRun
+  -> consumerSmoke
+```
+
+Each actual publish task depends directly on `cleanReleaseDryRun`. The five actual tasks form a
+`mustRunAfter` chain in the release-contract order above, so artifact compilation/JAR generation may
+remain parallel while repository writes cannot overlap. `stageReleaseDryRun` depends directly on
+those actual tasks, never the ineffective `publishAll...` aggregates. Validation follows staging;
+`publicationDryRun` is the public lifecycle aggregate. If root `clean` is also selected,
+`cleanReleaseDryRun` and every actual write are ordered after it; ordinary staging does not depend on
+the whole root clean.
+
+A failure may leave a partial non-authoritative build directory, but validation/consumer cannot run
+and the next invocation deletes it. One shared repository plus deterministic ordering is enough; no
+transactional swap, per-module repository, staging archive, daemon lock protocol, or remote target is
+added. Two consecutive parallel-enabled functional runs start with a sentinel file and prove it is
+removed while all five complete coordinates remain.
+
+### Artifact and layout verifier
+
+Build logic owns one small pure Maven-tree verifier and a typed non-cacheable
+`VerifyReleaseDryRunRepository` task with explicit directory/version/contract inputs. It is not a
+production module or generic artifact framework. Stable build failures use a bracketed invariant plus
+coordinate and normalized repository-relative path, for example `MISSING_ARTIFACT`,
+`UNEXPECTED_DEPENDENCY`, `VERSION_MISMATCH`, `CHECKSUM_MISMATCH`, `FORBIDDEN_ENTRY`, and
+`UNEXPECTED_REPOSITORY`; production `SourceDiagnostic` is not reused.
+
+The repository is cleared before staging. For an exact non-snapshot version, filenames contain that
+version. For Gradle's unique Maven snapshot layout, the verifier securely reads each coordinate's
+`maven-metadata.xml` and requires one timestamp/build value internally coherent across that
+coordinate's POM, module, binary, sources, and Javadocs; independently published coordinates need not
+share a timestamp/build. It never guesses timestamped names and rejects another group/artifact/version
+directory or stale primary file.
+
+Every artifact has a valid POM, Gradle module metadata file, binary JAR, sources JAR, and Javadoc JAR.
+SHA-256 and SHA-512 sidecars are mandatory and independently recomputed for each primary; emitted
+MD5/SHA-1 files, when present, are also verified but are not called the release guarantee. `.module`
+file size/checksum declarations must match their archives. Archive tasks disable file timestamps and
+use reproducible entry order.
+
+The exact root BSD text is added as `META-INF/LICENSE` to binary, sources, and Javadocs JARs. This is
+the sole required non-code publication resource. G2/G5/G6 native resources belong to the non-published
+native support project; there is no production symbol/image resource loader. The verifier rejects
+`io/github/mundanej/map/nativeimage/**`, corpus/test/example/support classes or fixtures,
+`META-INF/services/**`, absolute/backslash/dot-segment/duplicate ZIP entries, and unexpected package
+roots. It scans textual metadata/manifests for workspace paths, credentials, unresolved project
+notation, and repository declarations.
+
+Binary roots are exact module packages plus manifest/license. Sources contain matching main Java/
+package docs and no test path. Javadocs are valid archives containing index/package pages and
+representative public-type pages; JDK-owned stylesheet/script/legal assets are not byte-whitelisted.
+Pure-verifier tests construct positive snapshot/release trees and mutate every required file,
+dependency/scope/version, license, digest, repository, coordinate, and archive entry. Build-logic
+functional tests exercise the real parallel task graph. The publication lane depends on those tests
+and actual validation rather than trusting a successful Maven Publish task.
+
+### One standalone clean Java 21 consumer
+
+`consumer-smoke/` is a tiny checked-in Gradle template with its own settings, build file, and Java
+main source. It is not included from root settings, listed in the project inventory, published, or
+given a wrapper. Root copies only that template to `build/consumer-smoke/project` before execution;
+the checked-in tree never accumulates output.
+
+Consumer settings require absolute existing properties `map.consumerRepository` and
+`map.consumerVersion`, use `RepositoriesMode.FAIL_ON_PROJECT_REPOS`, and declare exactly that local
+Maven directory. They contain no plugin/dependency repository, `mavenCentral`, `mavenLocal`,
+`includeBuild`, version catalog, project substitution, or network fallback. Only Gradle's core `java`
+and `application` plugins are used. Direct dependencies are exactly AWT, shapefile, and image at the
+supplied version; API/core imports must resolve transitively. A resolution assertion rejects every
+dependency whose identifier is a `ProjectComponentIdentifier` and requires exactly the five
+mundane-map external-module dependency components and no other library component. The standalone
+consumer's root result component is necessarily a project identifier and is explicitly excluded from
+that dependency-only assertion; no workspace project may appear below it.
+
+Root resolves the current Gradle installation executable and a Java 21 toolchain, deletes a fresh
+consumer `GRADLE_USER_HOME`, sets `JAVA_HOME`, disables toolchain auto-download, and launches the
+child with:
+
+```text
+--offline --no-daemon --no-build-cache --no-configuration-cache --console=plain
+```
+
+The consumer compiles with `--release 21` and asserts runtime feature 21. It has a bounded timeout,
+waits for exit, and captures output; success prints only the checked final sentinel, while failure
+prints the bounded captured output. No wrapper download or nested persistent daemon is possible. The
+root task is always-run/non-cacheable because it proves isolation and process behavior.
+
+Before the valid run, a separate copied project and newly empty Gradle home omit the repository
+property and must fail before resolution with exact settings invariant
+`map.consumerRepository must name an absolute existing directory`. A second fresh home performs the
+real run. The child never consumes a developer cache, workspace project, included build, public
+repository, or prior negative-run state.
+
+### Real public consumer assertions
+
+The consumer builds `CrsRegistry.level1()`, `SymbolRendererRegistry.builderWithBuiltIns().build()`,
+and `AwtRasterDecoders.level1()` explicitly. On the EDT it renders one in-memory built-in vector
+symbol through public `MapView`, asserts portable bounds/region/color invariants, and closes the view.
+This proves the staged AWT artifact and transitive API/core classes, not pixel identity.
+
+Within one owned temporary directory, small literal fixture builders create:
+
+- a valid point SHP/SHX sufficient for public `Shapefiles` open/query/cursor ID, geometry, order, and
+  close assertions;
+- a 99-byte truncated SHP that must produce exact `SHAPEFILE_HEADER_INVALID`, component `shp`, byte
+  zero, and context `{field=headerSize, expectedBytes=100, actualBytes=99}`; and
+- tiny PNG and baseline JPEG files through JDK `ImageIO`, opened through public `RasterImages` with the
+  explicit decoder registry and asserted by exact PNG/tolerant JPEG samples.
+
+Builders are consumer fixtures, not shared parsers, a corpus, or published resources. The consumer
+proves returned immutable feature/raster values remain usable after cursor/source close, repeated
+close is safe, every temp path deletes, and structured diagnostics are usable without message text.
+Only after all assertions does it print `mundane-map consumer smoke: OK`.
+
+### Verification and simplicity
+
+`publicationDryRun` includes verifier unit/functional tests, clean staging, and exact artifact
+validation. `consumerSmoke` depends on it and adds the two isolated child invocations. Naming both in
+one Gradle command performs the work once. The lane remains outside `qualityGate`; native, corpus,
+render-regression, and performance support are neither published nor executed.
+
+Tests cover positive snapshot/release layouts; missing main/source/Javadocs/POM/module/license;
+metadata/dependency/version/checksum mutations; forbidden/unsafe/duplicate entries; stale sentinel;
+parallel/repeated ordering; missing/wrong repository; exact five-component resolution; Java 21;
+valid/malformed consumer semantics; and cleanup. One five-row contract, one verifier, one local Maven
+repository, and one standalone consumer are sufficient. There is no BOM, umbrella, release ZIP,
+Maven CLI, new support module, fixture publication, runtime publication API, or remote/credential path.

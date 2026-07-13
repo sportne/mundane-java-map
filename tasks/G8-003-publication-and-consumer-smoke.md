@@ -12,48 +12,68 @@ Maven artifacts.
 
 ## Context
 
-The existing `publicationDryRun` stages API/core/AWT modules. Level 1 adds format modules and public
-resources that must be validated outside Gradle project dependencies before release readiness.
+G0 introduced baseline `publicationDryRun` staging for API/core/AWT. This task repairs its actual
+parallel clean/publish ordering, expands it to the two working format modules, validates release
+metadata/content, and introduces `consumerSmoke` for downstream evidence.
 
 ## Scope
 
-- Publication configuration for all Level 1 public modules
-- POM, module metadata, binary/source/Javadoc JAR, checksum, and resource assertions
-- A small independent Java 21 consumer fixture and new root `consumerSmoke` lane
-- Root publication task ordering and offline staged-repository isolation
+- Root/build-logic staging graph and pure Maven-layout/artifact verifier
+- Publication configuration for API, core, AWT, shapefile, and image I/O
+- Exact POM/module metadata, binary/source/Javadoc JAR, license, checksum, reproducibility, dependency,
+  and prohibited-content assertions
+- A checked-in standalone `consumer-smoke/` template copied beneath `build/` for one clean Java 21
+  child build, plus the new root `consumerSmoke` lane
+- `DESIGN.md`, G8 design/task/index/roadmap release-contract corrections
 
 ## Out of scope
 
-- Uploading to a remote repository, signing with maintainer credentials, or publishing snapshots
+- Release-version selection/go-no-go, remote upload, signing/credentials, tags, or releases
 - Consuming source projects through composite/project dependencies
 - Level 2 modules or examples/native/performance test publication
+- A BOM/umbrella artifact, release archive, Maven CLI test, public resource loader, or publication of
+  native/corpus/example/test assets
 
 ## Acceptance criteria
 
-- `publicationDryRun` stages API, core, AWT, shapefile, and image I/O artifacts at the intended
-  coordinates/version with binary, sources, Javadocs, Gradle metadata, and valid POM dependency
-  scopes.
-- Published artifacts contain required explicit symbol/raster resources and exclude test fixtures,
-  corpus data, examples, build paths, credentials, and duplicate dependencies.
+- One explicit five-entry release contract pins `io.github.mundanej` coordinates and exact API/runtime
+  dependency sets: API none; core API; AWT API+core; each format API plus runtime core. No external,
+  range, classifier, repository, project-path, or duplicate dependency is present.
+- Every actual `publishMavenJavaPublicationToReleaseDryRunRepository` task depends directly on the
+  staging clean and the five shared-repository write actions are serialized in inventory order before
+  validation. Parallel artifact generation remains allowed; two consecutive runs cannot leave stale
+  or partial authoritative output.
+- `publicationDryRun` stages exactly five coordinates at the selected snapshot or release version with
+  valid POM/module metadata, binary/sources/Javadocs, reproducible archives, and verified SHA-256/
+  SHA-512 sidecars. Each unique-snapshot coordinate uses one internally coherent metadata-resolved
+  timestamp/build across its five primary artifacts; different coordinates need not share it.
+- Binary/source/Javadoc JARs contain exact root `META-INF/LICENSE`. Artifacts exclude native resources,
+  corpus/test fixtures, examples/support classes, service descriptors, unsafe/duplicate ZIP entries,
+  build paths, credentials, repositories, and unexpected packages/dependencies.
 - The consumer is a separate build with repositories restricted to the staged local Maven directory;
   it has no project/composite substitution and succeeds with external repositories unavailable.
-- The consumer compiles and runs on Java 21, constructs explicit registries, renders an in-memory
-  symbolized feature, and opens/queries representative shapefile and PNG/JPEG resources through
-  public APIs.
+- The copied consumer directly depends only on AWT, shapefile, and image artifacts; resolution yields
+  exactly the five staged external dependency components, no dependency project component, and no
+  other external component. Its own root project is not misclassified as a dependency. It compiles/
+  runs with Java 21 under a fresh Gradle home, offline/no-daemon/no-cache settings, and staged artifacts only.
+- The consumer constructs explicit CRS/symbol/decoder registries, renders an in-memory vector symbol,
+  generates and queries a tiny point shapefile, generates/reads PNG and JPEG, verifies one exact
+  malformed-SHP diagnostic, and closes every view/cursor/source. No fixture is published or copied.
 - Runtime assertions prove dependencies/resources are resolvable from artifacts, diagnostics are
   usable, and source/cursor/raster lifecycles close correctly.
-- The new `consumerSmoke` task stages artifacts first or fails clearly when staging is absent, uses a
-  clean consumer Gradle user home/cache policy, and remains separate from `qualityGate`.
-- Artifact/POM checks fail deterministically for a missing classifier, leaked project dependency,
-  wrong version, absent resource, or unexpected repository.
+- `consumerSmoke` depends on validated clean staging, first proves the fixed missing-repository
+  diagnostic, then runs the valid consumer with a second fresh home, asserts one final success marker,
+  and remains separate from `qualityGate`.
+- Validator mutation controls fail with stable build tags for missing/extra artifacts, classifiers,
+  dependencies, license, metadata, checksum, unsafe content, stale version, or repository.
 
 ## Required tests
 
-- Publication structure tests for every published module, classifier, POM scope, coordinate, and
-  prohibited content.
-- Consumer compile/run assertions using staged artifacts only on Java 21.
+- Pure verifier and task-graph functional tests for snapshot/release layouts, every published module,
+  classifier/POM/module/checksum/license/prohibited-content mutation, parallel ordering, and repeat run.
+- Consumer settings failure plus compile/run assertions using staged artifacts only on Java 21.
 - An offline clean-cache run proving no undeclared repository or workspace dependency is required.
-- Task-ordering tests for clean staging followed by consumer execution.
+- Runtime valid/malformed vector/shapefile/PNG/JPEG/lifecycle assertions and cleanup.
 
 ## Validation
 
@@ -65,5 +85,6 @@ git diff --check
 
 ## Notes
 
-The consumer should be tiny and checked in, with no external runtime dependency. Do not make
-`consumerSmoke` part of the normal gate; it is the publication/consumer lane introduced here.
+The template is tiny, has no wrapper or external runtime dependency, and is not included in the main
+settings/project inventory. `publicationDryRun consumerSmoke` names one combined release lane;
+`consumerSmoke` is not part of the normal gate.

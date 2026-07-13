@@ -68,7 +68,8 @@ must name supported behavior, limits, malformed-input handling, and stable diagn
   - G2-006 creates `./gradlew renderRegression --console=plain`.
   - G5-009 creates `./gradlew shapefileCorpus --console=plain`.
   - G7-001 creates `./gradlew performanceEvidence --console=plain`.
-  - G8-003 creates `./gradlew publicationDryRun consumerSmoke --console=plain`.
+  - G0-001 creates `publicationDryRun`; G8-003 hardens it and creates `consumerSmoke`, yielding
+    `./gradlew publicationDryRun consumerSmoke --console=plain`.
 - New `mundane-map-io-*` modules are added only in the task that delivers working behavior and
   tests. No task creates an empty future-format module.
 
@@ -177,7 +178,7 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 | --- | --- | --- | --- | --- |
 | [G8-001 — Level 1 Native Image and CI hardening](G8-001-level1-native-image-and-ci-hardening.md) | Proposed | HITL | G2-007, G3-004, G5-010, G6-005, G7-004 | Pin one aggregate Ubuntu x86_64 native lane and its release evidence. |
 | [G8-002 — Public API, Javadocs, and examples review](G8-002-public-api-javadocs-and-examples-review.md) | Proposed | HITL | G2-006, G3-004, G5-009, G6-004, G7-004 | Approve five public modules, strict Javadocs, and five Level 1 examples. |
-| [G8-003 — Publication and consumer smoke](G8-003-publication-and-consumer-smoke.md) | Proposed | AFK | G8-001, G8-002 | Validate staged artifacts through a clean downstream Java 21 consumer. |
+| [G8-003 — Publication and consumer smoke](G8-003-publication-and-consumer-smoke.md) | Proposed | AFK | G8-001, G8-002 | Validate five staged artifacts through one clean offline Java 21 consumer. |
 | [G8-004 — Level 1 release readiness](G8-004-level1-release-readiness.md) | Proposed | HITL | G8-003 | Run every lane and record the Level 1 release go/no-go decision. |
 
 ## Level 2 backlog
