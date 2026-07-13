@@ -586,3 +586,185 @@ parallel/repeated ordering; missing/wrong repository; exact five-component resol
 valid/malformed consumer semantics; and cleanup. One five-row contract, one verifier, one local Maven
 repository, and one standalone consumer are sufficient. There is no BOM, umbrella, release ZIP,
 Maven CLI, new support module, fixture publication, runtime publication API, or remote/credential path.
+
+As a release-evidence output, successful validation also writes
+`build/release-evidence/artifact-manifest.tsv`: UTF-8/LF rows sorted by normalized path relative to the
+staged Maven root, with exact path, decimal byte length, and lowercase SHA-256 for every primary and
+checksum file belonging to the POM, module file, and three JARs. Coordinate-level
+`maven-metadata.xml` and its checksum sidecars are validated but excluded because their repository
+`lastUpdated` value is intentionally staging-time state, not artifact reproducibility. The output
+directory is cleared in the same staging lifecycle; the manifest is outside the Maven repository and
+is never published. Its own independently computed SHA-256, row count, and total primary bytes enter
+G8-004's checkpoint, avoiding a self-referential manifest row.
+
+## Level 1 release readiness and G8 closeout (G8-004)
+
+### One immutable release candidate
+
+G8-004 is evidence reconciliation, not another production capability or release automation system.
+The maintainer selects one strict ASCII semantic version matching
+`(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)`; `0.1.0` is the recommended first Level 1
+candidate. Pre-release/build metadata, `SNAPSHOT` in any case, whitespace, sign, path/URI character,
+or normalization is rejected. The version is supplied only as `-Pmap.version=<candidate>` to G8-003;
+`gradle.properties` remains `0.1.0-SNAPSHOT` for continued development.
+
+Before evidence begins, every production, test, workflow, release metadata, README, license,
+provenance, and release-note input is committed. `git status --porcelain=v1 --untracked-files=all` is
+empty, and the candidate is one full lowercase 40-hex commit ID. Every lane/report records that exact
+ID; an abbreviated SHA, dirty tree, missing revision, or result from another commit is no evidence.
+Infrastructure failure is `NO EVIDENCE`, not a pass or waiver, and is rerun on the same SHA.
+
+The authoritative G8-001/native and normal compatibility workflows require that commit to exist on
+GitHub. After creating the clean local candidate, this task pauses at a named external prerequisite:
+a maintainer must push or otherwise expose that exact SHA to the configured workflows and provide the
+resulting run/job URLs. The task/agent performs no push, workflow dispatch, credential access, or
+remote mutation. The record distinguishes external actor/date/ref/URL from task actions. Until the
+exact-SHA evidence is supplied the task is `Blocked`; a run for a parent, amended, or evidence-record
+commit cannot substitute. A completed exact-SHA run that fails is `FAIL`/`NO-GO`, not an external
+blocker.
+
+The candidate includes one root `CHANGELOG.md` entry with the version, Level 1 capabilities,
+migrations/deprecations, limits, and known non-claims. Before evidence, G8-004 replaces G8-002's
+parallel-work provisional text with the complete final proposed support wording below. This is an
+unreleased candidate claim: failure prevents release rather than causing a post-test README rewrite.
+The tested candidate and any later source tag therefore carry the same user-facing contract.
+
+### Six independent lane records
+
+The fixed procedural order is not a merged Gradle graph:
+
+| Order | Lane and exact command | Required provenance | Blocking rule |
+| ---: | --- | --- | --- |
+| 1 | `./gradlew nativeSmoke --console=plain` | Candidate SHA; G8-001 CI URL/job; Ubuntu/architecture; GraalVM distribution; full Java/native-image versions; no-fallback build, execution, sentinel | Missing/fallback/build-only/skipped/semantic failure blocks; the clean G8-001 Linux CI run is authoritative and a local run is supplemental |
+| 2 | `./gradlew shapefileCorpus --console=plain` | SHA; Java/OS; corpus manifest SHA; dataset/component counts; provenance/license approval; success summary | Checksum, expectation, parser, or cleanup failure blocks |
+| 3 | `./gradlew renderRegression --console=plain` | SHA; Java/OS/headless state; scenario count; invariant/tolerance result and report SHA when produced | Any semantic/render invariant failure blocks |
+| 4 | `./gradlew -PperformanceRevision=<candidate-sha> performanceEvidence --console=plain` | SHA; canonical configuration/environment; evidence SHA; final G7 cache decisions/limits | Configuration, semantic, counter, cleanup, or report failure blocks; duration alone never blocks |
+| 5 | Two fresh `publicationDryRun` stagings at `-Pmap.version=<candidate>`, followed by `consumerSmoke` on the second and exact immutable-manifest comparison | SHA/version; both manifest SHAs/counts/bytes; five coordinates; clean offline consumer sentinel | Snapshot/path/credential leakage, metadata/checksum/artifact, manifest disagreement, or consumer failure blocks |
+| 6 | `./gradlew qualityGate --console=plain` | SHA; Java 21 local result and matching Java 21/newer-JDK CI matrix run IDs | Any failure blocks |
+
+`git diff --check` and task/index/roadmap link/dependency validation follow. Each specialized root task
+must exclude every other specialized root from its graph; the one deliberate combined lane is
+`consumerSmoke` depending on G8-003's validated staging. Reused compilation outputs do not merge
+outcomes. No command is hidden inside a release aggregate and no failure can be waived because a
+different lane passed.
+
+The candidate SHA/version are validated against the exact forms above and HEAD/tree cleanliness is
+checked both before the first lane and after the last. All six rows must refer to that same candidate.
+A change to code, build logic, workflow, metadata,
+README/CHANGELOG content, fixture, license/provenance, or task/design contract before the decision
+invalidates the complete matrix and requires all lanes again. A duration fluctuation is recorded;
+G7's hard semantics/counters and one-time accepted cache decisions remain authoritative. Windows/
+macOS/other-architecture absence does not block the exact Linux x86_64 claim, but any broader wording
+is removed.
+
+### Artifact, license, and support reconciliation
+
+The candidate artifacts are exactly API, core, AWT, shapefile, and image I/O. G8 stages them twice
+from fresh repositories, preserves the first immutable-artifact manifest outside the second staging
+cleanup, and requires a byte-identical second manifest. This compares every primary POM/module/JAR
+SHA-256 and deterministic checksum sidecar while deliberately excluding validated repository
+`lastUpdated` metadata. The consumer runs in the second staging invocation; it is accepted only after
+the comparison succeeds. G8 records both independently computed manifest SHA-256 values, row counts,
+and primary byte totals. Coordinates, candidate version, dependency scopes, Java 21 variants, reproducible archives,
+POM/SCM/license metadata, sources/Javadocs, `META-INF/LICENSE`, and the clean consumer result must
+agree. No default snapshot, absolute path, workspace coordinate, repository, credential, example,
+test, corpus, native/performance support resource, or stale version is accepted.
+
+The license audit accounts for root BSD-3-Clause production/source material, every G5 corpus license/
+redistribution decision, G2/G5/G6 repository-authored native fixtures, Javadoc tool legal assets
+already carried in their archives, and the Apache-2.0 Gradle wrapper in the source checkout. The
+wrapper and corpus are not Maven runtime contents. No empty `NOTICE` is added; a notice exists only if
+material actually redistributed requires attribution beyond its carried license. Checksums are
+recomputed rather than copied from the first successful build, and rebuild disagreement is diagnosed
+rather than selecting a preferred result.
+
+The final support statement is deliberately narrow:
+
+- published artifacts require Java 21 and are verified on Java 21 plus the named newer-JDK
+  compatibility lane, not every future JDK;
+- Level 1 production modules are JDK-only, with Swing/Java2D as the supported toolkit boundary;
+- Native Image is verified only for the recorded Ubuntu 24.04 Linux x86_64 GraalVM Java 21 lane;
+  Windows, macOS, Linux AArch64, other distributions, and cross-platform compatibility are unverified;
+- Level 1 comprises the bounded G2 symbol/vector, G3 interaction/measurement, G4 source/CRS, G5
+  shapefile, G6 PNG/JPEG/world-file, and G7 performance profiles; and
+- editing/export, arbitrary SVG, GeoJSON, GeoTIFF, tiles, terrain/elevation, general CRS
+  transformation, raster reprojection/warping, and portable performance guarantees are not claimed.
+
+G8-004 puts this final proposed wording into the candidate before any lane. The G8-001 checkpoint and
+every row then decide whether that candidate may be released; no user-facing support contract changes
+afterward. ROADMAP/task index distinguish implemented-and-verified Level 1 from still-Proposed Level 2
+and name G8-004 as the completion point only on `GO`.
+
+### Durable HITL record without evidence self-reference
+
+The checkpoint is **Level 1 release readiness approval**. Its durable record uses the G8-004 Task
+Notes backed by this fixed shape:
+
+```text
+candidateVersion
+candidateRevision
+decision = GO | NO-GO
+reviewer / reviewDate
+externalCiPrerequisite = actor / date / ref / native URL / normal-CI URL
+supportStatementApproved
+licenseProvenanceAudit = PASS | FAIL + summary
+artifactManifest = relative path / sha256 / row count / primary bytes
+lanes[] = command / PASS|FAIL|NO_EVIDENCE / environment / CI-or-local reference / report SHA
+knownLimitations[]
+blockingFindings[]
+taskRemoteActionsPerformed = none
+```
+
+`GO` requires the exact-candidate external CI prerequisite, every lane `PASS`, and maintainer approval
+of version, support wording, licenses,
+checksums, artifacts, migrations, and limitations. `NO-GO` is a valid recorded checkpoint result but
+does not make G8-004 or Level 1 Complete. An internal defect leaves the task Proposed while its owning
+gate is fixed. `Blocked` is reserved for a real external requirement—unavailable required Linux CI/
+tooling, unresolved redistribution rights, or absent maintainer approval—not a failing test.
+
+A record cannot contain its own commit SHA and measured report hashes before it exists. After all
+candidate evidence and the decision, one evidence-record commit may change only G8-004 Task Notes/
+status, task index/ROADMAP completion state, and the G8 decision/traceability record. It names the
+immutable tested candidate SHA and is explicitly not the artifact revision. README/CHANGELOG already
+belong to the tested candidate. Any production/build/workflow/fixture/license or other documentation change is outside this
+exception and invalidates every lane. The record-only diff reruns `qualityGate`, task/index/DAG/link
+validation, and whitespace before its local commit; it does not relabel those checks or the record
+commit as six-lane candidate evidence. A later release action must publish/tag the named candidate
+content or rerun the matrix on any different chosen revision.
+
+No push, workflow dispatch, remote publication, signing, tag, GitHub Release, credential lookup, or
+release API call is performed here. The separately recorded maintainer push/CI trigger is a HITL input,
+not an action authorized to this task.
+
+### Holistic Level 1 and G8 simplicity closeout
+
+The completed top/mid-level design has one clear runtime path:
+
+```text
+mundane-map-api
+  +-- mundane-map-core -> API
+  +-- mundane-map-awt -> API + core
+  +-- mundane-map-io-shapefile -> API + selected core algorithms
+  +-- mundane-map-io-image -> API + selected core algorithms
+```
+
+API owns immutable toolkit-neutral geometry, portrayal, interaction, CRS/source/raster, limits, and
+diagnostic contracts. Core owns JDK-only projection/viewport, packed geometry/index, clipping/
+simplification, measurement, hit testing, and resampling. AWT is the sole Swing/Java2D boundary and
+owns MapView state, explicit renderer/decoder composition, and only evidence-retained private render
+cache. Shapefile and image remain independent AWT-free static format facades returning shared source
+contracts. Examples, architecture, native, corpus, rendering, performance, and consumer projects are
+non-published support with separate verification lanes.
+
+Developer composition remains explicit but small: create the few immutable registries once at the
+application boundary, open a format through its static facade, bind the owned/borrowed source to
+`MapView`, and close the view/source owner. Snapshot `Layer` remains the easy embedded-data path. No
+omnibus runtime context, plugin discovery/SPI, general topology engine, generic cache/index framework,
+background worker system, release plugin, BOM, JPMS layer, public performance knob, or native helper
+library has earned a place. If examples show repetitive setup, examples improve before a new public
+abstraction is considered.
+
+One candidate record, six independent lanes, one five-artifact manifest, and one maintainer decision
+are sufficient release governance. G8 therefore keeps the library as simple as possible but no
+simpler than its lifecycle, hostile-input, Native Image, interoperability, and downstream-consumer
+evidence require.

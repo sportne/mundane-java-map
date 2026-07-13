@@ -56,7 +56,7 @@ design task; there are no empty speculative design files.
 | G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-010 approved |
 | G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-005 approved |
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
-| G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-003 approved |
+| G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -118,6 +118,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Close native verification with one aggregate executable and one pinned Ubuntu 24.04 x86_64 GraalVM Java 21 lane. | Direct scenarios, an exact resource inventory, retained logs, and narrow platform wording provide release evidence without a second binary, broad reachability metadata, or a cross-platform claim. |
 | 2026-07-12 | Review the five published Level 1 modules and five examples without adding permanent API-governance machinery. | Generated Javadoc indexes, strict offline docs, explicit compatibility dispositions, headless tests, and one manual checkpoint are exhaustive enough before a first release. |
 | 2026-07-12 | Stage one exact five-artifact Maven contract and consume it from one standalone offline Java 21 build. | Ordering the real publish tasks, verifying artifacts/checksums/licenses, and resolving only staged coordinates proves downstream usability without a BOM, release plugin, Maven CLI, or remote repository. |
+| 2026-07-12 | Reconcile Level 1 release evidence against one immutable candidate SHA and keep any later record update distinct. | A named candidate, independent lane provenance, and narrow evidence-only status commit avoid mixing revisions or making an impossible self-referential release record. |
 
 ## Task design traceability
 
@@ -167,3 +168,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G8-001 | One aggregate native scenario, exact diagnostics/resources, final measurement/render path, pinned Linux CI evidence, and release-lane checkpoint | Approved |
 | G8-002 | Five-module public-surface inventory, compatibility dispositions, strict Javadocs/package docs, source-accurate examples, and manual release approval | Approved |
 | G8-003 | Five-artifact publication contract, real-task staging order, deterministic verifier, standalone offline consumer, and combined release lane | Approved |
+| G8-004 | Candidate identity/version, independent evidence matrix, license/artifact/support reconciliation, go/no-go record, and holistic Level 1 closeout | Approved |
