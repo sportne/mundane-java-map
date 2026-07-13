@@ -1199,9 +1199,9 @@ and the Linux JVM evidence below cannot be described as Native Image evidence. A
 a new HITL packaging task that proves the exact native library, extraction/static-link policy,
 reachability, cleanup, and format behavior without weakening the Level 1 rules.
 
-Embedded database BLOBs establish the first real non-file consumer of G6's complete image profile.
-G10-042 therefore adds one toolkit-neutral synchronous helper to `mundane-map-io-image`, and G10-043
-reuses it:
+Embedded database BLOBs establish the first real non-file consumers of G6's complete image profile;
+G10-006 adds HTTP response bodies as a third. Shared working card G10-039 therefore adds one
+toolkit-neutral synchronous helper to `mundane-map-io-image`, and every tile adapter reuses it:
 
 ```text
 RasterImages.decode(byte[] encodedBytes, SourceIdentity identity,
@@ -1211,10 +1211,13 @@ RasterImages.decode(byte[] encodedBytes, SourceIdentity identity,
 
 EncodedRasterDecodeOptions(
     Optional<EncodedRasterFormat> expectedFormat,
+    OptionalInt expectedWidth,
+    OptionalInt expectedHeight,
     ImageSourceLimits imageLimits,
     RasterRequestLimits decodeLimits)
   defaults()
   expecting(EncodedRasterFormat)
+  expectingDimensions(int width, int height)
   withImageLimits(...)
   withDecodeLimits(...)
 ```
@@ -1222,12 +1225,40 @@ EncodedRasterDecodeOptions(
 The helper checks cancellation/encoded size, defensively copies the caller array, applies the same
 complete PNG/JPEG header/container validation and explicit decoder registry as the file source, and
 decodes exactly the full native-size image into one independently owned buffer. An absent expected
-format trusts the signature; a present value must match it. It has no suffix, channel, placement,
+format trusts the signature; a present value must match it. Expected width and height are either both
+absent or both positive and within the supplied image/request limits. After structural header parsing
+but before any complete-decode allocation, a mismatch produces `IMAGE_DIMENSIONS_MISMATCH` with exact
+numeric `expectedWidth`, `expectedHeight`, `width`, and `height`. It has no suffix, channel, placement,
 world file, cache, source lifecycle, AWT type, or decoder discovery. Accounting includes the caller-
-array copy, validation state, opaque decoder reservation, and returned RGBA buffer. The adapter wraps
-an image diagnostic once with only its stable code; raw BLOBs and nested messages remain private.
+array copy, validation state, opaque decoder reservation, and returned RGBA buffer. For encoded length
+`E` and validated native pixel count `P`, its complete primitive-payload charge is exactly
+`2 * E + 16 * P`: one defensive encoded copy plus G6's `E + 12 * P` intermediate reservation and
+`4 * P` published buffer. Fixed validation/container reference slots are charged separately under G4's
+table. The adapter wraps an image diagnostic once with only its stable code; raw BLOBs and nested
+messages remain private.
+
 This focused helper is smaller and safer than constructing an unplaced temporary `RasterSource` for
 every tile or making private G6 parsers public.
+
+The byte helper's checked failure set is closed. It emits `SOURCE_CANCELLED` unchanged;
+`SOURCE_LIMIT_EXCEEDED` with `scope=imageDecode`; `IMAGE_DIMENSIONS_MISMATCH`; or one of
+`IMAGE_EXPECTED_FORMAT_MISMATCH`, `IMAGE_HEADER_INVALID`, `IMAGE_CONTAINER_INVALID`,
+`IMAGE_PROFILE_UNSUPPORTED`, `IMAGE_DECODER_NOT_REGISTERED`, `IMAGE_DECODE_FAILED`,
+`IMAGE_DECODE_MISMATCH`, and `IMAGE_IO_FAILED`. It cannot emit file-mutation, world-file, cache,
+interpolation, or source-close outcomes because it owns none of those mechanisms. A custom
+`CancellationToken` failure and every other unexpected `RuntimeException`/`Error` propagate unchanged
+after helper cleanup. A decoder attempting another checked code is a decoder-contract
+`IllegalStateException`, not an extensible diagnostic channel.
+
+The two byte-helper-specific codes do not reuse file-only context:
+
+| Code | Component and exact context |
+| --- | --- |
+| `IMAGE_EXPECTED_FORMAT_MISMATCH` | `image`; `expectedFormat=PNG|JPEG`, `signature=PNG|JPEG|unknown` |
+| `IMAGE_DIMENSIONS_MISMATCH` | `image`; numeric `expectedWidth`, `expectedHeight`, `width`, `height` |
+
+The existing file opener keeps `IMAGE_FORMAT_MISMATCH/extension/signature` unchanged; a detached byte
+array never fabricates an extension.
 
 ### One strict read-only SQLite session policy
 
@@ -1458,6 +1489,17 @@ native types never cross the source boundary. No vector-tile parser, tile writer
 mode, remote fetch, multiple tilesets, UTFGrid, attribution renderer, or implicit zoom selection is
 included.
 
+GeoPackage calls G10-039 with absent expected format because its profile deliberately permits each
+tile BLOB to be independently PNG or JPEG; signature selection is therefore meaningful and no
+homogeneity metadata is invented. MBTiles supplies its normalized tileset metadata format. Both supply
+exact expected dimensions 256 by 256. Helper `SOURCE_CANCELLED` remains the ordinary G4 cancellation.
+Helper `SOURCE_LIMIT_EXCEEDED` maps to the adapter's `geopackageRaster` or `mbtilesRaster` scope with
+`limit=imageDecode`, preserving only numeric `requested` and `maximum`. `IMAGE_DIMENSIONS_MISMATCH`
+maps to the format tile diagnostic `field=data/reason=size` with its four safe expected/actual numeric
+dimensions. Each of the eight other closed helper image codes maps to `field=data/reason=decode` with
+only `imageCode`. Unexpected token/decoder runtime failures propagate after rollback, and any other
+checked decoder code is a contract `IllegalStateException`.
+
 ### Limits, diagnostics, and evidence
 
 `GeoPackageLimits` and `MbTilesLimits` are separate immutable typed values. They repeat the small
@@ -1512,12 +1554,12 @@ Format diagnostics are closed here:
 | `GEOPACKAGE_SCHEMA_INVALID` | `object=spatialRefSys|contents|geometryColumns|tileMatrixSet|tileMatrix|selectedTable`, `field`, `reason=missing|duplicate|type|nullability|constraint|reference|value|view` |
 | `GEOPACKAGE_RECORD_INVALID` | `field=id|geometry|attribute`, `reason=null|storageClass|encoding|range|value` |
 | `GEOPACKAGE_GEOMETRY_EMPTY` | `geometryType=point|multipoint|line|multiline|polygon|multipolygon` |
-| `GEOPACKAGE_TILE_INVALID` | `field=zoom|x|y|data`, `reason=duplicate|range|null|format|size|decode`; `imageCode` is required only for `reason=decode` |
+| `GEOPACKAGE_TILE_INVALID` | `field=zoom|x|y|data`, `reason=duplicate|range|null|format|size|decode`; `reason=decode` requires `imageCode`; `field=data/reason=size` requires numeric `expectedWidth`, `expectedHeight`, `width`, `height` |
 | `GEOPACKAGE_TILE_MISSING` | `zoom`, `count` |
 | `MBTILES_PROFILE_UNSUPPORTED` | `construct=applicationId|view|extension|format|vector|grid|object|zoom` |
 | `MBTILES_SCHEMA_INVALID` | `object=metadata|tiles`, `field`, `reason=missing|duplicate|type|nullability|constraint|value|view` |
 | `MBTILES_METADATA_INVALID` | `field=name|format|bounds|center|minzoom|maxzoom|type|version|description|attribution`, `reason=missing|duplicate|encoding|syntax|range|order|value` |
-| `MBTILES_TILE_INVALID` | `field=zoom|x|y|data`, `reason=duplicate|range|null|format|size|decode`; `imageCode` is required only for `reason=decode` |
+| `MBTILES_TILE_INVALID` | `field=zoom|x|y|data`, `reason=duplicate|range|null|format|size|decode`; `reason=decode` requires `imageCode`; `field=data/reason=size` requires numeric `expectedWidth`, `expectedHeight`, `width`, `height` |
 | `MBTILES_TILE_MISSING` | `zoom`, `count` |
 | `MBTILES_METADATA_IGNORED` | `count` |
 
@@ -1537,8 +1579,8 @@ tiles          -> zoom | x | y | data
 ```
 
 Every `field` value in a schema or tile diagnostic is therefore a closed schema-role token, never an
-input identifier. A required `imageCode` is the exact code from G6's closed image-diagnostic table;
-it is a flat context token rather than a nested cause and no nested context or message is retained.
+input identifier. A required `imageCode` is one of G10-039's eight closed non-dimension image codes; it
+is a flat context token rather than a nested cause and no nested context or message is retained.
 Locations use
 `component=geopackage|mbtiles`, public content-table ordinal, physical row ordinal, and optional zero-
 based tile/column/part index. They never expose a filesystem path, URI, SQL, identifier text, metadata
@@ -1548,7 +1590,8 @@ Shared limits use `SOURCE_LIMIT_EXCEEDED` with
 `scope=sqliteOpen|sqliteQuery|geopackageOpen|geopackageCursor|geopackageRaster|mbtilesOpen|mbtilesRaster`
 and `limit=inputBytes|schemaObjects|columns|identifierCharacters|metadataRows|textValueCharacters|
 textCharacters|blobBytes|rows|vmOpcodes|ownedBytes|zoomLevels|zoom|matrixAxis|coordinates|parts|
-cacheEntries|cacheBytes`. `SOURCE_CANCELLED` and `SOURCE_CLOSE_FAILED` retain their G4 shapes.
+imageDecode|cacheEntries|cacheBytes`. `imageDecode` preserves only the helper limit's numeric
+`requested` and `maximum`; `SOURCE_CANCELLED` and `SOURCE_CLOSE_FAILED` retain their G4 shapes.
 
 Opening precedence is public arguments, already-cancelled token, platform, path/file/header preflight,
 native load/connection policy, core schema, selected profile/schema, CRS/matrix/metadata, operation
@@ -1577,26 +1620,28 @@ opens one staged fixture. Normal Ubuntu CI must run the real read/query/render t
 platform tests prove the stable unavailable diagnostic without loading JNI. No Native Image, new
 corpus command, public network, benchmark threshold, or Level 1 release record is changed.
 
-After G10-004 and the global G11-004 adapter approval, create five working cards:
+After G10-004, create one shared working prerequisite; after the global G11-004 adapter approval,
+create five SQLite-format cards:
 
-1. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
+1. `G10-039` — add the exact G6 encoded-byte helper with PNG/JPEG success, mismatch, malformed,
+   cancellation, and limit tests; create no module and publish no format behavior.
+2. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
    connection policy, and deliver catalog plus Point/MultiPoint feature query/render, publication, and
    staged-consumer behavior.
-2. `G10-041` — complete line/polygon multipart geometry, attributes, CRS handling, query projection,
+3. `G10-041` — complete line/polygon multipart geometry, attributes, CRS handling, query projection,
    viewer behavior, and feature hostile-input coverage.
-3. `G10-042` — deliver GeoPackage PNG/JPEG tile matrices, sparse reads, bounded decoded cache,
+4. `G10-042` — deliver GeoPackage PNG/JPEG tile matrices, sparse reads, bounded decoded cache,
    tolerant rendering, independent fixtures, and complete container hardening.
-4. `G10-043` — create `mundane-map-io-mbtiles-xerial` with metadata, TMS conversion, PNG/JPEG sparse
+5. `G10-043` — create `mundane-map-io-mbtiles-xerial` with metadata, TMS conversion, PNG/JPEG sparse
    raster reads, viewer, publication, and staged-consumer behavior.
-5. `G10-044` — close MBTiles limits/diagnostics/cancellation/cache/mutation/corrupt-database cases,
+6. `G10-044` — close MBTiles limits/diagnostics/cancellation/cache/mutation/corrupt-database cases,
    add independent fixtures, and record the exact Linux JVM support evidence for both adapters.
 
-G10-041 and G10-042 are serial after G10-040. G10-043 depends on G10-042 so its MBTiles source reuses
-the already working byte-array decoder rather than racing or duplicating that shared G6 change.
-G10-044 follows G10-043. The two format branches are logically independent after the shared decoder,
-but the task graph also serializes dependency verification, settings/inventory, publication, consumer,
-task-index, and roadmap changes under one integration owner. No module is created by the profile
-decision.
+G10-039 is a prerequisite of G10-042, G10-043, and G10-060. G10-041 follows G10-040; G10-042 follows
+both G10-041 and G10-039. G10-043 follows G10-039 plus G11-004, and G10-044 waits for both tile-format
+branches. The format branches are logically independent after the shared decoder, but dependency
+verification, settings/inventory, publication, consumer, task-index, and roadmap changes remain under
+one integration owner. No module is created by the profile decision or shared helper card.
 
 ## GPX and KML source profiles (G10-005)
 
@@ -1999,3 +2044,398 @@ G10-057 additionally waits for G10-053 for the combined closeout. The GPX and KM
 logically parallel after G10-005, but their first cards are not path-safe while both change settings,
 architecture inventories, publication, consumer, native inventory, task index, and roadmap files.
 One integration owner serializes those shared changes. No module is created by this profile card.
+
+## Remote XYZ tile acquisition (G10-006)
+
+### Explicit acquisition, not a live network source
+
+G10-006 is an AFK design decision and creates no code or module. The future JDK-only,
+AWT-free `mundane-map-io-http-tiles` module depends on API, selected core raster/CRS algorithms,
+`mundane-map-io-image`, and `java.net.http`. G0 allowlists only that exact acyclic I/O-to-codec edge.
+The module never depends on AWT; callers pass the explicit G6 decoder registry whose concrete decoder
+may come from the AWT application.
+
+A `RasterSource.read` is synchronous and MapView invokes it while rendering. Hiding DNS, TLS, server
+latency, retry, or connection lifetime behind that contract would block the EDT and make repaint drive
+external effects. The first profile instead has one explicit blocking acquisition client:
+
+```text
+HttpXyzTiles.open(SourceIdentity identity,
+                  HttpXyzTemplate template,
+                  HttpXyzClientOptions options,
+                  EncodedRasterDecoderRegistry decoders) -> HttpXyzTileClient throws SourceException
+
+HttpXyzTileClient extends AutoCloseable
+  fetch(XyzTileRegion region,
+        CancellationToken cancellation) -> RasterSource throws SourceException
+  isClosed() -> boolean
+  close() throws SourceException
+
+HttpXyzClientOptions(
+    HttpSchemePolicy schemePolicy,
+    HttpXyzLimits limits,
+    RasterSourceLimits snapshotLimits,
+    EncodedRasterDecodeOptions decodeOptions,
+    HttpTileCachePolicy cachePolicy,
+    Duration connectTimeout,
+    Duration requestTimeout,
+    Duration operationTimeout,
+    Duration closeTimeout)
+
+HttpSchemePolicy = HTTPS_ONLY | HTTPS_OR_HTTP
+HttpTileCachePolicy = DISABLED | MEMORY
+```
+
+The opening source identity belongs to the client and therefore remains available for diagnostics
+from fetch, close, and cleanup races. `decodeOptions` carries the G6 decode/allocation limits and
+decoder policy but must not already declare an expected format; each successful response derives and
+supplies that expectation from its validated media type. It likewise must not declare expected
+dimensions; the client supplies exactly 256 by 256. The image/decode limits must admit the HTTP per-
+tile encoded maximum and that exact pixel shape, or opening is an argument failure. Cache entry and
+byte ceilings live only in
+`HttpXyzLimits`, so enabling or disabling retention cannot introduce a second conflicting limit set.
+Calling fetch after close is the ordinary lifecycle `IllegalStateException`; a close race after fetch
+has started uses the structured `HTTP_TILE_CLIENT_CLOSED` outcome. A failed first close throws one
+structured `SourceException` after completing its bounded cleanup attempt.
+
+`fetch` performs all network and decoding synchronously from the caller's perspective. Its JDK client
+uses bounded asynchronous requests internally only to achieve the configured concurrency. The public
+API has no future, publisher, callback, executor, progress listener, live tile source, or hidden
+refresh. Documentation and the eventual viewer require callers to invoke it on an application worker,
+never an AWT event/render thread. Cancellation remains the only cross-thread operation during an
+ordinary fetch.
+
+Success returns a private in-memory raster-source implementation owning one complete detached RGBA
+mosaic, exact Web Mercator placement, the requested G4 read limits, and opening warnings. It retains no
+client, request, URI, body, decoder, channel, future, executor, cache entry, or network handle. Closing
+the client immediately after success cannot change the source; closing the source drops its mosaic.
+Source reads perform only the existing checked G4/G6 nearest/bilinear window work and lifecycle.
+
+### XYZ region and URI-template profile
+
+`XyzTileRegion(zoom, minimumX, minimumY, maximumX, maximumY)` is immutable and uses inclusive XYZ
+coordinates with north-origin rows. Zoom is `0..22`; `axis = 1L << zoom`; every x/y lies in
+`[0,axis)`, and minima do not exceed maxima. Tile count and output dimensions use checked `long`
+before conversion. Each tile is exactly 256 by 256 pixels. No TMS switch, wraparound, metatile,
+variable tile size, retina suffix, alternate matrix, or arbitrary CRS is included.
+
+One static helper creates the smallest tile-aligned region covering a positive-area EPSG:3857
+`Envelope` at an explicit zoom. It first requires the envelope wholly inside the canonical G4 Web
+Mercator domain. With `M = PI * 6_378_137`, column edge `c` is the checked finite interpolation from
+`-M` to `M` at `c/axis`, and row edge `r` is the interpolation from `M` to `-M` at `r/axis`. Binary
+search over those monotone edges applies half-open cells internally while assigning the exact outer
+world edge to the last tile. It does not clamp, wrap, densify, reproject, or infer zoom.
+
+The returned source width and height are the region's tile-axis counts times 256. Its map bounds are
+the west/east column edges and south/north row edges of that complete region, with recognized canonical
+EPSG:3857 metadata. A request may therefore intentionally fetch a tile-aligned area slightly larger
+than a viewport; normal raster-window planning clips presentation.
+
+`HttpXyzTemplate` accepts one bounded ASCII hierarchical URI string. It has exact lowercase `https`,
+or lowercase `http` only under explicit `HTTPS_OR_HTTP`; one fixed ASCII host; either no port or one
+canonical decimal port in `1..65535`; no empty authority port, userinfo, query, fragment, IPv6 zone
+identifier, percent escape, control, non-ASCII character, or relative/opaque form; and an absolute
+path containing `{z}`, `{x}`, and `{y}` exactly once each. No other brace/token is accepted. The path
+uses only RFC unreserved/sub-delimiter characters, slash, colon, at-sign, period, and the three
+placeholders; `.`/`..` segments and backslash are rejected. Placeholders may share a segment with a
+fixed suffix such as `{y}.png`.
+
+Substitution uses only canonical unsigned decimal coordinates and reparses the final URI, which must
+retain the exact validated scheme/host/port and safe path. There is no subdomain rotation, template
+callback, URL encoding, environment/property expansion, token/header substitution, or credential
+slot. Invalid templates/options/regions are caller configuration errors (`IllegalArgumentException`),
+not hostile-response diagnostics. The adapter never derives source identity or any metadata from the
+host or final URI and never copies either into a report, exception message, or `toString`. The caller
+must supply a nonsensitive logical source ID under G4's existing identity contract.
+
+### Owned Java 21 HTTP client and deterministic batching
+
+Opening creates one Java 21 `HttpClient` and one fixed-size daemon platform-thread executor owned by
+the tile client. Construction is direct and explicit:
+
+```text
+HttpClient.newBuilder()
+  .executor(ownedFixedExecutor)
+  .connectTimeout(connectTimeout)
+  .followRedirects(HttpClient.Redirect.NEVER)
+  .version(HttpClient.Version.HTTP_1_1)
+  .proxy(directOnlyProxySelector)
+  .sslContext(noClientCredentialContext)
+  .build()
+```
+
+Before building, the client creates a new `SSLContext.getInstance("TLS")`, initializes a default-
+algorithm `TrustManagerFactory` from a null `KeyStore` to capture the standard trust anchors, and calls
+`init` with an empty `KeyManager[]`, those trust managers, and a new `SecureRandom`. This context has no
+client key manager and therefore cannot inherit client certificates from the replaceable process-wide
+default `SSLContext`; `HttpClient` still performs HTTPS endpoint identification. A platform security-
+initialization failure closes the not-yet-published executor and throws `HTTP_TILE_CLIENT_INIT_FAILED`.
+
+The direct proxy selector always returns `Proxy.NO_PROXY`. No authenticator, cookie handler, caller-
+supplied SSL context/trust/key manager, system-property header, request body, or caller header hook
+exists. Custom trust, client certificates, bearer/query tokens, authorization, cookies, referer,
+proxy, and credential lookup require a separate security profile. Cleartext HTTP is a visible caller
+opt-in intended primarily for controlled/local services.
+The template is trusted application configuration, not an untrusted end-user URL. An application that
+accepts a template from another principal must apply its own host and network-range allowlist before
+opening the client; this profile does not claim to be a general SSRF boundary.
+
+Every request is an exact `GET` with no body and only fixed project-owned headers:
+
+```text
+Accept: image/png, image/jpeg
+Accept-Encoding: identity
+User-Agent: mundane-java-map
+```
+
+The client handles one fetch at a time and requires external serialization. A second fetch is an
+ordinary lifecycle `IllegalStateException`. It computes row-major tile order (y, then x), resolves
+cache hits, and partitions remaining requests into contiguous row-major batches of at most the
+configured concurrency. A batch is submitted together, but its headers, bodies, warnings, decoding,
+error precedence, and cache staging are consumed strictly in row-major request order. Completion timing
+therefore cannot change the returned pixels, primary diagnostic, or LRU order.
+
+Before submitting a batch, the caller-thread planner reserves one complete per-tile encoded allowance
+`B` against the remaining cumulative encoded-byte ceiling. Against the project-owned ceiling it also
+reserves, per request, exactly
+`R = 4 * B + 16 * 65_536 + 8 * ceil(B / 65_536)`: at most `B` bytes in 64-KiB body segments, their
+reference slots, one final array of at most `B`, and G10-039's maximum `2 * B + 16 * pixelCount`
+full-image decode charge. Checked arithmetic precedes the reservation. URI/header text, request/future/
+subscriber/container slots, the region mosaic, and diagnostics are charged separately before their
+corresponding allocation.
+
+The planner reduces the batch below configured concurrency when either reservation requires it and
+never submits a request without both full deterministic reservations. Body segments have exact
+capacity `min(65_536, remaining per-tile allowance)`; they do not grow or over-allocate. For an actual
+successful length `L`, EOF converts the body portion to segment capacity `S = 0` when `L = 0`, otherwise
+`min(B, 65_536 * ceil(L / 65_536))`, `8 * ceil(L / 65_536)` segment slots, and the exact `L`-byte array.
+It retains a decode reservation of `2 * L + 16 * 65_536` until row-major decode; G10-039 then converts
+that reservation to its exact `2 * L + 16 * P` charge using the validated native pixel count `P`. Only
+the unallocated difference is released. A missing or error response releases its unused body/decode
+reservation. If the remaining budget cannot reserve one complete tile, the fetch fails before another
+request. This conservative admission may stop before a smaller server body would have fit, but no
+completion race can allocate or claim aggregate capacity out of row-major order.
+
+Each request has the configured per-request timeout and the fetch has one monotonic overall deadline.
+Before submitting a batch, the effective request duration is the smaller of the configured request
+timeout and remaining overall time. There is exactly one attempt: no redirect, retry, backoff,
+conditional request, fallback URL, alternate format, or stale-cache recovery. DNS, connect, TLS, and
+JDK protocol steps are opaque operations checked immediately before and after; the design claims no
+internal cancellation checkpoint or latency threshold for them.
+
+The supervisory wait uses bounded intervals, checking the operation token/deadline between waits.
+Every terminal path after any batch submission uses one common termination protocol: establish the
+row-major response, request, limit, decode, deadline, cancellation, interruption, or close outcome as
+primary; cancel every remaining future and available body subscription; release reservations; discard
+staged bodies, pixels, warnings, and cache mutations; and wait at most the one close/drain timeout for
+the batch to settle. No active batch is allowed to overlap a later fetch. If work settles, an ordinary
+failure releases the active slot and the still-open client remains reusable. If it does not settle,
+the client invokes `HttpClient.shutdownNow()` and executor `shutdownNow()`, permanently enters
+`CLOSED`, and suppresses the cleanup outcome under the already established primary diagnostic.
+Cancellation retains `SOURCE_CANCELLED`; interruption restores interrupt status and retains the stable
+request-interrupted outcome. An unexpected `RuntimeException` or `Error` uses the same bounded cleanup
+before propagating unchanged. The operation deadline never extends this bounded cleanup allowance.
+
+`close` may race one fetch. The first call atomically marks the client closed, cancels active futures
+and subscriptions, invokes `HttpClient.shutdownNow()` and executor `shutdownNow()`, and awaits both
+within one total close timeout; it never calls the potentially unbounded orderly `HttpClient.close()`.
+The active fetch uses `HTTP_TILE_CLIENT_CLOSED` only when close wins terminal arbitration. Any already-
+established request, response, limit, decode, deadline, cancellation, interruption, or unexpected
+failure remains primary. A fetch whose success linearization point already released its active slot
+still returns that success. Close is permanent and idempotent; cleanup runs once and is not retried
+after a timeout/failure. Returned detached sources remain valid.
+Close and fetch claim one cleanup-owner flag while holding client state; the loser never performs a
+second shutdown/drain and waits only within the remaining shared close-timeout budget.
+
+### Response, image, and missing-tile behavior
+
+The body handler first evaluates response metadata without reading error bodies. Each header value is
+one header for the count ceiling, including every value associated with a repeated name. The repeated
+name is charged again when aggregating header characters. Only status 200 is a tile success. Status
+404 or 410 is one recoverable missing tile; its subscriber cancels immediately,
+the mosaic receives transparent black for that tile, and one `HTTP_TILE_MISSING` warning is offered to
+the normal G4 warning cap. Every other status, including 1xx, 204, 3xx, 401/403, 429, and 5xx, is
+terminal. Error/missing response bodies are never retained, decoded, logged, or included in a
+diagnostic.
+
+A 200 response requires exactly one ASCII `Content-Type` value which, after outer optional whitespace
+and case folding, is exactly `image/png` or `image/jpeg` with no parameter. `Content-Encoding` must be
+absent or exact case-insensitive `identity`. `Content-Length` may be absent or one non-negative decimal
+not exceeding the per-tile limit; duplicates, comma lists, signs, overflow, or mismatch with the final
+body are terminal. Header name/value count and character ceilings are checked before project copying.
+
+Success uses a custom back-pressured `HttpResponse.BodySubscriber<byte[]>`, not
+`BodySubscribers.ofByteArray`. It requests one delivered buffer list at a time, prospectively checks
+the per-body limit, fills the fixed 64-KiB project-owned segments defined above, polls cancellation,
+and cancels its `Flow.Subscription` before accepting an over-limit chunk. One final exact array is
+created only after EOF/declared-length validation, then segment references are cleared. Received JDK
+`ByteBuffer` instances are opaque transport allocations;
+the project bounds concurrency, header/body bytes, owned copies, and operation duration but does not
+claim byte-perfect accounting for DNS/TLS/socket/internal HTTP buffers.
+
+Completed bodies in a batch are processed row-major. Each EOF has already converted its reservation
+to an exact cumulative encoded-response charge before decode. G10-039's
+`RasterImages.decode(byte[], ...)` receives a copy of the client's
+decode options with the media-derived expected format and exact expected dimensions 256 by 256, the
+client's exact source identity, explicit decoder registry, and operation token. The expected-dimension
+preflight guarantees `P <= 65_536` before complete-decode allocation, so the reservation above cannot
+be exceeded by a larger valid image. `IMAGE_DIMENSIONS_MISMATCH` translates to
+`HTTP_TILE_IMAGE_INVALID/reason=dimensions` with its safe numeric actual `width` and `height`; every
+`SOURCE_CANCELLED` becomes the one ordinary HTTP fetch `SOURCE_CANCELLED`, and helper
+`SOURCE_LIMIT_EXCEEDED` becomes `SOURCE_LIMIT_EXCEEDED/scope=httpTileFetch/limit=imageDecode` while
+retaining only its numeric `requested` and `maximum`. Each of the helper's eight closed image codes
+becomes `HTTP_TILE_IMAGE_INVALID/reason=decode` with only `imageCode`. An unchecked token/decoder
+failure propagates unchanged after the common batch cleanup, and any other checked code is a decoder-
+contract `IllegalStateException`. A returned buffer contradicting the helper's expected-size contract
+is likewise unexpected, not a second hostile-input outcome. The module does not call ImageIO, inspect
+an AWT type, expose encoded bytes, retain a nested image exception, or build a temporary file/raster
+source.
+
+An entirely missing region is still a successful transparent raster with warnings. A malformed,
+wrong-media, wrong-size, cancelled, timed-out, or other failed tile makes the complete fetch fail;
+there is no partial source or substitution. Pixel composition copies decoded tiles into the mosaic in
+row-major order and polls at most every 4,096 pixels.
+
+### Transactional decoded cache and detached snapshot
+
+`DISABLED` is a distinct cache policy. `MEMORY` stores only successful immutable decoded
+256-by-256 `RgbaPixelBuffer` values under `(zoom,x,y)` for this client's one fixed template. It does not
+store encoded bodies, errors, missing responses, headers, validators, credentials, source mosaics, or
+disk data. Entry and exact RGBA-byte bounds are both enforced; one tile costs exactly 262,144 bytes.
+There is no freshness interval, validator, revalidation, or stale-while-error behavior. A caller that
+requires a fresh acquisition uses `DISABLED` or opens a new client rather than silently reusing an
+unverifiable memory entry.
+
+A fetch snapshots cache order/content at start. Hits supply pixels but stage promotions; decoded
+misses stage admissions. Missing/error/cancelled requests stage nothing. The existing cache is not
+mutated until every tile, output allocation, final cancellation/deadline check, and detached source
+construction succeeds. One commit then applies row-major hit promotions and admissions, evicting
+least-recently-used entries until both ceilings hold. Failed fetches leave membership/order unchanged.
+
+The final `CancellationToken` callback is polled immediately before acquiring client state, never
+while holding its lock; a callback that blocks, throws, or reenters therefore cannot prevent close from
+acquiring state. One short critical section is then the success linearization point. It reads only
+project-owned primitive state, rechecks the monotonic deadline and closed flag, applies every staged
+cache mutation, records the detached source as the terminal success payload, and releases the active-
+fetch slot atomically. Cancellation requested after the outside-lock checkpoint loses to a success
+that reaches this section, matching G4/G6's final-checkpoint publication rule.
+
+If cancellation, deadline, or close wins before this section, no cache mutation occurs and the common
+terminal cleanup path runs. If success wins, `fetch` returns that payload after unlocking even when
+close begins before the Java method returns; close then observes no active fetch and may clear the
+cache without changing the independent source. No lock is held while invoking caller code, submitting
+or awaiting network work, draining a subscription, decoding, or awaiting shutdown. Thus no failed
+fetch commits cache state and there is one unambiguous success/close/cancellation arbitration point.
+
+The returned private raster source owns an exact row-major `int[]` mosaic and its fixed opening report.
+It applies G4 strict-window validation and G6's request interpolation/resampling algorithms, with no
+network/cache callback. A successful read allocates an independent output buffer and remains reusable;
+failure/cancellation discards only that read. Snapshot close is idempotent and cannot fail.
+
+### Limits, diagnostics, and evidence
+
+`HttpXyzLimits` is immutable; counts/characters/bytes fit positive `int` except cumulative/owned bytes,
+which are positive `long`. Durations are separate option values. Defaults and hard maxima are:
+
+| Ceiling | Default | Hard maximum |
+| --- | ---: | ---: |
+| Template/final URI ASCII characters | 2,048 | 8,192 |
+| Zoom | 22 | 22 |
+| Tiles in one region | 64 | 1,024 |
+| Tiles on either region axis | 32 | 128 |
+| Concurrent requests | 4 | 16 |
+| Response headers | 64 | 256 |
+| Characters in one header name/value | 4,096 | 16,384 |
+| Aggregate response-header characters per tile | 16,384 | 65,536 |
+| Encoded bytes in one successful tile | 2,097,152 | 16,777,216 |
+| Cumulative encoded bytes per fetch | 67,108,864 | 536,870,912 |
+| Conservatively project-owned fetch bytes | 268,435,456 | 2,147,483,647 |
+| Retained opening warnings | 256 | 4,096 |
+| Decoded cache entries | 64 | 1,024 |
+| Decoded cache RGBA bytes | 16,777,216 | 268,435,456 |
+
+Duration defaults/hard maxima are connect 10/120 seconds, request 15/300 seconds, operation 60/900
+seconds, and close/drain 2/30 seconds. Values have positive millisecond precision and require
+`connect <= request <= operation`; close is independent. Configured concurrency cannot exceed the
+maximum region-tile ceiling, and an actual smaller region simply submits a smaller batch. Tile count
+cannot exceed the checked axis product, and aggregate body bytes are at least one maximum body. An
+enabled cache must accept at least one complete tile; its independent byte ceiling may intentionally
+bind before its entry ceiling. With `P = 65_536`, configured per-tile encoded maximum `B`, and maximum
+region tile count `T`, the project-owned option's validation floor is the checked sum of `4 * P * T`
+for the mosaic, `16 * T` for tile/future reference slots, and one complete `R` reservation defined
+above. Larger actual batches consume another `R` per submitted request and therefore shrink safely
+when the remaining budget cannot support configured concurrency. The helper's returned RGBA charge is
+transferred into the fetch counter rather than charged a second time; a persistent cache entry remains
+independently bounded by the cache byte ceiling. Output dimensions/pixels and every read remain
+separately bounded by the supplied G4 `RasterSourceLimits`.
+
+Each prospective count/product/sum uses checked `long`; equality succeeds and maximum plus one fails
+before request/allocation/publication. Request/future/subscriber/list slots, URI strings, project header
+copies, body segments/arrays, decoded staging, cache transaction entries, mosaic, diagnostics, and
+detached-source containers are charged without identity deduplication. The persistent cache has its own
+entry/byte limits; references to existing immutable cache buffers charge operation reference slots but
+not their already-owned pixels a second time.
+
+Caller configuration errors are ordinary argument failures. Fetch diagnostics use the client's
+supplied source ID, component `httpTile`, row-major positive request ordinal as record number, and
+safe numeric `zoom`, `x`, and `y` context only when tile-local. Except for the caller-authored logical
+source ID, adapter-derived metadata and context never contain scheme, host, port, URI/template, path,
+request/response header text, media/body bytes, TLS/DNS/provider text, thread name, credential,
+decoder message, or native/JDK object. The closed outcomes are:
+
+| Code | Severity and exact context |
+| --- | --- |
+| `HTTP_TILE_CLIENT_INIT_FAILED` | error; `resource=tls|client`, `reason=security|other` |
+| `HTTP_TILE_MISSING` | warning; `zoom`, `x`, `y`, `status=404|410` |
+| `HTTP_TILE_CLIENT_CLOSED` | error; `phase=fetch|decode|publish` |
+| `HTTP_TILE_REQUEST_FAILED` | error; `phase=dns|connect|tls|send|body|wait`, `reason=timeout|interrupted|protocol|io|other` |
+| `HTTP_TILE_RESPONSE_INVALID` | error; `field=status|contentType|contentEncoding|contentLength|headers`, `reason=missing|duplicate|syntax|unsupported|range|mismatch`; numeric `status` is required only when `field=status` |
+| `HTTP_TILE_IMAGE_INVALID` | error; `reason=decode` requires `imageCode=<one of the eight closed helper image codes>`; `reason=dimensions` requires numeric `width`, `height` |
+| `HTTP_TILE_CLOSE_FAILED` | error; `resource=body|client|executor`, `reason=timeout|interrupted|other` |
+
+`SOURCE_LIMIT_EXCEEDED` uses `scope=httpTileFetch|httpTileCache` and
+`limit=templateCharacters|uriCharacters|zoom|tiles|tileAxis|concurrency|headers|headerCharacters|
+tileBodyBytes|bodyBytes|ownedBytes|imageDecode|cacheEntries|cacheBytes`. `imageDecode` preserves only
+the helper limit's numeric `requested` and `maximum`; its nested scope/name is not public HTTP context.
+Retained warnings use G4's cap/omission, not a terminal limit. `SOURCE_CANCELLED` retains the G4
+code/shape. A nested image code is a flat closed context token, not a chained diagnostic contract.
+
+Precedence is public arguments/lifecycle, already-cancelled token, effective limits/region/output,
+cache snapshot, overall deadline, batch URI/request creation, response outcomes in row-major order,
+headers, body/per-body limit, cumulative body limit, image decode/dimensions, mosaic/output allocation,
+final cancellation/deadline, detached source construction, and the atomic success/cache/publication
+linearization point. A response error established before a later cancellation observation remains
+primary; every terminal path cancels and boundedly drains its outstanding batch, with cleanup failures
+suppressed. Close that wins the state transition before a terminal fetch result uses the client-closed
+outcome.
+
+Later tests use only `jdk.httpserver` loopback servers in test/consumer code. Barrier-controlled
+handlers prove maximum concurrency and out-of-order completion while assertions retain row-major
+diagnostics/cache pixels. Cases cover HTTPS-only rejection and explicit loopback HTTP, exact template/
+XYZ/world math, fixed headers/no credential/proxy/redirect, PNG/JPEG success, 404/410, every other
+status family, media/encoding/length/header errors, chunked exact/over-limit/truncated bodies,
+malformed/wrong-size images, request/operation timeout, token cancellation before/during every stage,
+thread interruption, client close in flight, drain poisoning, cache hit/LRU/rollback, detached reads,
+tolerant rendering, publication, and a clean offline consumer. No automated or default example ever
+contacts a public service.
+
+The module has no Level 2 Native Image claim: JDK HTTP/TLS/executor reachability, DNS, trust-store
+resources, and cancellation behavior require their own evidence. It is excluded from the shared native
+executable until such a task exists. Project code still uses no reflection, scanning, dynamic proxy,
+serialization, JNI, `Unsafe`, internal JDK API, implicit resource lookup, or automatic provider
+discovery. No performance threshold is inferred from loopback timing.
+
+After G10-039 supplies the shared encoded-byte helper, create three serial working cards:
+
+1. `G10-060` — create `mundane-map-io-http-tiles` with strict template/client policy, one-tile
+   PNG/JPEG acquisition into a detached source, architecture checks, publication, and loopback offline
+   consumer.
+2. `G10-061` — add exact region math, deterministic concurrent batches, missing tiles, decoded LRU,
+   worker-driven viewer, and tolerant render integration.
+3. `G10-062` — close every status/header/body/limit/deadline/cancellation/interrupt/close/cache rollback
+   case and document the JVM-only support boundary without adding a Native Image claim.
+
+G10-060 depends on G10-039; G10-061 and G10-062 follow serially because they share the client, source,
+cache, fixtures, module, and publication files. G10-039 is also the shared prerequisite for G10-042 and
+G10-043; a single integration owner lands it before the independent tile-format branches. No module or
+network request is created by G10-006 itself.

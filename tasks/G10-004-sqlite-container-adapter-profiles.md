@@ -49,8 +49,9 @@ claims, project-owned/repacked native binaries, and any public API exposing JDBC
   qualify opaque SQLite/JNI allocation and native extraction.
 - Publication keeps Xerial out of MundaneJ artifacts and uses one exact checksummed build-only mirror
   so a fresh offline consumer resolves the two staged adapters and only their approved classifiers.
-- G10-040 through G10-044 deliver working behavior before adding either format module and depend on
-  the G11-004 adapter approval; no generic SQLite module or Native Image claim is planned.
+- Shared G10-039 first delivers the working bounded byte-array image helper; G10-040 through G10-044
+  then deliver working behavior before adding either format module and depend on the G11-004 adapter
+  approval; no generic SQLite module or Native Image claim is planned.
 
 ## Required tests
 

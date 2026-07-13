@@ -1464,11 +1464,24 @@ other layer.
 
 ## Approved Level 2 embedded-byte extension
 
-G10-004 establishes GeoPackage and MBTiles as two demonstrated consumers of encoded PNG/JPEG BLOBs.
-Their first tile implementation adds `RasterImages.decode(byte[], SourceIdentity,
+G10-004 and G10-006 establish GeoPackage, MBTiles, and HTTP XYZ as demonstrated consumers of encoded
+PNG/JPEG byte values. Shared implementation card G10-039 adds `RasterImages.decode(byte[], SourceIdentity,
 EncodedRasterDecodeOptions, EncodedRasterDecoderRegistry, CancellationToken)`, returning one detached
 native-size `RgbaPixelBuffer`. The helper defensively snapshots bytes and reuses the complete G6
 container validation, limits, accounting, cancellation, and explicit decoder path. An optional
-expected format supports MBTiles metadata; absent means signature-selected PNG/JPEG. It has no suffix,
-placement, cache, temporary `RasterSource`, AWT type, or discovery. This is a Level 2 additive consumer
-surface and does not alter the completed Level 1 file-source or native claim.
+expected format supports MBTiles metadata; absent means signature-selected PNG/JPEG. Optional expected
+width and height are jointly present or absent. A present size is checked after structural header
+parsing and before complete-decode allocation; mismatch uses `IMAGE_DIMENSIONS_MISMATCH` with numeric
+expected/actual dimensions. It has no suffix, placement, cache, temporary `RasterSource`, AWT type, or
+discovery. This is a Level 2 additive consumer surface and does not alter the completed Level 1 file-
+source or native claim. GeoPackage, MBTiles, and HTTP tasks depend on that working helper rather than
+racing to add it independently. For encoded length `E` and native pixel count `P`, the helper's exact
+primitive-payload charge is `2 * E + 16 * P`; fixed validation/container reference slots follow the
+existing G4 table. Nested adapters may therefore reserve the helper without guessing at defensive-copy
+or opaque-decoder capacity. Expected-format mismatch uses the additive
+`IMAGE_EXPECTED_FORMAT_MISMATCH` code with exact `expectedFormat` and `signature` context rather than
+fabricating the Level 1 file code's `extension`. Checked failures are limited to `SOURCE_CANCELLED`,
+`SOURCE_LIMIT_EXCEEDED/scope=imageDecode`, the two byte-helper-specific expectation codes, and the
+existing closed header/container/profile/decoder/decode/I/O image codes. File, world-file,
+interpolation, cache, and close outcomes are impossible for this detached byte operation; unexpected
+token/decoder runtime failures remain unchecked.

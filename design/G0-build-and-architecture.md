@@ -208,10 +208,11 @@ general discovery exception for project code or behavior.
 G10-004 approves the first future format-composition edges:
 `mundane-map-io-geopackage-xerial -> mundane-map-io-image` and
 `mundane-map-io-mbtiles-xerial -> mundane-map-io-image`, solely for bounded embedded PNG/JPEG decode.
-Neither edge exists until its source module lands with working behavior and tests. Reverse edges,
-cycles, AWT leakage, generic codec discovery, and arbitrary dependencies between peer format modules
-remain forbidden. The authoritative project inventory and architecture-test allowlist own the exact
-edges when those tasks implement them.
+G10-006 adds `mundane-map-io-http-tiles -> mundane-map-io-image` for the same explicit encoded-tile
+decode boundary. None of these edges exists until its source module lands with working behavior and
+tests. Reverse edges, cycles, AWT leakage, generic codec discovery, and arbitrary dependencies between
+peer format modules remain forbidden. The authoritative project inventory and architecture-test
+allowlist own the exact edges when those tasks implement them.
 
 ### G0 design closeout
 

@@ -101,8 +101,9 @@ architectural requirement. Level 1 is complete only when
 ## Level 2 backlog
 
 Level 2 begins after G8-004. Decision-only profile cards must be followed by newly decomposed vertical
-slices after approval; G10-001 and G10-006 already define working first slices. No task creates an
-empty module, and broader follow-up remains separately decomposed.
+slices after approval. G10-001 defines its working first slice; G10-006 is a design-only acquisition
+profile whose implementation is decomposed into G10-039 and G10-060 through G10-062. No task creates
+an empty module, and broader follow-up remains separately decomposed.
 
 ### G9 — Elevation and DTED
 
@@ -133,6 +134,10 @@ empty module, and broader follow-up remains separately decomposed.
   first profiles are bounded UTF-8 local-file snapshots yielding unstyled EPSG:4326 features; GPX
   routes/extensions and KML network, temporal, region, altitude, style, and presentation semantics
   remain explicit rejects or warned omissions rather than implicit behavior.
+- Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
+  successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
+  no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native
+  Image claim, or default public service URL.
 
 ### G11 — Editing, styling, persistence, adapters, and export
 

@@ -7,58 +7,68 @@ Type: AFK
 
 ## Goal
 
-Load and render Web Mercator XYZ PNG/JPEG tiles from a bounded, cancellable HTTP source using only JDK
-networking and local-server tests.
+Approve an explicit, bounded Java 21 HTTP acquisition boundary that turns one Web Mercator XYZ
+PNG/JPEG tile region into a detached raster source without performing network I/O during rendering.
 
 ## Context
 
-Level 1 provides raster decoding, requests, caches, diagnostics, and explicit lifecycle. A remote tile
-adapter must not hide network, authentication, cache, or cancellation policy behind generic raster
-behavior.
+Level 1 provides raster decoding, requests, caches, diagnostics, and explicit lifecycle; the approved
+G10-004 profile defines the shared encoded-byte decode surface. A remote adapter must not block Swing
+painting or hide network, authentication, cache, cancellation, or JDK HTTP-client lifetime behind
+generic raster behavior.
 
 ## Scope
 
-Create `mundane-map-io-http-tiles` only with working behavior, tests, Gradle registration, and Javadocs.
-Support validated HTTPS/HTTP XYZ templates, Web Mercator bounds, caller-set connect/request timeouts,
-maximum response bytes, bounded concurrency, cancellation, stable HTTP diagnostics, and explicit
-no-cache or bounded in-memory cache modes. Disable redirects and credentials by default. Render tiles
-through the Level 1 explicitly registered PNG/JPEG decoder.
+Define the future `mundane-map-io-http-tiles` facade, client/snapshot ownership, exact URI-template and
+XYZ math, HTTPS/default and explicit cleartext policy, direct/proxy-free Java 21 `HttpClient`, fixed
+headers, no-client-certificate TLS context, response/status/media profile, bounded body subscriber,
+timeouts/deadline/concurrency, cross-thread cancellation/close behavior, missing-tile recovery,
+transactional decoded LRU, stable diagnostics, detached raster semantics, G6 composition, publication,
+consumer, test server, and later working vertical slices.
 
 ## Out of scope
 
-MBTiles, vector tiles, WMS/WMTS, authentication helpers, cookies, retries beyond an explicit fixed
-caller policy, disk caches, offline synchronization, arbitrary projections, production network tests,
-and external HTTP libraries.
+Production code or modules, a live-network `RasterSource`, MBTiles, vector tiles, WMS/WMTS,
+authentication/custom headers, cookies, redirects, proxies, retries, compression, disk caches,
+offline synchronization, arbitrary projections, production/public-network tests, external HTTP
+libraries, background refresh/prefetch, and a Native Image or latency claim.
 
 ## Acceptance criteria
 
-- A caller can open a bounded XYZ source, request visible tiles, cancel outstanding work, render
-  successful PNG/JPEG responses, and close owned resources.
-- URI templates, zoom/x/y ranges, status/content type, response size, timeout, redirect, concurrency,
-  and cache limits have deterministic validation and diagnostics.
-- Tests use only a loopback JDK HTTP server and cover success, missing tile, malformed image, timeout,
-  cancellation, oversized response, cache hit/eviction, and close-with-work-in-flight.
-- The module is JDK-only, contains no AWT types, performs no implicit credential lookup, and is added
-  only with its complete first slice.
-- Native-targeted code avoids reflection, scanning, dynamic proxies, serialization, JNI, and internal
-  JDK APIs.
+- The design exposes one blocking `HttpXyzTileClient.fetch(...)` that must run off UI/render threads
+  and returns a fully detached G4 `RasterSource`; the returned source performs no network I/O.
+- Template, scheme, request headers, XYZ/extent math, deterministic batching, status/media/encoded
+  body handling, cancellation/deadline, missing tiles, cache commit, close races, and cleanup order are
+  exact and implementation-ready.
+- Limits cover template/region, tiles/concurrency, headers, per/aggregate bodies, output/cache/project
+  bytes, deadlines, and warnings while explicitly qualifying opaque JDK DNS/TLS/transport allocation.
+- The adapter never derives diagnostic identity or context from host, URI, headers, body,
+  credential-like data, or provider messages; callers supply a nonsensitive logical source ID, and a
+  decode failure exposes only one closed G6 `imageCode` token.
+- G10-039 and G10-060 through G10-062 deliver the shared image helper and working module slices; no
+  module, network request, new verification command, Native Image claim, or public example URL lands
+  in this design task.
 
 ## Required tests
 
-Unit tests for tile math/template validation and cache bounds; loopback integration tests for HTTP
-status, limits, cancellation, lifecycle, and decode/render integration; architecture tests for module
-and prohibited-mechanism boundaries.
+No production tests. Define later pure tile/template/cache tests and loopback-only integration cases
+for PNG/JPEG success, missing/invalid/status/media/header/body outcomes, deadline/cancellation,
+deterministic concurrency, close-in-flight, transactional cache hit/eviction/rollback, detached
+rendering, aggregate reservation, nested image cancellation/limit/closed-code translation, common
+failed-batch drain/poisoning, no-client-certificate TLS, publication consumer, and architecture/
+prohibited-mechanism boundaries.
 
 ## Validation
 
 ```bash
-./gradlew :modules:mundane-map-io-http-tiles:check --console=plain
+./gradlew :modules:mundane-map-api:check --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
 ```
 
 ## Notes
 
-Do not contact a public tile server in tests or examples. Document that service terms, attribution, and
-credentials remain the consuming application's responsibility.
-
+AFK design checkpoint: the task has no maintainer-only policy choice. The approved first profile uses
+no credentials and no default service; consumers separately own service selection, permission,
+attribution, rate limits, and cleartext opt-in. Later implementation never contacts a public server in
+automated tests.
