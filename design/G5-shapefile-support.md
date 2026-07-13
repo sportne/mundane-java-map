@@ -2159,9 +2159,15 @@ that independently produced bytes reach those same public outcomes. Corpus tests
 
 The checked-in corpus lives only under
 `modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/shapefile-corpus/`. Its companion
-Java tests use a dedicated `shapefileCorpusTest` source set. Neither resources nor tests enter the
-main/test JAR, publication, Native Image resources, normal `test`, `check`, `checkAll`, or
-`qualityGate`. There is no empty corpus module or root data hierarchy.
+Java tests use a dedicated `shapefileCorpusTest` source set. The corpus source set, tests,
+expectations, completeness checks, and unrelated data/licenses never enter the main/test JAR,
+publication, normal `test`, `check`, `checkAll`, or `qualityGate`. G5-010 is the one explicit
+descendant exception: the native-support build copies five individually named files from one approved
+dataset into its own main resources, and its normal JVM test reads only that dataset's rows from the
+manifest plus their one referenced license text as authority inputs. Those source files are declared
+Gradle inputs but are never packaged as corpus metadata. The exception neither runs the corpus source
+set/lane nor embeds its manifest, license, expectations, or any unrelated dataset. There is no empty
+corpus module or root data hierarchy.
 
 Every dataset has one declared role:
 
@@ -2384,3 +2390,185 @@ confirms geometry/fit, hole appearance, readable attribute preview, diagnostic p
 window close on a supported desktop. The task notes record the reviewed commit, reviewer/date,
 approve/reject outcome, Java/OS/window-system/scale, exact commands and dataset IDs, per-case result,
 and unresolved blocker; the manifest remains factual provenance rather than mutable approval state.
+
+### Native shapefile smoke (G5-010)
+
+#### Delivery and resource boundary
+
+G5-010 extends the one existing `mundane-map-native-tests` executable and its shared
+`NativeSmokeMain.runSmoke()` path. It adds the shapefile module as an explicit native-support runtime
+dependency and no production module/API, second executable, native parser, benchmark, corpus run, or
+platform claim. JVM unit execution and Native Image execute the same assertion-bearing scenario.
+
+One successful G5-009 dataset is the sole positive source:
+`generated-polygon-hole-windows1252-3857`. The native module's `processResources` task names its five
+source files individually, copies their exact checksummed bytes directly from the corpus source root,
+and renames only the common stem to `polygon-smoke`. This is a build-time explicit file copy, not a
+dependency on `shapefileCorpus`, its manifest parser, licenses, expectations, or custom test output.
+The source corpus rows remain the byte/provenance authority; JVM tests require copied length/SHA-256
+to equal those exact rows.
+
+`processResources` declares the five exact component source paths as relative-path-sensitive inputs
+and maps each to its one fixed output name. The native-support JVM `test` task declares those five
+source paths, `manifest.tsv`, `licenses/BSD-3-Clause.txt`, and the root `LICENSE` as relative-path-
+sensitive inputs. Its authority parser selects only the five rows whose dataset ID is the fixed
+constant and rejects a
+missing, duplicate, or extra component for that ID; it does not execute the corpus completeness/
+expectation machinery or interpret unrelated rows. Changes to any copied byte, selected authority
+row, referenced license, or root license therefore invalidate normal-gate outputs honestly without
+adding the corpus test source set or lane to the task graph.
+
+That dataset is repository-authored `GENERATED` material under exact manifest values
+`licenseId=BSD-3-Clause` and `licensePath=licenses/BSD-3-Clause.txt`; the referenced text is byte-for-
+byte the root `LICENSE`, and the manifest records the checked generation recipe/tool. The native JVM
+test reads the selected corpus rows and asserts that fixed role, license, origin, component inventory,
+length, and SHA before comparing the copied resources. The license is not duplicated into the native
+resource inventory because the project distribution already carries the same root BSD notice. The
+HITL record explicitly approves this provenance and redistribution disposition; a dataset with any
+other terms cannot be substituted without redesign and review.
+
+The native support module owns one additional hand-built 108-byte `malformed-record.shp` under the
+root BSD license. Its valid type-5 main header declares the actual 108-byte file length and bounds
+`[0,0,1,1]`; record one begins at byte 100, has number one, declares ten content words at byte 104,
+and has no content bytes. It therefore reaches exactly `SHAPEFILE_RECORD_LENGTH_INVALID` at component
+`shp`, record 1, byte offset 104, with context `declaredBytes=20`, `reason=outOfFile`, and
+`remainingBytes=0`. It is not a broad malformed corpus or generated at native runtime.
+
+The complete new runtime-resource inventory, in copy/cleanup order, is:
+
+```text
+/io/github/mundanej/map/nativeimage/shapefile/polygon-smoke.shp
+/io/github/mundanej/map/nativeimage/shapefile/polygon-smoke.shx
+/io/github/mundanej/map/nativeimage/shapefile/polygon-smoke.dbf
+/io/github/mundanej/map/nativeimage/shapefile/polygon-smoke.cpg
+/io/github/mundanej/map/nativeimage/shapefile/polygon-smoke.prj
+/io/github/mundanej/map/nativeimage/shapefile/malformed-record.shp
+```
+
+Each entry has a package-private source constant for absolute resource name, flat local filename,
+positive byte length, and lowercase SHA-256. The first five constants must equal the G5-009 manifest;
+the malformed constant is pinned by its JVM byte-builder oracle. G2's raw symbol icon remains the
+only other application resource. Provenance/license text, manifest, other corpus data, viewer files,
+and directories are not included.
+
+G2-007's one Java 21 `resource-config.json` gains one individually `\\Q...\\E`-quoted include per
+path above, with the lookup-only leading slash removed, under the unchanged `NativeSmokeMain`
+reachability condition. The approved file contains
+exactly the G2 icon plus these six paths—no wildcard, directory, bundle, service, tracing-agent,
+reflection, serialization, JNI, proxy, initialization, or metadata-repository entry. JVM tests compare
+the normalized JSON with one exact text block and compare the complete main-resource inventory;
+Native Image performs the final schema/reachability proof.
+
+#### Fixed resource workspace
+
+A package-private native-support `NativeShapefileWorkspace` exists only because the public format API
+accepts `Path`. It is constructed from the six compile-time inventory constants, never a caller name,
+directory, classloader enumeration, URL, or discovered manifest. It creates one temporary directory;
+for each entry it opens `NativeSmokeMain.class.getResourceAsStream` with the fixed name, reads at most
+`expectedLength + 1`, checks exact length and SHA-256, then writes one `CREATE_NEW` flat file through a
+closed stream. The sole cryptographic lookup allowed in native-support code is the literal
+`MessageDigest.getInstance("SHA-256")`; it accepts no algorithm/provider argument, provider name, or
+installed/custom provider. Production shapefile code performs no cryptographic or provider lookup.
+
+Missing, short, overlong, hash-mismatched, duplicate-local-name, or write failure aborts before the
+parser. After `CREATE_NEW` successfully returns an output stream, that exact path enters the owned
+cleanup stack before the first byte is written. An open failure also attempts `deleteIfExists` for
+that one known attempted path before unwinding, covering a provider that created the file before
+throwing. Cleanup closes streams, deletes only owned or just-attempted known filenames in reverse
+order, then deletes the directory; it never walks or lists. The original failure remains primary and
+cleanup failures are suppressed. `close()` is idempotent, makes paths unavailable, and on an
+otherwise clean close reports the first deletion failure. Package-private JVM tests inject missing/
+short/overlong/hash faults, open failure, a failure after a partial write, and delete failures and
+prove that every created path and the temporary directory are removed; no public resource/workspace
+abstraction is introduced.
+
+#### Shared JVM/native semantic scenario
+
+The selected positive corpus expectation is tightened for this reusable slice. It has recognized
+EPSG:3857 metadata, a valid SHX, two physical polygon records with stable IDs `record:1` and
+`record:2`, a shell/hole and multipart component, and finite extent `[0,0,80,40]`. Its nullable text
+schema contains `NAME` then `NOTE`. `NAME` exposes a non-ASCII Windows-1252 value (`Café`) on record
+one; record two's selected `NOTE` contains undefined byte `0x81`, becomes `AttributeNull`, and emits
+exactly one `SHAPEFILE_DBF_VALUE_INVALID/reason=encoding` warning at the corpus-pinned DBF
+record/field/offset. G5-009's corpus oracle and the native JVM test share these semantic constants as
+reviewed source values, not via parser-generated snapshots.
+
+The exact positive geometry is also source-reviewed: record one has clockwise shell
+`[(0,0),(0,40),(40,40),(40,0),(0,0)]` followed by counterclockwise hole
+`[(10,10),(20,10),(20,20),(10,20),(10,10)]`; record two has clockwise components
+`[(50,0),(50,10),(60,10),(60,0),(50,0)]` and
+`[(70,20),(70,30),(80,30),(80,20),(70,20)]` in that order. Those coordinates, fences, and orientation
+are the corpus expectation and native semantic oracle, not shapes reconstructed from a rendered
+image.
+
+The scenario runs file setup and source queries off the EDT:
+
+1. create the fixed workspace and open `polygon-smoke.shp` with constant identity and default format
+   limits;
+2. assert extent, absent feature count, ordered schema, canonical 3857 definition/retained PRJ, and a
+   clean opening report;
+3. open one absent-bounds/`ALL` query with tighter ceilings of 4 examined, 4 returned, 256 coordinates,
+   16 attribute values, 256 decoded characters, 65,536 payload bytes, and 8 retained warnings,
+   iterate to exhaustion, and assert IDs, polygon/multipolygon fences, hole/component ordering,
+   representative coordinates, attributes, and the exact one cursor warning;
+4. close the cursor and prove retained immutable records remain readable; then
+5. marshal one fixed offscreen view operation synchronously to the EDT, create the canonical `MapView`
+   with the Level 1 CRS registry and both map/display CRS set to EPSG:3857, transfer the still-open
+   source through an explicit owned feature binding, call `fitToData(16.0)`, paint a 256 by 160 image,
+   and close the view on the EDT.
+
+The image has an opaque white background. The binding uses `SolidFillSymbol` with opaque
+`Rgba(42,132,96,255)` fill and a `SolidLineSymbol` whose opaque `Rgba(18,54,40,255)` round stroke is
+2 logical screen pixels; both have opacity `1.0` and no endpoint or other effect. Tests convert world
+probes through the public `MapView.mapToScreen`: `(5,5)`, `(55,5)`, and `(75,25)` each have a majority
+of fill-tolerant pixels in their 3-by-3 region; `(15,15)` and `(45,35)` each have a majority of white-
+tolerant pixels; and the 5-by-5 region around boundary midpoint `(0,20)` contains an outline-tolerant
+pixel. Per-channel tolerance is 20. The transformed source envelope expanded by 3 logical pixels must
+contain every non-white pixel, and the total non-white count must be between 100 and 20,000. A missing
+public transform result is failure. This proves fit, holes, both multipart components, fill, and
+outline without whole-image or cross-platform pixel identity. Ownership follows source to binding to
+view, and failure at each stage closes the current owner once with primary/suppressed ordering.
+
+The scenario next opens `malformed-record.shp` from the same workspace with an explicit 3857 override.
+It separately asserts the opening warnings `SHAPEFILE_SHX_MISSING` then `SHAPEFILE_DBF_MISSING`, opens
+one `NONE` cursor, and requires the exact malformed-record terminal report above from the first
+`advance()`. Cursor/source close then precede workspace deletion. Already returned records and reports
+remain readable after close. Any failure prevents the final executable success line.
+
+JVM tests call the unchanged `runSmoke()` and also exercise resource absence/length/hash, workspace
+write/delete failures, mutated semantic constants, exact warning/error reports, EDT ownership, and
+post-close deletion. Architecture tests scan both native-support and shapefile production output,
+require literal metadata/resource inventory, and retain every Level 1 prohibition. The actual
+`nativeSmoke` build/run proves the same success path with metadata repository and fallback disabled.
+
+#### HITL evidence and G5 closeout
+
+The named checkpoint is **G5 native shapefile approval**. Before the implementation task can be
+Complete, a maintainer records reviewed commit, reviewer/date, Linux OS/architecture, GraalVM
+distribution and full Java 21/`native-image` versions, exact commands, successful final sentinel,
+valid fixture summary, exact malformed diagnostic, the selected dataset's BSD-3-Clause provenance/
+redistribution disposition, and pass/fail or CI URL in the task Notes. Another platform may be noted
+but creates no Windows/macOS or cross-platform Native Image claim.
+
+The gate closeout retains the smallest useful architecture:
+
+- four public format types (`Shapefiles`, immutable options/limits, and `DbfEncoding`) return only the
+  format-neutral `FeatureSource`; parser/channel/sidecar types never leak;
+- one positional source/cursor, one filesystem seam, one packed optional SHX plan, shared multipart
+  mechanics, and shape-specific decoders cover all Level 1 geometry without a generic binary-reader,
+  topology engine, plugin SPI, or format registry;
+- DBF and PRJ use finite fixed profiles/tables/tapes, while all components share one prospective
+  limit/allocation/cancellation/diagnostic/lifecycle policy and deterministic encounter order;
+- every implementation peer remains package-private in one honest Java package, with API/core JDK-
+  only dependencies and no AWT, external library, discovery, mapping, background work, or native code;
+  and
+- unit builders, deterministic mutations, corpus expectations, viewer preview, and native workspace
+  stay separate test/support consumers of the one parser rather than alternate production paths.
+
+Parallel G5 tasks still compose through one shared-facade integrator; their declared dependencies and
+reserved same-package source ownership are sufficient. The corpus owns interoperability/provenance,
+the native module copies only one exact subset, and later G7/G8 work may measure or aggregate these
+paths without moving caches/performance/release policy into the format. No abstraction, module, public
+convenience API, or native optimization can be removed without losing an approved observable behavior,
+and none is retained solely for a speculative Level 2 format. G5 is therefore simple enough for a
+small Level 1 reader while remaining explicit and ergonomic for consumers.
