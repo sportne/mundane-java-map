@@ -34,6 +34,11 @@ G2-005 adds bounded toolkit-neutral raster icons, immutable exact-name catalogs,
 instance-owned AWT renderer registry. Built-in and consumer renderers now share a validated
 paint-scoped context, same-role recursion, stable diagnostics, and derived endpoint/outline behavior
 without discovery or global mutable registration.
+G2-006 adds the runnable four-section symbol gallery and an independent, headless
+`renderRegression` lane. Its fixed tolerant invariants cover every marker and placement mode,
+composition, raster interpolation, directional endpoints, polygon holes, and bounded hatches without
+platform-specific golden images. The maintainer approved the gallery after desktop pan/zoom review;
+its arrow examples use head-only endpoint vectors to avoid double-antialiasing seams.
 
 ## Level 1
 

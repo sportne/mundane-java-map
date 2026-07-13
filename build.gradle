@@ -322,6 +322,12 @@ tasks.register('nativeSmoke') {
     dependsOn ':modules:mundane-map-native-tests:nativeRun'
 }
 
+tasks.register('renderRegression') {
+    group = 'verification'
+    description = 'Runs the separate portable offscreen rendering-regression lane.'
+    dependsOn ':modules:mundane-map-awt:renderRegressionTest'
+}
+
 tasks.register('cleanReleaseDryRun', Delete) {
     group = 'publishing'
     delete layout.buildDirectory.dir('release-dry-run')

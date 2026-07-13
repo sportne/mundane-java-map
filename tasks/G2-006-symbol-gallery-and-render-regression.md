@@ -1,6 +1,6 @@
 # G2-006 — Symbol Gallery and Render Regression
 
-Status: Proposed
+Status: Complete
 Depends on: G2-004, G2-005
 Gate: G2
 Type: HITL
@@ -72,3 +72,16 @@ HITL is limited to visual review of intended appearance. Record platform and JDK
 portable automated invariants remain the release evidence. Do not commit generated screenshots as a
 pixel oracle.
 
+Completed on 2026-07-13. The new symbol-gallery example exposes the four named marker, placement,
+line, and fill inventories through real features, one immutable catalog, and explicitly constructed
+renderer registries. The separate headless `renderRegression` lane runs 35 independent rendering
+scenarios with fixed portable tolerances, structured failure diagnostics, and no committed image
+oracle; CI invokes it independently from `qualityGate`.
+
+**G2 symbol-gallery visual approval:** Pass. The maintainer/task requester approved every gallery
+section on 2026-07-13 after reviewing captures produced on Linux 5.15.167.4 WSL2 at 96 DPI (1x
+desktop scale) with Ubuntu OpenJDK 21.0.11. The gallery was launched as a desktop application, every
+tab was inspected at its initial fit, and scripted wheel/drag interaction exercised zoom and pan.
+The approval included a final refinement of the arrow examples: their 5.4-pixel line weight terminates
+under a WEST-anchored, head-only toolkit-neutral vector triangle, avoiding a separately antialiased
+overlapping shaft and its visible seam. Generated review captures remain in ignored build output.

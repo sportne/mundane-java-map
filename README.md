@@ -24,13 +24,21 @@ Useful focused commands:
 ```bash
 ./gradlew checkAll --console=plain
 ./gradlew :examples:basic-viewer:run
+./gradlew :examples:symbol-gallery:run
+./gradlew renderRegression --console=plain
 ./gradlew nativeSmoke --console=plain
 ./gradlew publicationDryRun --console=plain
 ./gradlew printPublishedArtifacts --console=plain
 ```
 
-`nativeSmoke` is intentionally separate from `qualityGate` because it requires a GraalVM
-toolchain. The normal gate has no external services or native tools.
+`renderRegression` is a deterministic headless Java2D lane with tolerant bounds, region, color,
+ordering, clipping, and interpolation assertions; it never compares complete images byte-for-byte.
+Failures may write a diagnostic PNG beneath
+`modules/mundane-map-awt/build/render-regression/diagnostics/`. Passing scenarios write nothing.
+
+`renderRegression` and `nativeSmoke` are intentionally separate from `qualityGate`. Rendering has
+its own Linux CI evidence, while native smoke requires a GraalVM toolchain. The normal gate has no
+platform raster requirement, external services, or native tools.
 
 The library always compiles to the Java 21 API and class-file baseline. CI may select a newer test
 launcher with `-Pmap.testJavaVersion=<version>` without changing published bytecode.
@@ -60,6 +68,7 @@ version. It performs no remote publication.
 | `mundane-map-architecture-tests` | Dependency-direction and Native Image architecture checks. |
 | `mundane-map-native-tests` | Real offscreen-render Native Image smoke entrypoint. |
 | `examples/basic-viewer` | Runnable point, line, and polygon demonstration. |
+| `examples/symbol-gallery` | Runnable named inventory of Level 1 symbol behavior. |
 
 Future formats will be isolated adapters such as `mundane-map-io-shapefile`,
 `mundane-map-io-image`, and `mundane-map-io-geotiff`. They should be added only with working

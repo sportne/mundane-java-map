@@ -77,6 +77,8 @@ def projectInventory = [
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:basic-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
+    [path: ':examples:symbol-gallery', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false, allowedRuntimeProjects: []],
 ]
 
 def duplicateProjectPaths = projectInventory.groupBy { it.path }.findAll { _, entries ->

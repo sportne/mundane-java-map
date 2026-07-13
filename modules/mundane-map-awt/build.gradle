@@ -8,5 +8,34 @@ dependencies {
     api project(':modules:mundane-map-core')
 }
 
-description = 'Swing and Java2D map component.'
+sourceSets {
+    renderRegressionTest {
+        java.srcDir 'src/renderRegressionTest/java'
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
 
+configurations {
+    renderRegressionTestImplementation.extendsFrom testImplementation
+    renderRegressionTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.register('renderRegressionTest', Test) {
+    group = 'verification'
+    description = 'Runs portable offscreen symbol-rendering regression scenarios.'
+    testClassesDirs = sourceSets.renderRegressionTest.output.classesDirs
+    classpath = sourceSets.renderRegressionTest.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'java.awt.headless', 'true'
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
+    maxParallelForks = 1
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.named('renderRegressionTest') {
+    dependsOn tasks.named('checkstyleRenderRegressionTest')
+    dependsOn tasks.named('spotbugsRenderRegressionTest')
+}
+
+description = 'Swing and Java2D map component.'
