@@ -561,8 +561,8 @@ parallel G5 boundary, but their Javadocs name the task in which input begins to 
 combine G4's default `FeatureSourceLimits`, `ShapefileLimits.defaults()`, and absent override. A CRS
 override is a `CrsDefinition`, which by construction is a recognized geographic/projected definition;
 the format stores recognized metadata with that definition and no invented PRJ provenance. MapView
-still verifies that the supplied definition is exactly registered. G5-006 may add a `DbfEncoding`
-wither/private field without invalidating these factories; no inactive encoding value lands now.
+still verifies that the supplied definition is exactly registered. G5-002 lands no inactive encoding
+value; G5-006 adds the approved `DbfEncoding` wither/private field without invalidating these factories.
 
 Null public inputs use parameter-named `NullPointerException`. A path with no final filename or without
 ASCII-case-insensitive `.shp`, a non-positive limit-wither argument, or another unsuitable direct
@@ -593,14 +593,15 @@ example is not added to the native-smoke application until G5-010. `publicationD
 format POM, JAR, sources, and Javadocs with only API/core project dependencies and no AWT/external
 runtime dependency.
 
-The three public types and every package-private implementation peer share
+The format's public types and every package-private implementation peer share
 `io.github.mundanej.map.io.shapefile`. Java package-private access does not cross subpackages, and the
 project has no JPMS export boundary that would make public `internal.*` types private to the module.
 Consequently this format does not create misleading `internal.shp`, `internal.shx`, `internal.dbf`,
 `internal.cpg`, or `internal.prj` packages. Behavior remains separated by package-private
-`Shapefile*`/`Shp*`/`Shx*`/`Dbf*`/`Cpg*`/`Prj*` classes and source files in the one package; only the
-three named public types are externally accessible. Future ownership reserves those behavior-specific
-files but creates no empty classes. One integrator owns edits to the shared opener, source, cursor
+`Shapefile*`/`Shp*`/`Shx*`/`Dbf*`/`Cpg*`/`Prj*` classes and source files in the one package; only
+`Shapefiles`, `ShapefileOpenOptions`, `ShapefileLimits`, and, from G5-006, `DbfEncoding` are externally
+accessible. Future ownership reserves those behavior-specific files but creates no empty classes. One
+integrator owns edits to the shared opener, source, cursor
 switch, authoritative inventory entries, and diagnostic encounter order; logical parallelism does not
 make those shared files path-safe.
 
@@ -791,7 +792,7 @@ An opaque JDK operation that throws `NoSuchFileException`, `AccessDeniedExceptio
 `ClosedChannelException`, or another `IOException` maps `causeKind` respectively to `notFound`,
 `accessDenied`, `closed`, or `other`; subclass matching follows that order. It produces
 `SHAPEFILE_IO_FAILED` with the affected component and exact context keys `causeKind=<token>` and
-`operation=probe|open|size|read` in that lexical order. A known requested read position is the byte
+`operation=probe|open|size|read|close` in that lexical order. A known requested read position is the byte
 offset; otherwise the byte offset is absent. `isSameFile` failure is the already specified component
 ambiguity instead. Opening cleanup failure is suppressed beneath the primary failure, and ordinary
 source close uses G4's `SOURCE_CLOSE_FAILED`, so neither creates a second format diagnostic.
@@ -1537,3 +1538,209 @@ pins indexed/sequential equality without making SHX a dependency.
 
 G5-005 validation runs the focused format and viewer checks, the normal gate, and whitespace. It does
 not run corpus, render-regression, native, deterministic fuzz, or performance lanes owned later.
+
+### DBF/CPG attributes and encoding (G5-006)
+
+#### Delivery and public boundary
+
+G5-006 replaces the staged `profile=dbf|cpg` branches after G5-002's SHP opening. It is independently
+implementable from G5-002 and does not require SHX: when G5-003 is already integrated, the shared
+facade may compose its previously validated optional index count into the eager check below; without
+it, every count mismatch uses the sequential path. G5-006 does not alter SHP geometry, record IDs,
+source order, SHX addressing, PRJ staging, or the viewer command. A missing
+DBF now follows the approved recoverable policy instead of the staged branch; a present DBF becomes
+the dataset's only attribute table and is never discarded after a parse or alignment failure.
+
+The format module adds one public enum and completes the existing options value:
+
+```text
+DbfEncoding = UTF_8 | ISO_8859_1 | WINDOWS_1252 | IBM437 | IBM850
+
+ShapefileOpenOptions
+  dbfEncodingOverride() -> Optional<DbfEncoding>
+  withDbfEncodingOverride(DbfEncoding) -> ShapefileOpenOptions
+  withoutDbfEncodingOverride() -> ShapefileOpenOptions
+```
+
+The override defaults absent, participates in value equality and bounded `toString`, and composes
+with every earlier wither. `DbfEncoding` is a closed format token, not a `Charset` wrapper, decoder
+SPI, or alias registry. Null input follows the existing parameter-named `NullPointerException` rule.
+No DBF parser, row, field, channel, or sidecar type is public, and nothing changes
+`mundane-map-api`.
+
+Every implementation peer remains package-private in
+`io.github.mundanej.map.io.shapefile`. `DbfReader` validates and opens one `DbfTable`; `CpgReader`
+recognizes the bounded byte token; and `DbfValueDecoder` converts selected scalar slices. The table
+owns its channel, captured size/layout, selected encoding, immutable schema, and one packed field
+plan: physical names in `String[]`, type codes in `byte[]`, and stride-four `int[]` entries for row
+offset, width, decimal count, and supported-schema ordinal (`-1` for unsupported). These are ordinary
+behavior-specific files in the existing package, not an `internal.dbf` subpackage or generic reader
+framework.
+
+Missing DBF and a valid DBF with no supported fields both expose a present empty
+`AttributeSchema`; present DBF otherwise exposes one nullable field per supported descriptor in
+physical order. This intentionally changes G5-002's temporary absent-schema metadata. The source
+retains no feature count because null/deleted records still prevent a cheap exact count. Returned
+records use the G4 canonical scalar values and immutable ordered map; their exact ID remains
+`record:<physical ordinal>`.
+
+#### Opening transaction and field plan
+
+After the earlier SHP and optional SHX work, opening executes this fixed DBF/CPG sequence:
+
+1. If DBF is absent, append `SHAPEFILE_DBF_MISSING`, install the present empty schema, and retain no
+   DBF handle. If CPG is present, append `SHAPEFILE_CPG_WITHOUT_DBF` without opening or interpreting
+   it. Continue to the still-staged PRJ branch.
+2. If DBF is present, check cancellation, open its positional channel, capture size, enforce
+   `componentBytes`, and validate a fixed 32-byte header. Derive field count only when
+   `headerLength == 32 + 32 * fieldCount + 1`; enforce the configured row/field/width ceilings, hard
+   unsigned DBF sizes, checked Java capacities, and exact file layout
+   `headerLength + rowCount * recordLength` followed by either EOF or one `0x1a` byte and EOF.
+3. When independently completed G5-003 behavior is present and its valid SHX already supplies the
+   exact physical SHP count, compare it with DBF `rowCount` now. A mismatch terminates before
+   descriptor allocation or warnings. A G5-002-only implementation, ignored/missing SHX, or a
+   concurrently developed branch adds no eager SHP scan and uses the required sequential checks.
+4. Prospectively charge the opening allocation, then stream 32-byte descriptors in physical order.
+   Validate names, types, widths, decimal counts, version-specific status bytes, the `0x0d`
+   terminator, and the exact checked row-width sum. Duplicate detection compares prior bounded ASCII
+   names under ASCII case folding without another map. Unsupported descriptors retain their width
+   and physical offset, are omitted from schema, and append one warning in descriptor order.
+5. Read at most `maximumCpgBytes` plus one detection byte, close the CPG handle during opening, and
+   resolve encoding using the approved fixed aliases and LDID table. Build the immutable schema and
+   continue through the still-staged PRJ check. DBF remains transaction-owned until every opening
+   stage and the final cancellation checkpoint succeeds; only then are SHP and DBF transferred
+   together to the source.
+
+The `0x03`, `0x04`, and `0x05` header/status rules, supported descriptor shapes, scalar mappings, and
+ignored bytes are exactly the G5-001 profile; this slice does not infer newer dBASE semantics from an
+`F` field. The opening allocation includes reusable header/descriptor/suffix scratch, exact CPG bytes,
+packed plan arrays, reference slots, every constructed name, temporary field references, and retained
+schema slots before the corresponding allocation. Duplicate comparison and token recognition use
+bounded existing storage rather than a hash map or retained CPG string. Allocation arithmetic is
+prospective and cumulative under `scope=shapefileOpen`; a failed open refunds nothing and closes CPG,
+DBF, then SHP in reverse acquisition order.
+
+A temporary CPG close failure after successful read is terminal `SHAPEFILE_IO_FAILED` at component
+`cpg` with no byte offset and exact context `causeKind=<bounded token>`, `operation=close`. If read or
+another earlier stage already failed, that failure remains primary and the close throwable is
+suppressed without a second diagnostic. The same temporary-sidecar rule is available to later PRJ
+work; ordinary cursor/source-owned handle cleanup remains `SOURCE_CLOSE_FAILED` as previously defined.
+
+Opening warnings preserve the complete encounter order established by prior tasks: recovered SHX
+warning first when applicable; then missing DBF/CPG-without-DBF, or unsupported DBF fields in
+descriptor order; then CPG and LDID resolution warnings. PRJ diagnostics remain later. G4 warning
+retention/omission applies to this one ordered stream without changing parser decisions.
+
+#### Finite encoding resolution
+
+Selection is caller override, recognized CPG, recognized LDID, then `WINDOWS_1252`. CPG is parsed
+directly from bounded bytes using G5-001's exact BOM, ASCII whitespace, one-token, alias, and near-miss
+rules. A malformed or unknown CPG emits `SHAPEFILE_CPG_INVALID` and is not also a conflict. After a
+selection exists, each recognized lower-priority hint that differs emits its own conflict in physical
+CPG-then-LDID order. An unknown nonzero LDID is silent when a higher choice exists; without one it
+participates only in the final fallback warning. An override is inert when DBF is absent.
+
+UTF-8 and ISO-8859-1 use reporting decoders obtained only from the exact `StandardCharsets`
+constants. Windows-1252, IBM437, and IBM850 use reviewed private 256-code-unit lookup strings
+generated into source from the G5-001 mappings. The five undefined Windows-1252 entries carry one
+private invalid sentinel. Each single-byte input indexes the table as unsigned; no replacement,
+platform default, `Charset.forName`, provider lookup, locale, reflection, or automatic discovery is
+used. Tests pin all 256 entries and a committed checksum for each table, so source generation is not
+a build/runtime dependency.
+
+#### Positional row alignment and projection
+
+`openCursor` validates `ONLY` names against the now-present schema before claiming the one-cursor
+slot. It then builds a packed projection in physical-field order with each selected field's requested
+output position. `NONE` selects no fields and needs no value decoder. Reordered `ONLY` still decodes
+physical slices in field order for deterministic warnings, then assembles the immutable result in
+request order. `ALL` publishes schema order. Because unsupported fields are absent from the known
+schema, they cannot be selected.
+
+The cursor reserves one maximum-selected-width byte scratch, one matching character scratch, selected
+value/reference slots, and exact projection arrays. It never reads a complete DBF row merely to
+project a subset. When metadata has no `DbfTable`, the cursor allocates none of that DBF state and
+follows the existing complete SHP validation/filter/publication path with the known empty schema and
+empty attributes; it performs no DBF ordinal, count, marker, value, encoding, or size work. The
+following alignment sequence applies only when a `DbfTable` is present. For each trusted SHP frame it:
+
+1. charges physical/query examination, requires the matching DBF physical ordinal, computes the row
+   and field offsets with checked `long` arithmetic, and reads the one deletion marker positionally;
+2. fully validates the SHP payload and geometry even when the matching row is deleted, the shape is
+   null, or the query later filters it, so DBF never conceals malformed SHP;
+3. publishes nothing for null shapes or deleted rows and decodes no values for either outcome;
+4. applies the inclusive geometry-envelope query, decoding no DBF value for a filtered live record;
+5. for a live match, reads only selected supported field slices in physical order, converts them under
+   the approved type rules, records selected-field warnings in that order, and stores values at their
+   output positions; then
+6. constructs the normal `FeatureRecord`, charges G4 returned payload independently, checks
+   cancellation immediately before current-state publication, and yields it.
+
+An unselected invalid value cannot warn. Blank values become `AttributeNull` without warning;
+malformed selected values become `AttributeNull` with exactly one warning and do not realign or reject
+the row. Text preserves leading/interior spaces and right-trims only the approved trailing spaces.
+Numeric/date/logical parsing is locale-independent; checked manual parsing is preferred where it
+avoids a temporary string, and any required temporary string is charged before construction.
+
+Without SHX, DBF too-few is discovered before the first unmatched SHP ordinal; DBF too-many is
+discovered at exact SHP exhaustion before returning false. A deliberately early cursor close does
+not scan ahead merely to discover an excess DBF row. With valid SHX, both mismatches fail at open.
+Clean cursor open and exhaustion compare current DBF size with its captured size after the analogous
+SHP check. Same-size external mutation remains unsupported snapshot behavior, but every consumed
+marker/value byte is still validated.
+
+#### Counters, cancellation, diagnostics, and cleanup
+
+Cursor parser allocation charges projection/scratch arrays once and every decoded string, scalar,
+temporary value slot/map entry, and discarded intermediate cumulatively. Successful or malformed
+text charges every decoded UTF-16 unit actually produced before a result/substitution; single-byte
+decoders charge before writing each character and the reporting UTF-8 decoder charges its produced
+buffer position even on malformed input. G4 query accounting separately charges the published record
+and canonical attribute map. No filtered, deleted, invalid, or yielded value refunds either counter.
+
+Cancellation is polled before/after every DBF/CPG I/O and allocation, between descriptors/rows/fields,
+within at most 4,096 controlled bytes/characters/value operations, before a substitution warning, and
+before publication. Cancellation or a known format/source failure releases operation scratch and the
+one-cursor slot, leaving the serialized source reusable. Source close first closes a live cursor,
+then DBF, then SHP; it continues after failure and retains the first cleanup failure with later ones
+suppressed. CPG never survives opening. Repeated close and report/value lifetime remain exactly G4.
+
+The stable condition refinements are:
+
+| Condition | Code and location | Exact context |
+| --- | --- | --- |
+| Unsupported version/status, invalid lengths/layout/terminator/suffix, or captured short read | `SHAPEFILE_DBF_HEADER_INVALID` at the first responsible DBF header/layout byte | `field=version|transaction|encryption|mdxFlag|rowCount|headerLength|recordLength|terminator|fileLayout` and, only when needed, `reason=unsupported|nonZero|mismatch|truncated|trailingData` |
+| Invalid or duplicate descriptor name, supported width/decimal error, or row-sum mismatch | `SHAPEFILE_DBF_FIELD_INVALID` at the descriptor field, with physical field index and name only after validation | `reason=nameEmpty|nameUnterminated|nameNonAscii|nameWhitespace|nameDuplicate|width|decimals|rowLayout` |
+| Unsupported descriptor | warning `SHAPEFILE_DBF_FIELD_UNSUPPORTED` at its type byte and field index/name | empty |
+| Invalid live/deleted marker | `SHAPEFILE_DBF_RECORD_MARKER_INVALID` at the physical row marker | empty |
+| Invalid selected scalar | warning `SHAPEFILE_DBF_VALUE_INVALID` at the field slice with physical row/index/name | `reason=embeddedZero|encoding|syntax|overflow|scale|nonFinite|logical|date` |
+| Known SHX/DBF count mismatch | `SHAPEFILE_DBF_RECORD_COUNT_MISMATCH` at DBF row-count byte 4 | `dbfRows=<count>`, `shpRecords=<count>` |
+| Sequential DBF ends first | same code at first missing DBF row with the unmatched physical ordinal | `dbfRows=<count>`, `requiredOrdinal=<ordinal>` |
+| Sequential SHP ends first | same code at the first excess DBF row | `dbfRows=<count>`, `shpRecords=<examined count>` |
+| Empty, non-ASCII, multi-token, or unknown CPG | warning `SHAPEFILE_CPG_INVALID` at first invalid byte, or byte zero for empty/unknown | `reason=empty|nonAscii|multipleTokens|unknown` |
+| Recognized lower hint differs | warning `SHAPEFILE_ENCODING_CONFLICT` at component `cpg` or DBF LDID byte 29 | `ignored=<DbfEncoding>`, `selected=<DbfEncoding>` |
+| No recognized selection | warning `SHAPEFILE_ENCODING_FALLBACK` at DBF LDID byte 29 | `selected=WINDOWS_1252` |
+
+Missing-sidecar codes retain the G5-001 empty contexts. DBF positional EOF within a layout already
+validated against captured size uses `SHAPEFILE_DBF_HEADER_INVALID/field=fileLayout/reason=truncated`
+at the first missing byte; other JDK failures use the existing bounded `SHAPEFILE_IO_FAILED` mapping.
+Raw bytes, field values, type bytes, CPG tokens, paths, charset class names, and localized messages
+never enter a diagnostic. The first terminal condition wins; warning substitution never makes a later
+record structural failure recoverable.
+
+#### Evidence and viewer behavior
+
+Hand-built paired SHP/DBF/CPG fixtures cover all three accepted header versions and ignored/status
+bytes; zero, supported, mixed, and unsupported schemas; every scalar's blank/boundary/invalid form;
+deletion/null/filter alignment; `ALL`, `NONE`, and reordered `ONLY`; physical warning order; both count
+mismatch discovery paths; every alias, near miss, override/conflict/fallback branch; all 256 manual
+table entries; parser/query/text limit minus/equal/plus one; short reads, size mutation, cancellation,
+reuse, and reverse primary/suppressed cleanup. Tests prove malformed unselected or filtered values do
+not warn and that full SHP validation still occurs for deleted rows.
+
+The unchanged shapefile viewer opens one paired fixture containing non-ASCII text, typed attributes,
+an unsupported field, and a deleted row. Source assertions prove schema/value order, stable IDs,
+deletion suppression, query projection, and file release; a lightweight viewer assertion proves the
+surviving geometry still fits/renders without adding attribute UI or cartographic behavior.
+G5-006 validation runs the focused format/viewer checks, the normal gate, and whitespace. Corpus,
+fuzz, Native Image, rendering-regression, and performance lanes remain owned by later tasks.

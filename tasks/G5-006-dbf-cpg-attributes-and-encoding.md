@@ -19,7 +19,9 @@ to which DBF rows are aligned.
 
 - DBF header, descriptor, and row parsing in `modules/mundane-map-io-shapefile`
 - CPG sidecar parsing and charset resolution
+- Public format-local `DbfEncoding` plus an immutable caller override in `ShapefileOpenOptions`
 - Immutable attribute mapping and hand-built SHP/DBF/CPG fixture sets
+- Integration with the existing source/cursor, metadata, viewer, diagnostic, and close paths
 
 ## Out of scope
 
@@ -42,9 +44,19 @@ to which DBF rows are aligned.
   behavior and no `Charset.forName`/provider discovery.
 - Attribute maps and values are immutable, preserve declared field order where observable, and
   defensively copy mutable inputs.
+- The package-private field plan uses packed arrays in the existing shapefile package. Cursor reads
+  pair one DBF row with each physical SHP ordinal, decode only selected fields for live matched
+  records, preserve physical-field warning order and requested output order, and never read a whole
+  row merely to project a subset.
+- A missing DBF produces a present empty schema and empty attributes; a present DBF produces a present
+  nullable schema containing supported fields in descriptor order. Unsupported fields cannot be
+  selected through a known schema. The missing-table cursor performs no DBF row/count/value work and
+  otherwise preserves the complete SHP validation/query path.
 - Parse failures include stable sidecar, row, field name/index, and byte-offset context without
   leaking raw sensitive data.
-- Closing the source closes DBF resources along with SHP resources.
+- Opening and cursor allocations, decoded UTF-16 characters, DBF/CPG I/O, and cancellation use the
+  approved prospective counters/checkpoints. Closing the source closes DBF before SHP, continues
+  cleanup after a failure, and preserves the first failure with later failures suppressed.
 
 ## Required tests
 
@@ -61,11 +73,18 @@ to which DBF rows are aligned.
 - Tests for deleted rows, count disagreement, duplicate/invalid field names, oversized descriptors,
   truncated rows, numeric overflow, invalid dates/logicals, and total-allocation limits.
 - Source integration tests that match attributes to the correct SHP record.
+- The shapefile-viewer fixture proves one non-ASCII typed attribute survives opening, a deleted row is
+  suppressed, surviving geometry still fits/renders, and all paired files are released.
+- Projection tests cover `ALL`, `NONE`, reordered `ONLY`, unknown/unsupported names, filtered records,
+  physical-field diagnostic order, and absence of warnings from unselected values.
+- Lifecycle tests cover DBF size mutation, short positional reads, early cursor close, source reuse
+  after known failure/cancellation, reverse close order, a successful CPG read followed by close
+  failure, and primary/suppressed cleanup precedence.
 
 ## Validation
 
 ```bash
-./gradlew :modules:mundane-map-io-shapefile:check --console=plain
+./gradlew :modules:mundane-map-io-shapefile:check :examples:shapefile-viewer:check --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
 ```
@@ -73,4 +92,9 @@ git diff --check
 ## Notes
 
 Use only the approved `StandardCharsets` and committed manual single-byte tables with locale-
-independent scalar parsing. External DBF library types must not enter `mundane-map-api`.
+independent scalar parsing. Keep every package-private DBF/CPG peer in the existing
+`io.github.mundanej.map.io.shapefile` package; do not create public `internal.*` types or external DBF
+dependencies. External DBF library types must not enter `mundane-map-api`.
+The task is independently implementable from G5-002. If G5-003 is already integrated, preserve its
+validated SHX count optimization; otherwise use the required sequential DBF/SHP mismatch path and let
+the shared-facade integrator compose the branches.
