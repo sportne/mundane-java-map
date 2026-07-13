@@ -2439,3 +2439,177 @@ G10-060 depends on G10-039; G10-061 and G10-062 follow serially because they sha
 cache, fixtures, module, and publication files. G10-039 is also the shared prerequisite for G10-042 and
 G10-043; a single integration owner lands it before the independent tile-format branches. No module or
 network request is created by G10-006 itself.
+
+## Additional-projection evidence decision (G10-007)
+
+### Current decision: DEFER
+
+G10-007 is the named HITL checkpoint **G10 additional-projection evidence decision**. Its current
+design outcome is `DEFER`: no third CRS definition, alias, projection, dependency, module, or
+implementation task is added. This is an affirmative scope decision, not a `Blocked` task state and
+not a claim that EPSG:4326 and EPSG:3857 satisfy every consumer.
+
+The repository provides no demonstrated third-projection workflow:
+
+- the basic, measurement, shapefile, raster, symbol, and performance examples use only the exact G4
+  EPSG:4326/EPSG:3857 definitions and direct operation;
+- DTED, GPX, KML, and RFC 7946 GeoJSON expose geographic WGS 84 coordinates under their approved
+  profiles;
+- XYZ and MBTiles use the canonical Web Mercator matrix, while the approved GeoPackage feature/tile
+  profiles recognize only the existing EPSG:4326/EPSG:3857 definitions;
+- the GeoTIFF profile rejects unapproved EPSG, user-defined, WKT, vertical, and compound CRS constructs
+  rather than widening recognition, and no fixture or consumer requires another accepted operation;
+  GeoPackage alone retains its well-formed unrecognized CRS rows as unknown metadata; and
+- no issue, example, checked-in fixture, release claim, accuracy target, or platform requirement
+  identifies UTM, a polar CRS, a national grid, a datum shift, or arbitrary EPSG lookup as the next
+  useful capability.
+
+Selecting from CRS popularity would therefore invent axis, datum, domain, envelope, format-recognition,
+and deployment requirements. The existing G4 registry remains sufficient developer ergonomics:
+applications may explicitly register a reviewed immutable `Projection` against exact definitions, but
+that does not become a MundaneJ correctness, interoperability, or support claim.
+
+### Evidence packet required to reopen selection
+
+A future proposal supplies one bounded immutable design record in the task/design text, not a new
+runtime API. It must contain all of:
+
+| Evidence | Required content |
+| --- | --- |
+| Workflow | Named application/owner, observable map operation, and why 4326/3857 or application-owned registration is insufficient. |
+| Endpoints | Exact source and target CRS identifiers/definitions, direction(s), x/y tuple normalization, axes, units, datum, and one fixed epoch or explicit timeless semantics. |
+| Domain | Real coordinate/envelope ranges, discontinuities, singularities, antimeridian/zone behavior, and expected out-of-domain policy. |
+| Accuracy | Use-case-derived horizontal forward/inverse and round-trip tolerances in declared units, not library-chosen numbers. |
+| Data path | Concrete vector, raster, elevation, tile, or format workflow plus legally usable representative fixtures. |
+| Conformance | Authoritative specification and independently produced vectors with provenance and redistribution terms. |
+| Operations | Whether one fixed 2D pair suffices or database lookup, concatenation, or horizontal grid operations are required; any vertical, compound, or per-coordinate-time need is identified separately. |
+| Deployment | Java/JVM, OS/architecture, offline/resource, publication, consumer, and Native Image targets. |
+| Scale | Coordinate/feature volume and a measured performance target only when performance affects the architectural choice. |
+
+Raster data must state separately whether it needs only metadata recognition or actual reprojection.
+Registering another coordinate operation does not relax G4's same-CRS raster boundary: raster warping
+requires its own evidenced sampling, nodata, envelope/densification, memory, rendering, and performance
+design. Likewise, recognizing a format's CRS spelling is a bounded format task; it is not automatic
+permission to add a general WKT/EPSG resolver.
+
+An incomplete packet yields `DEFER` without reserving an ID or module. Evidence links must be stable,
+licensed where copied, and precise enough for a reviewer to reproduce the candidate coordinate cases.
+
+Before either implementation outcome is eligible, the proposed operation must fit G4's public model:
+
+- exactly two source and two target ordinates use the x/y visualization convention and geographic or
+  projected definitions;
+- datum and all operation parameters, including an epoch when relevant, are fixed at construction;
+  no coordinate carries time and no mutable ambient epoch is consulted;
+- forward and inverse operations are deterministic over explicit domains and meet the evidenced
+  tolerances; and
+- strict/conservative envelope transformation can be defined without adding a third ordinate or
+  silently dropping vertical/time semantics.
+
+A vertical or compound CRS, height correction, per-coordinate epoch, time-dependent coordinate, more-
+than-two-dimensional tuple, or non-reversible operation does not become `PROJ_REQUIRED` merely because
+PROJ can calculate it. The checkpoint records `DEFER` and requires a separate public-capability design
+for that data model, lifecycle, query/render semantics, diagnostics, and compatibility first. Only a
+fixed-epoch 2D horizontal profile representable by G4 proceeds through this three-outcome gate.
+
+### Three closed outcomes
+
+The checkpoint records exactly one outcome:
+
+| Outcome | Selection rule | Architectural result |
+| --- | --- | --- |
+| `DEFER` | Any evidence or G4 compatibility condition is missing; the use case is hypothetical; application-owned registration is sufficient; or the real capability is raster warping, format parsing, vertical/compound coordinates, or per-coordinate time. | Keep G4 unchanged. Create no implementation task/module/dependency. Record what evidence or prerequisite capability is missing. |
+| `CORE_DIRECT` | One fixed reversible direct pair has static parameters, no external CRS database/grid/time data, a JDK-only formula of reviewable size, authoritative conformance vectors, and a conservative operation-specific envelope rule. | Add the exact definition/projection in API/core only when its first working vertical slice lands; keep JDK-only and explicit registration. |
+| `PROJ_REQUIRED` | A compatible fixed-epoch 2D reversible horizontal pair requires pinned CRS-database selection, concatenation, or horizontal grid shifts that a small direct formula cannot honestly provide. | Use a separately approved optional adapter; no external type, context, database object, or error leaks into API/core. |
+
+The outcomes are mutually exclusive for one proposed profile. There is no core subset with an implicit
+PROJ fallback, provider ranking, runtime discovery, classpath scan, network grid download, or heuristic
+switch based on input coordinates. PROJ is selected for demonstrated transformation semantics, not as
+unmeasured performance acceleration. A custom native performance library remains outside this rubric
+and still requires the separate benchmark decision mandated by G7.
+
+### Obligations of a future CORE_DIRECT result
+
+A direct result must name one canonical definition/pair and then specify before implementation:
+
+1. the immutable `CrsDefinition` axes, units, exact closed coordinate domain, canonical identifier,
+   and deliberately small exact alias set;
+2. forward/inverse operation domains, parameter constants and provenance, positive-zero policy,
+   finite/intermediate checks, boundary-ULP behavior, and stable G4 diagnostic mappings;
+3. an operation-specific conservative envelope algorithm, including sampling/densification proof when
+   extrema are not axis-separable—four-corner projection is never inherited by default;
+4. use-case-derived forward/inverse/round-trip tolerances and authoritative plus independent vectors,
+   including every edge, singularity, discontinuity, and malformed definition;
+5. explicit `CrsRegistry.builderWithLevel1()` registration with no implicit change to `level1()` until
+   the support/publication decision intentionally makes it built in; and
+6. one real feature query/render path, relevant format recognition, Javadocs, staged consumer, and
+   Linux Native Image evidence before making a native support claim.
+
+The candidate may not squeeze a new axis meaning or unit into an existing enum value. If the evidenced
+CRS cannot use the current x/y visualization convention with degree/metre and longitude/latitude or
+easting/northing semantics, its profile must include an explicit public-contract compatibility review
+before it can be classified `CORE_DIRECT`.
+
+The first implementation task must produce a usable coordinate/feature vertical slice, not merely a
+definition constant or empty module. If the workflow later requires raster reprojection, that is a
+separate dependent capability with its own observable raster slice.
+
+### Obligations of a future PROJ_REQUIRED result
+
+G11-004 owns the general optional-adapter policy. A projection evidence packet that genuinely selects
+PROJ must additionally decide and verify:
+
+- one pinned PROJ version, upstream artifacts/license/notices/checksums, supported OS/architecture and
+  linkage/package strategy, and whether the required CRS/grid database is embedded, caller supplied,
+  or deliberately unsupported;
+- explicit adapter construction and lifetime with no global mutable default, environment search,
+  network resource download, classpath discovery, or automatic native loading in API/core;
+- an explicit resolution of PROJ's native lifetime against G4's immutable, non-closeable `Projection`
+  contract: a native handle/context may not be hidden in that value or registered into an ordinary
+  `CrsRegistry` unless ownership, concurrency, and deterministic close are first represented by a
+  MundaneJ-only reviewed contract; PROJ handles, enums, exceptions, paths, and database text never
+  cross the adapter boundary;
+- fixed source/target selection, axis normalization, operation choice, accuracy metadata, stable
+  bounded diagnostic translation, fixed epoch, both directions, conservative envelope behavior,
+  thread ownership, cancellation limits, and deterministic cleanup;
+- native/JVM packaging and staged-consumer evidence on every claimed platform, with Native Image kept
+  unclaimed until an explicit native task proves reachability and native-library/resource behavior;
+  and
+- conformance comparisons against the pinned command/library plus malformed/missing resource cases.
+
+No `mundane-map-adapter-proj` module name is reserved by G10-007. A module is named and registered only
+in the later task that has working adapter behavior, tests, publication policy, and one demonstrated
+consumer.
+
+### Later decomposition rule
+
+When a complete packet changes `DEFER`, first create one new HITL profile card that records the chosen
+outcome and exact contract. Only after approval does it create roughly one-to-five-day working slices:
+the first coordinate/feature path, relevant format integration, hardening/conformance, and then
+publication/consumer/native evidence. Paths touching API/core registry files, format recognition,
+architecture inventories, publication, native inventory, index, and roadmap are serialized under one
+integration owner. No task identifiers are reserved while the decision remains deferred.
+
+### G10 holistic simplicity closeout
+
+G10 preserves the smallest useful boundaries after reviewing all seven decisions together:
+
+- SVG import produces ordinary Level 1 symbols; it does not create an SVG scene graph or arbitrary
+  document engine.
+- GeoJSON isolates its one justified Jackson parser while the public source remains dependency-free.
+- GeoTIFF keeps bounded image and elevation entry points in one format module without becoming a TIFF,
+  CRS, or GDAL framework.
+- GeoPackage and MBTiles remain separate optional adapters; their only shared production addition is
+  G10-039's encoded-byte image helper, now justified by those two formats and HTTP XYZ.
+- GPX and KML keep separate secure StAX state machines instead of a speculative XML/GIS hierarchy.
+- HTTP XYZ is explicit acquisition into a detached raster, not network behavior hidden in paint or
+  `RasterSource.read`.
+- Projection expansion is deferred rather than adding an unused formula, CRS database, native bridge,
+  raster warp abstraction, or empty adapter.
+
+Every future module is still created only with working behavior and tests. API/core remain JDK-only;
+AWT stays confined; external dependencies stay optional/non-leaking; registries remain explicit; and
+Native Image claims remain evidence-specific. Removing any approved boundary would merge incompatible
+format/security/lifecycle concerns, while adding a general plug-in, scene, XML, database, network,
+warp, or CRS framework would have no demonstrated consumer. G10 is therefore simple enough and no
+simpler, and G11 may build on these explicit outputs without reopening their scopes.

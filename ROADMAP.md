@@ -100,10 +100,11 @@ architectural requirement. Level 1 is complete only when
 
 ## Level 2 backlog
 
-Level 2 begins after G8-004. Decision-only profile cards must be followed by newly decomposed vertical
-slices after approval. G10-001 defines its working first slice; G10-006 is a design-only acquisition
-profile whose implementation is decomposed into G10-039 and G10-060 through G10-062. No task creates
-an empty module, and broader follow-up remains separately decomposed.
+Level 2 begins after G8-004. A decision-only profile that selects implementation must be followed by
+newly decomposed vertical slices; an approved `DEFER` outcome creates none. G10-001 defines its working
+first slice; G10-006 is a design-only acquisition profile whose implementation is decomposed into
+G10-039 and G10-060 through G10-062. No task creates an empty module, and broader follow-up remains
+separately decomposed.
 
 ### G9 — Elevation and DTED
 
@@ -122,7 +123,7 @@ an empty module, and broader follow-up remains separately decomposed.
 - GeoJSON through one bounded optional Jackson Core adapter; a strict JDK-only Classic GeoTIFF reader
   with explicit raster/elevation entry points; separate strict GeoPackage 1.4.0 and raster MBTiles 1.3
   adapters; separate JDK-only GPX 1.1 waypoint/track and static KML 2.2 geometry sources; remote tile
-  sources; and an evidence-selected additional projection.
+  sources; and an evidence gate for any additional projection.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - SQLite-backed formats use separate `mundane-map-io-geopackage-xerial` and
@@ -138,6 +139,10 @@ an empty module, and broader follow-up remains separately decomposed.
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native
   Image claim, or default public service URL.
+- Additional projection work is currently deferred: no third CRS, formula, PROJ adapter, or raster
+  warp is selected. A later proposal must supply one complete workflow/domain/accuracy/format/platform/
+  conformance evidence packet, then choose `CORE_DIRECT` or `PROJ_REQUIRED` explicitly before creating
+  implementation tasks or modules.
 
 ### G11 — Editing, styling, persistence, adapters, and export
 

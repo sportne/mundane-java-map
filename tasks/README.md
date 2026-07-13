@@ -193,8 +193,9 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 
 Level 2 starts after G8-004. DTED is decomposed because its model and binary profile are known;
 other speculative capabilities stop at a supported-profile decision or first vertical slice.
-Decision-only cards must be decomposed after approval. G10-001 remains a working implementation task;
-G10-006 records the defined acquisition design and delegates working code to G10-039 and
+A decision-only card is decomposed after approval only when it selects implementation; an approved
+`DEFER` outcome creates no implementation card or module. G10-001 remains a working implementation
+task; G10-006 records the defined acquisition design and delegates working code to G10-039 and
 G10-060 through G10-062. Any broader follow-up still requires a new card.
 
 ### G9 — Elevation and DTED
@@ -220,7 +221,7 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
 | [G10-005 — GPX and KML source profiles](G10-005-gpx-and-kml-source-profiles.md) | Proposed | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
 | [G10-006 — Remote tile source first slice](G10-006-remote-tile-source-first-slice.md) | Proposed | AFK | G8-004 | Design explicit bounded HTTP XYZ acquisition into detached raster snapshots. |
-| [G10-007 — Additional projection selection](G10-007-additional-projection-selection.md) | Proposed | HITL | G8-004 | Select the next projection from evidence and decide its adapter boundary. |
+| [G10-007 — Additional projection selection](G10-007-additional-projection-selection.md) | Proposed | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |
 
 ### G11 — Editing, styling, persistence, adapters, and export
 
