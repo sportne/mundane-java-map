@@ -349,3 +349,352 @@ object rendered twice, and optional JDK JFR are sufficient. There is no JMH, reu
 generic binary writer, public metrics API, database/server, automatic regression detector, native
 acceleration, or optimization. G7-002 may act only after this baseline establishes the existing
 semantic and evidence method.
+
+## Packed spatial index and viewport query (G7-002)
+
+### Explicit in-memory source choice
+
+G7-002 leaves `FeatureSource`, `FeatureQuery`, `FeatureCursor`, AWT bindings, and every format contract
+unchanged. Core adds one public immutable limits value and two explicit factories on its existing
+concrete source:
+
+```text
+FeatureIndexLimits(
+    int maximumRecords,
+    long maximumRetainedBytes,
+    long maximumBuildBytes,
+    long maximumQueryBytes)
+  defaults()
+  withMaximumRecords(...)
+  withMaximumRetainedBytes(...)
+  withMaximumBuildBytes(...)
+  withMaximumQueryBytes(...)
+
+InMemoryFeatureSource.openIndexed(
+    SourceIdentity identity,
+    List<FeatureRecord> records,
+    Optional<AttributeSchema> schema,
+    Optional<CrsMetadata> crs,
+    FeatureSourceLimits sourceLimits,
+    FeatureIndexLimits indexLimits)
+
+InMemoryFeatureSource.openIndexed(SourceIdentity identity,
+                                  List<FeatureRecord> records)
+```
+
+The convenience uses absent schema/CRS and both values' Level 1 defaults. Existing `open(...)` remains
+the byte-for-byte linear implementation and correctness oracle. Indexed selection is never automatic:
+there is no strategy enum, record-count threshold, system property, mutable default, warning fallback,
+or global registry. A caller that requests indexed construction either receives that immutable source
+or a bounded opening failure; it never silently receives a linear source.
+
+No `PackedFeatureSpatialIndex`, node, leaf, mutable builder, candidate collection, metric, or generic
+index interface is public. The index is a package-private implementation detail owned by exactly one
+immutable in-memory source snapshot. It stores only source ordinals/envelopes and never copies
+geometry, attributes, IDs, schema, CRS, or symbols. Caller list mutation is already blocked by G4's
+snapshot, and immutable records/geometries remain the single authoritative values. Close follows the
+existing source lifecycle; primitive arrays are ordinary source state, not a separately closeable
+resource or cache.
+
+All new public members receive Javadocs covering explicit selection, defaults/limits, build failure,
+one-live-cursor/external-serialization behavior, value equality, and absence of format integration.
+The private index is safe for concurrent read-only plan construction, but the public
+`InMemoryFeatureSource` deliberately retains G4's one-live-cursor and external-serialization contract.
+G7-002 does not claim that arbitrary `FeatureSource` instances or one indexed source support concurrent
+cursors.
+
+### One fixed packed STR-16 tree
+
+The sole structure is package-private final `PackedFeatureSpatialIndex`, a static sort-tile-recursive
+R-tree with leaf capacity and internal fanout fixed at 16. Each source record occurs in exactly one
+leaf, avoiding grid duplication/deduplication and handling points, axis-degenerate lines, large
+spanning envelopes, equal envelopes, and skew without a format assumption.
+
+Final primitive state is exactly:
+
+```text
+int[]    recordOrdinals     // N source ordinals grouped by leaf
+int      leafCount
+int      rootNode
+int      height
+
+double[] nodeMinX
+double[] nodeMinY
+double[] nodeMaxX
+double[] nodeMaxY
+int[]    nodeFirst          // leaf: recordOrdinals offset; internal: childRefs offset
+byte[]   nodeCount          // 1..16 records or children
+int[]    childRefs          // one tree edge per non-root node
+```
+
+Leaves occupy node indexes `[0,leafCount)`; successive parent levels follow; root is last. A nonempty
+tree's exact node count is computed with checked integers by repeatedly adding
+`ceil(levelItemCount/16)` until one root remains. `childRefs.length == nodeCountTotal - 1`. Empty input
+owns zero-length arrays, `leafCount=0`, `rootNode=-1`, and `height=0`. Every final/work array length,
+Java-array addressability, byte product, and sum is checked before its allocation.
+
+The build uses only reusable primitive `int[N] order` and `int[N] scratch` work arrays. First they
+hold/sort source ordinals and copy final leaf order into `recordOrdinals`; afterward their prefixes are
+reused for parent node indexes. One iterative stable merge sort avoids `Integer[]`, streams,
+per-element comparators, maps, recursion proportional to N, and per-node objects.
+
+At each level:
+
+1. `groupCount = ceil(itemCount/16)`.
+2. `sliceCount` is the smallest positive integer whose checked square is at least `groupCount`, found
+   by integer arithmetic without floating `sqrt`.
+3. Stable-sort items by `(centerX, centerY, minX, minY, maxX, maxY, sourceOrdinalOrNodeIndex)`.
+4. `groupsPerSlice = ceil(groupCount/sliceCount)` and
+   `itemsPerSlice = checked(groupsPerSlice*16)`; split declaration-order chunks of at most that size.
+5. Stable-sort each chunk by `(centerY, centerX, minY, minX, maxY, maxX,
+   sourceOrdinalOrNodeIndex)`, then pack consecutive groups of at most 16.
+6. Union each group's finite envelopes with the existing strict `Envelope` behavior and append its
+   node; internal child references retain that packed order.
+
+Centers use the existing overflow-safe finite envelope midpoint; finite canonical comparisons use
+`Double.compare`, and the final ordinal/node-index key makes the ordering total. Equal, degenerate,
+and duplicate envelopes therefore build byte-for-byte identical arrays for identical ordered input.
+No epsilon, coordinate normalization, projection, or source-ID key participates.
+
+### Index-specific resource limits
+
+All `FeatureIndexLimits` fields are positive, immutable, and exact; there is no zero/unlimited
+sentinel, property override, or mutable global. Defaults are:
+
+| Ceiling | Default |
+| --- | ---: |
+| Source records | 1,000,000 |
+| Retained index bytes | 16,777,216 |
+| Cumulative build bytes | 33,554,432 |
+| One query-plan bytes | 1,048,576 |
+
+Retained bytes count exact primitive capacities:
+
+```text
+4 * N
++ 32 * nodeCountTotal
++ 4 * nodeCountTotal
++ 1 * nodeCountTotal
++ 4 * max(0, nodeCountTotal - 1)
+```
+
+Build bytes are cumulative retained capacity plus `8*N` for the two sort arrays; no replacement-level
+array is allocated. Query-plan capacity is precomputed as
+`8*ceil(N/64) + 4*stackCapacity`, where nonempty
+`stackCapacity = 1 + 15*(height-1)` and empty is zero. This covers one candidate `long[]` bitset and the
+chosen fixed worst-case depth-first stack capacity. Object headers/alignment and the pre-existing source record snapshot/geometry are
+not falsely attributed to the index. Equality fits; plus one and arithmetic overflow fail before
+allocation, with overflow reported as requested `Long.MAX_VALUE` under the existing convention.
+
+Opening order is: direct arguments/value invariants; record-count ceiling before source-list copy;
+G4's existing record/schema/duplicate-ID/extent snapshot; exact node/retained/build/query preflight;
+then primitive construction. Index capacity failures reuse terminal `SOURCE_LIMIT_EXCEEDED` with
+`scope=spatialIndexBuild`, `limit=records|retainedBytes|buildBytes|queryBytes`, and existing exact
+`requested`/`maximum`. Exceeding the record ceiling is intentionally first even when later input would
+also violate schema or ID rules. Once that ceiling passes, existing duplicate/schema failures retain
+their G4 precedence and shape ahead of retained/build/query preflight. There is no `SPATIAL_INDEX_*`
+diagnostic family, warning, or linear fallback.
+
+### Source-ordered query plan
+
+An absent-bounds `FeatureQuery` uses the unchanged linear cursor: an all-record query gains nothing
+from a tree and allocates no plan. A present source-coordinate envelope uses inclusive AABB
+intersection for nodes and entries:
+
+```text
+maxX >= query.minX && minX <= query.maxX &&
+maxY >= query.minY && minY <= query.maxY
+```
+
+Exact edge/corner touches and point/axis-degenerate envelopes therefore match G4. `Envelope` has no
+wrapped-antimeridian representation; tests cover registered CRS domain edges and ±180-degree touches,
+not invented world-wrap/split semantics.
+
+The cursor creates its plan lazily on first `advance()`, after the unchanged source/cursor/token/query/
+tighter-limit checks. It allocates exactly the preflight stack plus:
+
+```text
+long[] candidates = new long[ceil(N/64)]
+```
+
+Depth-first traversal pushes children in reverse packed order so the first child is visited first,
+although no traversal order reaches consumers. For each entry in an overlapping leaf, it sets the
+source ordinal's candidate bit without testing the record envelope. Every record appears once, so no
+dedup map exists. Level 1 uses no node-containment shortcut. A stack/node/entry/word cancellation
+checkpoint occurs before allocation/traversal, within 4,096 primitive units, and before plan
+publication.
+
+After a complete plan, the cursor scans candidate bits in ascending source ordinal. Every bit first
+calls the unchanged `FeatureQueryAccounting.recordExamined()`, then applies the same exact immutable
+feature-envelope predicate as the linear source; a nonmatch is skipped and a match follows the exact
+G4 attribute projection, returned-record/payload limits, cancellation, and publication path. Thus the
+work ceiling bounds the actual record-envelope tests and preserves linear partial-publication timing.
+Records, attributes, IDs, diagnostics, and output ordering are identical when
+both implementations' work limits admit completion, while the indexed cursor honestly counts only
+candidate envelope tests rather than pruned records. It may succeed under a tighter
+`maximumRecordsExamined` where linear scan fails; tests pin that intentional difference. Previously
+published records remain valid if a later candidate exhausts a limit.
+
+The plan is operation/cursor-owned. Normal exhaustion, terminal failure, and cancellation clear it as
+part of operation-resource release before entering the terminal state and releasing the cursor slot.
+Early close, including close initiated by source close, preserves G4's different required order: mark
+`CLOSED`, invalidate current, and release the source slot before clearing the plan exactly once as
+cleanup. Primitive plan cleanup cannot fail, and repeated close never touches a later cursor's slot.
+Failure/cancellation publishes no partial plan, leaves the still-open source reusable, and never
+mutates the index. Empty/disjoint bounds may visit the root but examine zero records; a full present
+extent may examine all records. Repeated queries rebuild plans; G7-004, not this task, decides any
+retained viewport cache.
+
+No AWT production change is needed. Existing source-backed paint/hit/hover/selection code already
+issues a bounded `FeatureQuery`; an explicitly indexed source substitutes transparently. Query
+padding, projected paths, clipping, simplification, source concurrency changes, and render caches stay
+out of this slice.
+
+### Shapefile boundary
+
+G7-002 does not index shapefiles or reinterpret SHX. G5 requires physical SHP record framing and
+diagnostics in source order, including off-query malformed records; SHX is an address table, not a
+trusted spatial index. Building from untrusted record boxes, skipping off-query validation, or
+materializing the complete file would be a different format task. The G7 shapefile baseline remains
+an unchanged oracle and must not be reported as accelerated by this index. `FeatureSource` gains no
+index method and external adapter types remain absent.
+
+### Evidence extension
+
+G7-001 scenario IDs/configurations/oracles remain unchanged. G7-002 adds `index-comparison-v1`, a
+row-major point-grid generator using points `(1_000*c, 1_000*r)` and these exact dimensions:
+
+| Records | Columns | Rows |
+| ---: | ---: | ---: |
+| 32 | 8 | 4 |
+| 128 | 16 | 8 |
+| 512 | 32 | 16 |
+| 2,048 | 64 | 32 |
+| 8,192 | 128 | 64 |
+| 32,768 | 256 | 128 |
+| 131,072 | 512 | 256 |
+
+Build scenarios `index-build-128`, `index-build-8192`, and `index-build-131072` time explicit
+`openIndexed` and report exact nodes/leaves/height/formula-checked retained bytes plus median/p95.
+Each listed size has two scenario rows, `index-query-linear-<N>` followed by
+`index-query-str16-<N>`, where N is ungrouped ASCII decimal (`32`, `128`, `512`, `2048`, `8192`,
+`32768`, or `131072`). The index is built outside query timing; each timed operation opens, exhausts,
+and closes one fresh cursor, so both implementations run the identical batch and indexed queries
+build a fresh operation-local plan. This yields one raw sample series and median/p95 per
+implementation and size under G7-001's existing one-series-per-scenario report shape.
+
+G7-002 appends rows after the original twelve without reordering them: the three build rows in the
+order above; the fourteen linear/STR query rows paired in ascending table size; then
+`memory-query-window-indexed`, `hit-test-sweep-indexed`, `dense-vector-render-indexed`,
+`vector-pan-sequence-indexed`, and `vector-zoom-sequence-indexed`. All rows exist under both G7-001
+profiles with identical IDs and algorithms. The three build rows retain their named sizes in SMOKE;
+the query rows retain their named source sizes but run viewport ordinals 0 through 23, exactly four of
+each class, instead of BASELINE's 0 through 255. A build row's exact throughput batch is N
+`recordsIndexed`; a query row's is 256 `queries` in BASELINE and 24 `queries` in SMOKE. Setup owns the
+already-created immutable record fixture; build timing covers `openIndexed` through its successful
+return and closes the resulting source after the timer. Query setup constructs the source/index once
+outside timing; one timed batch opens, exhausts, and closes every cursor, and scenario cleanup closes
+the source.
+
+The report's required `expected next experiment` is exact rather than inherited from now-completed
+G7-002: every build row, every comparison-query row, and `memory-query-window-indexed` uses
+`no change`; `hit-test-sweep-indexed` uses `G7-004`; `dense-vector-render-indexed` uses `G7-003`; and
+both indexed pan/zoom rows use `G7-003/G7-004`. These strings are pinned with scenario declaration
+order and do not change in response to timings.
+
+Every comparison record has exact ID `index:` plus its zero-padded six-digit source ordinal, empty
+name, one point, and no attributes. Both linear and indexed sources open with the same explicit
+`FeatureSourceLimits`: at most 131,072 examined records, 131,072 returned records, 131,072 returned
+coordinates, one returned attribute value, 2,097,152 decoded text characters, 8,388,608 logical
+payload bytes, and one retained warning. The full query therefore fits: its IDs contribute 1,572,864
+decoded characters and 3,145,728 logical bytes, its points contribute 2,097,152 logical bytes, and the
+records total 5,242,880 logical payload bytes. Tests pin these arithmetic facts and the exact limits;
+no setup, timed, oracle, or inference execution relies on Level 1's lower 100,000-record return
+default.
+
+For viewport ordinal `i` from 0 through 255, class `i % 6` selects one of the following exact bounds.
+The cycle contains 43 instances each of classes 0 through 3 and 42 each of classes 4 and 5:
+
+1. disjoint: `[maxPointX+500,maxPointY+500,maxPointX+1_500,maxPointY+1_500]`, returning zero;
+2. edge/corner touch: choose point column `(37*i)%columns` and row `(53*i)%rows`, then use
+   `[x-500,y-500,x,y]`, returning exactly that point;
+3. small: `k=max(1,N/1_024)` points;
+4. medium: `k=max(1,N/128)` points;
+5. large: `k=max(1,N/8)` points; and
+6. full: `[-500,-500,maxPointX+500,maxPointY+500]`, returning all N points.
+
+For zero-based classes 2 through 4 (the small, medium, and large items 3 through 5 above), every fixed
+N makes k a power of two. Set
+`width=2^floor(log2(k)/2)`, `height=k/width`, origin column
+`(37*i)%(columns-width+1)`, and origin row `(53*i)%(rows-height+1)`; half-cell bounds around that
+rectangle select exactly k points. Integer arithmetic is checked and the tests pin every expected
+cardinality. These definitions replace approximate selectivity labels with reproducible workloads.
+Crossover is the first declaration-order size at which the indexed query-batch median is strictly
+less than the linear median; absent crossover is reported explicitly. It remains evidence, never an
+automatic selection threshold. Every indexed comparison row carries the same evidence counter
+`observedCrossoverRecords`: the positive record count at that first size or zero when none of the
+seven sizes crosses. Keeping the value in the existing scenario evidence-counter map avoids a report
+schema revision. The counter is present only when `performanceScenario` is absent and all fourteen
+comparison rows completed under one configuration; warmup/measurement investigations can still
+produce it because they retain the complete set. A single-scenario investigation runs only its named
+row as G7-001 requires, omits this counter, and renders `not evaluated (filtered investigation)` rather
+than zero or a companion run. Tests require all seven present copies to agree, pin omission for every
+filter case, and require Markdown to render rather than recompute the value.
+
+Existing rows gain exact scenario IDs `memory-query-window-indexed`, `hit-test-sweep-indexed`,
+`dense-vector-render-indexed`, `vector-pan-sequence-indexed`, and `vector-zoom-sequence-indexed`; each
+changes only the explicit source factory and baseline rows remain present. Semantic digest equality is
+a hard gate. For each profile, these five rows directly reuse the corresponding original row's frozen
+`ScenarioOracleV1` semantic digest and exact throughput unit/count; they do not create a second
+expected truth. Every new build/query `(BASELINE|SMOKE, scenario)` pair instead adds its own frozen
+expected observation digest, independently recomputed by profile-specific fixture tests under
+G7-001's existing rule and never learned from an evidence run. Build observations pin N, leaf/node/
+height/formula bytes, and a clean diagnostic digest. Query observations pin query count, total exact
+records/coordinates, source-order digest, clean diagnostics, and, for indexed comparison rows only,
+the untimed candidate total. The report adds implementation, node/leaf/height, retained bytes, build
+median/p95, linear input records, indexed candidates, query/render median/p95, and observed crossover
+under the existing schema's semantic/evidence counter maps. Timing is descriptive and does not select
+the default factory.
+
+Production exposes no metrics. Same-package core tests exercise the package-private index and
+candidate plan directly: the ordinary layout access needed by the builder/cursor proves
+record/node/leaf/height/retained formulas, and iterating the immutable plan proves candidate count.
+No source retains a “last plan” or any test-observation state. The performance harness derives static
+layout values independently from the frozen formulas and core tests prove those values equal the
+actual arrays.
+
+For only the fixed comparison scenarios, the harness infers each candidate count outside timing by
+leaving every non-work ceiling at the explicit source value and finding the lowest positive tightened
+`maximumRecordsExamined` that permits successful exhaustion. That value is C for C>0 because every set
+bit is tested exactly once. C=0 is a successful zero-result exhaustion at work limit one. The proof is
+unambiguous: if C=1, the only overlapping leaf has one entry, its union envelope is that record's exact
+envelope, and the query must return it; if C>1, limit one fails before exhaustion. Core tests pin all
+three cases. Inference executions never contribute timing samples, and the five real-stack indexed
+variants do not claim a candidate counter. No logger, listener, JMX, public observer, or mutable
+cumulative metric is added.
+
+### Verification and simplicity
+
+Core tests cover empty/one/15/16/17 records; exact node/edge/byte formulas and every limit
+minus/equal/plus-one/overflow; repeated byte-identical layouts; equal/duplicate/point/axis-degenerate/
+large-spanning envelopes; and every STR tie key. Fixed-seed property tests compare linear/indexed
+results, order, geometry, ALL/NONE/ONLY attributes, reports, domain edges, disjoint/full/edge/point
+queries, and tighter work-limit divergence over thousands of records/viewports.
+
+Lifecycle tests cover cancellation during node/entry/bit traversal and publication, early/exhausted/
+failed/cancelled/source close plan release, slot reuse, immutable yielded records after close, private
+index concurrent plan equality, and public second-cursor rejection. AWT tests substitute one indexed
+source through paint/hit/hover/selection with exact topmost/source order. Performance tests pin sizes,
+scenario IDs, seeds, counter inference, formulas, semantic equality, and absence of a timing threshold.
+
+Architecture tests reject public/internal node leakage, boxed/object trees, per-node objects, external
+dependencies, threads/executors, static/global index/cache state, reflection/discovery, format/AWT
+dependencies in core, and shapefile integration. Validation runs core/AWT/performance/architecture
+checks, `performanceEvidence`, `qualityGate`, and whitespace; no native, render-regression, corpus, or
+publication lane runs.
+
+One explicit indexed factory, one small limits value, one fixed packed STR-16 tree, and one
+cursor-owned source-order plan are sufficient. There is no index SPI, strategy chooser, generic tree
+library, automatic threshold/fallback, persistent query cache, format adapter, or public observability.
+If reference evidence shows small-N overhead, the report records crossover; it does not add implicit
+runtime selection.
