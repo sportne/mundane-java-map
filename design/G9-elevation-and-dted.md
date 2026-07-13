@@ -540,3 +540,241 @@ Four immutable style values, one stateless planner/rasterizer with one nested re
 binding tag, and one working example are sufficient. The slice reuses raster pixels, requests,
 resampling, accounting, presentation options, conversion, cancellation, reports, and lifecycle while
 leaving numeric interpolation, format reading, caching, and analysis to the tasks that own them.
+
+## DTED Levels 0, 1, and 2 reader slice (G9-003)
+
+### Specification and supported first profile
+
+The format boundary follows [MIL-PRF-89020B](https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=110830),
+sections 3.9 and 3.13 and tables I–III. The implementation cites the section/table in package
+documentation and tests; it does not copy the specification, infer a profile from third-party reader
+behavior, or promise every producer dialect.
+
+The first supported profile is intentionally strict:
+
+- uncompressed Level 0, 1, or 2 content, conventionally named `.dt0`, `.dt1`, or `.dt2`, with exact
+  `UHL1` (80 bytes), `DSI` (648 bytes), `ACC` (2,700 bytes), then fixed-length data records beginning
+  at zero-based offset 3,428; the path suffix is never level evidence;
+- DSI series designator `DTED0`, `DTED1`, or `DTED2`, WGS84 horizontal datum, `MSL` or `E96` vertical
+  datum,
+  zero orientation, and a one-degree, axis-aligned, non-wrapping geographic cell;
+- the standard latitude interval for the declared level and longitude interval for the cell's
+  latitude zone, with full-grid UHL/DSI dimensions;
+- exactly one fixed record for every west-to-east longitude profile, with all latitude positions
+  represented south-to-north inside each record;
+- big-endian fixed binary preambles and 16-bit signed-magnitude metre samples; and
+- complete Level 0 and ordinary Level 1 cells without voids, plus Level 2 complete cells without voids
+  or declared-partial Level 2 cells whose fixed profiles may contain `0xffff` void samples at any
+  latitude position.
+
+Variable-length partial profiles that omit samples before the first or after the last known elevation
+cannot be classified safely from a byte sentinel. An input with full-grid headers but shortened
+records therefore fails by the earliest exact file-length or data-record outcome; G9-004 owns its
+hostile-input precedence. Partial Level 0 and partial ordinary Level 1 are
+`DTED_PROFILE_UNSUPPORTED`; an SRTM Level 1 partial profile is deferred until its required DSI/ACC
+producer fields are explicitly interpreted. Multiple accuracy subregions, nonzero orientation,
+WGS72/other datums, two's-complement producer deviations, `.avg`/`.min`/`.max` companions,
+compressed/container inputs, mosaics, and extensions above Level 2 are also outside this slice. A
+later task may add an evidenced profile without weakening this one. G9-004 hardens every malformed
+path and verifies checksums; it does not silently broaden the supported dialect.
+
+For a full one-degree cell, latitude rows and longitude columns are derived exactly:
+
+| Level | Latitude interval | Row count | Zone I/II/III/IV/V longitude interval (arc-seconds) |
+| --- | ---: | ---: | --- |
+| 0 | 30 | 121 | 30 / 60 / 90 / 120 / 180 |
+| 1 | 3 | 1,201 | 3 / 6 / 9 / 12 / 18 |
+| 2 | 1 | 3,601 | 1 / 2 / 3 / 4 / 6 |
+
+Zones use the absolute latitude of the cell edge nearest the equator: I `[0,50)`, II `[50,70)`, III
+`[70,75)`, IV `[75,80)`, and V `[80,90)`. This classifies north/south boundary cells symmetrically.
+Column count is `3600 / longitudeInterval + 1`; all listed divisors are exact. North/south cells use
+the same table. Cells are rejected when an origin/corner would cross a pole or wrap the antimeridian;
+`[-180,-179]` and `[179,180]` remain ordinary non-wrapping bounds.
+
+### Two public types and one eager transaction
+
+The new JDK-only `mundane-map-io-dted` module has one public package,
+`io.github.mundanej.map.io.dted`, containing only:
+
+```text
+DtedFiles
+  open(SourceIdentity identity,
+       Path path,
+       DtedOpenOptions options) -> ElevationSource
+  open(SourceIdentity identity,
+       Path path,
+       DtedOpenOptions options,
+       CancellationToken cancellation) -> ElevationSource
+
+DtedOpenOptions
+  defaults()
+  elevationSourceLimits() -> ElevationSourceLimits
+  withElevationSourceLimits(ElevationSourceLimits) -> DtedOpenOptions
+```
+
+The no-token overload delegates to `CancellationToken.none()`. There is no bare path-only overload:
+the caller supplies the non-sensitive logical identity required by G4/G9 diagnostics. The facade
+returns only `ElevationSource`; it exposes no `DtedSource`, level/header/record type, parser, byte
+view, channel, or format metadata. `DtedOpenOptions` is a final private-constructor immutable value
+with defaults, value equality, bounded path-free `toString`, defensive ownership, parameter-named
+null failures, and complete package/type/member Javadocs. G9-004 can add one real `DtedLimits` field
+and wither without replacing the options type; G9-003 adds no inactive format-limit placeholder or
+string-key option map.
+
+The module declares API as an `api` project dependency because public signatures expose API types,
+and core as `implementation` solely for `PackedElevationGrid`. It has no AWT, ImageIO, external
+library, service provider, reflection, discovery, native code, or optional adapter. Package-private
+parser peers remain in the public package, avoiding an exported-looking `internal` package. One
+directly constructed package-private file-access seam supports deterministic short-read and close-
+failure tests; it is neither public configuration nor auto-discovered.
+
+Opening is one externally synchronous transaction:
+
+1. Validate public arguments/options and an open cancellation token without touching the path.
+2. Open one read-only `FileChannel`, obtain its size, and read fixed records positionally through
+   reused bounded buffers. Never read the complete file into one byte array.
+3. Parse/validate enough header state to establish the supported level, exact dimensions, bounds,
+   record size, and expected file size before allocating sample storage.
+4. Apply G9-001's column, row, checked sample, effective Java-array, retained-byte, and warning limits
+   in their approved order, then allocate one temporary row-major `double[]` and `BitSet`.
+5. Read profiles in file order, decode samples into the temporary arrays, and check cancellation at
+   every controlled boundary.
+6. Check cancellation, close the transaction channel successfully, and only then call
+   `PackedElevationGrid.copyOf` with the fixed empty opening report.
+7. Check cancellation immediately after that opaque defensive copy. If cancellation won, close the
+   grid and throw `SOURCE_CANCELLED`; otherwise return it and release temporary references.
+
+The returned source owns only the packed arrays and has G9-001's handle-free, idempotent close. No
+file handle, path, header, buffer, temporary sample array, executor, cache, memory map, or cancellation
+token survives publication. An I/O/parse/cancel failure closes the transaction channel exactly once;
+the original failure remains primary and a mapped close failure is suppressed. A clean transaction-
+close failure is terminal `DTED_IO_FAILED` with `operation=close`, not `SOURCE_CLOSE_FAILED`, because
+no source was published. Unexpected `RuntimeException` or `Error` is cleaned up and propagated
+unchanged with cleanup failure suppressed.
+
+### Fixed header and profile decoding
+
+All fixed text fields are decoded from ASCII bytes directly; no default charset, locale, regex over
+the whole header, or intermediate field collection is used. Numeric fields accept only their exact
+ASCII digit grammar and implied decimal place. Hemisphere characters are explicit `N|S` and `E|W`.
+Coordinates are parsed to integral tenths of arc-seconds first, cross-checked without floating
+tolerance, and converted once to degrees by division by 36,000. This keeps UHL origin/interval, DSI
+origin/corners/intervals, level/zone dimensions, and the one-degree cell mutually exact.
+
+G9-003 reads and uses only the fields required for this vertical slice:
+
+- UHL literal, longitude/latitude origin, intervals, longitude-profile count, latitude-post count,
+  and multiple-accuracy flag;
+- DSI literal, five-byte level designator, vertical/horizontal datum, origin, four corners,
+  orientation, intervals, row/column counts, and partial-cell indicator; and
+- ACC literal and its no-subregion flag.
+
+Every duplicated required field must agree exactly. Other fixed bytes are consumed but neither
+retained nor interpreted yet. Levels 0 and 1 require partial-cell indicator `00`; Level 2 accepts
+`00` or `01` through `99`. Indicator `00` always forbids voids. A nonzero Level 2 indicator permits
+fixed-array voids but is not exposed as a percentage or generic metadata. G9-004 supplies the full
+reserved-field, accuracy, grammar, and precedence matrix.
+
+After the 3,428-byte headers, each supported data record has exact length
+`8 + 2 * rowCount + 4`. Its preamble is one byte `0xaa`, a three-byte unsigned big-endian block count,
+a two-byte unsigned longitude count, and a two-byte unsigned latitude count. For profile ordinal `p`,
+block and longitude counts are exactly `p` and latitude count is zero. The final four-byte unsigned
+big-endian checksum is read and retained only in operation-local scalars; G9-003 fixtures write the
+correct byte-sum, but G9-004 owns enforcement and mismatch diagnostics.
+
+Each two-byte big-endian elevation word is decoded without casting to Java `short` first:
+
+```text
+0xffff                 -> no-data mask set, stored payload +0.0
+0x8000                 -> canonical finite +0.0
+sign bit clear         -> magnitude 0..32767 metres
+other sign bit set     -> negative magnitude
+```
+
+Two's-complement guessing is forbidden. File profile `p` becomes output column `p`. File sample zero
+is the southernmost post and therefore becomes output row `rowCount-1`; the final file sample becomes
+row zero. The checked row-major target index is
+`(rowCount - 1 - fileSample) * columnCount + p`. This explicit transpose is the only layout copy.
+Metadata uses the caller identity, exact one-degree `sampleBounds`, recognized canonical EPSG:4326,
+and `ElevationUnit.METRE`. Level, headers, partial percentage, accuracy, checksums, and path do not
+leak into the format-neutral model.
+
+Expected file size is checked as
+`3428 + columnCount * (12 + 2 * rowCount)` with checked `long` arithmetic before sample allocation.
+G9-003 rejects shorter or longer content rather than accepting a prefix or trailing payload. The
+level profile itself caps a record at 7,214 bytes and a standard grid at 3,601 by 3,601; G9-001's
+effective caller limits may only reduce those values. G9-004 adds explicit file/profile/parser-
+allocation ceilings and exhaustive hostile arithmetic tests.
+
+### Diagnostics, cancellation, and precedence
+
+Direct caller defects use the standard parameter/lifecycle exceptions. File-derived failures use one
+bounded `SourceException` report and these initial stable codes:
+
+| Code | Stable use |
+| --- | --- |
+| `DTED_IO_FAILED` | `open|size|read|close` JDK I/O failure |
+| `DTED_UHL_INVALID` | malformed required UHL field |
+| `DTED_DSI_INVALID` | malformed required DSI field |
+| `DTED_ACC_INVALID` | malformed required ACC field |
+| `DTED_PROFILE_UNSUPPORTED` | validly encoded level/datum/orientation/accuracy/partial shape is outside this profile |
+| `DTED_HEADER_INCONSISTENT` | individually valid duplicated header fields disagree |
+| `DTED_FILE_LENGTH_MISMATCH` | checked expected size differs from actual size |
+| `DTED_DATA_RECORD_INVALID` | preamble/count/sample encoding violates the supported record |
+
+`SOURCE_LIMIT_EXCEEDED` retains `scope=elevationOpen`; `SOURCE_CANCELLED` retains G4 semantics.
+G9-004 adds checksum and newly distinguished hostile-input codes but does not rename these outcomes.
+Components are `uhl`, `dsi`, `acc`, or `data`; data record numbers are positive profile ordinal plus
+one, and all byte offsets are zero-based. Exact context is bounded to stable tokens such as
+`field`, `reason`, and `operation`, plus decimal expected/actual values where documented. It never
+contains a path, raw bytes, untrusted field text, localized exception message, datum string, or
+fixture name.
+
+Precedence is caller validation, already-cancelled token, open/size I/O, fixed header availability,
+header/profile semantics, shared elevation limits, expected file length, temporary allocation,
+profiles in physical order, final cancellation, channel close, packed copy, post-copy cancellation,
+publication. The first terminal failure wins; cleanup never replaces it. File-derived values are
+validated before API/core factories so their programmer-facing `IllegalArgumentException` cannot
+leak as a malformed-file result.
+
+Cancellation is polled before and after each opaque channel operation, between UHL/DSI/ACC and every
+profile, within controlled sample conversion at no more than 4,096 values, before temporary/copy
+allocation, before channel close/publication, and immediately after the opaque packed copy. It
+performs no interrupt, listener, future, or worker coordination and publishes no partial grid.
+
+### Fixtures, publication, and verification
+
+Independent test-only writers generate, rather than check in, exact fixed files under each test's
+temporary directory. They share no production parser constants or helpers and independently assert
+important offsets, lengths, and SHA-256. All three use a zone-V cell from 80 to 81 degrees north and
+0 to 1 degree east, reducing the valid profile counts while retaining full rows:
+
+| Level | Columns | Rows | Data-record bytes |
+| --- | ---: | ---: | ---: |
+| 0 | 21 | 121 | 254 |
+| 1 | 201 | 1,201 | 2,414 |
+| 2 | 601 | 3,601 | 7,214 |
+
+The Level 0 and Level 1 fixtures are complete and contain deterministic positive, negative, zero, and
+first/interior/last samples. The Level 2 fixture is declared partial and adds leading, interior, and
+trailing voids. All contain correct checksums. Tests prove exact bounds/spacing/CRS/unit, west/east
+column and north/south row orientation, empty opening diagnostics, supplied limits, cancellation
+before I/O/mid-profile/pre-copy/post-copy, channel closure before return, primary/suppressed cleanup,
+source close, and retained metadata/report behavior. Malformed tables, checksum rejection, truncation
+at every boundary, fuzzing, and real producer data belong to G9-004/G9-006.
+
+The working module is added to the authoritative inventory as JDK-only Level 2 runtime and Published,
+but not Level 1 release or Native-targeted. The publication contract consequently expands from the
+historical five Level 1 coordinates to the current six-coordinate set by adding
+`io.github.mundanej:mundane-map-io-dted`. In the same change, the staging verifier checks its binary,
+sources, Javadocs, module metadata, POM scopes, license, and checksums; the standalone Java 21
+consumer resolves it from staging and opens/queries/closes one independently built tiny Level 0
+fixture. This extends rather than rewrites G8's recorded Level 1 candidate evidence.
+
+Focused module and architecture checks run first, then the already-existing
+`publicationDryRun consumerSmoke` lane, `qualityGate`, and whitespace. Native, DTED corpus,
+performance, and render-regression lanes do not run. Two public types, one private fixed parser, one
+eager grid result, three generated fixtures, and one staged consumer extension are enough: there is
+no empty module, reader framework, public header model, file-retaining source, viewer, or speculative
+lazy abstraction.

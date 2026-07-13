@@ -597,6 +597,21 @@ directory is cleared in the same staging lifecycle; the manifest is outside the 
 is never published. Its own independently computed SHA-256, row count, and total primary bytes enter
 G8-004's checkpoint, avoiding a self-referential manifest row.
 
+### Post-Level 1 published-module extension rule
+
+The five-row matrix above is the immutable Level 1 release-candidate contract and remains the meaning
+of recorded G8 evidence. After G8-004, a task that adds a working Published module must extend the
+current authoritative project inventory, release-contract table/verifier, staged manifest, and
+standalone consumer in that same change. It cannot leave the verifier expecting the historical set,
+publish an unconsumed artifact, or retroactively claim that the new module belonged to Level 1.
+
+G9-003 is the first such extension. The current post-Level-1 contract becomes six coordinates by
+adding `mundane-map-io-dted`, whose POM/API variants expose `mundane-map-api` at compile scope and
+`mundane-map-core` only at runtime. `publicationDryRun consumerSmoke` stages/verifies all six and the
+consumer opens a tiny DTED fixture. G8-004's historical candidate record, support statement, five-
+coordinate manifest, and go/no-go result remain unchanged; a later Level 2 release task will reconcile
+fresh evidence against the then-current inventory.
+
 ## Level 1 release readiness and G8 closeout (G8-004)
 
 ### One immutable release candidate

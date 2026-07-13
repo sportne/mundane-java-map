@@ -57,7 +57,7 @@ design task; there are no empty speculative design files.
 | G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-005 approved |
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
-| G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-002 approved |
+| G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-003 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -122,6 +122,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Reconcile Level 1 release evidence against one immutable candidate SHA and keep any later record update distinct. | A named candidate, independent lane provenance, and narrow evidence-only status commit avoid mixing revisions or making an impossible self-referential release record. |
 | 2026-07-12 | Model elevations as a distinct synchronous sampled source with post-center bounds and an explicit no-data mask. | Numeric terrain remains reusable by DTED and GeoTIFF without pretending that sample posts are raster pixels or adding a generic source hierarchy. |
 | 2026-07-12 | Render elevation through one stateless colorization/hillshade operation and a direct AWT binding. | Reusing raster requests, accounting, resampling, pixels, options, and report/lifecycle behavior provides a real layer without disguising numeric terrain as a `RasterSource`. |
+| 2026-07-12 | Decode the first DTED slice eagerly through one format facade into `PackedElevationGrid`. | Completing and closing bounded file I/O before publication preserves failure-free sample access and leaves lazy/windowed access to measured evidence. |
 
 ## Task design traceability
 
@@ -174,3 +175,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G8-004 | Candidate identity/version, independent evidence matrix, license/artifact/support reconciliation, go/no-go record, and holistic Level 1 closeout | Approved |
 | G9-001 | Elevation source/metadata/limits, post-center grid convention, units, packed finite samples, no-data mask, diagnostics, and lifecycle | Approved |
 | G9-002 | Immutable color ramps/hillshade style, post-support planning, bounded core rasterization, direct AWT binding, synthetic viewer, and render evidence | Approved |
+| G9-003 | DTED facade/options, strict Level 0/1/2 profile, eager fixed-record decoding, signed-magnitude/no-data mapping, publication extension, and fixtures | Approved |
