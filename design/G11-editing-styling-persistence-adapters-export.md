@@ -959,3 +959,463 @@ paint order, compatibility-label migration, annotation-only hit policy, limits/f
 scenarios, and five-slice decomposition before G11-020 is created. The result is the smallest design
 that makes attribute-driven cartography and collision-aware labels useful without turning a small map
 library into a stylesheet, expression, font, or cache framework.
+
+## Workspace persistence profile (G11-003)
+
+### Portable configuration boundary
+
+The first workspace format persists enough portable Level 1 configuration to reopen the same local
+map without serializing live Java objects. One future JDK-only, AWT-free module named
+`mundane-map-workspace` owns the immutable file model, secure reader, canonical writer, explicit
+resource registries, and all-or-nothing opened session. It depends only on API, core, and the JDK
+`java.xml` module; it does not depend on AWT, a concrete format module, or an external library and
+exposes no format implementation type. The module is created only in G11-030 with working read
+behavior and tests.
+
+Version 1 persists exactly:
+
+- the canonical Level 1 map-coordinate and display CRS keys, exactly `EPSG:4326` or `EPSG:3857`;
+- display-space viewport center and units per logical screen pixel, but not component dimensions;
+- ordered feature/raster layers with exact IDs and display names;
+- one local relative source reference per layer;
+- for a feature layer, one external named-symbol catalog ID and exact marker, line, and fill names; and
+- for a raster layer, `NEAREST|BILINEAR` interpolation and finite opacity in `[0,1]`.
+
+The current component size is runtime UI state. When an application constructs its view, it combines
+the persisted center/scale with the actual positive component dimensions and lets `MapViewport`
+validate the resulting finite edges. Raster and feature source metadata remain authoritative for fit,
+diagnostics, and CRS validation; the workspace never copies their extents or schemas.
+
+Version 1 deliberately does not persist snapshot feature data, source attributes, parser/decoder
+limits, caches, diagnostics, catalog contents, renderer/decoder/CRS registries, selection, hover,
+active tools, measurement, G11-001 edit snapshots/history/snapping, G11-002 portrayal/label profiles,
+elevation/DTED, G10 formats/tiles, remote references, optional adapter configuration, credentials, UI
+window geometry, or application objects. Fixed source bindings still receive their ordinary
+compatibility point-name labels at runtime. These exclusions keep G11-003 dependent only on G8-004;
+it neither serializes nor blocks the independent G11-001/G11-002/G9/G10 work.
+
+The file suffix is `.mmap.xml`. This is an application convention checked case-sensitively by the
+public file facade, not operating-system association or format sniffing. XML is selected because Java
+21 supplies a bounded streaming parser; no JSON dependency, `Properties` encoding compromise, Java
+serialization, object graph, annotations, databinding, schema compiler, or migration framework is
+introduced.
+
+### Immutable public model and ownership
+
+The workspace module's initial public shape is:
+
+```text
+WorkspaceDocument(
+    WorkspaceViewState view,
+    List<WorkspaceLayerDefinition> layers)
+
+WorkspaceViewState(
+    String mapCrsKey,
+    String displayCrsKey,
+    double centerX,
+    double centerY,
+    double unitsPerPixel)
+
+sealed WorkspaceLayerDefinition
+  WorkspaceFeatureLayer(
+      String id, String name,
+      WorkspaceSourceReference source,
+      WorkspaceSymbolReferences symbols)
+  WorkspaceRasterLayer(
+      String id, String name,
+      WorkspaceSourceReference source,
+      RasterInterpolation interpolation,
+      double opacity)
+
+WorkspaceSourceReference(
+    String openerId,
+    SourceIdentity identity,
+    WorkspaceRelativePath path)
+
+WorkspaceSymbolReferences(
+    String catalogId,
+    String markerName,
+    String lineName,
+    String fillName)
+```
+
+The transport version is not mutable domain state: the reader reports every version other than `1`
+before model construction, and the writer always emits version 1. All values defensively copy ordered
+lists. Layer IDs are unique across the document and retain their existing non-blank exact,
+at-most-256-UTF-16-character rules. Each persisted `SourceIdentity` retains those same individual
+value rules but may intentionally repeat when two differently portrayed layers open the same source.
+Layer and source display names may be empty and are at most 256 characters. Catalog IDs use the
+opener-ID grammar below. Symbol names are non-blank, at most 256 characters, and must equal their own
+`strip()` result exactly as `NamedSymbol` requires; interior whitespace and Unicode remain exact.
+Every persisted string, including fields copied from `SourceIdentity`, is validated at
+workspace-value construction as an XML 1.0 Unicode-scalar sequence with no isolated surrogate or
+disallowed code point. No identifier is trimmed, case-folded, normalized, or interpreted as a
+path/URI. The hard model ceiling is 4,096 layers, while an operation's `WorkspaceLimits` may set a
+lower ceiling. Construction also prospectively charges the exact retained-model inventory defined in
+the limits section against a non-configurable 33,554,432-byte model ceiling. An empty workspace is
+useful and valid.
+
+`openerId` is at most 128 ASCII characters and follows G2's dotted key grammar: two or more nonempty
+lowercase segments, each starting with `[a-z]` and continuing with `[a-z0-9-]`. It names an exact
+application-registered, versioned opening policy rather than a Java class or a format option bag. A
+caller-supplied opener is trusted application code and may perform only the access its application
+explicitly authorizes; the workspace module cannot sandbox an opener, but it never supplies a URI,
+credential, environment value, classpath resource, parser limit, or arbitrary string option to one.
+
+`WorkspaceFiles.read(path, limits)` returns `WorkspaceFile(document, baseDirectory)`. The base is the
+real parent directory captured by the successful file-read transaction and is not serialized.
+`WorkspaceFiles.write(path, document, limits)` writes canonical version 1 bytes atomically as defined
+below. A programmatically built document stores only `WorkspaceRelativePath`, so changing output
+location never silently rewrites source references.
+
+```text
+WorkspaceOpener.open(
+    WorkspaceFile file,
+    WorkspaceOpenContext context,
+    CancellationToken cancellation) -> WorkspaceSession
+
+WorkspaceOpenContext(
+    CrsRegistry crsRegistry,
+    WorkspaceSourceRegistry sources,
+    WorkspaceSymbolCatalogRegistry catalogs)
+
+WorkspaceSession implements AutoCloseable
+  document() -> WorkspaceDocument
+  mapCrs() / displayCrs() -> CrsDefinition
+  layers() -> immutable ordered List<OpenedWorkspaceLayer>
+  isClosed()
+  close()
+```
+
+An opened feature layer exposes one borrowed `FeatureSource` and its three resolved role-correct
+symbols; an opened raster layer exposes one borrowed `RasterSource`, interpolation, and opacity. The
+session owns every returned source and closes them in reverse layer order. Consumers may create
+borrowed AWT bindings, but the session must outlive those bindings and the view must be closed before
+the session. The future workspace-viewer demonstrates this exact try-with-resources order. There is no
+hidden AWT adapter, global current workspace, finalizer, `Cleaner`, shutdown hook, background loader,
+or source ownership transfer.
+
+Session close marks the session closed before closing each source exactly once. The first close
+failure remains primary and later failures are suppressed; repeated close is a no-op. The immutable
+document, resolved CRS values, layer descriptors, source metadata, and opening reports remain readable
+after close because the underlying G4 contracts already preserve them. Operational source calls after
+close retain their existing lifecycle failure.
+
+### Version 1 XML grammar
+
+The namespace is exactly `urn:mundanej:map:workspace`; the root's `version` attribute is exactly
+decimal `1`. Prefix spelling is not semantic: input may bind the workspace namespace as the default
+or to one prefix, but every element must resolve to that namespace, ordinary attributes must be
+unqualified, and no second explicit namespace binding is accepted. Namespace declarations are
+validated separately from ordinary attributes. The canonical writer uses exactly one default
+namespace declaration. Element order is fixed and layer order is data:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<workspace xmlns="urn:mundanej:map:workspace" version="1">
+  <view map-crs="EPSG:4326" display-crs="EPSG:3857"
+        center-x="0.0" center-y="0.0" units-per-pixel="1000.0"/>
+  <layers>
+    <feature-layer id="roads" name="Roads">
+      <source opener="application.shapefile.v1" id="roads-source"
+              name="Road data" path="data/roads.shp"/>
+      <symbols catalog="application.default" marker="point" line="road" fill="area"/>
+    </feature-layer>
+    <raster-layer id="image" name="Image" interpolation="BILINEAR" opacity="1.0">
+      <source opener="application.image-world-file-epsg3857.v1" id="image-source"
+              name="Image data" path="data/image.png"/>
+    </raster-layer>
+  </layers>
+</workspace>
+```
+
+`workspace` contains exactly one `view` followed by one `layers`. `layers` contains only ordered
+`feature-layer` or `raster-layer` elements. A feature layer contains exactly `source` then `symbols`;
+a raster layer contains exactly one empty `source`. Attributes are exactly those shown for their
+element and may arrive in any order. Duplicate singleton elements, duplicate attributes, unknown
+elements, unknown attributes, non-whitespace character content, CDATA, processing instructions,
+DTD/entity events, and a second root are terminal. Bounded comments are ignored and never emitted.
+
+The reader accepts an optional XML 1.0 declaration whose encoding is absent or case-insensitive
+`UTF-8`; it rejects XML 1.1 and every other declared encoding. It accepts an optional leading UTF-8
+BOM but the canonical writer emits none. Standard predefined and numeric XML character references are
+allowed; DTD-defined entities are impossible. Decoded values must be valid XML 1.0 Unicode scalar
+sequences with no isolated surrogate. No Unicode normalization occurs.
+
+View coordinates, scale, and opacity use this exact ASCII grammar, where `digit` is `[0-9]`:
+
+```text
+decimal := [+-]? (digit+ ('.' digit*)? | '.' digit+) ([eE][+-]? digit+)?
+```
+
+Thus integers, `1.`, `.5`, either sign, and lower/upper exponent markers with an optional exponent
+sign are accepted, while a bare sign or decimal point is not. The complete bounded token then goes to
+`Double.parseDouble`; hexadecimal forms, surrounding whitespace, NaN, infinity, overflow to infinity,
+and a non-positive scale fail. Signed zero is canonicalized to positive zero. Opacity must be within
+`[0,1]`. Every finite `Double.toString` result matches this grammar. The writer uses
+`Double.toString` on canonical values. It emits the declaration shown,
+two-space indentation, fixed element/attribute order, XML escapes `&`, `<`, `>`, and `"`, numeric
+escapes for tab/CR/LF in attributes, `/>` for empty elements,
+and LF after every line including the last. Identical documents therefore produce identical bytes
+independent of parser provider, locale, platform line separator, input formatting, or map iteration.
+
+Version 1 defines no ignored extension element or field. A namespace/version other than the exact
+pair is `WORKSPACE_VERSION_UNSUPPORTED`; an unknown field in the supported version is
+`WORKSPACE_FIELD_UNKNOWN`. The only supported version set is `{1}`, so there is no older-version
+migration in this release. A future version must explicitly decide whether to read v1 and construct a
+v2 value; it cannot activate reflection, deserialize a class name, or register a generic migration
+chain. The writer always emits version 1 until such a task changes the public profile.
+
+### Local paths and explicit source openers
+
+`WorkspaceRelativePath` stores a portable `/`-separated XML-1.0-valid string of one or more nonempty
+segments. Every segment differs from `.` and `..`; the complete value contains no leading/trailing
+slash, backslash, colon, empty segment, URI scheme, drive prefix, or UNC form and is at most 4,096
+UTF-16 characters. It is never expanded from `~`, environment variables, system properties, or a
+current working directory.
+
+Reading requires the workspace path itself to be an existing readable regular file that is not a
+symbolic link, snapshots its basic attributes and bytes, and derives the real parent directory. Before
+opening a source, the path guard resolves its validated segments below that base, requires a regular
+non-symbolic-link target, follows the target to its real path, and verifies it still starts with the
+real base. Missing input uses a stable missing-resource problem;
+lexical escape, symlink, special file, or real-path escape is a path problem. Checks defend an
+untrusted document against traversal at resolution time; they do not claim to sandbox trusted opener
+code or defeat a privileged concurrent filesystem attacker. Existing G5/G6 file snapshots remain the
+mutation authority after handoff.
+
+The source registry is instance-owned and immutable. A builder registers an exact opener ID, its
+`FEATURE|RASTER` kind, one correspondingly typed `WorkspaceFeatureSourceOpener` or
+`WorkspaceRasterSourceOpener`, and one immutable `WorkspaceLocalPathProfile`; duplicate IDs fail
+during construction. The path profile contains one through eight ASCII-case-insensitive primary
+suffix branches. Each branch has one dot-prefixed ASCII primary suffix and zero through sixteen exact
+dot-prefixed ASCII replacement suffixes, all at most sixteen characters; entries are unique and the
+profile has no callback. For the matching primary branch, the workspace derives each candidate by
+replacing the final primary suffix on the already validated lexical path. It preflights the required
+primary and every existing candidate as a regular non-symlink whose real path remains below the base;
+missing replacement candidates are allowed because the format facade owns missing/ambiguity policy.
+No XML value can add a candidate.
+
+After preflight, the opener receives only the persisted `SourceIdentity`, guarded primary `Path`, and
+`CancellationToken`, then returns one open `FeatureSource` or `RasterSource`. The example's shapefile
+profile declares `.shp` with `.shx`, `.SHX`, `.dbf`, `.DBF`, `.cpg`, `.CPG`, `.prj`, and `.PRJ`; its
+image profile has `.png`, `.jpg`, and `.jpeg` branches with exactly G6's corresponding long, short,
+lower/upper, and `.wld` replacement suffixes. The profile preflight and facade probe are separate
+finite checks. A replacement between them is governed by the already approved G5/G6 local-file race
+boundary; the workspace does not claim a filesystem lock. Opening never uses `ServiceLoader`,
+reflection, a class name from XML, classpath/resource scanning, URL handling, or automatic format
+detection. An unregistered opener fails before any source file is opened. Returned metadata identity
+must equal the requested value exactly; mismatch closes the source and fails the transaction.
+
+The workspace module supplies no concrete opener and has no format dependency. The runnable example
+explicitly registers `application.shapefile.v1` as application glue around `Shapefiles` with fixed
+limits/encoding/CRS policy, plus `application.image-world-file-epsg3857.v1` around `RasterImages` with
+fixed world-file CRS, image/cache limits, and an explicit decoder registry. A different approved policy
+gets a different versioned opener ID; the XML cannot tune it, raise limits, select a decoder, or embed
+credentials. No default registry, network opener, future-format stub, or adapter is present.
+
+`WorkspaceSymbolCatalogRegistry` is likewise an immutable exact map from bounded application catalog
+ID to `NamedSymbolCatalog`. It copies registrations and rejects duplicates. Feature-layer preflight
+resolves all three names and validates marker/line/fill roles recursively through the ordinary symbol
+contract before source I/O. Catalog definitions, symbol values, raster-icon resources, and renderer
+registrations stay application-owned and are never copied into XML. The exact `CrsRegistry` supplied
+in the open context resolves both view CRS keys; source metadata is validated through the ordinary G4
+attachment boundary, with no workspace alias guess or CRS database access.
+
+`WorkspaceViewState` admits only exact `EPSG:4326` and `EPSG:3857` keys, so aliases cannot enter a
+programmatic document or canonical output. Opening resolves each key and requires the entire returned
+definition to equal `CrsRegistry.level1().resolve(key)`, including canonical identifier, kind, axes,
+units, and coordinate domain. A same-ID fabricated definition fails as `WORKSPACE_VALUE_INVALID` with
+`field=mapCrs|displayCrs` and `reason=definitionMismatch`. A registry without either required
+definition uses `WORKSPACE_CRS_UNREGISTERED`. Every Level 1 alias is rejected at workspace-value/read
+construction rather than accepted and rewritten.
+
+### Secure read, limits, and stable failures
+
+Reading snapshots one bounded file before XML parsing: normalized absolute `NOFOLLOW_LINKS` checks,
+captured size, exact byte read plus one-byte ceiling probe, close, and basic-attribute comparison. It
+strictly decodes shortest-form UTF-8 and rejects malformed/overlong input, UTF-16/32 BOMs, isolated
+surrogates, and XML-disallowed characters. No path/channel survives the read; only the real base in
+`WorkspaceFile` remains for later guarded resolution.
+
+Each read uses `XMLInputFactory.newDefaultFactory()`, sets and reads back namespace awareness,
+non-coalescing, non-validating, DTD disabled, external entities disabled, entity replacement disabled,
+`XMLConstants.ACCESS_EXTERNAL_DTD=""`, and `XMLConstants.USE_CATALOG=false`, plus a resolver that
+always throws and a reporter that returns one project-owned failure. An unsupported/ineffective
+property is an internal `IllegalStateException`; there is no weaker fallback. There is no DOM, XSD,
+catalog, XInclude, URI resolver, internal JDK parser, static/thread-local parser, or parser discovery
+chosen by file content.
+
+`WorkspaceLimits` has positive finite ceilings, complete withers, no zero/unlimited sentinel, checked
+prospective accounting, and these default/hard-maximum pairs:
+
+| Limit | Default | Hard maximum |
+| --- | ---: | ---: |
+| Input or canonical output bytes | 4,194,304 | 16,777,216 |
+| Peak workspace-owned operation bytes | 16,777,216 | 67,108,864 |
+| XML element depth | 8 | 16 |
+| Elements | 8,192 | 32,768 |
+| Attributes | 32,768 | 131,072 |
+| Layers | 1,024 | 4,096 |
+| UTF-16 characters per attribute/comment | 4,096 | 16,384 |
+| Aggregate decoded attribute/comment characters | 1,048,576 | 4,194,304 |
+
+Structural limits are checked before retaining the crossing value. Fixed semantic limits for IDs,
+opener IDs, paths, and catalog/symbol names apply in addition. Input/output bytes and aggregate
+characters use checked `long`; other counters use checked `int`. Equality succeeds and plus one fails
+in tests. A caller may lower or explicitly raise a configurable ceiling only through its listed hard
+maximum. Construction requires `layers <= elements`, per-value characters no greater than aggregate
+characters, and input/output bytes no greater than operation bytes; checked arithmetic rejects an
+inconsistent pair before use.
+
+Operation-byte accounting charges the input snapshot at one byte per byte, the complete decoded input
+at two bytes per UTF-16 code unit, the canonical output sink at one byte per emitted byte, and the
+retained model inventory below. Charges are prospective and released only when that operation drops
+ownership.
+
+- Charge 64 bytes once for the document, view state, each layer variant, each source reference, each
+  symbol-reference group, and each relative-path wrapper.
+- Charge another 64 bytes for the `SourceIdentity` retained by every source reference, even when two
+  references share the same immutable instance.
+- Charge eight bytes for every slot in the document's defensively copied layer list; the list wrapper
+  is included in the document's 64-byte charge.
+- Charge two bytes per UTF-16 code unit for every retained string field occurrence: both CRS keys;
+  every layer ID/name; opener ID; source identity ID/name; relative-path text; and catalog, marker,
+  line, and fill names. Equal strings and shared Java `String` identities are charged separately for
+  each field occurrence. Enums and primitive fields add no separate charge beyond their owner value.
+
+The same inventory defines the fixed model ceiling and the model portion of a read operation, so
+defensive copying or aliasing cannot change the result. The canonical writer emits directly to one
+bounded byte sink rather than first building a `String`. This is deterministic logical allocation
+accounting, not a claim about JVM object headers or StAX provider internals. The non-configurable
+4,096-layer model ceiling and all fixed string ceilings apply even when no operation limits object is
+present.
+
+`WorkspaceException` carries one immutable `WorkspaceProblem(code, context)` plus
+`Optional<DiagnosticReport> sourceReport()`. The report is present only for a mapped
+`SourceException`. Context is an ordered map whose exact per-code keys are below; `?` marks the one
+conditionally present trailing key.
+
+| Code | Exact ordered context and closed values |
+| --- | --- |
+| `WORKSPACE_IO_FAILED` | `phase=input`, `reason=missing|symlink|wrongKind|open|size|read|changed|close` |
+| `WORKSPACE_ENCODING_INVALID` | `reason=bom|malformed|xmlCharacter` |
+| `WORKSPACE_XML_INVALID` | `reason=security|declaration|wellFormed|content` |
+| `WORKSPACE_VERSION_UNSUPPORTED` | `reason=namespace|version` |
+| `WORKSPACE_FIELD_UNKNOWN` | `field=element|attribute|namespace`, `layerIndex?` |
+| `WORKSPACE_STRUCTURE_INVALID` | `reason=order|missing|duplicate|cardinality|text`, `layerIndex?` |
+| `WORKSPACE_VALUE_INVALID` | `field`, `reason=grammar|duplicate|nonCanonical|definitionMismatch|range|xmlCharacter`, `layerIndex?` |
+| `WORKSPACE_LIMIT_EXCEEDED` | `limit`, `requested`, `maximum` |
+| `WORKSPACE_PATH_INVALID` | `reason=grammar|suffix|escape|symlink|wrongKind|identity`, `layerIndex` |
+| `WORKSPACE_RESOURCE_MISSING` | `kind=primary`, `layerIndex` |
+| `WORKSPACE_SOURCE_OPENER_UNREGISTERED` | `kind=FEATURE|RASTER`, `layerIndex` |
+| `WORKSPACE_SOURCE_KIND_MISMATCH` | `expected=FEATURE|RASTER`, `actual=FEATURE|RASTER`, `layerIndex` |
+| `WORKSPACE_SOURCE_IDENTITY_MISMATCH` | `layerIndex` |
+| `WORKSPACE_SYMBOL_CATALOG_UNREGISTERED` | `layerIndex` |
+| `WORKSPACE_SYMBOL_NOT_FOUND` | `role=marker|line|fill`, `layerIndex` |
+| `WORKSPACE_SYMBOL_ROLE_MISMATCH` | `role=marker|line|fill`, `layerIndex` |
+| `WORKSPACE_CRS_UNREGISTERED` | `field=mapCrs|displayCrs` |
+| `WORKSPACE_SOURCE_OPEN_FAILED` | `kind=FEATURE|RASTER`, `layerIndex` |
+| `WORKSPACE_CANCELLED` | `phase=preflight|path|sourceOpen|publish`, `layerIndex?` |
+| `WORKSPACE_ATOMIC_MOVE_UNSUPPORTED` | empty |
+| `WORKSPACE_WRITE_FAILED` | `phase=validate|encode|temporary|write|force|move|cleanup`, `reason=io|target|changed` |
+
+`field` outside the enumerated special cases is one of the exact view tokens `mapCrs`, `displayCrs`,
+`centerX`, `centerY`, and `unitsPerPixel`; layer tokens `layerId` and `layerName`; source tokens
+`sourceOpener`, `sourceId`, `sourceName`, and `sourcePath`; symbol tokens `catalogId`, `markerName`,
+`lineName`, and `fillName`; or `interpolation`, `opacity`, and `pathProfile`. `limit` is one of
+`inputBytes|outputBytes|operationBytes|depth|elements|attributes|layers|valueChars|aggregateChars`;
+`requested` is the exact prospective non-negative count that would cross `maximum`, not a retained
+count or vague lower bound. Fixed hard maxima keep these additions representable. Context token values
+are ASCII and at most 32 characters; numeric values are canonical non-negative decimal `long`s.
+Contexts never contain XML text, names, symbol/catalog/opener IDs, relative/absolute paths, provider
+messages, credentials, localized exception text, or source bytes. Reader precedence is argument/limit
+configuration, file snapshot/I/O, encoding, XML security/well-formedness, grammar/version, then value
+validation. Opener precedence is document/registry/CRS/catalog preflight in layer order, guarded path
+resolution for every layer, then source opening in layer order.
+
+When a typed opener throws `SourceException`, the workspace retains that cause and its immutable
+`DiagnosticReport` without copying its message into context. A report whose terminal code is exactly
+`SOURCE_CANCELLED` maps to `WORKSPACE_CANCELLED` with `phase=sourceOpen`; every other source report maps
+to `WORKSPACE_SOURCE_OPEN_FAILED`. A token becoming cancelled after a successful return is observed by
+the required post-open check and also maps to workspace cancellation after closing that source. A
+non-cancellation source failure already encountered is never overwritten merely because the token is
+later cancelled. Any other unchecked opener failure is a programmer error: transactional cleanup
+still runs, then the original failure escapes with cleanup failures suppressed.
+
+The optional `layerIndex` is present exactly when grammar processing has entered a layer or opening
+has selected one; document-level failures omit it. For `WORKSPACE_CANCELLED`, `phase=preflight`
+includes the index only at checks immediately before/after resolving that layer's opener, catalog, and
+symbols, and omits it at document/CRS checks. `phase=path` and `phase=sourceOpen` always include the
+selected layer index; `phase=publish` always omits it. Direct construction rejects invalid public
+arguments with the project's ordinary named argument exceptions; the stable workspace table governs
+reader, opener, and writer failures on otherwise structurally callable operations.
+
+Opening is all-or-nothing. It validates every registry/opener/catalog/symbol/CRS reference, registered
+path profile, persisted primary path, and derived sidecar candidate before opening the first source.
+It then opens sources in layer order, checking cancellation before and after each controlled path,
+registry, and open phase. A failure or cancellation closes the current returned source if any and
+every earlier source in reverse order before throwing; the original problem remains primary and
+cleanup failures are suppressed. No `WorkspaceSession` or partial layer list escapes. Successful
+source warning reports remain attached to their source and are available from the published session.
+
+### Canonical atomic write
+
+Writing validates the complete document and materializes its canonical bytes under the same output
+ceiling before touching the destination. The target parent must already exist; a target symbolic link
+or non-regular existing target is rejected. The writer creates one private temporary regular file in
+the same directory with `CREATE_NEW`, writes all bytes, calls `FileChannel.force(true)`, closes it, and
+moves it with exactly `ATOMIC_MOVE` plus `REPLACE_EXISTING`. `AtomicMoveNotSupportedException` becomes
+`WORKSPACE_ATOMIC_MOVE_UNSUPPORTED`; there is no silent non-atomic fallback. A pre-move failure leaves
+an existing target unchanged. Temporary cleanup is attempted once, with the original failure primary
+and cleanup failure suppressed. Success means the provider completed one atomic name replacement; it
+does not overclaim portable directory-fsync or power-loss durability.
+
+The writer does not resolve or open source references, test catalog registrations, create directories,
+change opener policy, preserve comments/input formatting, or embed a checksum. Canonical byte
+identity and ordinary caller-selected file backup/versioning are sufficient for the first profile.
+
+### Verification, decomposition, and checkpoint
+
+API/module tests cover every immutable value, defensive copy, unique ID, opener/path/profile grammar,
+XML-scalar and symbol-name validation, every numeric grammar branch and finite boundary,
+canonicalization, fixed/configurable/hard limit edge,
+model/operation allocation accounting, and every exact problem shape. Reader tests cover the
+canonical document, every Level 1 CRS key and alias, alternate attribute order, BOM/declaration cases,
+strict UTF-8/XML 1.0,
+all unknown/duplicate/missing grammar branches, comments/whitespace, DTD/entities/external-access
+negative controls, every count/depth/string/byte boundary, and no raw-data leakage. Writer tests cover
+byte-for-byte output, escaping, locale/line-ending independence, write-read-write identity, replacement,
+unsupported atomic move, injected write/force/move/cleanup failures, and preservation of the old file.
+
+Registry/session tests use explicit fake openers to prove preflight before I/O, returned-identity and
+kind validation, same-ID rejection, known/missing resources, lexical/real/symlink escapes, every
+closed suffix candidate and the documented race boundary, mismatch cleanup, catalog lookup/role
+checks, canonical/full-definition CRS resolution, fabricated same-ID rejection, every cancellation
+phase/index shape and direct/source-reported cancellation mapping, all-or-nothing
+reverse close, warning retention, and repeated close. A runnable workspace viewer registers
+application glue that opens a small local shapefile plus world-file PNG, applies persisted view/raster
+state and fixed catalog symbols, and closes the view before the session. No test uses network access,
+ambient credentials, classpath discovery, or Java serialization.
+
+Implementation is deferred into five later vertical slices; this decision creates no module or task
+file:
+
+1. `G11-030` creates the AWT-free module with immutable values and the secure XML v1 reader.
+2. `G11-031` adds canonical serialization and atomic replacement with round-trip/failure evidence.
+3. `G11-032` adds explicit registries and all-or-nothing session opening with fake openers.
+4. `G11-033` adds the runnable workspace viewer and full local restore/ownership slice.
+5. `G11-034` adds hostile-input hardening, Javadocs, publication/consumer checks, and a representative
+   Linux Native Image read/write/open smoke before making a workspace-native claim.
+
+The dependency graph is the deliberately sequential
+`G11-003 -> G11-030 -> G11-031 -> G11-032 -> G11-033 -> G11-034`. These slices share one small module
+and public contract surface, so apparent parser/writer/opener parallelism is not path-safe. No earlier
+slice adds an empty module, AWT dependency, generic migration engine, or future-format stub.
+
+The named HITL checkpoint is **G11 workspace persistence profile approval**. A maintainer approves the
+portable field/exclusion list, strict XML grammar/version policy, local-path threat model, two example
+opener policies, external symbol/catalog rule, limit/failure/atomic-write behavior, viewer scenario,
+and five-slice decomposition before G11-030 is created. This is the smallest workspace that can reopen
+a useful local map while keeping runtime ownership, data, secrets, presentation extensions, and future
+formats outside the file.

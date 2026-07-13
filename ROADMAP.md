@@ -156,7 +156,13 @@ separately decomposed.
   and drawing, while toolkit-neutral placed-label values preserve export and test boundaries. Later
   G11-020 through G11-024 slices deliver selectors, complete roles, layout, regression/evidence, and
   native/consumer closeout without an expression language or label cache.
-- Explicit versioned project/workspace persistence without Java serialization.
+- Persist a strict local `.mmap.xml` version 1: canonical CRS/view state, ordered local opener/identity/
+  path references, fixed external catalog symbols, and raster presentation only. One AWT-free module
+  depends only on API/core and uses guarded relative paths, explicit application source/catalog
+  registries, bounded secure StAX parsing, all-or-nothing owned sessions, and mandatory atomic
+  replacement; edit/history, thematic labels,
+  data, limits, caches, diagnostics, credentials, remote sources, and later formats remain excluded.
+  G11-030 through G11-034 deliver reader, writer, session, viewer, and hardening/native/consumer slices.
 - Optional JTS, PROJ, SQLite, and GDAL adapters whose types do not leak into the API.
 - A bounded deterministic vector map export profile consuming G11-002's placed-label contract.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
