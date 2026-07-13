@@ -92,8 +92,9 @@ architectural requirement. Level 1 is complete only when
 - Review public APIs, Javadocs, examples, publication metadata, and staged downstream consumption.
 - Run normal, native, shapefile-corpus, rendering-regression, performance, and
   publication/consumer lanes separately before the release decision.
-- Linux native evidence blocks Level 1 release. Windows/macOS evidence is required before making a
-  cross-platform Native Image claim, but does not block the Linux-supported release.
+- A successful Ubuntu 24.04 Linux x86_64 GraalVM Java 21 run is required; missing or failing evidence
+  blocks Level 1 release. Windows, macOS, Linux AArch64, and other-distribution evidence is required
+  before making broader Native Image claims, but does not block the narrowly supported release.
 
 ## Level 2 backlog
 

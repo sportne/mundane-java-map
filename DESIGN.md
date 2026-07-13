@@ -56,6 +56,7 @@ design task; there are no empty speculative design files.
 | G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-010 approved |
 | G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-005 approved |
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
+| G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -114,6 +115,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Offer one explicit packed STR index for immutable in-memory feature sources. | A fixed-fanout primitive tree and source-order query plan reduce bounded viewport candidates without changing FeatureSource, indexing shapefiles, exposing tree nodes, or selecting a strategy implicitly. |
 | 2026-07-12 | Optimize only operation-local screen paths while retaining authoritative geometry. | Fixed line clipping/simplification and conservative polygon validation reduce paint work without changing hit, endpoint, fit, query, topology, or cache semantics. |
 | 2026-07-12 | Admit only evidence-qualified private AWT render-cache partitions and keep G6 as the sole raster-pixel cache. | Predeclared same-run rules can justify screen-plan or vector-template retention without a public cache framework, duplicate image storage, runtime timing policy, or complexity that failed to pay for itself. |
+| 2026-07-12 | Close native verification with one aggregate executable and one pinned Ubuntu 24.04 x86_64 GraalVM Java 21 lane. | Direct scenarios, an exact resource inventory, retained logs, and narrow platform wording provide release evidence without a second binary, broad reachability metadata, or a cross-platform claim. |
 
 ## Task design traceability
 
@@ -160,3 +162,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G7-002 | Explicit indexed in-memory factory, bounded packed STR-16 arrays/build, source-ordered query plan/accounting, linear equivalence, and comparison evidence | Approved |
 | G7-003 | Operation-local packed screen plans, deterministic line clipping/simplification, conservative polygon optimization/fallback, authoritative hit/endpoint semantics, and paired evidence | Approved |
 | G7-004 | Evidence-gated private screen-plan/vector-template candidates, exact ownership/keys/budgets/LRU, append-only comparisons, performance acceptance, and G7 closeout | Approved |
+| G8-001 | One aggregate native scenario, exact diagnostics/resources, final measurement/render path, pinned Linux CI evidence, and release-lane checkpoint | Approved |

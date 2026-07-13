@@ -13,46 +13,69 @@ GraalVM Native Image lane and make that evidence a release blocker.
 ## Context
 
 Earlier native tasks prove symbols, shapefiles, and rasters individually. This gate validates their
-coexistence with interaction/measurement and optimized rendering under the final Level 1 dependency
-graph.
+coexistence with interaction/measurement and the final G7 default render path under the Level 1
+dependency graph. It preserves their one executable and exact 12-resource inventory.
 
 ## Scope
 
-- `modules/mundane-map-native-tests` aggregate smoke application and semantic assertions
-- Root Native Image wiring and `.github/workflows/native-image.yml`
-- Architecture checks and only narrow compatibility fixes required by aggregate reachability
+- `modules/mundane-map-native-tests`: one direct aggregate scenario sequence and shared JVM/native
+  assertions over API, core, AWT, shapefile, and image modules
+- Root/build-logic Native Image wiring and `.github/workflows/native-image.yml`
+- `modules/mundane-map-architecture-tests`: production prohibition, resource-inventory, workflow, and
+  specialized-lane graph policies
+- `DESIGN.md`, `design/G8-release-readiness.md`, this task/index, and `ROADMAP.md`: exact Linux support
+  claim and the named release-lane approval record
+- Only narrow owning-module compatibility fixes required by explicit aggregate reachability
 
 ## Out of scope
 
 - Windows/macOS Native Image support claims without separate evidence
 - Native performance acceleration, broad reflection metadata, and executing corpus/performance lanes
   inside the native binary
+- A second native executable/test binary, new resource, wildcard metadata, tracing-agent output,
+  private G7 cache mode/counter, or native timing assertion
+- Reopening normal CI/toolchain behavior owned by G0 or claiming every Linux distribution/architecture
 - Publishing release artifacts
 
 ## Acceptance criteria
 
-- One bounded native executable exercises geometry/projection, symbols and explicit raster resource,
-  tool/measurement calculation, shapefile query, PNG/JPEG affine request, and offscreen rendering.
-- The smoke also verifies stable representative diagnostics for an invalid registration, malformed
-  shapefile record, and rejected raster input without depending on exception message text.
+- `NativeSmokeMain.runSmoke()` directly runs the approved G2 symbol scenario, one scoped G5 workspace
+  and scenario, one scoped G6 workspace and scenario, then one final G8 scenario before printing the
+  unchanged `mundane-map native smoke: OK` sentinel.
+- The G8 scenario proves exact duplicate renderer registration diagnostic/context, planar and
+  antimeridian geographic distances, real Swing measurement routing/state, repeated final-default G7
+  rendering through one exact core `InMemoryLayer`, and observable tool claim release/reuse after
+  close without duplicating G2/G5/G6 assertions.
+- The aggregate smoke verifies `SYMBOL_RENDERER_DUPLICATE`, G5's exact malformed-record diagnostic,
+  and G6's exact malformed-PNG diagnostic without inspecting exception message text. The approved G2
+  catalog-missing diagnostic remains additional coverage.
 - Assertions validate semantic outputs and lifecycle behavior, not only class reachability or exit
   status.
-- Registries and resources are explicit; the aggregate path uses no reflection, classpath/resource
-  scanning, dynamic proxies, Java serialization, JNI, `Unsafe`, or internal JDK APIs.
-- The Linux CI job installs Java 21 GraalVM, runs only the separate `nativeSmoke` lane, retains useful
-  failure reports, and blocks Level 1 release when it fails.
+- Registries and the exact 12 resource paths are explicit; G8 adds no resource or reachability entry,
+  and the aggregate path uses no reflection, classpath/resource scanning, dynamic proxies, Java
+  serialization, JNI, `Unsafe`, or internal JDK APIs.
+- Root `nativeSmoke` depends only on the support module's one Java 21 `nativeRun`; metadata repository
+  and fallback remain disabled and no `nativeTest` binary is built.
+- One Ubuntu 24.04 x86_64 CI job installs GraalVM Java 21, records full Java/native-image versions,
+  runs only `./gradlew nativeSmoke --console=plain`, retains the bounded log/toolchain record even on
+  failure, and blocks Level 1 release when it fails.
 - Normal JVM CI remains separate and does not masquerade as Native Image evidence.
-- Documentation claims Linux Native Image compatibility only. Windows/macOS are described as
-  unverified until their own build-and-run evidence exists.
-- **HITL checkpoint:** a maintainer reviews a successful clean Linux CI run, failure diagnostics, and
-  the exact Native Image platform support wording.
+- Support wording claims only Java 21 GraalVM Native Image on the recorded Ubuntu 24.04 Linux x86_64
+  lane. Windows, macOS, Linux AArch64, other distributions, and cross-platform compatibility remain
+  unverified until maintained build-and-run evidence exists.
+- **HITL checkpoint — G8 Linux Native Image release-lane approval:** a maintainer reviews one clean CI
+  run on the reviewed commit, exact tools/platform, sentinel, 12-resource inventory, diagnostics,
+  final G7 cache disposition (including none), repeat-render result, and narrow support wording.
 
 ## Required tests
 
-- JVM tests for every aggregate smoke branch and required resource.
+- JVM tests for every aggregate smoke branch, exact 12-resource metadata/tree, mutated invariant
+  controls, real EDT events, same-tool cross-view claim/release, repeated invocation, and lifecycle
+  cleanup.
 - Architecture tests over all Level 1 production modules for prohibited native-targeted mechanisms.
 - A clean Java 21 GraalVM Native Image build-and-run in Linux CI.
-- A workflow test/review ensuring the native lane remains distinct from normal/corpus/render/perf.
+- Workflow/task-graph tests ensuring the native lane remains one pinned Linux job and excludes
+  normal/corpus/render/performance/publication/consumer lanes.
 
 ## Validation
 
@@ -65,5 +88,8 @@ git diff --check
 
 ## Notes
 
-A local native run is useful but does not replace the required Linux CI result. Do not add broad
-reachability metadata to silence failures; fix explicit construction and resource wiring.
+A local native run is useful but does not replace the required Linux CI result. Record the checkpoint
+in these Notes with commit/run URL, reviewer/date, OS/architecture, GraalVM and full tool versions,
+command/sentinel, resources, diagnostics, final G7 disposition, repeat-render result, support wording,
+and outcome. Do not add broad reachability metadata to silence failures; fix explicit construction and
+resource wiring or mark an actual incompatibility Blocked.
