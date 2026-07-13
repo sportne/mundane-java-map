@@ -59,7 +59,7 @@ design task; there are no empty speculative design files.
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-007 and holistic closeout approved |
-| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-004 approved |
+| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-005, G11 closeout, and whole-design closeout approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -141,6 +141,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-13 | Select symbols with closed binding-owned selectors and place singular-point labels in one bounded global pass. | Exact scalar matching, projected attribute queries, AWT-only metrics, toolkit-neutral placement, and greedy operation-local collision handling add useful cartography without an expression, font, hit, or cache framework. |
 | 2026-07-13 | Persist only portable local map configuration in one strict XML v1 workspace. | Canonical bytes, guarded relative paths, application-owned source/catalog registries, and atomic replacement reopen a useful Level 1 map without coupling the workspace module to format adapters or serializing runtime state, secrets, format data, or arbitrary objects. |
 | 2026-07-13 | Accept only the two evidenced Xerial SQLite format adapters and defer JTS, PROJ, and GDAL. | Exact classifiers, private JDBC/native boundaries, and a Linux JVM-only claim serve concrete GeoPackage/MBTiles profiles; the other libraries have no demonstrated gap and therefore create no speculative framework, dependency, module, or task. |
+| 2026-07-13 | Export one detached viewport snapshot as canonical static SVG 1.1 through the existing SVG module. | An API-owned immutable vector-export handoff, AWT-owned synchronous capture, exact built-in vector profile, core algorithm reuse, and bounded atomic writer preserve visible map order without a scene graph, renderer callback, raster fallback, or new module. |
 
 ## Task design traceability
 
@@ -207,6 +208,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G10-006 | Explicit XYZ acquisition client, strict URI/HTTP profile, detached raster snapshot, bounded cache/cancellation, and three later vertical slices | Approved |
 | G10-007 | Three-outcome projection evidence gate, current DEFER result, future core/PROJ obligations, and G10 simplicity closeout | Approved |
 | G11-001 | Immutable edit commands/snapshots, atomic revisions, bounded delta history, same-CRS vertex/segment snapping, point-first AWT integration, and four later slices | Approved |
-| G11-002 | Closed fixed/categorical/graduated portrayals, exact query/interaction behavior, bounded singular-point labels, toolkit-neutral placement, and five later slices | Approved |
+| G11-002 | Closed fixed/categorical/graduated portrayals, exact query/interaction behavior, bounded singular-point labels, fixed paint/export metrics, toolkit-neutral placement, and five later slices | Approved |
 | G11-003 | AWT-free XML v1 model, portable field exclusions, guarded local paths, application openers/session ownership, atomic writer, and five later slices | Approved |
 | G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Approved |
+| G11-005 | Detached vector-export snapshot, AWT capture, canonical static SVG, exact effect/text/limit/failure policy, four later slices, and G11/G0–G11 simplicity closeout | Approved |

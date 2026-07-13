@@ -153,7 +153,8 @@ separately decomposed.
 - Use one immutable binding-owned portrayal with closed fixed/categorical/graduated role selectors,
   exact canonical-scalar matching, and projected source attributes. Place bounded name/text-attribute
   labels for singular points in one deterministic global pass: AWT owns logical `SansSerif` metrics
-  and drawing, while toolkit-neutral placed-label values preserve export and test boundaries. Later
+  and drawing through one fixed logical metric profile shared by paint and export capture, while
+  toolkit-neutral placed-label values preserve the handoff. Later
   G11-020 through G11-024 slices deliver selectors, complete roles, layout, regression/evidence, and
   native/consumer closeout without an expression language or label cache.
 - Persist a strict local `.mmap.xml` version 1: canonical CRS/view state, ordered local opener/identity/
@@ -167,6 +168,13 @@ separately decomposed.
   classifiers and a Java 21 Linux x86-64/glibc 2.35+ JVM-only claim. JTS, PROJ, and GDAL remain
   explicitly deferred until their recorded capability/evidence gates are met; no generic adapter API
   or empty module is reserved.
-- A bounded deterministic vector map export profile consuming G11-002's placed-label contract.
+- Export one detached logical-screen viewport as canonical static SVG 1.1. API-owned immutable
+  snapshot values cross from synchronous AWT capture into the existing AWT-free SVG module, which
+  reuses only the approved core symbol algorithms. The profile supports the six vector geometry
+  families, exact built-in vector symbol trees, hatches, and already measured/placed point labels;
+  raster/elevation layers, raster icons, custom/legacy symbols, overlays, metadata, image fallback,
+  and arbitrary SVG reject the whole operation. G11-040 through G11-043 deliver encoding/atomic
+  write, real capture and complete built-ins, hardening, then manual browser/native/publication/
+  consumer closeout without a new module or export framework.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).

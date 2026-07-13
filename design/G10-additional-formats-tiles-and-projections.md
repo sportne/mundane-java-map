@@ -11,13 +11,16 @@ HITL checkpoint **G10 secure SVG profile approval** must approve the tables, lim
 representability rules below before a module is created. A rejected or materially changed profile
 returns to design review; implementation does not quietly widen it.
 
-The working slice creates published `mundane-map-io-svg` only when secure parse-to-render behavior and
-tests land together. It is AWT-free and depends only on `mundane-map-api` plus JDK module `java.xml`.
-It uses no core implementation, Java2D, external XML library, DOM, XPath, Transformer, URL/network
-API, provider lookup, reflection, service discovery, or mutable global parser. XML and SVG types do
-not enter `mundane-map-api`.
+The working import slice creates published `mundane-map-io-svg` only when secure parse-to-render
+behavior and tests land together. At G10-001 it is AWT-free and depends only on `mundane-map-api`
+plus JDK module `java.xml`. G11-005 later approves adding exactly `mundane-map-core` when canonical
+map export first reuses its symbol-transform, endpoint-tangent, and hatch-layout algorithms; that
+approved edge does not weaken the AWT-free boundary or exist before working export behavior. The
+module uses no Java2D, external XML library, DOM, XPath, Transformer, URL/network API, provider
+lookup, reflection, service discovery, or mutable global parser. XML and SVG types do not enter
+`mundane-map-api`.
 
-The complete public surface is two final utility/value types:
+The complete G10-001 import surface is two final utility/value types:
 
 ```text
 SvgSymbols
@@ -39,6 +42,11 @@ therefore `Symbol`, not `MarkerSymbol`; the importer constructs only a `MARKER`-
 verifies that invariant immediately before publication. Every leaf uses the existing vector-marker
 renderer key and supplied placement. Applications may explicitly add the result to a
 `NamedSymbolCatalog`; import never mutates or invents a catalog.
+
+G11-005 separately approves four export-only types in this same artifact—`SvgMapExports`,
+`SvgExportLimits`, `SvgExportException`, and `SvgExportProblem`—and one API-owned detached
+`VectorExportSnapshot` family. They add no shared SVG document model and do not widen this import
+grammar.
 
 The path overload accepts a regular local file only, captures and bounds its size, reads at most
 `maximumInputBytes + 1` through a closed JDK stream, and retains no path or handle. The byte overload
@@ -296,9 +304,10 @@ fixed-seed bounded mutation harness accepts only a valid immutable symbol or sta
 
 `renderRegression` imports fixed in-memory documents and compares transformed bounds, layer order,
 background, broad color regions, and per-channel tolerances with equivalent hand-built symbols; it
-does not compare a whole image across platforms. Architecture tests prove the module has only API and
-`java.xml`, is AWT/network/discovery-free, and contains no DOM/XPath/Transformer or prohibited native
-mechanism.
+does not compare a whole image across platforms. At G10-001, architecture tests prove the module has
+only API and `java.xml`, is AWT/network/discovery-free, and contains no DOM/XPath/Transformer or
+prohibited native mechanism. After G11-040, the exact allowlist becomes API plus core and `java.xml`;
+tests still reject every other module and mechanism.
 
 Because no later SVG native task exists, this slice appends one direct package-private scenario to the
 then-current `NativeSmokeMain` immediately before its unchanged sentinel. It parses one literal UTF-8

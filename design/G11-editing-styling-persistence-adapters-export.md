@@ -833,10 +833,27 @@ disagree.
 ### One global deterministic placement pass
 
 AWT creates `new Font("SansSerif", PLAIN|BOLD, 1).deriveFont(size)` and one `TextLayout` per eligible
-request using the current child graphics' `FontRenderContext`. It extracts only finite visual bounds
-and advance into toolkit-neutral immutable placement input. AWT objects remain operation-local. Font
-fallback and exact glyph outlines are JDK/platform behavior; deterministic ordering is promised for a
-given input and metric set, not pixel-identical glyphs across operating systems.
+request through one package-private `LabelTextMetrics` helper. G11-005's holistic review fixes that
+helper's immutable metric profile for both ordinary painting and export capture:
+
+```text
+FontRenderContext(
+  identity AffineTransform,
+  RenderingHints.VALUE_TEXT_ANTIALIAS_ON,
+  RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+```
+
+The helper never reads the current child graphics' device transform or hint state. It extracts only
+finite visual bounds and advance into toolkit-neutral immutable placement input and returns one
+package-private pair containing those scalars plus the operation-local `TextLayout`. Ordinary paint
+retains the layout only until drawing; capture copies only the scalars and drops it. Before drawing,
+the child graphics sets the same
+text-antialias and fractional-metrics hints; its ordinary device transform then maps the approved
+logical layout to the screen. `MapView.captureVectorExportSnapshot` invokes the same helper on the EDT
+without a `Graphics2D` and discards every AWT value after copying the placed-label scalars. There is no
+retained last layout or second metric path. Installed logical-font mapping and exact glyph outlines
+remain JDK/platform behavior; identical text/profile inputs on one runtime use one metric result, but
+pixel-identical glyphs across operating systems are not promised.
 
 `GreedyPointLabelPlacement` in core receives the logical component box, measured requests, and exact
 paint ordinals. AWT assigns consecutive `int` ordinals from zero only to eligible requests as they are
@@ -1582,3 +1599,712 @@ support, Native Image `not-targeted` policy, deployment diagnostics, reopen evid
 graph before G10-040 or G10-043 is created. This is the smallest adapter policy consistent with
 demonstrated needs: two useful format adapters, no generic integration framework, and no speculative
 geometry/projection/GDAL cost.
+
+## Canonical vector map export profile (G11-005)
+
+### One static SVG target, not an export framework
+
+G11-005 selects canonical static SVG 1.1 for viewport map export. SVG is the one justified target
+because G2 already represents vector paths and symbols, G10-001 already owns a secure published SVG
+artifact, and ordinary browsers provide the manual interoperability surface. The design extends
+`mundane-map-io-svg`; it creates no export module, generic document tree, renderer backend, format
+SPI, PDF path, print service, or automatic exporter registry.
+
+The export is a bounded picture of one captured logical-screen viewport, not a map-data interchange
+format. One SVG user unit is one logical screen pixel. It contains the configured page background,
+accepted vector feature portrayal, and already placed G11 point labels. It deliberately contains no
+CRS/georeferencing, source/layer/feature identity, attributes, editing state, query, cache, timestamp,
+producer comment, arbitrary metadata, interaction overlay, tool overlay, UI chrome, or live object.
+The resulting SVG cannot be reopened as a map and is not round-trippable through G10-001's marker
+importer.
+
+The public operation is explicitly split at the toolkit boundary:
+
+```text
+mundane-map-awt
+  MapView.captureVectorExportSnapshot(
+      VectorExportSnapshotLimits limits, CancellationToken cancellation)
+    -> VectorExportSnapshot
+
+mundane-map-io-svg
+  SvgMapExports.encode(
+      VectorExportSnapshot snapshot, SvgExportLimits limits,
+      CancellationToken cancellation)
+    -> byte[]
+
+  SvgMapExports.writeAtomically(
+      Path target, VectorExportSnapshot snapshot, SvgExportLimits limits,
+      CancellationToken cancellation)
+```
+
+`VectorExportSnapshot`, `VectorExportSnapshotLimits`, `VectorExportSnapshotException`,
+`VectorExportSnapshotProblem`, and the snapshot's nested values live in `mundane-map-api`, the only
+module both producers and consumers may expose without reversing a dependency. The one new
+`MapView` method is the only public capture entry point; another AWT utility/provider hierarchy is
+unnecessary. The SVG module stays AWT-free and gains the one exact G0-approved dependency on
+`mundane-map-core` needed for `SymbolTransforms`, `LineTangents`, and `HatchLayouts`. It continues to
+depend on API and `java.xml`. Neither API nor AWT depends on the SVG module, and core does not know
+about snapshots or SVG. This boundary is the demonstrated exception to avoiding a snapshot
+abstraction: an immutable value is required to cross from the live AWT/source stack to an AWT-free
+writer.
+
+The G10 importer retains `SvgSymbols` and `SvgImportLimits`. Export adds only `SvgMapExports`,
+`SvgExportLimits`, `SvgExportException`, and `SvgExportProblem` to that artifact. There is no shared
+SVG DOM or parse/write model. Import and export share only small private ASCII number/color/XML
+helpers where their exact grammar agrees; neither is implemented by running the other direction.
+
+`VectorExportSnapshotProblem` and `SvgExportProblem` each contain one non-blank stable ASCII code and
+an insertion-ordered, defensively copied immutable `Map<String,String>` context. Their matching
+unchecked exceptions expose `problem()` and retain an optional Java cause; messages are human-readable
+but not contracts. Snapshot exceptions have no source report because existing source/CRS/label
+exceptions escape unchanged. `SvgMapExports` supplies convenience overloads using
+`SvgExportLimits.defaults()` and `CancellationToken.none()`; `VectorExportSnapshot.of` and the
+`MapView` method likewise have defaults/no-cancellation conveniences. No overload accepts a stream,
+writer, URI, URL, provider, renderer, callback, or mutable builder.
+
+### Detached snapshot values and invariants
+
+The API shape is one final top-level value with final nested records:
+
+```text
+VectorExportSnapshot.of(
+  int widthPixels,
+  int heightPixels,
+  Rgba background,
+  ViewFrame viewFrame,
+  int layerCount,
+  List<Primitive> primitives,
+  List<Label> labels,
+  VectorExportSnapshotLimits limits)
+
+ViewFrame(
+  double screenPixelsPerMapUnit,
+  double mapXAxisScreenBearingDegrees,
+  Coordinate mapOriginScreen)
+
+Primitive(
+  int layerIndex,
+  int featureIndex,
+  Geometry screenGeometry,
+  Symbol symbol)
+
+Label(
+  String text,
+  LabelTextStyle style,
+  double baselineX,
+  double baselineY,
+  double measuredAdvance,
+  int ordinaryPaintOrdinal)
+```
+
+The snapshot defensively copies both lists and validates their immutable nested records. Existing
+geometry, symbol, color, style, and coordinate values are already immutable and may be shared. It
+retains no `MapView`, binding, source, cursor, registry, portrayal selector, attribute map, source diagnostic,
+`TextLayout`, AWT value, path, or callback. `Label` intentionally strips the layer/feature IDs and
+visual/collision boxes from `PlacedPointLabel`; the writer needs only paint order, text/style,
+baseline, and measured advance. Numeric layer/feature ordinals remain solely for deterministic order
+and bounded failure context.
+
+`widthPixels` and `heightPixels` are positive logical component dimensions. `ViewFrame` records the
+validated G2 similarity basis in canonical form: positive finite screen pixels per projected map
+unit, normalized clockwise screen bearing of map-positive x, and the finite screen position of
+projected map origin `(0,0)`. These values preserve map-unit sizes/offsets, map-relative rotation,
+and hatch phase without duplicating or exposing core's `MapScreenBasis` through API. The writer
+reconstructs x delta `s*(cos(b),sin(b))` and y delta `s*(sin(b),-cos(b))` with `StrictMath`, then
+validates the negative-determinant basis through `MapScreenBasis.of`. A snapshot stores positive zero
+for zero bearing and every zero-valued coordinate.
+
+`screenGeometry` uses the six G4 geometry families with every coordinate already transformed into
+logical screen space. A primitive contains exactly one ordinary feature portrayal after role
+selection, even when its geometry is multipart or its symbol is composite. Its symbol role must
+match the geometry family. Primitives are strictly ordered by ascending `(layerIndex, featureIndex)`,
+each pair is unique, every layer index is below `layerCount`, and a feature index is non-negative.
+Empty layers are represented by `layerCount`, not placeholder primitives. Labels are strictly
+ordered by unique ascending `ordinaryPaintOrdinal`. Empty primitive and label lists are allowed, so
+a background-only export is useful and canonical.
+
+The public factory enforces scalar/list/order/role invariants, the supplied snapshot limits, and the
+hard snapshot caps below.
+It also iteratively validates the closed supported symbol tree: only exact built-in vector values
+listed in the next section are accepted. The check uses exact final classes and roles, never renderer
+keys alone. This keeps a snapshot self-contained: it cannot require an AWT registry or application
+callback later. Null, scalar, list, order, and role construction defects are field-naming
+`NullPointerException` or `IllegalArgumentException`; an otherwise well-formed but unsupported symbol
+tree uses `VECTOR_EXPORT_SYMBOL_UNSUPPORTED`, whether supplied programmatically or found during live
+capture.
+
+Snapshot accounting is a semantic inventory, not a JVM heap estimate. It reuses G4's primitive sizes
+and fixes every wrapper/container charge so two conforming implementations calculate the same value:
+
+| Retained snapshot occurrence | Logical byte charge |
+| --- | ---: |
+| `VectorExportSnapshot` wrapper, including dimensions/background and list references | 64 |
+| `ViewFrame` | 64 |
+| each `primitives` or `labels` list slot | 8 |
+| each `Primitive` or geometry node | 64 |
+| each `CoordinateSequence` occurrence | 32 |
+| each geometry coordinate pair | 16 |
+| each part/ring/polygon-ring fencepost | 4 |
+| each singular-polygon hole-list slot | 8 |
+| each exact built-in symbol node, including all of its fixed scalar/enum/color/placement/stroke fields | 64 |
+| each composite child, endpoint, or fill-outline reference edge | 8 |
+| each `VectorPath` wrapper | 32 |
+| each vector-path opcode / ordinate | 1 / 8 |
+| each `Label`, including its style and numeric fields | 64 plus 2 per retained text UTF-16 code unit |
+
+Point geometry has one coordinate pair and no sequence charge. Singular line/polygon and all packed
+multipart values charge every owned sequence occurrence, coordinate pair, and declared fence; a
+singular polygon additionally charges its hole-list slots. Derived envelopes/caches and object headers
+are excluded. A symbol node's 64-byte charge includes `Rgba`, `MarkerPlacement`, `SymbolSize`,
+`SymbolStroke`, and `SymbolLength` state; only structural child edges and a vector marker's variable
+path payload add charges. The supplied limits and problems are not retained and are not charged.
+
+Every occurrence is charged without identity deduplication, so a shared geometry, symbol, path, or
+text value used by two primitives is charged twice. The counter is cumulative, uses checked
+prospective arithmetic, accepts equality, and records `requested=Long.MAX_VALUE` on overflow before
+publication.
+
+### Synchronous AWT capture
+
+Capture must be invoked on the Swing event-dispatch thread. An off-EDT call is a programmer error;
+the method does not call `invokeAndWait`, start a worker, or hide deadlock/reentrancy policy. It
+captures positive current component dimensions, immutable content/binding, viewport, CRS registry,
+symbol registry, portrayal resolver, supplied snapshot limits, and cancellation token once. It also
+captures the current non-null, opaque component background and converts that `Color` immediately to
+`Rgba`; a non-opaque component or color cannot produce a self-contained picture and uses
+`VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID field=componentBackground reason=nonOpaque`. A programmatic
+snapshot may still declare a transparent background.
+
+Before opening any feature cursor, capture preflights every layer. Raster and elevation bindings are
+terminally unsupported, as are a closed view or incompatible component dimensions. It does not reject
+an unselected portrayal rule: only a symbol actually resolved for a captured feature enters the
+picture/profile and has a meaningful `featureIndex`. Capture then visits feature layers in ordinary
+paint order, opens exactly one viewport query per source layer using G11-002's exact
+projected portrayal/label attributes, and closes each cursor before publishing the snapshot. Snapshot
+and editable bindings use their immutable records directly. A source, CRS, or label-layout failure
+retains its existing typed exception and problem/report; capture does not relabel it as SVG.
+
+Each accepted record is transformed from authoritative geometry, not a G7 clipped/simplified screen
+plan or render-cache entry. Portrayal resolves exactly once for the geometry role. An absent symbol
+produces no primitive or label. A present symbol is recursively profile-checked even when effective
+opacity is zero; unsupported content never becomes acceptable merely because it would paint nothing.
+The same G2 placement algorithms derive marker nominal bounds used by G11 label collection. Capture
+performs the one G11 global metric/placement pass through the fixed `LabelTextMetrics` profile used by
+ordinary paint, then copies accepted labels in ascending ordinary paint order. No feature geometry or
+label is published until every layer/query, transform, symbol check, label placement, limit, and final
+cancellation check succeeds.
+
+Cancellation is checked before preflight, before each layer/cursor open and advance, before each
+geometry/symbol traversal, before and after label layout, and immediately before publication. Every
+cursor closes exactly once; on failure, the original typed failure remains primary and close failures
+are suppressed under the existing G4 rules. The method retains no last snapshot and adds no listener,
+background work, cache, or capture-mode mutation to `MapView`.
+
+### Exact supported and rejected paint profile
+
+All six toolkit-neutral vector geometry families are supported: point, multipoint, line string,
+multi-line string, polygon, and multi-polygon. The exact accepted symbol tree is:
+
+| Role | Accepted exact value | Export behavior |
+| --- | --- | --- |
+| Marker | `VectorMarkerSymbol` | Transform its `VectorPath`, then emit fill and optional stroke. G10-imported symbols are ordinary values here. |
+| Line | `SolidLineSymbol` | Emit each part's round-cap/join centerline, then supported start and end marker trees using G2 tangent rules. |
+| Fill | `SolidFillSymbol` | Emit each polygon component with even-odd holes, then a recursively supported solid line outline without closed-ring endpoints. |
+| Fill | `HatchFillSymbol` | Emit bounded G2 hatch segments under a deterministic polygon clip, then its recursively supported line outline; cross hatches retain forward-then-backward order. |
+| Any one role | `CompositeSymbol` | Traverse non-empty role-homogeneous children in declaration order, multiplying inherited opacity. |
+
+Endpoint marker trees may contain only vector markers and marker composites. A solid- or hatch-fill
+outline may contain only solid lines and line composites. Composite traversal is iterative with the same
+child-major/component-major rules approved in G2; nested boundaries remain relevant to opacity and
+diagnostics even though no SVG group-opacity semantics are used. Effective alpha is the product of
+all enclosing composite/symbol/color alpha and is flattened onto each leaf fill or stroke. This
+matches G2's `SRC_OVER` leaf semantics; SVG group opacity, filters, masks, and offscreen compositing
+are not used.
+
+For limits and failures, `symbolOrdinal` resets to zero at each primitive and follows iterative
+preorder: root; composite children in declaration order; line start then end endpoint trees; and the
+optional outline tree of either fill kind. Root depth is one. This is also the accounting/preflight order, so a crossing node and
+unsupported descendant are selected independently of collection/hash iteration or paint opacity.
+
+The complete terminal rejection set is raster/elevation layers, `RasterIconSymbol`, deprecated
+`FeatureStyle`, any consumer-defined symbol or renderer key/value, role mismatch, unsupported
+descendant, and any future built-in not added by an explicit profile revision. Rejection is whole
+operation: there is no image embedding, glyph outlining, raster fallback, partial layer omission,
+renderer callback, warning-only degradation, or `opacity=0` escape. Editing previews, hover,
+selection, measurement, cursor/tool state, and UI decorations are not layers and are never captured.
+
+### Geometry, paint order, clipping, and hatches
+
+The SVG writer validates the snapshot root/limits, then uses two deterministic streaming traversals
+into one private bounded byte sink: the first writes the viewport and hatch clip definitions; the
+second writes background, geometry, and labels. It retains no element plan, display list, path-token
+list, ID string, or transformed-geometry copy. Both traversals assign monotonically increasing hatch
+ordinals from the same structural order; tests assert that the paint pass consumes exactly the number
+defined by the first pass. IDs are `v0` for the viewport and `c1`, `c2`, ... for hatch clips; their
+ASCII digits are written directly from counters and derive only from traversal, never from
+source/layer/feature/catalog identity. A later failure discards the private partial bytes. The writer
+never uses user text as an XML name or URL. Internal `url(#...)` clip references are the sole URL
+syntax in the document.
+
+The background rectangle is first inside the viewport-clipped paint group. Ordinary feature
+primitives follow snapshot order. Point/multipoint components retain coordinate order. Line parts
+are part-major inside one line child: centerline, start marker if the part has a distinct tangent,
+then end marker; a line composite is child-major across all parts. Polygon components are emitted as
+separate SVG paths so overlapping components composite as G2 paints them rather than cancelling each
+other under one even-odd path. Each component path contains its exterior followed by holes and uses
+`fill-rule="evenodd"`. Fill interior/hatches paint before its outline; composite fill children remain
+child-major.
+
+Vector marker fill and stroke are separate leaf paths in that order. The fill path contains only
+explicitly closed source subpaths, preserving their relative order; an open subpath is omitted from
+fill rather than relying on SVG's implicit fill closure, and no fill element is emitted when none is
+closed. The stroke path contains every source subpath. A line centerline uses `fill="none"`, fixed
+`stroke-linecap="round"`, and `stroke-linejoin="round"`; an all-coincident part is omitted exactly as
+in G2. The writer transforms marker path commands through the reconstructed G2 basis, preserves
+move/line/quadratic/cubic/close topology, and validates every transformed coordinate. Endpoint transforms use
+`LineTangents.outwardScreenBearings` and `SymbolTransforms.markerAtScreenBearing`; ordinary markers
+use `SymbolTransforms.marker`. Symbol length conversion uses `SymbolTransforms.screenLength`.
+
+Hatches reuse `HatchLayouts.cover` over the intersection of the polygon's screen bounds and page
+rectangle. G11-041 adds the matching allocation-free preflight:
+
+```text
+HatchLayouts.candidateSegmentCount(
+    HatchPattern pattern, Envelope bounds, Coordinate latticeOrigin,
+    double orientationBaseBearing, double spacingPixels, String featureId) -> long
+```
+
+It returns the exact combined conservative candidate count for the same inputs, zero for an empty
+intersection, and `Long.MAX_VALUE` for count arithmetic overflow; other invalid/non-finite inputs keep
+G2's symbol failure. `cover` delegates to that same private count calculation before its existing
+limit/allocation path. Hatch phase uses screen origin for screen-relative rotation and the snapshot's projected
+map-origin screen coordinate for map-relative rotation. The writer emits one deterministic
+`clipPath clipPathUnits="userSpaceOnUse"` per hatch-painted polygon component and one path containing
+the packed hatch line segments. The clip path preserves that component's holes with even-odd fill.
+Hatch segments are not geometrically intersected a second time; the SVG clip establishes the same
+bounded visible result as AWT. After that component's hatch path, the hatch symbol's optional outline
+paints exterior then holes with endpoint markers suppressed at every nested line/composite level;
+the hatch symbol's opacity multiplies both strokes and the outline's own opacity exactly as in G2.
+For multipolygons a hatch leaf is component-major (hatch then outline for each component), while a
+fill composite remains child-major across every component. Clip and element counts are charged before
+retaining IDs or commands.
+
+The conservative count also defines the two-pass empty-result policy. A zero candidate count assigns
+no ordinal, emits no clip, never calls `cover`, and emits no hatch path; the optional outline still
+paints. A positive candidate count always assigns the next ordinal and emits its clip in the
+definitions pass. The paint pass advances that same ordinal and calls `cover`. If every conservative
+candidate is a corner-only intersection and the returned `HatchSegments.segmentCount()` is zero, it
+emits no hatch path—never an empty `d`—but deliberately leaves the already emitted, unused clip in
+`defs`. The clip elements and clip-geometry path commands count toward their respective writer
+limits, while the absent hatch path contributes neither an element nor path commands. Its candidate
+and wrapper byte charges are retained because the bounded core result was still requested. This
+closed policy avoids a retained hatch plan or a third traversal while keeping clip IDs identical in
+both passes.
+
+All ordinary geometry is constrained by the root viewport clip. Coordinates outside the page are
+legal if finite and within snapshot/accounting bounds; they are not silently quantized or clamped.
+The SVG writer does not reuse G7's paint-only simplified geometry because capture already retained
+authoritative screen geometry. The writer has no path cache, DOM, scene graph, or second geometry
+optimizer.
+
+### Labels and font policy
+
+Only snapshot `Label` values derived from G11-002 `PlacedPointLabel` are emitted. All labels follow
+all geometry in ascending ordinary paint ordinal, matching the approved AWT pass. Each becomes one
+`text` element at its recorded baseline with:
+
+```text
+font-family="sans-serif"
+font-size="<logical pixels>"
+font-weight="normal|bold"
+textLength="<measured advance>"
+lengthAdjust="spacingAndGlyphs"
+xml:space="preserve"
+```
+
+Fill color and opacity come from `LabelTextStyle`; no stroke/background/halo/shadow is emitted. Text
+content is escaped as XML character data. Every Unicode scalar must be legal in XML 1.0; unpaired
+surrogates, forbidden controls, CR/LF/line/paragraph separators, non-finite metrics, negative
+advance, or a style outside G11's fixed family/weight/size profile is terminal. Tabs remain literal
+text because G11 accepts them. The writer does not normalize, trim, wrap, truncate, format, or insert
+font fallback metadata.
+
+The generic family and recorded advance preserve the intended layout envelope without promising
+identical glyph outlines on every viewer. There is no font embedding, local font lookup, glyph-to-path
+conversion, AWT metric call, or external reference. Identical snapshots produce identical bytes.
+Two captures of an equivalent live view on different platforms may differ in label baselines,
+advances, or admitted collisions because G11 explicitly makes those metric inputs platform-dependent;
+that is not represented as cross-platform byte determinism.
+
+### Canonical SVG 1.1 serialization
+
+The complete output grammar contains only `svg`, `defs`, `clipPath`, `rect`, `g`, `path`, and `text`.
+It always writes a `defs` containing `v0`, then any hatch clips, and one paint `g` clipped to `v0`.
+No empty/alternate syntax is chosen based on a serializer provider. The fixed outer form is:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="W" height="H" viewBox="0 0 W H">
+  ...canonical fixed-order content...
+</svg>
+```
+
+The exact attribute order and omission policy is:
+
+| Construct | Attributes in order |
+| --- | --- |
+| root `svg` | `xmlns`, `version`, `width`, `height`, `viewBox` |
+| any `clipPath` | `id`, `clipPathUnits="userSpaceOnUse"` |
+| viewport clip `rect` | `x="0"`, `y="0"`, `width`, `height` |
+| polygon clip `path` | `d`, `clip-rule="evenodd"` |
+| paint `g` | `clip-path="url(#v0)"` |
+| background `rect` | `x="0"`, `y="0"`, `width`, `height`, `fill`, optional `fill-opacity` |
+| filled `path` | `d`, `fill`, `fill-rule="evenodd"`, optional `fill-opacity` |
+| stroked `path` | `d`, `fill="none"`, `stroke`, `stroke-width`, `stroke-linecap="round"`, `stroke-linejoin="round"`, optional `stroke-opacity` |
+| hatch stroked `path` | `d`, `fill="none"`, `stroke`, `stroke-width`, `stroke-linecap="round"`, `stroke-linejoin="round"`, optional `stroke-opacity`, then `clip-path="url(#cN)"` |
+| label `text` | `x`, `y`, `fill`, optional `fill-opacity`, `font-family`, `font-size`, `font-weight`, `textLength`, `lengthAdjust`, `xml:space` |
+
+`defs`, the outer paint group, and every `clipPath` use explicit start/end tags. `rect` and `path`
+use `/>`; `text` always uses start/content/end tags. One indentation level is added per open
+container, including content within `defs`, and an empty paint group is still emitted as two tags.
+The background alpha and every leaf color alpha are exactly `rgbaAlpha / 255.0` multiplied by the
+applicable symbol/composite opacity; the optional opacity attribute is omitted only when that result
+is exactly `1.0`.
+
+Serialization uses UTF-8 without BOM, LF only, two-space indentation, no trailing spaces, and one
+final LF. Element and attribute order is specified by the tables in this section and never inherited
+from a map, collection iteration, XML writer, or locale. The implementation writes directly to one
+bounded byte sink; it does not use DOM, Transformer, provider lookup, reflection, service discovery,
+or an XML output factory whose escaping/empty-element choices could vary. A secure JDK StAX parser is
+used only in tests to assert the resulting structure.
+
+Path data uses uppercase `M`, `L`, `Q`, `C`, and `Z`, absolute coordinates, single ASCII spaces, and
+no commas, shorthand, relative commands, or redundant close coordinate. Every finite double is
+canonicalized from negative to positive zero and then rendered by locale-independent
+`Double.toString`; integer page dimensions/ordinals use ASCII decimal. There is no precision option,
+rounding, exponent rewriting, or lossy quantization. Colors are lowercase `#rrggbb`. A leaf omits
+`fill-opacity`/`stroke-opacity` exactly when effective alpha is one and otherwise writes the
+canonical double in `[0,1]`; transparent leaves remain in traversal and serialize opacity zero.
+Fixed defaults are never delegated to a viewer: path fill/stroke, fill rule, line cap/join/width,
+text family/size/weight/fill, and clip rule are written explicitly where they apply.
+
+XML escaping uses `&amp;`, `&lt;`, and `&gt;` in text and the fixed five XML attribute escapes in
+attributes. It emits scalars directly as UTF-8 rather than numeric references. No source-derived ID,
+class, style block, CSS, script, event attribute, animation, external/local reference, `<image>`,
+data URL, DTD, entity declaration, processing instruction beyond the fixed declaration, CDATA,
+comment, metadata, title, description, namespace prefix, arbitrary attribute, or arbitrary SVG
+fragment can appear.
+
+### Limits, diagnostics, cancellation, and file replacement
+
+The API-owned `VectorExportSnapshotLimits.defaults()` contains only detached-snapshot concerns.
+Complete immutable withers set any positive value at or below the corresponding hard maximum. The
+factory and `MapView` capture accept one explicit value; convenience overloads use defaults. Capture
+applies the tighter of these limits and the already effective G4 query/G11 label ceilings, never
+widens a source operation, and charges its detached output independently of source staging.
+
+| Snapshot limit | Default and hard maximum |
+| --- | ---: |
+| Page width or height | 16,384 |
+| Layers | 1,024 |
+| Feature primitives | 100,000 |
+| Geometry coordinate pairs | 10,000,000 |
+| Composite depth | 64 |
+| Aggregate symbol nodes | 1,000,000 |
+| Labels | 4,096 |
+| Label Unicode code points | 262,144 |
+| Conservatively owned snapshot bytes | 268,435,456 |
+
+The SVG-owned `SvgExportLimits.defaults()` contains only serialization work that is not already a
+snapshot invariant. Its complete immutable withers follow the same positive-at-or-below-hard-maximum
+rule:
+
+| Writer limit | Default and hard maximum |
+| --- | ---: |
+| Emitted SVG elements, including defs/clips | 1,000,000 |
+| Emitted path commands | 10,000,000 |
+| Hatch candidate segments | 1,000,000 |
+| Encoded output bytes | 67,108,864 |
+| Conservatively owned writer bytes | 268,435,456 |
+
+There is no zero, negative, unlimited sentinel, system-property override, or mutable global in either
+value. Writer-owned bytes use this exact semantic inventory:
+
+| Writer-owned occurrence | Logical byte charge |
+| --- | ---: |
+| operation state and fixed counters | 64 |
+| reconstructed `MapScreenBasis` | 64 |
+| each returned `MarkerTransform` or `LineEndpointBearings` | 64 |
+| each returned `HatchSegments` wrapper | 64 |
+| each conservative hatch candidate represented by its packed result capacity | 32 |
+| each prospective finite-double token | fixed 64-byte reservation |
+| each output-sink chunk | its full byte capacity |
+| final exact-length returned byte array | its length |
+
+The sink uses deterministic chunks: each new capacity is
+`min(8,192, effectiveOutputByteMaximum - alreadyAllocatedChunkCapacity)`. It charges a full chunk
+before allocation, counts each emitted UTF-8 byte independently against `outputBytes`, then charges
+and allocates one exact-length publication array while the chunks still exist. Fixed XML literals,
+snapshot-owned text/geometry/symbols, primitive counters, and a `ByteBuffer` view over the final array
+have no additional charge. XML text/IDs/integers are encoded directly without retained strings;
+before invoking `Double.toString`, the writer charges the fixed 64-byte finite-double-token
+reservation. The resulting canonical token must fit within 32 UTF-16 code units, is consumed
+immediately, and receives no refund. Java 21's specified finite representation is shorter than that
+ceiling; boundary-value tests pin the reservation. Thus the charge is prospective even though the
+JDK formatter returns a temporary string. Marker/path coordinates are transformed and encoded one
+command at a time.
+`HatchLayouts.cover` is called once per positive-candidate hatch occurrence
+in the paint traversal. G11-041 narrowly adds allocation-free
+`HatchLayouts.candidateSegmentCount(...)`, which returns the exact conservative non-negative count
+already computed by `cover` preflight (or `Long.MAX_VALUE` for arithmetic overflow); `cover` and the
+new method share one private calculation and equivalence tests. The method adds no retained plan or
+new type. During the definitions traversal, before emitting that hatch's clip, the writer checks the
+count against the symbol, aggregate-segment, and owned-byte ceilings, then reserves one 64-byte wrapper
+plus `32 * candidateCount`; zero candidates reserve no wrapper and emit neither clip nor hatch path.
+The paint traversal recomputes and asserts the same immutable count, then calls `cover` with that exact
+positive `int` maximum without charging again. Corner-only candidates remain charged even when fewer
+segments are emitted; a zero-segment result follows the unused-clip policy above. The definitions
+traversal otherwise uses existing polygon coordinates directly and allocates no hatch result.
+
+Counts and charges are prospective and cumulative; releasing a core result or sink chunk does not
+refund them. Snapshot accounting independently charges its reachable occurrences and is excluded from
+writer-owned bytes. Checked overflow records `requested=Long.MAX_VALUE`. Equality succeeds; maximum
+plus one fails with no externally returned partial bytes or file touched.
+
+`VectorExportSnapshotException` carries `VectorExportSnapshotProblem`; construction/capture uses only
+the following exact insertion-ordered shapes. There are no conditional keys:
+
+| Code and case | Exact ordered context |
+| --- | --- |
+| `VECTOR_EXPORT_LAYER_UNSUPPORTED` | `layerIndex`, `kind` |
+| `VECTOR_EXPORT_SYMBOL_UNSUPPORTED` | `layerIndex`, `featureIndex`, `symbolOrdinal`, `kind` |
+| `VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID`, component/frame | `field`, `reason` |
+| `VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID`, primitive | `field=geometry`, `reason`, `layerIndex`, `featureIndex` |
+| `VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID`, label | `field` (`labelText` or `labelMetric`), `reason`, `labelIndex`, `ordinaryPaintOrdinal` |
+| `VECTOR_EXPORT_SNAPSHOT_LIMIT_EXCEEDED` | `limit`, `maximum`, `requested` |
+| `VECTOR_EXPORT_SNAPSHOT_CANCELLED` | empty |
+
+Closed layer `kind` is `raster` or `elevation`; symbol `kind` is `rasterIcon`, `legacy`, `custom`,
+`futureBuiltIn`, or `wrongDescendant`; component/frame `field` is `componentSize`,
+`componentBackground`, or `viewFrame`; and `reason` is `missing`, `zero`, `nonOpaque`, `nonFinite`, `range`, or
+`xmlScalar`. Snapshot `limit` is `pageAxis`, `layers`, `features`, `coordinates`, `compositeDepth`,
+`symbolNodes`, `labels`, `labelCodePoints`, or `ownedBytes`. Valid field/reason pairs are
+`componentSize/zero|range`, `componentBackground/missing|nonOpaque`, `viewFrame/nonFinite|range`,
+`geometry/nonFinite|range`, `labelText/xmlScalar`, and `labelMetric/nonFinite|range`. `labelIndex` is
+the zero-based index in ascending accepted-label output order and
+`ordinaryPaintOrdinal` is its bounded snapshot value. Existing source, CRS, symbol-transform, and
+label exceptions retain their own type/problem/report rather than being copied into this table.
+Context never includes a Java class name or renderer key.
+
+Capture precedence is public arguments, EDT/lifecycle, already-cancelled token, component/background
+and page-limit checks, unsupported-layer preflight in layer order, then each layer's query/projection,
+resolved-symbol/profile/accounting checks in feature order, label placement/accounting, final
+cancellation, and publication. Raster/elevation rejection therefore occurs before source I/O. A
+non-cancellation source/CRS/label failure already encountered is never overwritten because the token
+is observed later.
+
+`SvgExportException` carries one immutable `SvgExportProblem(code, context)` and an optional cause.
+The writer likewise has no conditional context keys:
+
+| Code and case | Exact ordered context |
+| --- | --- |
+| `SVG_EXPORT_VALUE_INVALID`, frame | `field=viewFrame`, `reason` |
+| `SVG_EXPORT_VALUE_INVALID`, primitive/symbol | `field` (`geometry`, `symbolTransform`, or `hatchLayout`), `reason`, `layerIndex`, `featureIndex`, `symbolOrdinal` |
+| `SVG_EXPORT_VALUE_INVALID`, label | `field` (`labelText` or `labelMetric`), `reason`, `labelIndex`, `ordinaryPaintOrdinal` |
+| `SVG_EXPORT_LIMIT_EXCEEDED` | `scope`, `limit`, `maximum`, `requested` |
+| `SVG_EXPORT_CANCELLED` | empty |
+| `SVG_EXPORT_IO_FAILED` | `operation`, `reason` |
+| `SVG_EXPORT_ATOMIC_MOVE_UNSUPPORTED` | empty |
+
+Writer tokens are closed: `reason=nonFinite|range|xmlScalar`,
+`scope=symbol|writer`, `limit=elements|pathCommands|hatchSegments|outputBytes|ownedBytes`,
+`operation=preflight|temporary|write|force|close|move|delete`, and I/O
+`reason=missing|accessDenied|alreadyExists|wrongKind|symlink|closed|other`. Every writer-owned limit
+uses `scope=writer`; `scope=symbol` is valid only for one hatch node's G2 `maxSegments` ceiling.
+Valid value field/reason pairs are `viewFrame/nonFinite|range`, `geometry/nonFinite|range`,
+`symbolTransform/nonFinite|range`, `hatchLayout/nonFinite|range`, `labelText/xmlScalar`, and
+`labelMetric/nonFinite|range`.
+Context contains only these ASCII tokens and bounded decimal ordinals/counts. It never contains source
+IDs, feature IDs, label text, XML, paths, catalog names, renderer keys, provider classes/messages, or
+exception messages.
+
+Writer precedence is public arguments/configuration, already-cancelled token, snapshot/effective
+limits, the definitions traversal, the paint traversal, final cancellation, then file operations.
+The writer supplies fixed bounded identifier `svg-export` to core algorithms that require a
+diagnostic feature ID, catches their known `SymbolException`/basis failures, and maps transform/value
+failures to `SVG_EXPORT_VALUE_INVALID` with the exact current snapshot ordinals above. The synthetic
+identifier and core message never enter output context.
+
+For each hatch symbol node, candidate counts accumulate across all polygon components of that one
+primitive; another hatch child starts its own symbol counter. The writer also holds one operation-wide
+candidate counter and the exact current writer-owned-byte count. After the allocation-free core count,
+crossing checks occur in this order:
+
+1. the hatch node's `maxSegments`: `scope=symbol`, `limit=hatchSegments`, `maximum` is that configured
+   cap, and `requested` is the checked node-cumulative candidate count;
+2. the SVG aggregate: `scope=writer`, `limit=hatchSegments`, `maximum` is the effective export limit,
+   and `requested` is the checked operation-cumulative candidate count; then
+3. the writer allocation: `scope=writer`, `limit=ownedBytes`, `maximum` is the effective owned-byte
+   limit, and `requested` is current bytes plus 64 plus `32 * candidateCount`.
+
+A tie therefore preserves the G2 per-feature symbol cap before export-only caps. Arithmetic/core
+overflow records `requested=Long.MAX_VALUE`. Only after all three succeed does the writer charge and
+call `HatchLayouts.cover`; later element/path-command checks cannot replace an earlier hatch crossing.
+
+`encode` validates and traverses the complete snapshot and returns a fresh exact-length byte array.
+After the initial argument/already-cancelled check, both definitions and paint passes poll before each
+primitive, symbol node, geometry part, hatch count/layout, label, output-chunk allocation, and final
+array allocation. One last poll immediately before publication is the operation's success
+linearization point; cancellation after it does not retract a returned array. An observed cancellation
+releases private buffers and returns no bytes. It never reports a partial document.
+
+`writeAtomically` first runs the complete `encode` path and holds the validated canonical bytes before
+examining the target. It then reuses G11-003's file policy: under `NOFOLLOW_LINKS`, require an existing
+real parent directory and an absent or regular non-symlink target; create one unpredictable
+same-directory sibling with `CREATE_NEW`; write every byte; call `FileChannel.force(true)`; close;
+then move with `ATOMIC_MOVE|REPLACE_EXISTING`.
+There is no non-atomic fallback, cross-directory temporary, pre-delete, in-place write, backup,
+permission/owner copying, or directory force claim. After `encode` returns, file output polls the
+same token at these exact checkpoints: before and after target preflight; immediately before and after
+temporary creation; before and after every `FileChannel.write` invocation over slices of at most
+65,536 bytes; immediately before and after `force(true)`; after the mandatory close; and immediately
+before the atomic move. Close runs exactly once on every created channel even when a prior poll
+cancels. The successful atomic move is the file operation's linearization point and there is no
+post-move poll, so later cancellation cannot retract success.
+
+At a poll with no prior failure, cancellation becomes primary, the channel is closed, and the
+temporary is deleted once. A create/write/force/close/move failure already encountered remains
+primary even if the token is then observed; cancellation and cleanup failures are suppressed rather
+than replacing it. Conversely, close/delete failures after cancellation are suppressed onto
+`SVG_EXPORT_CANCELLED`. Thus cancellation before creation leaves no temporary, cancellation during
+bounded writing/force or after close deletes it and leaves an existing target unchanged, and
+cancellation racing a move is decided by the immediately preceding poll versus successful move.
+
+### Verification, decomposition, and checkpoint
+
+Later API tests cover nested-value immutability, list/order/role validation, positive-zero/bearing
+normalization, exact/one-over snapshot counts and accounting, unsupported recursive symbols, stripped
+labels, and equal snapshot values. Core/SVG tests pin every semantic byte-inventory row, deterministic
+sink-chunk/final-array charge, fixed pre-`Double.toString` token reservation and boundary lengths,
+hatch candidate-count/cover equivalence (including positive-candidate/zero-segment omission and its
+unused clip), and exact/one-over writer limits. Programmatic snapshots assert exact canonical
+bytes, repeat/equal-snapshot identity, every path command and geometry family, multipart/component/
+composite/endpoint/hatch/outline order and hatch clip attributes, map/screen units and rotations,
+holes, opacity multiplication,
+background/viewport clips, text escaping/advance, XML scalar policy, all limit/overflow/cancellation
+points (including every post-encode file checkpoint), and every exact stable context shape. Secure
+StAX tests assert only the closed grammar and no
+external reference; they do not reuse the G10 marker importer as an oracle.
+
+AWT integration tests capture snapshot, source, and editable bindings; assert one query and cursor
+close per source layer; prove exact attribute projection, authoritative rather than G7 optimized
+geometry, current portrayal, deterministic layer/feature order, label stripping/order, all-or-nothing
+source/CRS/label failures, unsupported raster/elevation/custom/raster-icon/legacy content, EDT rule,
+fixed paint/capture metric parity, limits, cancellation, and no retained view/source/cursor/AWT
+object. A runnable example exports the
+same viewport it displays and reports the output path plus structured failure without auto-opening a
+browser.
+
+There is no JDK SVG renderer and no second test-only dependency is justified. G11-043 therefore
+requires a named manual comparison in current Firefox and Chromium: open one checked-in expected-case
+export, compare page/background, broad color regions, geometry bounds/order, holes, markers,
+arrowheads, hatches, and label envelopes against the live example, and record browser/OS versions.
+The comparison is tolerant and visual, not a pixel hash or glyph-identity claim. Structural/exact-byte
+tests remain the automated oracle.
+
+Native evidence appends one literal, resource-free programmatic snapshot encode and temporary-file
+write to the existing shared executable, asserting exact structural tokens and one
+`VECTOR_EXPORT_SYMBOL_UNSUPPORTED` construction diagnostic on JVM and the required Linux Native
+Image lane. AWT capture is not part of that headless native scenario. Publication extends the
+existing SVG artifact contract and standalone consumer: it
+uses the staged API/core/SVG artifacts to construct, encode, and write one snapshot. Architecture
+tests update the SVG allowlist from API-only to exactly API plus core and continue to forbid AWT,
+network, discovery, reflection, DOM/Transformer, and prohibited native mechanisms. No new artifact or
+specialized Gradle lane is added.
+
+Implementation is deferred into four reviewable vertical slices:
+
+1. `G11-040` adds API snapshot/problem values and the SVG module's limits/problem/facade with exact
+   canonical background, point/line/polygon solid-symbol encode and atomic write from a programmatic
+   snapshot.
+2. `G11-041` adds real AWT capture, portrayal/label handoff, all six geometry families, composites,
+   endpoints, the allocation-free core hatch-candidate count plus hatches, and the runnable export
+   example.
+3. `G11-042` completes exact limits/accounting, cancellation, stable diagnostics, hostile values,
+   injected file failures, and cleanup/atomic-replacement evidence.
+4. `G11-043` completes Javadocs, architecture/render-structure checks, manual browser checkpoint,
+   shared Linux Native Image scenario, publication, and staged offline consumer.
+
+The exact graph is `G11-005 + G11-022 -> G11-040`; `G11-040 + G11-023 -> G11-041 -> G11-042`; and
+`G11-042 + G11-024 -> G11-043`. G11-022 supplies the public label values used by the programmatic
+snapshot, G11-023 supplies real placement/capture, and G11-024's native/publication closeout lands
+before the shared final evidence. The SVG slices are internally serialized. They are not path-safe
+with those label tasks when both touch API/AWT/native/publication/example/task/roadmap files, so one
+integrator owns such overlaps. A module is not added: G11-040 extends `mundane-map-io-svg` only after
+G10-001 exists.
+
+The named HITL checkpoint is **G11 canonical static SVG vector-map export profile approval**. A
+maintainer approves the target, snapshot/AWT/I/O ownership, supported/rejected matrix, text/font and
+no-fallback policies, canonical grammar/numbers/IDs, limits/diagnostics/cancellation, atomic
+replacement, manual comparison, native/publication scope, and four-slice graph before G11-040.
+
+## G11 holistic simplicity closeout
+
+G11 adds five independent capabilities only where an observable workflow requires them:
+
+- editing is an application-owned immutable point-session with bounded history/snapping, not a
+  mutation mode attached to read-only sources;
+- thematic portrayal and one singular-point label pass replace parallel styling/label mechanisms
+  without adding an expression language or layout engine;
+- workspace v1 persists only portable local references/configuration through explicit application
+  openers and does not serialize live edit, portrayal, source, registry, or cache graphs;
+- only the two demonstrated SQLite format adapters are accepted, while JTS, PROJ, and GDAL reserve
+  nothing until evidence changes; and
+- vector export is one detached snapshot plus one canonical SVG writer in an existing module, not a
+  renderer/document/plugin framework.
+
+The boundaries do not overlap: edit snapshots are authoritative data state; portrayal resolves one
+display symbol; a vector-map snapshot is a short-lived detached picture; workspace documents contain
+references/configuration only; adapters supply ordinary format-neutral sources. None is used as a
+generic persistence, command, scene, provider, or object-graph abstraction for another. Shared API
+values are immutable and minimal, core owns JDK-only algorithms, AWT alone owns Java2D/Swing/live
+capture, and format modules own bounded parsing/serialization. G11 therefore remains simple enough
+for a small embeddable map library while preserving the exact extension seams already demonstrated.
+
+## G0–G11 whole-design simplicity closeout
+
+The completed top- and mid-level design still follows one directional model:
+
+```text
+immutable API contracts
+        -> JDK-only core algorithms
+        -> explicit AWT presentation and tools
+        -> independent AWT-free format sources/writers
+        -> explicit application composition/examples
+```
+
+The textual arrows describe use, while the enforced module graph remains API at the bottom, core over
+API, AWT over API/core, and each I/O module over API plus only inventoried core algorithms. External
+libraries exist only in named Level 2 adapters with non-leaking types and explicit platform/native
+policies. Every production module appears with working behavior; deferred formats/projections/
+adapters create no placeholders. Registries and source/opening choices are instance-owned and
+explicit. Public values are immutable with defensive copies and packed primitive storage where it
+materially reduces coordinate/sample overhead. Untrusted binary/text inputs have typed limits,
+stable bounded diagnostics, exact lifecycle, deterministic hostile fixtures, and separate corpus
+evidence where interoperability warrants it.
+
+Native Image remains an architectural lane rather than a final retrofit: Level 1 closes on the pinned
+Linux lane, each targeted Level 2 capability appends a direct scenario, and no Windows/macOS/optional-
+adapter claim exists without separate evidence. Performance work remains evidence-first; G7 adds only
+qualified indexes/paint optimizations/caches, preserves authoritative geometry, and adds no native
+acceleration. Rendering regression, format corpus, performance, native, publication, and consumer
+evidence remain separate lanes with one explicit owner each rather than becoming one opaque gate.
+
+No simplification is currently justified by merging feature/raster/elevation sources, image/elevation
+formats, map/edit/snapshot/workspace values, SVG import/export grammars, or JDK-only/optional-adapter
+modules: each boundary protects a real lifecycle, semantic, security, toolkit, or deployment
+difference. Conversely, no current consumer justifies a generic plugin system, scene graph, data
+binding layer, geometry engine, projection framework, cache framework, background scheduler, or
+custom native library. Later implementation should begin at G0-001 and preserve these approved
+decisions, revisiting a profile through its named HITL checkpoint whenever evidence invalidates an
+assumption rather than silently widening the design.

@@ -231,4 +231,4 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | [G11-002 — Thematic styling and label placement](G11-002-thematic-styling-and-label-placement.md) | Proposed | HITL | G8-004 | Approve closed thematic selectors and one bounded deterministic point-label pass. |
 | [G11-003 — Workspace persistence profile](G11-003-workspace-persistence-profile.md) | Proposed | HITL | G8-004 | Approve strict local XML v1 persistence with explicit application openers and atomic replacement. |
 | [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-003, G10-004, G10-007, G11-001 | Accept two Xerial format adapters; defer JTS, PROJ, and GDAL. |
-| [G11-005 — Vector map export profile](G11-005-vector-map-export-profile.md) | Proposed | HITL | G10-001, G11-002 | Select a bounded deterministic vector-export profile using placed labels. |
+| [G11-005 — Vector map export profile](G11-005-vector-map-export-profile.md) | Proposed | HITL | G10-001, G11-002 | Approve detached AWT capture and canonical static SVG export in the existing SVG module. |

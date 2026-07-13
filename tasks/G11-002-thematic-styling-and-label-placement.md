@@ -50,7 +50,8 @@ and pixel-perfect golden images.
   containment, ordinary paint order, compatibility-label migration, request/candidate/comparison/text
   limits, and stable bounded-index failures are exact.
 - Toolkit-neutral placement output can be consumed by later AWT-free export; `Font` and `TextLayout`
-  remain confined to AWT, and no label/result cache is introduced without evidence.
+  remain confined to AWT, one fixed logical `FontRenderContext` profile supplies both paint and
+  synchronous export-capture metrics, and no label/result cache is introduced without evidence.
 - The detailed design defines G11-020 through G11-024 as working slices, including the G11-010
   editable-binding prerequisite and exact branch/join edges, and receives the named HITL approval
   before implementation tasks are created.
@@ -60,7 +61,8 @@ and pixel-perfect golden images.
 No production tests in this design task. Specify later API/core tests for normalization, boundaries,
 fallbacks, ordering, placement, clipping, touching/overlap, limits, and failures; AWT integration tests
 for query projection, paint/hit agreement, fonts, compatibility migration, and pass order; tolerant
-`renderRegression`, example, performance, consumer, and representative Linux Native Image evidence.
+`renderRegression`, paint/capture metric parity, example, performance, consumer, and representative
+Linux Native Image evidence.
 
 ## Validation
 
