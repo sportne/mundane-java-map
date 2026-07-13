@@ -698,3 +698,323 @@ cursor-owned source-order plan are sufficient. There is no index SPI, strategy c
 library, automatic threshold/fallback, persistent query cache, format adapter, or public observability.
 If reference evidence shows small-N overhead, the report records crossover; it does not add implicit
 runtime selection.
+
+## Clipping and simplification (G7-003)
+
+### One paint-only screen-plan boundary
+
+G7-003 changes no source, query, geometry, symbol, hit, selection, fit, CRS, projection, or public
+`MapView` contract. AWT projects one feature's immutable geometry once into packed logical-screen
+coordinates, then asks one stateless core utility for an operation-local paint plan:
+
+```text
+ScreenGeometryOptimizationLimits(
+    int maximumOutputCoordinates,
+    long maximumBuildBytes,
+    long maximumTopologyComparisons)
+  defaults()
+  withMaximumOutputCoordinates(...)
+  withMaximumBuildBytes(...)
+  withMaximumTopologyComparisons(...)
+
+ScreenGeometryOptimizer.optimize(
+    Geometry authoritativeScreenGeometry,
+    Envelope expandedScreenClip,
+    double tolerancePixels,
+    ScreenGeometryOptimizationLimits limits)
+  -> ScreenGeometryOptimization
+
+ScreenGeometryOptimization
+  authoritativeGeometry()
+  renderingGeometry() -> Optional<Geometry>
+  outcome() -> UNCHANGED | OPTIMIZED | PATH_CULLED | FALLBACK
+  sourceComponentCount() / renderComponentCount()
+  renderComponentOffset(int sourceComponentFenceIndex)
+```
+
+The limits and result are public final immutable core values because AWT is a separate module. They
+have value equality, defensive array copies, indexed structural access, and complete Javadocs. All
+maxima are positive. Defaults are 2,000,000 output
+coordinates, 134,217,728 cumulative build bytes, and 1,000,000 topology comparisons. The optimizer
+accepts only line- and fill-role geometry; marker geometry is a programmer-input error because point
+symbols have no centerline or ring path to optimize. It never mutates or republishes source-coordinate
+storage. Component counts/fenceposts are required to preserve multipart paint order; telemetry-only
+coordinate/byte/comparison counts are deliberately absent from this public result and remain
+operation-local inside AWT.
+
+`authoritativeGeometry` is the caller's already-immutable packed screen value and is retained by
+reference. `UNCHANGED` aliases it as rendering geometry without a copy. A single-component
+`FALLBACK` does likewise; a mixed multipolygon `FALLBACK` owns one packed rendering geometry containing
+authoritative fallback components beside optimized/unchanged components in source order. `OPTIMIZED`
+owns one new packed geometry. `PATH_CULLED` has no rendering geometry. For lines, a source
+component is an original part and a render component is one clipped fragment; the packed fencepost
+mapping lets AWT paint every fragment for an original part before its endpoint markers. For polygons,
+a source component is one declared polygon and maps to zero or one render polygon. All output
+component/ring/coordinate order follows source traversal. Aggregate outcome precedence is exact:
+`FALLBACK` if any visible component fell back; otherwise `PATH_CULLED` if no component renders;
+otherwise `OPTIMIZED` if any component was clipped, simplified, or culled; otherwise `UNCHANGED`.
+
+AWT owns one private `ScreenRenderPlan` wrapper only for the duration of one feature evaluation. It
+contains the core result, resolved built-in symbol eligibility, screen clip/margin, and original-part
+endpoint context, then becomes unreachable. Base paint and later hover/selection overlay passes build
+their own plans because their symbol widths differ; at most the currently painted feature is retained.
+There is no source/view/global cache, retained viewport plan, geometry version API, worker, prefetch,
+or background computation. G7-004 alone may retain a proven result.
+
+### Projection, eligibility, and clip margin
+
+The AWT projector exhaustively handles all six G4 geometry types and preserves every point, part,
+polygon, ring, repeat, and closure in packed screen geometry. It performs the existing strict
+source-to-display operation followed by `MapViewport` conversion once per actual feature evaluation,
+and canonicalizes signed zero. G4's mandatory whole-source strict projection preflight is the
+authoritative CRS/domain failure boundary and may therefore have already visited the coordinate once
+without retaining it. The immutable operation makes repeated post-success projection deterministic;
+an impossible disagreement after successful preflight is an internal whole-pass failure, not a late
+source diagnostic after pixels are publishable.
+
+For a source paint, G7 makes the existing atomic publication point explicit. After query staging,
+cursor cleanup, whole-entry projection preflight, and the final token checkpoint all succeed, the EDT
+must win `ACTIVE -> SUCCEEDED` before painting any pixel from that binding. If cancellation already
+won, it discards the entry and paints none. Once success wins, `cancelCurrentOperation()` returns false;
+per-feature projection/optimization/Java2D paint is no longer a cancellable source stage and the report
+still commits after child-graphics disposal. This matches G4's raster publication rule, prevents a
+later feature from cancelling earlier pixels, and avoids retaining plans for an entire layer. Legacy
+snapshots have no operation token.
+
+Optimization is eligible only when the complete role symbol tree is made from the built-in Level 1
+solid line, solid fill, hatch fill, legacy compatibility, and role-homogeneous composite renderers.
+An unrecognized or custom line/fill renderer receives authoritative geometry unchanged; G7-003 adds
+no renderer capability flag whose meaning custom code could misstate. Raster/vector markers and line
+endpoint markers remain separate original-anchor operations, so a custom endpoint marker does not
+disable safe centerline optimization. A custom fill outline does disable polygon optimization because
+it consumes the ring path.
+
+For each eligible evaluation, AWT resolves the maximum visible centerline, outline, or hatch half-
+stroke width across the base symbol or the one overlay symbol being painted. Zero-effective-opacity
+leaves contribute nothing. The closed optimization rectangle is
+`[-m,-m,width+m,height+m]`, where `m = 1.0 + maximumHalfStrokeWidth` in logical pixels; a fill with no
+stroke uses `m=1.0`. The one-pixel guard covers antialias support while Java2D's unchanged component
+and inherited graphics clip remains the final device boundary. Endpoint marker footprints are culled
+independently from their authoritative transforms and never enlarge the centerline rectangle. A
+non-finite margin or expanded bound retains the existing symbol/transform failure rather than being
+relabelled as optimization fallback.
+
+Production simplification tolerance is exactly 0.25 logical screen pixel. Its equivalent display
+distance changes with viewport units-per-pixel, which makes the policy scale-aware without assuming a
+source CRS or simplifying nonlinear source coordinates. Core accepts any finite non-negative
+tolerance for direct tests, but MapView has no mutable tuning property, system property, or ambient
+quality mode. Screen optimization follows the already-rendered straight chords between projected
+vertices; it does not densify a projection or claim geodesic error.
+
+### Deterministic line plan
+
+Every source part is processed independently in declaration order:
+
+1. Consecutive equal screen points are skipped for centerline work; an all-coincident part retains G2's
+   unpainted-centerline behavior.
+2. Each remaining segment is clipped to the expanded rectangle by iterative Liang-Barsky parameter
+   clipping in fixed left, right, top, bottom order. Inclusive edge/corner intersections are retained,
+   but a boundary-only zero-length result is omitted rather than creating a new round cap.
+3. Consecutive surviving segments join one fragment only when there was no rejected intervening
+   segment and their computed boundary coordinates compare equal after positive-zero normalization.
+   Otherwise a new fragment begins. No epsilon joins separate paths.
+4. Each fragment is simplified after clipping by iterative Ramer-Douglas-Peucker. Its first and last
+   points always remain. For point p and chord a-b, scale `(b-a)` and `(p-a)` by their maximum absolute
+   ordinate, compute the clamped projection parameter from normalized dot/length-square values, then
+   compute `scale*StrictMath.hypot(pNormalized-qNormalized)`. A zero scale is zero distance; a
+   non-finite reconstructed distance makes the candidate fall back. A distance equal to tolerance is
+   removable. `Double.compare` selects the maximum, the earliest source-order point wins an equal
+   distance, and an explicit primitive stack replaces recursion.
+5. A fragment with fewer than two distinct final points is omitted. Surviving fragments and their
+   original-part fenceposts are packed once in original traversal order.
+
+The clip-before-simplify order keeps every simplified chord inside the convex clip rectangle and makes
+the 0.25-pixel error relative to the visible projected path. It never substitutes clip intersections
+for semantic endpoints. G2 endpoint markers and outward bearings use the authoritative first/last
+distinct points of the original part, even when its centerline has several fragments or no visible
+fragment. Child-major composites still paint all source parts for one child before the next; within a
+leaf, every fragment of a source part paints before that part's start/end markers.
+
+### Conservative polygon candidate or whole-polygon fallback
+
+The complete screen-geometry envelope may cull a polygon only when every exterior and declared hole
+is disjoint from the expanded clip. This remains safe even for invalid caller topology. Every other
+polygon component first undergoes bounded validation solely to decide whether optimization is safe:
+
+- each ring has nonzero signed area, no non-adjacent touch/cross/overlap, and at least three distinct
+  vertices plus closure;
+- every hole is strictly inside its exterior with no shared/touching boundary;
+- holes neither intersect nor contain one another; and
+- the exact bounded floating predicates below classify every required orientation/area/containment
+  decision unambiguously.
+
+Zero-length edges are ignored for adjacency, but a repeated non-adjacent vertex is unsafe. Pair checks
+are prospectively charged to `maximumTopologyComparisons`; exceeding it, encountering an ambiguous
+numeric predicate, or finding topology outside this profile selects `FALLBACK` for that complete
+polygon. Fallback is not repair, warning, or rejection: the original packed screen exterior and every
+hole go to Java2D exactly as before. A multipolygon may optimize one valid component and fall back
+another while preserving component order; its aggregate outcome is `FALLBACK` if any visible component
+falls back.
+
+A validated polygon wholly inside the expanded clip proceeds directly to closed-ring simplification.
+For a partial intersection, optimization proceeds only when the exterior is strictly convex under the
+predicate below and each hole is either strictly inside the clip or envelope-disjoint from it. A hole
+that touches or crosses a
+clip edge and a partial concave exterior cause whole-polygon fallback. The safe partial case clips the
+exterior with Sutherland-Hodgman in fixed left, right, top, bottom order, keeps inside holes, and drops
+only proven outside holes.
+
+Closed-ring simplification first removes consecutive duplicates and excludes the repeated closure
+from anchor selection. It chooses the lexicographically least
+`(Double.compare(x),Double.compare(y),normalizedVertexOrdinal)` vertex as one anchor and the farthest
+vertex as the other; equal farthest distances select the least forward circular offset from the first
+anchor, then the least normalized vertex ordinal. Nonconsecutive duplicate vertices have already made
+the polygon unsafe. It applies the line RDP rule independently to the two circular chains and restores
+one exact copied closure coordinate.
+The candidate must retain at least three distinct vertices, nonzero area and the original orientation
+sign for every ring. The complete candidate then repeats the same simple-ring, strict-hole, and
+hole-pair validation. Collapse, orientation reversal, a new touch/intersection/containment, clip
+degeneracy, limit exhaustion, or numeric uncertainty discards every candidate array for that polygon
+and uses its authoritative geometry. A hole is never silently collapsed, moved to another shell, or
+converted to an island.
+
+This validator is deliberately not a public topology predicate, overlay engine, polygon repairer,
+triangulator, or general clipper. Its only observable promise is optimization or exact fallback. It
+does not infer islands, change even-odd semantics for unverified input, normalize winding, split a
+concave intersection, or introduce JTS/native code.
+
+#### Exact bounded polygon predicates
+
+Every predicate starts from finite positive-zero-normalized screen coordinates. For an orientation
+`orient(a,b,c)`, compute deltas from a, let
+`s=max(abs(bx-ax),abs(by-ay),abs(cx-ax),abs(cy-ay))`, return zero only when `s==0`, divide all four
+deltas by s, and evaluate
+`d=Math.fma(ubx,ucy,-uby*ucx)`. Let
+`e=16*Math.ulp(max(1.0,abs(ubx*ucy)+abs(uby*ucx)))`. `d>e` is positive, `d< -e` is negative, and every
+other result is ambiguous/unsafe. The validator never guesses collinearity from an epsilon.
+
+A ring-area sign translates every vertex by the first distinct vertex, divides all deltas by the
+maximum absolute translated ordinate, and accumulates normalized shoelace cross terms with Neumaier
+compensation in traversal order. Its error bound is
+`64*edgeCount*Math.ulp(1.0)`, computed with checked finite arithmetic; absolute compensated area at or
+below that bound is ambiguous. A partially clipped exterior is strictly convex only when every three
+successive distinct vertices has the same nonzero orientation classification as that area sign;
+collinear/ambiguous turns conservatively fall back.
+
+Non-adjacent segment intersection uses the four orientation classifications. Any ambiguous
+classification is unsafe; otherwise opposite signs on both pairs mean a crossing. Exact shared
+coordinates, detected before orientation, mean a forbidden touch. Strict point-in-ring uses the usual
+half-open y rule in source traversal order and the same orientation classification; a query on a
+vertex, horizontal boundary range, or ambiguous crossing is unsafe rather than inside. These rules
+drive original and candidate simple-ring, shell/hole, and hole/hole checks identically. Tests pin the
+formula constants, normalization, compensation, every sign boundary, strict-convex rejection, and
+repeat results; no platform `Area`, epsilon setting, decimal fallback, or exact-arithmetic library is
+introduced.
+
+### Work bounds and failure behavior
+
+The optimizer preflights every primitive output/scratch capacity with checked `long` arithmetic using
+G4's logical byte charges. `maximumBuildBytes` is cumulative and includes output arrays, clip scratch,
+keep bitsets, primitive RDP stacks, and topology work arrays; the authoritative input owned by the
+caller is not charged again. Equality is accepted. A required output coordinate, build byte, topology
+comparison, or Java-array length above its ceiling—plus arithmetic overflow—allocates no rejected
+candidate and returns `FALLBACK`. Limits are optimization budgets, not untrusted-input acceptance
+limits, so there is no `SCREEN_GEOMETRY_LIMIT_EXCEEDED` diagnostic and no partial/truncated plan.
+
+Before processing a multipart geometry, a conservative whole-result capacity includes every
+authoritative component plus maximum clip intersections and all fenceposts. If that complete mixed
+capacity cannot fit the output/build limits, the optimizer aliases the entire authoritative geometry
+as `FALLBACK` and builds no component candidate. A later prospective limit/overflow likewise discards
+all component candidates and returns whole-geometry fallback. Mixed optimized/fallback multipolygons
+are therefore produced only after the complete capacity preflight proves their one packed result can
+be owned within the same budgets.
+
+Already-valid finite screen input that produces a non-finite or numerically ambiguous optimization
+intermediate falls back unchanged. Existing CRS, viewport, renderer, symbol, and Java2D failures keep
+their approved diagnostic/exception behavior. No optimization diagnostic enters a source report, and
+no timing-, locale-, platform-, or iteration-dependent branch selects a result.
+
+### Authoritative interaction and rendering integration
+
+Paint uses rendering geometry only for built-in line centerlines, polygon fill/outline paths, and
+hatch clipping. Hit testing, hover, click selection, endpoint bearings/anchors, source feature
+identity, selection persistence, measurement, labels, fit, extent, and query envelopes always use
+authoritative geometry. A hit/hover/click operation builds an authoritative-only packed screen value
+and does not run clipping or simplification. The intentional maximum 0.25-pixel paint displacement
+therefore never changes which feature wins or manufactures an endpoint at a clip edge.
+
+Source-backed base paint retains G4's one query transaction and complete staging/report boundary.
+Legacy/source feature order, multipart order, child-major symbol order, fill even-odd behavior, hover/
+selection overlay order, and graphics-state isolation are unchanged. A path-culled line still evaluates
+its original endpoint markers; a polygon path cull suppresses its built-in fill/outline/hatch work. A
+custom renderer, unsafe polygon, over-budget plan, or disabled evidence mode follows the exact former
+unoptimized path.
+
+All public MapView constructors select the Level 1 optimizer. A package-private AWT mode
+`DISABLED|LEVEL1` and package-private constructor exist only for same-module equivalence tests and the
+non-published performance project. That support project places one explicit bridge class in the same
+AWT package to construct either mode without reflection; architecture tests forbid any published
+consumer, example, format, or production module from referencing the mode/bridge. There is no public
+toggle, environment switch, static mutable policy, or hidden fallback chosen from timings.
+
+### Evidence and regression extension
+
+Original G7-001 `symbol-heavy-render`, `dense-vector-render`, `vector-pan-sequence`, and
+`vector-zoom-sequence` rows remain explicitly `DISABLED` in the performance harness, preserving their
+declared pre-optimization experiment. So do G7-002's `dense-vector-render-indexed`,
+`vector-pan-sequence-indexed`, and `vector-zoom-sequence-indexed`, preserving their one-variable source
+factory comparison. Query and hit rows do not run the paint optimizer. G7-003 appends, in order:
+
+1. `small-vector-render-unoptimized`;
+2. `small-vector-render-optimized`;
+3. `dense-vector-render-optimized`;
+4. `vector-pan-sequence-optimized`; and
+5. `vector-zoom-sequence-optimized`.
+
+`small-vector-render-v1` uses exactly `line:000` and `polygon:000` from the profile's existing
+`vector-path-v1` generator: 452 coordinates in BASELINE and 228 in SMOKE, one 800-by-600 frame after
+`fitToData(24)`. Both small rows have throughput `1 frame`, identical fixture/viewport/symbols, and one
+shared per-profile semantic oracle; only the package-private optimization mode differs. The three
+optimized descendants reuse their corresponding original row's profile-specific fixture, batch,
+throughput, viewport trace, symbols, and frozen semantic digest. Their exact expected next experiment
+is `G7-004`; both small rows use `no change`.
+
+The four original render rows, three indexed render rows, and `small-vector-render-unoptimized` report
+`vectorPathState=DISABLED`; the four optimized rows report
+`vectorPathState=LEVEL1_OPERATION_LOCAL`. Each adds deterministic counters for input/projected/render
+coordinates, line fragments, culled paths, fallback plans, and logical retained render-geometry
+bytes. AWT derives them from its authoritative geometry, the result outcome/mapping,
+and G4's primitive/offset byte formula; it cannot observe core scratch bytes or topology comparisons.
+Allocation evidence remains JFR evidence and is never relabelled as an exact counter. The counters come
+from an operation-local package-private paint result returned through the support bridge; MapView
+retains no last metrics, listener, logger, or public observability. The report compares paired
+medians/p95 and allocation/JFR evidence descriptively. Semantic-oracle equality is a hard gate;
+duration and a reduction in vertex count are not. A slower small case is recorded rather than causing
+an automatic threshold or disabling the production policy.
+
+Core tests pin clipping on every rectangle edge/corner, horizontal/vertical/diagonal/repeated/
+degenerate parts, multipart splitting/mapping/order, RDP equality/ties/stacks, closed-ring anchors,
+simple/invalid/nested/touching holes, convex partial clips, concave and boundary-hole fallback,
+orientation/closure, mixed multipolygon outcomes, exact limits/overflow, and
+byte-identical repeat results. Fixed-seed tests compare optimized plans to authoritative distance and
+topology invariants without claiming arbitrary invalid geometry repair.
+
+AWT tests compare enabled/disabled built-in paint across component edges, stroke widths, hatches,
+holes, composites, endpoint markers, source/legacy bindings, overlays, pan/zoom, custom-renderer
+bypass, cancellation-before-source-publication versus cancellation-after-success, and graphics-state
+preservation. Hit/hover/selection and endpoint tests prove
+they receive authoritative geometry. `renderRegression` adds tolerant region/color/bounds cases and
+never requires whole-image or cross-platform pixel identity. Performance tests pin row order, modes,
+profile cardinalities, throughput, oracle inheritance, counters, and absence of a timing gate.
+
+Architecture tests keep algorithms JDK-only in core, confine Java2D/private orchestration to AWT,
+reject external/native dependencies, recursion proportional to coordinates, public mutable buffers,
+public optimization switches/metrics, static/global plans, and any cache. Validation runs focused
+core/AWT/performance/architecture checks, `renderRegression`, `performanceEvidence`, `qualityGate`, and
+whitespace; native, corpus, publication, and consumer lanes remain separate.
+
+One fixed screen tolerance, one packed operation plan, deterministic line algorithms, and conservative
+polygon candidate-or-fallback behavior are sufficient. There is no source simplification, query
+padding, retained level-of-detail hierarchy, general topology library, custom-renderer protocol, or
+cache. G7-004 receives an optimized uncached path and evidence rather than an abstraction built for a
+cache that may not be justified.

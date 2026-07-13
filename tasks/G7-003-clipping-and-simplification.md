@@ -17,46 +17,65 @@ cost, and unsimplified production geometry remains the fallback and correctness 
 
 ## Scope
 
-- JDK-only clipping and simplification algorithms in `modules/mundane-map-core`
-- Explicit render/query integration in `modules/mundane-map-awt`
-- Correctness fixtures and performance scenarios
+- Immutable optimization limits/results and deterministic JDK-only screen clipping, simplification,
+  and bounded polygon-safety algorithms in `modules/mundane-map-core`
+- One private operation-local packed screen plan and built-in paint integration in
+  `modules/mundane-map-awt`
+- Authoritative-geometry interaction/endpoint preservation, rendering regression and architecture
+  coverage, and paired unoptimized/optimized performance scenarios
 
 ## Out of scope
 
-- Destructive source-geometry mutation, topology repair, general overlay operations, and native/JTS
-  acceleration
-- Format-specific simplification or persistent precomputed tile pyramids
+- Source-coordinate simplification, source/query/fit/hit/selection changes, query padding, projection
+  densification, topology repair, concave polygon overlay/splitting, and custom-renderer optimization
+- Public optimization switches/metrics, persistent projected paths, retained LODs or tile pyramids,
+  format-specific simplification, caching, and native/JTS acceleration
 
 ## Acceptance criteria
 
-- Lines and polygon rings are clipped to a viewport expanded by the documented stroke/symbol margin;
-  rejected features perform no path construction.
-- Simplification tolerance derives explicitly from viewport scale/pixel tolerance and never modifies
-  source coordinate storage.
-- Line endpoints needed for continuity/endpoint symbols are retained, polygon rings remain closed,
-  shells and holes remain associated, and winding behavior remains valid.
-- Degenerate output, holes collapsed outside their shells, antimeridian/domain boundaries, and
-  numerically unsafe geometry fall back to unsimplified rendering or a documented safe rejection.
+- Eligible built-in line/fill paint projects once and uses one bounded operation-local screen plan;
+  custom renderers and over-budget/unsafe cases use the exact authoritative path.
+- The closed clip expands the logical component by one antialias pixel plus the maximum applicable
+  half-stroke width, and production RDP tolerance is exactly 0.25 logical pixel.
+- Lines use deterministic Liang-Barsky clipping followed by iterative RDP, preserve source-part and
+  fragment order, and never replace original endpoints/tangents with clip intersections.
+- Polygon optimization validates bounded simple shell/hole topology, clips only the safe convex/
+  contained profile, revalidates closed simplified candidates, and otherwise falls back for the
+  complete polygon without repair or partial candidate publication.
+- Disjoint path culling, degenerate output, hole collapse/reassociation, topology-budget exhaustion,
+  and numerically unsafe candidates have exact deterministic cull/fallback rules.
 - Results are deterministic for the same geometry, viewport, and tolerance.
-- Render selection/hit-test semantics remain based on authoritative geometry unless a separately
-  documented tolerance-safe path is proven equivalent.
-- Evidence reports vertices projected/path-built and render time before/after across zoom levels,
-  including the overhead for small inputs.
-- No public mutable buffers or third-party production dependency is introduced.
+- Hit/hover/selection, endpoint markers, measurement, fit, source queries, and public geometry remain
+  authoritative and unchanged; a path-culled line may still paint original endpoint markers.
+- Explicit limits bound output coordinates, cumulative plan bytes, and topology comparisons;
+  optimization-limit fallback emits no source diagnostic, and source success wins atomically before
+  uncancellable per-feature painting begins.
+- Evidence preserves earlier disabled rows, adds exact small/dense/pan/zoom optimized comparisons,
+  reports plan/work counters and before/after median/p95, and treats semantic equality—not duration—as
+  the gate.
+- No public mutable buffer, public mode/metric, persistent plan, external dependency, or native code is
+  introduced.
 
 ## Required tests
 
-- Exact clipping tests for horizontal/vertical/diagonal lines, boundary touches, multipart lines,
-  shells, holes, and disjoint polygons.
-- Simplification tests across zero, subpixel, and large tolerances with closure/topology assertions.
-- Fixed-seed comparison tests that sample inside/outside regions and exercise safe fallback cases.
-- Offscreen rendering regression tests using geometry/bounds/tolerant samples, plus performance
-  scenarios at multiple zoom levels.
+- Exact line clipping/fragment mapping tests for every edge/corner, repeated/degenerate coordinates,
+  multipart order, robust distance, RDP equality/ties, limits, and overflow.
+- Polygon tests for closed-ring anchoring, convex partial clips, simple/invalid/touching/nested holes,
+  orientation/association preservation, concave/boundary-hole/limit/numeric fallback, and mixed
+  multipolygon outcomes.
+- AWT enabled/disabled tests for built-in lines/fills/hatches/composites, endpoint markers, custom
+  bypass, authoritative hit/hover/selection, overlays, source lifecycle/cancellation, and graphics
+  state.
+- Rendering-regression cases using tolerant regions/bounds/colors and fixed performance rows/counters
+  for small overhead, dense rendering, pan, and zoom under both profiles.
+- Architecture tests for core/AWT boundaries, packed immutable values, no recursion by coordinate
+  count, no public mode/metrics, no cache/global state, and no external/native implementation.
 
 ## Validation
 
 ```bash
-./gradlew :modules:mundane-map-core:check :modules:mundane-map-awt:check :modules:mundane-map-performance-tests:check --console=plain
+./gradlew :modules:mundane-map-core:check :modules:mundane-map-awt:check :modules:mundane-map-performance-tests:check :modules:mundane-map-architecture-tests:check --console=plain
+./gradlew renderRegression --console=plain
 ./gradlew performanceEvidence --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
@@ -64,5 +83,6 @@ git diff --check
 
 ## Notes
 
-Prefer compact established algorithms with explicit numeric guards. Correct topology and stable
-fallback take priority over vertex-count reduction.
+The production policy is fixed and evidence-backed, not a caller tuning surface. Correct topology,
+authoritative interaction, and exact fallback take priority over vertex-count reduction; G7-004 owns
+any later retention/cache decision.

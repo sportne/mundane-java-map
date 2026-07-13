@@ -55,7 +55,7 @@ design task; there are no empty speculative design files.
 | G4 | [Sources and CRS](design/G4-sources-and-crs.md) | G4-001 through G4-004 approved |
 | G5 | [Read-only shapefile support](design/G5-shapefile-support.md) | G5-001 through G5-010 approved |
 | G6 | [PNG/JPEG raster support](design/G6-image-raster-support.md) | G6-001 through G6-005 approved |
-| G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-002 approved |
+| G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-003 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -112,6 +112,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Extend the one explicit native smoke with fixed PNG/JPEG affine resources and one malformed PNG. | Shared JVM/native assertions and literal reachability metadata prove the real codec, placement, cache, rendering, diagnostic, and cleanup path without discovery, a second executable, or a cross-platform claim. |
 | 2026-07-12 | Establish one deterministic real-stack evidence lane before any G7 optimization. | Fixed fixtures, semantic oracles, raw timings, environment metadata, and optional JDK JFR can locate work without adding a benchmark framework or making portable wall-clock claims. |
 | 2026-07-12 | Offer one explicit packed STR index for immutable in-memory feature sources. | A fixed-fanout primitive tree and source-order query plan reduce bounded viewport candidates without changing FeatureSource, indexing shapefiles, exposing tree nodes, or selecting a strategy implicitly. |
+| 2026-07-12 | Optimize only operation-local screen paths while retaining authoritative geometry. | Fixed line clipping/simplification and conservative polygon validation reduce paint work without changing hit, endpoint, fit, query, topology, or cache semantics. |
 
 ## Task design traceability
 
@@ -156,3 +157,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G6-005 | Fixed native raster resources, explicit codecs, shared semantic/diagnostic scenario, exact reachability metadata, lifecycle evidence, and G6 closeout | Approved |
 | G7-001 | One checked support module, six fixed fixture families, twelve real-stack scenarios, deterministic report/statistics, optional JFR workflow, and separate CI evidence | Approved |
 | G7-002 | Explicit indexed in-memory factory, bounded packed STR-16 arrays/build, source-ordered query plan/accounting, linear equivalence, and comparison evidence | Approved |
+| G7-003 | Operation-local packed screen plans, deterministic line clipping/simplification, conservative polygon optimization/fallback, authoritative hit/endpoint semantics, and paired evidence | Approved |
