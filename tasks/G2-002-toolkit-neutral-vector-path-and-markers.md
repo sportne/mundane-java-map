@@ -1,6 +1,6 @@
 # G2-002 — Toolkit-Neutral Vector Paths and Markers
 
-Status: Proposed
+Status: Complete
 Depends on: G2-001
 Gate: G2
 Type: AFK
@@ -64,3 +64,10 @@ Store command kinds and ordinates in compact primitive arrays where practical. C
 Java2D objects per render until performance evidence justifies caching; do not add a speculative
 native path library.
 
+Completed on 2026-07-13. The API now provides packed immutable vector paths, explicit marker roles and
+renderer keys, stable symbol failures, the deprecated `FeatureStyle` compatibility bridge, and the
+fill-only `VectorMarkerSymbol` slice. Core supplies normalized reusable circle, square, triangle,
+diamond, cross, X, star, and arrow paths. AWT converts every command without exposing Java2D types,
+keeps open subpaths out of fills, and renders every built-in through the real `Feature`/layer/`MapView`
+stack with tolerant geometry and color assertions. The focused module suites, strict module checks,
+full `qualityGate`, whitespace validation, and independent review are recorded with the task commit.

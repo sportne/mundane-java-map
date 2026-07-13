@@ -10,10 +10,16 @@ import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
+import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.SymbolException;
+import io.github.mundanej.map.api.SymbolRendererKey;
+import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.ProjectionEnvelopes;
 import java.awt.BasicStroke;
@@ -23,13 +29,18 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
+import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import javax.swing.JComponent;
@@ -41,7 +52,7 @@ import javax.swing.SwingUtilities;
  * <p>Mutation and listener callbacks follow the normal Swing event-dispatch-thread contract. Swing
  * serialization is inherited for framework compatibility and is not a persistence format.
  */
-@SuppressWarnings("serial")
+@SuppressWarnings({"deprecation", "serial"})
 public final class MapView extends JComponent {
     private static final long serialVersionUID = 1L;
     private static final int DEFAULT_WIDTH = 800;
@@ -151,7 +162,25 @@ public final class MapView extends JComponent {
 
     private void renderFeature(Graphics2D graphics, Feature feature) {
         Geometry geometry = feature.geometry();
-        FeatureStyle style = feature.style();
+        Symbol symbol = feature.symbol();
+        if (symbol instanceof FeatureStyle style) {
+            renderLegacyFeature(graphics, geometry, feature, style);
+            return;
+        }
+        SymbolSnapshot symbolSnapshot = new SymbolSnapshot(symbol.role(), symbol.rendererKey());
+        if (geometry instanceof PointGeometry point) {
+            if (!(symbol instanceof MarkerSymbol) || symbolSnapshot.role() != SymbolRole.MARKER) {
+                throw roleMismatch(feature, symbolSnapshot);
+            }
+            Rectangle2D bounds = renderMarker(graphics, point, symbol, symbolSnapshot);
+            renderPointLabel(graphics, feature.name(), bounds);
+            return;
+        }
+        throw roleMismatch(feature, symbolSnapshot);
+    }
+
+    private void renderLegacyFeature(
+            Graphics2D graphics, Geometry geometry, Feature feature, FeatureStyle style) {
         graphics.setStroke(
                 new BasicStroke(
                         (float) style.strokeWidth(),
@@ -159,7 +188,8 @@ public final class MapView extends JComponent {
                         BasicStroke.JOIN_ROUND));
 
         if (geometry instanceof PointGeometry point) {
-            renderPoint(graphics, point, feature);
+            Rectangle2D bounds = renderLegacyPoint(graphics, point, style);
+            renderPointLabel(graphics, feature.name(), bounds);
         } else if (geometry instanceof LineStringGeometry line) {
             if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
                 Path2D path = path(line.coordinates(), false);
@@ -171,27 +201,68 @@ public final class MapView extends JComponent {
         }
     }
 
-    private void renderPoint(Graphics2D graphics, PointGeometry point, Feature feature) {
+    private Rectangle2D renderLegacyPoint(
+            Graphics2D graphics, PointGeometry point, FeatureStyle style) {
         Coordinate screen = toScreen(point.coordinate());
-        double diameter = feature.style().pointDiameter();
+        double diameter = style.pointDiameter();
         double radius = diameter / 2.0;
         Ellipse2D marker =
                 new Ellipse2D.Double(screen.x() - radius, screen.y() - radius, diameter, diameter);
-        if (feature.style().fill().alpha() > 0) {
-            graphics.setColor(color(feature.style().fill()));
+        if (style.fill().alpha() > 0) {
+            graphics.setColor(color(style.fill()));
             graphics.fill(marker);
         }
-        if (feature.style().stroke().alpha() > 0 && feature.style().strokeWidth() > 0.0) {
-            graphics.setColor(color(feature.style().stroke()));
+        if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
+            graphics.setColor(color(style.stroke()));
             graphics.draw(marker);
         }
-        if (!feature.name().isBlank()) {
-            graphics.setColor(new Color(32, 32, 32));
-            graphics.drawString(
-                    feature.name(),
-                    (float) (screen.x() + radius + 4.0),
-                    (float) (screen.y() - radius - 2.0));
+        return marker.getBounds2D();
+    }
+
+    private Rectangle2D renderMarker(
+            Graphics2D graphics,
+            PointGeometry point,
+            Symbol symbol,
+            SymbolSnapshot symbolSnapshot) {
+        if (!VectorMarkerSymbol.RENDERER_KEY.equals(symbolSnapshot.rendererKey())) {
+            throw rendererNotRegistered(symbolSnapshot);
         }
+        if (!(symbol instanceof VectorMarkerSymbol marker)) {
+            throw rendererValueMismatch(symbolSnapshot);
+        }
+        Coordinate screen = toScreen(point.coordinate());
+        double size = marker.screenSizePixels();
+        Rectangle2D nominal =
+                new Rectangle2D.Double(
+                        screen.x() - size / 2.0, screen.y() - size / 2.0, size, size);
+        if (marker.opacity() > 0.0 && marker.fill().alpha() > 0) {
+            VectorPath2D.Converted converted = VectorPath2D.convert(marker.path());
+            AffineTransform transform = new AffineTransform();
+            transform.translate(nominal.getMinX(), nominal.getMinY());
+            transform.scale(
+                    nominal.getWidth() / marker.viewBox().width(),
+                    nominal.getHeight() / marker.viewBox().height());
+            transform.translate(-marker.viewBox().minX(), -marker.viewBox().minY());
+            Shape fill = transform.createTransformedShape(converted.fillPath());
+            graphics.setColor(color(marker.fill(), marker.opacity()));
+            graphics.fill(fill);
+        }
+        return nominal;
+    }
+
+    private static void renderPointLabel(
+            Graphics2D graphics, String featureName, Rectangle2D nominalBounds) {
+        if (featureName.isBlank()) {
+            return;
+        }
+        graphics.setColor(new Color(32, 32, 32));
+        Point2D baseline = pointLabelBaseline(nominalBounds);
+        graphics.drawString(featureName, (float) baseline.getX(), (float) baseline.getY());
+    }
+
+    static Point2D pointLabelBaseline(Rectangle2D nominalBounds) {
+        Objects.requireNonNull(nominalBounds, "nominalBounds");
+        return new Point2D.Double(nominalBounds.getMaxX() + 4.0, nominalBounds.getMinY() - 2.0);
     }
 
     private void renderPolygon(Graphics2D graphics, PolygonGeometry polygon, FeatureStyle style) {
@@ -235,6 +306,67 @@ public final class MapView extends JComponent {
     private static Color color(Rgba color) {
         return new Color(color.red(), color.green(), color.blue(), color.alpha());
     }
+
+    private static Color color(Rgba color, double opacity) {
+        int alpha = (int) Math.round(color.alpha() * opacity);
+        return new Color(color.red(), color.green(), color.blue(), alpha);
+    }
+
+    private static SymbolException roleMismatch(Feature feature, SymbolSnapshot symbolSnapshot) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        context.put("featureId", feature.id());
+        context.put("geometryKind", geometryKind(feature.geometry()));
+        context.put("symbolRole", roleText(symbolSnapshot.role()));
+        return new SymbolException(
+                SymbolException.ROLE_MISMATCH,
+                "Symbol role does not match feature geometry",
+                context);
+    }
+
+    private static SymbolException rendererNotRegistered(SymbolSnapshot symbolSnapshot) {
+        return rendererFailure(
+                SymbolException.RENDERER_NOT_REGISTERED,
+                "No renderer is registered for symbol",
+                symbolSnapshot);
+    }
+
+    private static SymbolException rendererValueMismatch(SymbolSnapshot symbolSnapshot) {
+        return rendererFailure(
+                SymbolException.RENDERER_VALUE_MISMATCH,
+                "Renderer does not support symbol value",
+                symbolSnapshot);
+    }
+
+    private static SymbolException rendererFailure(
+            String code, String message, SymbolSnapshot symbolSnapshot) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        context.put("role", roleText(symbolSnapshot.role()));
+        context.put("key", keyText(symbolSnapshot.rendererKey()));
+        return new SymbolException(code, message, context);
+    }
+
+    private static String geometryKind(Geometry geometry) {
+        if (geometry instanceof PointGeometry) {
+            return "POINT";
+        }
+        if (geometry instanceof LineStringGeometry) {
+            return "LINE_STRING";
+        }
+        if (geometry instanceof PolygonGeometry) {
+            return "POLYGON";
+        }
+        return "UNSUPPORTED";
+    }
+
+    private static String roleText(SymbolRole role) {
+        return role == null ? "null" : role.name();
+    }
+
+    private static String keyText(SymbolRendererKey key) {
+        return key == null ? "null" : key.value();
+    }
+
+    private record SymbolSnapshot(SymbolRole role, SymbolRendererKey rendererKey) {}
 
     private void installInteraction() {
         addMouseListener(

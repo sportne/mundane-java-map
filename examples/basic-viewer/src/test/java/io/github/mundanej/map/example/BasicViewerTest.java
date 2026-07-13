@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
+@SuppressWarnings("deprecation")
 class BasicViewerTest {
     @Test
     void createsTheDocumentedMapWithoutOpeningAWindow() throws Exception {

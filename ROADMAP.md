@@ -20,6 +20,9 @@ EDT-safe smoke. The Linux x86-64 GraalVM CE Java 21.0.2 lane builds and runs the
 G2-001 is also complete: its approved design fixes the toolkit-neutral symbol roles, renderer
 identity, placement units and transforms, composition rules, diagnostics, and pre-1.0
 `FeatureStyle` migration. Production symbol work begins with G2-002.
+G2-002 now delivers that first production slice: packed toolkit-neutral paths, explicit marker
+dispatch and diagnostics, eight normalized core markers, Java2D conversion, real-stack rendering,
+and the temporary legacy-style compatibility path.
 
 ## Level 1
 

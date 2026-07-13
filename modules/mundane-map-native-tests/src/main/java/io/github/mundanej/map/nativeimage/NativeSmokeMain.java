@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 
 /** Native Image entrypoint that exercises the real AWT offscreen rendering path. */
+@SuppressWarnings("deprecation")
 public final class NativeSmokeMain {
     private static final int EXPECTED_RED = 20;
     private static final int EXPECTED_GREEN = 90;

@@ -2,8 +2,18 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Basic feature styling used by the initial rendering slice. */
-public record FeatureStyle(Rgba stroke, Rgba fill, double strokeWidth, double pointDiameter) {
+/**
+ * Basic geometry-dependent styling retained temporarily for pre-1.0 source migration.
+ *
+ * @deprecated use a role-specific {@link Symbol}; this compatibility value is removed before 1.0
+ */
+@Deprecated
+public record FeatureStyle(Rgba stroke, Rgba fill, double strokeWidth, double pointDiameter)
+        implements Symbol {
+    /** The explicit compatibility renderer key. */
+    public static final SymbolRendererKey RENDERER_KEY =
+            new SymbolRendererKey("io.github.mundanej.map.symbol.legacy-feature-style");
+
     /** Creates a feature style. */
     public FeatureStyle {
         Objects.requireNonNull(stroke, "stroke");
@@ -29,5 +39,20 @@ public record FeatureStyle(Rgba stroke, Rgba fill, double strokeWidth, double po
     /** Creates a polygon style. */
     public static FeatureStyle polygon(Rgba stroke, Rgba fill, double width) {
         return new FeatureStyle(stroke, fill, width, 6.0);
+    }
+
+    @Override
+    public SymbolRole role() {
+        return SymbolRole.LEGACY_GEOMETRY;
+    }
+
+    @Override
+    public SymbolRendererKey rendererKey() {
+        return RENDERER_KEY;
+    }
+
+    @Override
+    public double opacity() {
+        return 1.0;
     }
 }

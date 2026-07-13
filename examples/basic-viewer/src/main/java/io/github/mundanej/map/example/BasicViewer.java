@@ -21,6 +21,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
 /** Runnable demonstration of the initial map vertical slice. */
+@SuppressWarnings("deprecation")
 public final class BasicViewer {
     private BasicViewer() {}
 
