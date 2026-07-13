@@ -10,8 +10,10 @@ G7-001 adds no production algorithm, API, cache, threshold, or dependency. It cr
 support project, `modules/mundane-map-performance-tests`, only when that project can execute all twelve
 real-stack scenarios below. The authoritative project inventory classifies it as Support, includes its
 small JVM checks/style/Javadocs in `qualityGate`, and excludes it from publication, Level 1 runtime,
-Native Image, corpus, render-regression, and consumer graphs. Main dependencies are exactly the API,
-core, AWT, shapefile, and image modules; it never consumes examples or another project's test output.
+Native Image, corpus, render-regression, and consumer graphs. G7's main dependencies are exactly the
+API, core, AWT, shapefile, and image modules; G9-007 adds the DTED format module as one support-only
+project dependency for its public-reader scenarios. It never consumes examples or another project's
+test output.
 
 The project uses the ordinary Java-library conventions. `src/main/java` owns a public launcher solely
 for `JavaExec`, package-private harness/scenario/report code, and support-only fixture generators.
@@ -25,10 +27,14 @@ root task depends only on that execution, uses a Java 21 launcher even when Grad
 supplies exact defaults `-Xms512m`, `-Xmx512m`, G1, headless AWT, UTF-8, `en-US`, and UTC. It writes
 UTF-8/LF files beneath `build/performance-evidence/`: `evidence-v1.json` plus a deterministic
 `evidence-v1.md` rendering. `check`, `checkAll`, and `qualityGate` must not depend on the full run.
+G9-007 later makes `runPerformanceEvidence` depend on one fresh-JVM DTED memory probe; the root still
+has this sole direct dependency and the canonical output remains these two reports.
 
 A separate Ubuntu 24.04/Java 21 performance-evidence CI job first runs
 `:modules:mundane-map-performance-tests:classes` with ordinary dependency resolution, then runs
 `./gradlew --offline performanceEvidence --rerun-tasks --console=plain` and uploads the two reports.
+G9-007's bounded intermediate probe output is deliberately not uploaded; its reviewed interpretation
+and hash enter the G9 decision record instead.
 Gradle dependency resolution is build setup; once the runner begins, scenario code performs no
 network, process launch, home-directory lookup, download, or external-data access. The job fails on
 configuration, fixture, semantic, cleanup, or report errors, never because a duration is high. It is

@@ -1420,8 +1420,10 @@ Java, but it neither compiles nor executes that source and never reads corpus re
 archive may contain them only because the named approval establishes that redistribution basis.
 `publicationDryRun` verifies every staged `mundane-map-io-dted` artifact is corpus-free. There is no
 corpus module, separately published corpus artifact, runtime loader, or automatic source-set/resource
-coupling to native tests. G9-006 itself makes no native copy; G9-008 is the sole planned descendant
-that may reuse an approved file, through an explicit task-designed copy with pinned hash, resource
+coupling to other lanes. G9-006 itself wires no reuse. G9-007 may read the approved files in place only
+as declared inputs of the full, separate `performanceEvidence` run; its normal SMOKE/check path must
+use generated fixtures and must not resolve corpus resources. G9-008 is the sole planned descendant
+that may copy one approved file, through an explicit task-designed copy with pinned hash, resource
 declaration, license evidence, and continued exclusion from published artifacts.
 
 `manifest.tsv` is UTF-8 with LF, one header, literal tab separators, no quoting, and rows sorted by
@@ -1559,3 +1561,203 @@ render-regression, performance, and consumer lanes do not run. Three independent
 manifest, two license texts, one non-build recipe, one finite oracle, and one isolated lane are enough;
 there is no real-terrain collection, second reader, acquisition plugin, generalized corpus framework,
 or parser/profile change.
+
+## DTED memory and read performance (G9-007)
+
+### Evidence extension, not a second access implementation
+
+G9-007 changes only the non-published `mundane-map-performance-tests` support project, its Gradle
+wiring, architecture tests, this design/task/index, and ignored evidence output. It adds the existing
+`mundane-map-io-dted` project as one support-only dependency, but no production/public API, external
+dependency, DTED parser branch, cache, mapping, module, native code, or release claim.
+The existing `performanceEvidence` lane remains the single command and preserves G7's Java 21
+launcher, `BASELINE` five-warmup/twenty-measurement profile, `SMOKE` one/two profile, sequential
+harness, raw-nanosecond statistics, semantic-oracle rules, fixed 512-MiB G1 heap, environment capture,
+offline CI, and non-timing pass/fail policy.
+
+The task depends explicitly on G9-005 because one scenario calls `ElevationQueries`; transitively
+assuming that query contract would make its dependency declaration false. It consumes G9-006 inputs
+through an exact Gradle file collection with declared relative paths, lengths, and approved SHA-256
+values for the full `BASELINE` run only. It neither depends on nor executes corpus source-set output or
+`dtedCorpus`, and it does not copy corpus bytes into another resource tree. Normal `SMOKE`, module
+`test`, `check`, and `qualityGate` neither resolve nor read corpus paths. Fixture validation happens
+before timing. Reports contain dataset IDs and hashes, never absolute workspace paths or manifest prose.
+
+Three versioned fixture families are sufficient:
+
+| Fixture | BASELINE | SMOKE |
+| --- | --- | --- |
+| `dted-corpus-v1` | The exact approved G9-006 Level 0/1/2 files: 21×121, 201×1,201, and 601×3,601; 4,836,446 data bytes total | Not resolved or read |
+| `dted-zone-i-l2-v1` | One generated complete standard zone-I Level 2 cell, 3,601×3,601, 12,967,201 samples, and exactly 25,981,042 bytes | Replaced by `dted-zone-i-l0-smoke-v1` |
+| `dted-zone-i-l0-smoke-v1` | Not used | One generated complete 121×121 Level 0 cell, exactly 34,162 bytes; used by all four reduced scenarios |
+
+The generated fixtures are streamed into distinct runner/probe workspaces beneath the performance
+project's `build/` directory before any snapshot or timer. A package-private support writer owns its
+fixed UHL/DSI/ACC bytes, records, checksums, and value formula; it shares no production parser constant,
+writer, fixture helper, or G9-003/G9-006 test output. Generation and deletion are untimed. It is not a
+corpus candidate or published resource.
+
+Both generated cells are the exact geographic cell `e000/n00.dt0|dt2`, with
+`Envelope(0,0,1,1)`, recognized EPSG:4326, WGS84/MSL, zero orientation, complete indicator `00`, no
+SRTM marker, no-data, or subregion, and public rows north-to-south. Level 0 uses `0300` interval fields
+and 121-by-121 counts; Level 2 uses `0010` and 3,601-by-3,601. UHL begins `UHL1`, uses `NA  ` accuracy,
+unclassified `U`, reference `MUNDANE-PERF`, matching origins/counts, multiple-accuracy `0`, and spaces
+in every reserved byte. DSI uses `DTED0|DTED2`, the same padded reference, edition `01`, match version
+`A`, valid `2607` maintenance/match/compilation dates, maintenance `0000`, producer `MUN`,
+`PRF89020B`, amendment `00`, specification date `8902`, `MSL`, `WGS84`, collection `PERFGEN` padded
+with spaces, unclassified `U` with blank control/release and handling fields, zero orientation, exact
+origin/SW/NW/NE/SE corners, intervals/counts, partial `00`, and spaces in all free/reserved fields. ACC
+uses `NA  ` for all four accuracies, a blank producer marker,
+flag `00`, and spaces in its entire supported tail.
+
+For public column `c` west-to-east and row `r` north-to-south, the exact signed-magnitude Int16 value is
+
+```text
+1200 + floor(1200*c/(columnCount-1)) - floor(800*r/(rowCount-1))
+```
+
+Thus NW/NE/SW/SE are `1200/2400/400/1600` and center is `1400`, with no void. Physical records use
+zero-based profile/block indices, south-to-north samples, and the mandatory unsigned 32-bit byte-sum
+checksum. Every other byte is fixed by the tables above and G9-003's record layout. Independent tests
+walk raw headers/record/checksum bytes without production constants, pin the literal generated SHA-256
+for each profile, and then pin public metadata, corners, asymmetric interiors, orientation, and sample
+formula. An evidence run rejects a generated hash not already frozen in reviewed test source.
+
+Zone I is selected because it is the largest standard one-degree cell in the supported G9-003
+profile, not because arbitrary dimensions are desirable. For 3,601 rows, one data record is
+`12 + 2*3601 = 7,214` bytes; with 3,601 profiles plus 3,428 header bytes, file length is exactly
+`25,981,042`. No oversized, nonstandard, sparse, compressed, or multi-cell dataset is invented.
+
+### Four append-only real-stack scenarios
+
+The G7 scenario inventory appends, without renaming or changing its first twelve rows:
+
+| Scenario ID | Untimed prepare | Exact timed batch and throughput unit | Untimed oracle/cleanup |
+| --- | --- | --- | --- |
+| `dted-corpus-open` | BASELINE validates three approved paths/lengths/hashes; SMOKE generates one L0 surrogate | Sequentially call `DtedFiles.open` and retain results: 3 `filesOpened` BASELINE, 1 SMOKE | Assert complete fixed metadata/corner/no-data/diagnostic observation; close sources in reverse order |
+| `dted-eager-open` | Select validated generated maximum cell, or generated L0 for SMOKE | One `DtedFiles.open`; throughput is 12,967,201 `samplesPublished` BASELINE or 14,641 SMOKE | Assert metadata, corner/interior values, empty report, and fixture digest; close source |
+| `dted-sequential-scan` | Open one generated maximum/L0 source once | Row-major `sample` calls plus incremental semantic digest: 12,967,201 or 14,641 `samplesVisited` | Compare count/digest/formula oracle; close scenario source after all samples |
+| `dted-position-query` | Open one generated maximum/L0 source once | Alternating `ElevationQueries` call plus incremental unit/value digest: 65,536 or 256 `queries` | Compare count/digest/direct-sample oracle; close scenario source after all samples |
+
+The large-grid position trace uses query ordinal `q`, base column `(997*q) mod 3600`, and base row
+`(613*q) mod 3600`. Even ordinals query that exact post with `NEAREST`; odd ordinals query the exact
+coordinate midpoint between `(column,row)` and `(column+1,row+1)` with `BILINEAR`. The L0 SMOKE trace
+uses the same construction modulo 120 columns and rows. Checked long arithmetic creates indices;
+metadata supplies coordinates. Fixture formulas plus direct adjacent samples independently establish
+the expected result, so the query implementation never oracles itself.
+
+Every sample follows G7's untimed prepare, one timed batch returning a small observation, untimed
+oracle/consumer, and cleanup model. The eager/corpus-open timers start immediately before the first
+public facade call and stop immediately after the last source publishes; their metadata/sample oracle
+does not contaminate the timer. Scan/query must digest inside the timer to avoid retaining results, but
+comparison to the frozen expected digest is untimed. Semantic counters remain separate from the one
+named throughput unit in the table.
+Filesystem-cache state is `NOT_APPLICABLE`, not falsely labelled cold. Sources close exactly once and
+the generated workspace is deletable. An exception, semantic mismatch, leaked source/file, nonpositive
+duration, or changed digest fails the lane; a slow duration does not.
+
+The existing `evidence-v1` JSON/Markdown schema accepts appended scenario rows and retains exact
+declaration order, profile, fixture version, warmups, measurements, median/p95, throughput, semantic
+counters/digest, Java/OS/CPU/heap/GC data, and revision. G9 implementation freezes new
+`(BASELINE|SMOKE, scenario)` digests with independent fixture tests before recording evidence. It does
+not rewrite a digest because a measurement is inconvenient.
+
+### Exact logical memory and labelled JVM observations
+
+Logical project-owned storage, rather than a GC-dependent heap delta, drives the decision. For the
+maximum cell (`n=12,967,201`):
+
+| Quantity | Checked formula | Exact bytes |
+| --- | --- | ---: |
+| Full no-data mask | `8 * ceil(n/64)` | 1,620,904 |
+| Published packed grid | `8*n + mask` | 105,358,512 |
+| Reusable encoded record | `12 + 2*3601` | 7,214 |
+| Open peak reservation | `2700 + record + 2*published` | 210,726,938 |
+
+These are G9-001/G9-004 logical charges and exclude fixed object headers, immutable metadata, channel
+internals, and diagnostics consistently. Checked arithmetic tests equality, one-byte-over cases, and
+overflow. Reports also retain file/sample/profile counts and formulas, making a changed storage shape
+visible even when a JVM happens to allocate differently.
+
+One additional support-only Gradle `JavaExec`, `runDtedMemoryProbe`, uses the same Java 21 launcher,
+`-Xms512m -Xmx512m`, G1, locale, time zone, encoding, maximum fixture, and public open/close path in a
+fresh JVM. The existing `PerformanceEvidenceMain` dispatches only the exact Gradle-owned
+`--dted-memory-probe` mode, preserving one public launcher. `runPerformanceEvidence` depends on the
+probe, consumes and validates its declared output, and root `performanceEvidence` retains only the
+existing runner as its direct dependency. Normal gates do not. The probe writes one ignored,
+maximum-65,536-byte UTF-8/LF `dted-memory-probe-v1.json`; it has no Markdown twin and CI does not
+upload it. It may
+record `MemoryMXBean` heap snapshots before open, immediately after publication, and after close,
+memory-pool peaks, plus the supported `com.sun.management.ThreadMXBean` current-thread allocated-byte
+delta when available. Capability, exact VM flags, sample phase, and units accompany every value;
+unsupported counters are `UNAVAILABLE`, never zero.
+
+The probe schema is `mundane-map-dted-memory-probe/v1` with fixed top-level order
+`schemaVersion, fixture, environment, jvmSettings, capabilities, snapshots, poolPeaks,
+allocatedBytesDelta, logicalStorage`. Fixture is the fixed ID/dimensions/length/SHA; environment and
+JVM settings reuse G7's bounded allowlist; capabilities use booleans; snapshots contain only named
+phases and nonnegative used/committed/max bytes; pool rows sort by bounded name; an unavailable
+allocation delta is JSON null; logical storage repeats the checked formulas above. It rejects unknown,
+duplicate, out-of-order, negative, overlong, path-like, command-line, user/home/host, time, or UUID
+data. The main runner verifies schema, size, fixture identity, logical values, and SHA before scenarios.
+The checked G9 decision record retains the probe hash, environment, observations, and limitations; the
+two canonical `evidence-v1` reports and their schema/CI upload contract remain unchanged.
+
+Those JVM observations are environment-specific clues, not retained-object size, exact allocation,
+portable threshold, or evidence that close triggered collection. The probe does not call `System.gc`,
+sleep, attach an agent, inspect object layouts, launch a child process, or subtract a baseline. G7's
+existing optional `performanceJfr` can select `dted-eager-open` and supplies CPU/allocation/file-I/O
+attribution under its existing semantics. The checked G9 decision record cites main-report, probe, and
+JFR hashes, revision, environment, and limitations; ignored binary/raw reports are not committed as
+universal benchmarks.
+
+### Analytical profile-cache comparison and fixed decision rubric
+
+A package-private analytical model compares shapes; it is not timed and contains no parser or I/O.
+A credible retained-file reader would still have to scan and validate all `25,981,042` bytes before
+publication, retain a fallible channel, and surface later read/cancellation/close failures. It therefore
+cannot implement G9-001's failure-free `sample` contract without a new operation boundary. The model
+charges one 7,214-byte encoded scratch plus decoded profiles of
+`8*3601 + 8*ceil(3601/64) = 29,264` bytes each:
+
+| LRU width | Exact logical retained bytes |
+| ---: | ---: |
+| 1 | 36,478 |
+| 64 | 1,880,110 |
+| 256 | 7,498,798 |
+
+It replays 65,536 alternating one-profile nearest/two-adjacent-profile bilinear accesses. The local
+trace uses `column=floor(q/128)`; the scattered trace uses `column=(997*q) mod 3600`. Exact LRU
+access-order outcomes are:
+
+| Trace | Width | Hits | Misses/profile reads | Bytes read at 7,214/read |
+| --- | ---: | ---: | ---: | ---: |
+| local | 1 | 33,279 | 65,025 | 469,090,350 |
+| local | 64 or 256 | 97,791 | 513 | 3,700,782 |
+| scattered | 1, 64, or 256 | 0 | 98,304 | 709,165,056 |
+
+Independent tests pin the trace formulas, access order, LRU results, checked byte multiplication, and
+the fact that the model never calls a production reader. These numbers describe potential file-read
+amplification and storage only; they are not elapsed-time predictions.
+
+The AFK implementation decision is mechanical. Retain eager access only when all four scenario
+semantics/digests pass, the maximum cell publishes in the canonical 512-MiB fork, published logical
+storage is at most `134,217,728` bytes (128 MiB), and logical open peak is at most `268,435,456` bytes
+(256 MiB). Equality passes. Durations, JFR attribution, and observed heap remain recorded evidence;
+without a documented caller latency target they cannot alone force a redesign. The designed eager
+shape satisfies the two logical ceilings, but implementation evidence must still prove publication and
+semantics rather than marking the decision complete in advance.
+
+If any mandatory condition fails, G9-007 creates a separate implementation card before completion and
+adds it to G9-008's dependency list. That card must define a fallible window request/cursor contract,
+cancellation, cache width/byte caps, validation-before-publication policy, close behavior, stable
+diagnostics, correctness equivalence, and measurable acceptance targets. It must not silently change
+`ElevationSource.sample`, smuggle a lazy parser into this evidence task, default to memory mapping, or
+add native acceleration. If all conditions pass, the checked G9 record says eager retained and no
+speculative source abstraction is added.
+
+Focused DTED/performance/architecture checks run first. The approved corpus lane runs independently
+to authenticate inputs but is not a task dependency of `performanceEvidence`; then the normal evidence
+run, targeted optional JFR workflow, normal quality gate, and whitespace run. Corpus acquisition,
+native smoke, render regression, publication, and consumer lanes remain separate. Four scenarios, one
+fresh memory probe, one analytical model, and one decision record are sufficient.

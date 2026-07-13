@@ -198,7 +198,7 @@ must be decomposed again after that evidence exists.
 | [G9-004 — DTED validation and diagnostics](G9-004-dted-validation-and-diagnostics.md) | Proposed | AFK | G9-003 | Validate headers, dimensions, checksums, samples, voids, and truncation. |
 | [G9-005 — Elevation position-query policy](G9-005-elevation-position-query-policy.md) | Proposed | AFK | G9-001, G9-003 | Provide explicit nearest and bilinear query behavior. |
 | [G9-006 — Legally redistributable DTED corpus](G9-006-legally-redistributable-dted-corpus.md) | Proposed | HITL | G9-004 | Approve and verify an isolated Level 0/1/2 independent-writer corpus. |
-| [G9-007 — DTED memory and read performance](G9-007-dted-memory-and-read-performance.md) | Proposed | AFK | G9-004, G9-006 | Decide from evidence whether larger datasets need lazy/windowed access. |
+| [G9-007 — DTED memory and read performance](G9-007-dted-memory-and-read-performance.md) | Proposed | AFK | G9-004, G9-005, G9-006 | Decide from largest-cell evidence whether DTED needs fallible windowed access. |
 | [G9-008 — Native Image DTED smoke](G9-008-native-image-dted-smoke.md) | Proposed | HITL | G9-002, G9-005, G9-007 | Read, query, colorize, and render DTED natively without native parsing. |
 
 ### G10 — Additional formats, tiles, and projections
