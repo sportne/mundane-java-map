@@ -100,8 +100,9 @@ architectural requirement. Level 1 is complete only when
 
 ## Level 2 backlog
 
-Level 2 begins after G8-004. Profile tasks must be followed by newly decomposed vertical slices once
-their decisions and evidence exist; they must not create empty modules.
+Level 2 begins after G8-004. Decision-only profile cards must be followed by newly decomposed vertical
+slices after approval; G10-001 and G10-006 already define working first slices. No task creates an
+empty module, and broader follow-up remains separately decomposed.
 
 ### G9 — Elevation and DTED
 

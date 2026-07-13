@@ -88,6 +88,13 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
   convergence and waits for G2-007 and G5-010 before integrating the exact shared resource inventory.
 - G9-002 and G9-003 may proceed together after G9-001.
 - Level 2 profile decisions may proceed together after G8-004.
+- G9-008 and G10-001 are dependency-parallel but both append to the one native executable and
+  authoritative inventory. One owner serializes those shared files; whichever lands second retains
+  the first task's required subset and reconciles the complete manifest rather than resetting a
+  historical count.
+- G9-003, G10-001, and later tasks that publish Level 2 modules follow the same append-only rule for
+  the staged artifact manifest and consumer scenarios. Baseline artifact counts are task-required
+  subsets; shared publication files have one owner and are not path-safe.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -185,8 +192,9 @@ Level 1 is complete only when G8-004 is complete. All tasks currently have `Prop
 ## Level 2 backlog
 
 Level 2 starts after G8-004. DTED is decomposed because its model and binary profile are known;
-other speculative capabilities stop at a supported-profile decision or first vertical slice and
-must be decomposed again after that evidence exists.
+other speculative capabilities stop at a supported-profile decision or first vertical slice.
+Decision-only cards must be decomposed after approval; working first slices G10-001 and G10-006 are
+already implementation tasks, while any broader follow-up still requires a new card.
 
 ### G9 — Elevation and DTED
 
@@ -205,7 +213,7 @@ must be decomposed again after that evidence exists.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G10-001 — Secure SVG import profile and first slice](G10-001-secure-svg-import-profile-and-first-slice.md) | Proposed | HITL | G8-004 | Import a bounded static SVG subset into the vector-symbol model. |
+| [G10-001 — Secure SVG import profile and first slice](G10-001-secure-svg-import-profile-and-first-slice.md) | Proposed | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
 | [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Decide the RFC 7946 profile and dependency boundary before implementation. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](G10-003-geotiff-raster-and-elevation-profile-decision.md) | Proposed | HITL | G8-004, G9-001 | Decide image/elevation routing, tags, compression, tiling, CRS, and limits. |
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide GeoPackage/MBTiles scope and isolate SQLite implementation types. |

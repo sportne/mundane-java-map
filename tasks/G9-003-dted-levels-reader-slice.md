@@ -59,8 +59,9 @@ G9-004 owns typed DTED parser limits, checksum/malformed matrices, and fuzz.
 - Production code is JDK-only, AWT-free, reflection-free, and contains no DTED-specific type in
   `mundane-map-api`.
 - The module is not added until its reader/tests/query exist in the same change; it is classified as
-  published Level 2 JDK-only runtime but not Level 1/native-targeted, the staged contract contains six
-  exact artifacts, and the clean Java 21 consumer opens and queries a tiny Level 0 fixture.
+  published Level 2 JDK-only runtime but not Level 1/native-targeted, the staged contract contains the
+  six G8-baseline task-required artifacts plus any approved append-only Level 2 addenda, and the clean
+  Java 21 consumer retains prior scenarios and opens/queries a tiny Level 0 fixture.
 
 ## Required tests
 
@@ -70,8 +71,9 @@ conversion, level-specific partial/void policy, and south-to-north transpose. Pu
 generate/open one independent zone-V fixture per level and assert metadata, known samples, Level 2
 voids, empty diagnostics, limits, pre-/mid-/pre-copy/post-copy cancellation, channel-before-return
 ownership, I/O/close primary-suppressed failures, idempotent close, and retained metadata.
-Architecture/project-inventory tests and a six-artifact publication verifier/standalone consumer
-query are required; exhaustive malformed/checksum/fuzz cases remain G9-004.
+Architecture/project-inventory tests, the six-artifact task-required publication subset plus approved
+addenda, and its standalone consumer query are required; exhaustive malformed/checksum/fuzz cases
+remain G9-004.
 
 ## Validation
 
@@ -88,3 +90,6 @@ Use positional JDK file I/O, fixed reusable record buffers, explicit big-endian 
 arithmetic. The file checksum is consumed but enforcement begins in G9-004. Do not add a dependency,
 viewer, public parser model, or lazy abstraction. See `design/G9-elevation-and-dted.md` for the exact
 supported profile, transaction, diagnostics, fixtures, and publication boundary.
+If another approved Level 2 publication task lands first, retain its artifact/consumer entries and
+reconcile the complete authoritative manifest; the six-artifact count is this task's G8-baseline
+required subset, not a reset instruction.

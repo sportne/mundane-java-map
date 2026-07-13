@@ -66,3 +66,7 @@ Native Image build/run and approve the exact representative Level 0 claim. Level
 Linux AArch64, and other environments remain unclaimed until separately observed. If G9-007 creates a
 windowed-source task, reopen/amend/re-review this design and closeout, add that task as a dependency,
 and smoke the accepted path before executing this task.
+The 13-resource and six-dependency counts are the task-required G8-baseline subset. If another
+approved append-only Level 2 native scenario lands first, retain its entries and update the one
+complete authoritative manifest; shared native files make those tasks dependency-parallel but not
+path-safe.

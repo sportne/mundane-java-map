@@ -765,13 +765,15 @@ source close, and retained metadata/report behavior. Malformed tables, checksum 
 at every boundary, fuzzing, and real producer data belong to G9-004/G9-006.
 
 The working module is added to the authoritative inventory as JDK-only Level 2 runtime and Published,
-but not Level 1 release; it is not Native-targeted until G9-008 proves that path. The publication
-contract consequently expands from the
-historical five Level 1 coordinates to the current six-coordinate set by adding
-`io.github.mundanej:mundane-map-io-dted`. In the same change, the staging verifier checks its binary,
-sources, Javadocs, module metadata, POM scopes, license, and checksums; the standalone Java 21
-consumer resolves it from staging and opens/queries/closes one independently built tiny Level 0
-fixture. This extends rather than rewrites G8's recorded Level 1 candidate evidence.
+but not Level 1 release; it is not Native-targeted until G9-008 proves that path. On the G8 baseline,
+the publication contract expands from the historical five Level 1 coordinates to the six-coordinate
+task-required set by adding `io.github.mundanej:mundane-map-io-dted`. If another approved append-only
+Level 2 publication lands first, G9-003 retains that coordinate and reconciles the one authoritative
+complete manifest rather than resetting or rejecting it. In the same change, the staging verifier
+checks the DTED binary, sources, Javadocs, module metadata, POM scopes, license, and checksums; the
+standalone Java 21 consumer retains prior approved scenarios and opens/queries/closes one independently
+built tiny Level 0 fixture. This extends rather than rewrites G8's recorded Level 1 candidate evidence
+or another Level 2 addendum.
 
 Focused module and architecture checks run first, then the already-existing
 `publicationDryRun consumerSmoke` lane, `qualityGate`, and whitespace. Native, DTED corpus,
@@ -1824,10 +1826,14 @@ files are not copied or packaged. The resource is native-support evidence only a
 published module/artifact.
 
 The single Java 21 resource configuration appends exactly one individually quoted literal path,
-without a lookup-leading slash, under the unchanged `NativeSmokeMain` condition. Exact normalized JSON
-and processed-resource-tree tests require 13 entries: the prior icon, six shapefile, five image, and
-one DTED file. Wildcards, directories, bundles, services, reflection/proxy/JNI/serialization metadata,
-tracing output, metadata-repository entries, and class-initialization flags remain forbidden.
+without a lookup-leading slash, under the unchanged `NativeSmokeMain` condition. On the G8 baseline,
+exact normalized JSON and processed-resource-tree tests require the 13-entry task-owned inventory:
+the prior icon, six shapefile, five image, and one DTED file. If another approved append-only Level 2
+native scenario has already landed, G9-008 retains and enumerates that addition in the authoritative
+complete manifest rather than resetting a historical count; its invariant remains those 13 required
+entries plus every approved addendum. Wildcards, directories, bundles, services,
+reflection/proxy/JNI/serialization metadata, tracing output, metadata-repository entries, and
+class-initialization flags remain forbidden.
 
 `NativeFixtureWorkspace.openDted()` uses literal `Class.getResourceAsStream`, reads at most 8,763
 bytes, and rejects absent, short, long, or wrong-hash content with bounded invariant token
@@ -1904,9 +1910,10 @@ Architecture inventory now classifies `mundane-map-io-dted` as Published, JDK-on
 and Native-targeted. It applies the full bans on reflection, classpath/resource enumeration, service
 discovery, dynamic proxies, Java serialization, JNI, `Unsafe`, internal JDK APIs, and external/native
 dependencies to API, core, AWT, shapefile I/O, image I/O, DTED I/O, plus native support. The literal
-support-only resource lookup remains the sole exception. Tests also pin the six dependency projects,
-13 resources, no corpus-task/resource
-coupling, root `nativeSmoke -> nativeRun` graph, metadata repository disabled, and no fallback.
+support-only resource lookup remains the sole exception. Tests also pin the six task-required
+dependency projects and any previously approved append-only dependencies, the 13 task-required
+resources plus approved addenda, no corpus-task/resource coupling, root
+`nativeSmoke -> nativeRun` graph, metadata repository disabled, and no fallback.
 
 The existing Ubuntu 24.04 Linux x86_64 GraalVM Java 21 workflow remains the sole authoritative lane;
 G9 adds no matrix, command, artifact scope, timeout, secret, or executable upload. The named checkpoint

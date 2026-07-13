@@ -58,6 +58,7 @@ design task; there are no empty speculative design files.
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
+| G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -128,6 +129,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-12 | Build DTED corpus evidence from approved GDAL-generated synthetic cells in a separate offline lane. | An independent writer plus exact provenance, hashes, licenses, and public outcomes adds compatibility evidence without ambiguous terrain rights, runtime downloads, or production dependencies. |
 | 2026-07-13 | Judge eager DTED access with exact logical storage and real-stack evidence before considering another source shape. | A largest-standard-cell run, environment-labelled JVM observations, and an analytical profile-cache model expose the tradeoff without implementing a speculative second parser or portable timing gate. |
 | 2026-07-13 | Extend the one native executable with one approved Level 0 DTED resource and shared JVM/native assertions. | A literal resource, public read/query/render path, and one exact malformed outcome prove representative reachability without a second native framework, full corpus, or platform overclaim. |
+| 2026-07-13 | Import a strict static SVG marker subset directly into existing immutable symbol values. | Secure JDK StAX, exact representability rules, and reuse of the built-in vector renderer deliver useful artwork without a DOM, SVG scene graph, renderer plugin, or arbitrary-SVG promise. |
 
 ## Task design traceability
 
@@ -186,3 +188,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G9-006 | Approved GDAL-generated Level 0/1/2 corpus, manifest/licenses/recipe, exact public oracle, isolated offline lane, and publication exclusion | Approved |
 | G9-007 | Four append-only DTED evidence scenarios, exact logical memory accounting, analytical profile-cache comparison, and a deterministic eager/windowed decision rubric | Approved |
 | G9-008 | One explicit Level 0 native fixture, public read/query/colorize/hillshade/render path, exact malformed diagnostic, Linux evidence, and G9 simplicity closeout | Approved |
+| G10-001 | Secure static SVG grammar, bounded StAX importer, direct immutable marker-symbol output, render/native/publication integration, and named profile approval | Approved |

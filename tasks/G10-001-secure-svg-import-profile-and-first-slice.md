@@ -7,8 +7,8 @@ Type: HITL
 
 ## Goal
 
-Approve a deliberately small static SVG profile and import it into the Level 1 toolkit-neutral vector
-symbol model through one secure, rendered vertical slice.
+Approve a deliberately small static SVG marker profile and import it directly into the established
+toolkit-neutral symbol model through secure parse, render, native, and consumer paths.
 
 ## Context
 
@@ -18,48 +18,56 @@ resolution and expansion are disabled.
 
 ## Scope
 
-Before implementation, record and approve exact limits for input bytes, elements, nesting, attributes,
-path commands/segments, and transform depth. Then create `mundane-map-io-svg` only with working AWT-free
-import and tests for local static SVG using `viewBox`, basic shapes, affine transforms, representable
-move/line/quadratic/cubic/close path commands, fill, stroke, and opacity. Render an imported symbol via
-explicit registration and the existing Java2D path.
+Complete **G10 secure SVG profile approval**, then create published AWT-free `mundane-map-io-svg` with
+working bounded local byte/path import. Support the exact approved root, group/basic-shape/path,
+transform, fill/stroke/opacity, and representability profile; return only ordinary immutable marker or
+composite symbols. Reuse `SymbolRendererRegistry.builtIn()` with no SVG renderer. Extend architecture,
+render regression, native literal-input smoke, publication inventory, and staged consumer evidence.
 
 ## Out of scope
 
-Scripts, animation, CSS, text, filters, masks, clipping, external references, network access, embedded
-raster data, data URLs, DTDs/entities, arbitrary SVG conformance, export, and silent fallback for
-unsupported content.
+Scripts, animation, CSS/style/class, text, filters, masks, clipping, gradients/patterns, arcs, external
+or local references, network access, embedded raster/data URLs, DTDs/entities, DOM/XPath/Transformer,
+arbitrary SVG conformance, map export, and silent fallback for unsupported content.
 
 ## Acceptance criteria
 
-- A maintainer approves the supported subset, diagnostic policy, and conservative numeric/resource
-  limits before implementation begins.
-- Secure parser configuration rejects DTDs, entities, external resources, oversized/deep documents,
-  non-finite coordinates, unsupported elements/attributes, and limit overruns with stable diagnostics.
-- A supported local SVG imports to immutable toolkit-neutral symbols and renders through explicit
-  renderer registration; no DOM or XML type leaks into `mundane-map-api`.
-- The new module is added only with working parse-to-render behavior, tests, Javadocs, and architecture
-  coverage.
-- Unsupported SVG features remain explicit Level 2 backlog candidates and receive separate tasks only
-  after demonstrated demand.
+- **G10 secure SVG profile approval** records the exact element/attribute/path/transform/paint tables,
+  circle approximation, representability restrictions, security settings, default limits,
+  diagnostics, native scenario, and publication extension before module creation.
+- Secure JDK StAX rejects forbidden XML features, external resolution, invalid UTF-8/XML, unsupported
+  SVG, non-finite/unrepresentable geometry, and exact/one-over limits with stable path-free outcomes.
+- A supported document produces one ordinary immutable `VectorMarkerSymbol` or ordered
+  `CompositeSymbol`, returned as a verified `MARKER`-role `Symbol`, and renders through the existing
+  explicitly constructed built-in registry; no XML, DOM, SVG scene graph, or external type leaks
+  through public map contracts.
+- The working published module has Javadocs, API/core/AWT/format architecture coverage, tolerant
+  render regression, shared JVM/native parse/reject/render assertions, and staged offline consumer use.
+- Unsupported SVG expansion remains a future backlog candidate and receives a separate task only after
+  demonstrated demand; this first slice is not deferred for another decomposition.
 
 ## Required tests
 
-Parser and transform/path tests; XXE, entity-expansion, external-reference, depth, count, size, and
-numeric-limit tests; parse-to-render integration and tolerant rendering regression tests; architecture
-tests for AWT and dependency boundaries.
+Exact grammar/shape/path/transform/style/view-box tests; ownership and immutable-output tests; XXE,
+entity/DTD/reference/UTF-8/XML/unsupported-profile, limit/overflow, cancellation, local HTTP/file
+canary, deterministic mutation, and stable diagnostic tests; parse-to-render tolerant regression;
+native JVM parity; publication/consumer and architecture boundary tests.
 
 ## Validation
 
 ```bash
-./gradlew :modules:mundane-map-io-svg:check --console=plain
+./gradlew :modules:mundane-map-io-svg:check :modules:mundane-map-architecture-tests:check --console=plain
 ./gradlew renderRegression --console=plain
+./gradlew nativeSmoke --console=plain
+./gradlew publicationDryRun consumerSmoke --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
 ```
 
 ## Notes
 
-HITL checkpoint: the maintainer must approve the profile table, limit defaults, and reject-versus-warn
-behavior before code or module creation. General SVG support is not a goal.
-
+HITL checkpoint: **G10 secure SVG profile approval**. General SVG support is not a goal. Because this
+task adds a working post-Level-1 published/native-targeted module, its implementation must integrate
+against the then-current inventories rather than hard-code a historical module/resource count. It is
+dependency-parallel with G9-008 but not path-safe: whichever task lands second retains the first
+task's append-only native scenario and reconciles the complete authoritative manifest.
