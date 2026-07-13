@@ -166,6 +166,19 @@ duplicate-key behavior. These mechanical checks do not claim to infer every indi
 pattern, which remains part of design and code review. An immutable built-in catalog constant is not
 a mutable registry. Registration never depends on what happens to be present on the classpath.
 
+The G6 requirement to use the JDK's standard PNG/JPEG `ImageIO` readers has one exact opaque-JDK
+qualification. The public JDK exposes those readers only through the ImageIO registry; initializing
+that registry may itself consult installed/application ImageIO providers. Application-level decoder
+selection nevertheless remains explicit: only the AWT-owned decoder registered by
+`AwtRasterDecoders.level1()` is selected, and it may retain/use only the two standard reader SPIs whose
+provider classes belong to the named `java.desktop` module. Any discovered non-JDK provider is ignored
+and cannot alter decoder choice or output. This qualification permits only the required ImageIO
+registry lookup inside that exact AWT factory; it does not permit application/provider fallback,
+`ImageIO.scanForPlugins`, registry mutation, `ServiceLoader` calls in project bytecode, service
+descriptors, class/resource scanning, or any other discovery path. Architecture checks exact-allowlist
+the factory calls and continue rejecting every direct prohibited mechanism elsewhere. This is an
+acknowledged JDK codec initialization side effect, not a general registration exception.
+
 The Level 1 dependency direction, JDK-only runtime, API purity, AWT/I/O confinement, external-type
 isolation, and prohibited native-targeted mechanisms are non-waivable. Matcher suppressions are
 allowed only for an exact tool false positive that does not authorize direct use of the prohibited
