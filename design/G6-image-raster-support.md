@@ -882,3 +882,343 @@ request/context evolution, and one immutable AWT options value cover the slice. 
 opacity stays presentation-only; affine placement stays placement-only; and ImageIO hints never become
 correctness claims. There is no filter SPI, generic pixel source, warp framework, cache, worker, or
 replacement binding lifecycle.
+
+## Raster cache, lifecycle, and hardening (G6-004)
+
+### One cache and one policy
+
+G6-004 retains exactly one cache: a private per-`ImageRasterSource` map of canonical, already decoded
+and resampled toolkit-neutral `RgbaPixelBuffer` values. It adds no encoded-byte cache, `BufferedImage`
+cache, AWT/ARGB render cache, shared decoder cache, disk cache, or cache hierarchy. G7 measures the
+complete path before any other retained layer is justified.
+
+The image module adds one public immutable value:
+
+```text
+ImageCachePolicy
+  disabled()
+  bounded(int maximumEntries, long maximumPixelBytes)
+  defaults() -> bounded(8, 33_554_432)
+  enabled() -> boolean
+  maximumEntries() -> OptionalInt
+  maximumPixelBytes() -> OptionalLong
+```
+
+Bounded values are positive; disabled is a distinct variant, never a zero/unlimited sentinel. This
+intentionally supersedes G6-001's slice-local count of four public image types. The evolved options
+shape is
+
+```text
+ImageOpenOptions(imageLimits, requestLimits, placement, cachePolicy)
+```
+
+and gains `withCachePolicy`; its existing three-value construction delegates to `defaults()`. The
+defaults are a correctness/resource envelope, not a throughput promise. G6-001's no-retained-result
+and externally-serialized statements likewise describe the earlier uncached source and are replaced
+only for the concrete `ImageRasterSource` by the cache and monitor below.
+
+The private key is exactly:
+
+```text
+ImageContentVersion(capturedLength, sha256)
+RasterWindow
+outputWidth
+outputHeight
+RasterInterpolation
+```
+
+The content version is identical for every entry in one source but remains explicit so stale entries
+cannot survive future invalidation changes. `SourceIdentity` is not a key because IDs are source-local
+and may repeat across instances. Format/decoder/profile/placement are immutable per source. Tighter
+limits and cancellation are invocation policy; opacity, CRS, viewport, affine placement, diagnostics,
+and ImageIO hint choice do not alter pixels and stay out of the key. Any later pixel-affecting option
+must extend the key or invalidate the owner.
+
+Entry weight is checked `4 * outputPixels`. One insertion-ordered `LinkedHashMap` implements
+least-recently-successful use: a successful hit removes/reinserts its entry; unsuccessful/cancelled
+lookups do not promote. Admission evicts oldest successful entries until both entry/byte budgets fit.
+Equality fits. An entry larger than either budget bypasses caching without eviction or read failure.
+No soft/weak reference, static/global state, timer, worker, future, executor, or background eviction
+exists.
+
+### Consumer ownership and limit preflight
+
+The cache never returns its retained instance. On a hit, the source builds a fresh independently owned
+buffer with cancellation checkpoints. On an admissible miss, the decoder-produced immutable buffer
+becomes the retained entry and a fresh copy becomes the consumer result. If that extra miss-side copy
+cannot fit the effective intermediate-byte ceiling, the source admits nothing and returns the decoder
+buffer directly; caching never turns a successful uncached request into failure.
+
+Before lookup, a disposable `RasterRequestAccounting` instance validates the complete uncached
+G6-003 plan under the request's tighter limits: full-image source pixels, one 4,096-byte digest
+scratch, two encoded-length terms
+(the G6-001 memory image stream plus the G6-004 operation snapshot), eight bytes per full source pixel,
+four final RGBA bytes per output pixel, and normal published output. It is independent of the real
+operation counter, just like G4's render-path preflight, so a cached hit cannot bypass a limit that
+would reject the same cold request. Actual hit accounting charges fixed digest scratch plus the fresh
+four-byte-per-pixel intermediate output copy and published payload. Actual miss accounting follows the
+preflight terms. Admission needs a second simultaneous four-byte-per-pixel intermediate output: if
+that prospective cumulative charge exceeds the intermediate ceiling, admission is bypassed and the
+decoder buffer itself becomes the published result. No accounting counter rolls back and no public
+cache/accounting SPI is added.
+
+Package-private immutable metrics snapshots exist only for same-package tests. All cumulative counters
+saturate at `Long.MAX_VALUE`, update only when the read result commits after its final cancellation
+checkpoint except for a version invalidation, and never affect behavior:
+
+| Counter | Exact event |
+| --- | --- |
+| `hits` | A successful read returns a fresh copy of an existing enabled-cache entry. |
+| `misses` | A successful enabled-cache read found no matching key; admissions and enabled bypasses also count here. |
+| `admissions` | A successful miss inserts one retained entry. |
+| `evictions` | An entry is removed solely to commit a successful admission. |
+| `disabledBypasses` | A successful read decoded while its captured policy was disabled; it is not also a miss. |
+| `oversizedBypasses` | A successful enabled miss exceeded an entry/byte budget and was not admitted. |
+| `accountingBypasses` | A successful enabled miss could not charge the admission copy and was not admitted. |
+| `invalidations` | One published-source version mismatch clears the cache, even when it was empty. |
+
+The snapshot also exposes current entries and current retained pixel bytes. Close clears references but
+does not count eviction or invalidation; failed/cancelled/contract-invalid reads change no
+success-only counter. No public metrics, timing, logging, JMX, or observer is introduced.
+
+### Exact content version and operation snapshot
+
+After G6-001 header/profile limits and G6-002 sidecar snapshot, open checks the channel size, reads
+exactly that complete bounded file into one operation-local byte array, requires the exact read count,
+and checks the channel size again. It validates the full container below and computes literal
+`MessageDigest.getInstance("SHA-256")`. The snapshot allocation remains fenced by
+`maximumEncodedBytes`; the inflater never allocates the declared inflated size. A second positional
+streaming fingerprint pass requires the captured size both before and after, consumes exactly the
+captured byte count through a 4,096-byte scratch, and must match the snapshot digest before source
+publication. The byte array is then discarded; the source retains only length plus a defensive
+32-byte digest. This exact algorithm has no provider name/option and no public/diagnostic digest. G0
+architecture tests allowlist only this literal production call; it does not authorize arbitrary
+algorithm/provider lookup.
+
+Every read fingerprint pass checks captured size, compares the exact header snapshot, consumes exactly
+the captured bytes into SHA-256 through one fixed 4,096-byte scratch, then checks size again before
+cache lookup. A successful hit has therefore observed baseline bytes with stable length and may return
+the known baseline entry. On a miss, the source again checks
+size, reads exactly the captured bytes into one operation-local snapshot, compares its exact header and
+SHA, and checks size after the read. It decodes only from a `ByteArrayInputStream` over those verified
+exact bytes and never from a concurrently changing channel. The snapshot's additional encoded length
+is charged before allocation; the existing decoder still reserves its own memory image-stream
+capacity. No snapshot survives the read or becomes an encoded cache.
+
+Any before/after size or exact-read-count mismatch keeps `IMAGE_FILE_LENGTH_MISMATCH`; header mismatch
+keeps `IMAGE_DECODE_MISMATCH/field=headerSnapshot`; same-length/header body mismatch is
+`IMAGE_CONTENT_CHANGED`, component `image`, with exact context `reason=readFingerprint`. A different
+second pass while opening uses `reason=openSnapshot`; a different miss snapshot after a successful
+read fingerprint uses `reason=operationSnapshot`. A published source clears all entries before any
+length, header, or digest read-time mismatch is thrown and increments invalidations once. An opening
+mismatch simply fails/cleans the opening transaction because no source or cache exists yet. The source
+never adopts changed bytes; an exact restoration may be read again, while a new version requires
+reopen. World-file changes do not invalidate because G6-002 already owns immutable coefficient
+snapshots.
+
+`IMAGE_FILE_LENGTH_MISMATCH` uses its existing numeric captured/actual context and exact stage reason
+`openSnapshot`, `readFingerprint`, or `operationSnapshot`. An early EOF reports the actual bytes read;
+a before/after size mismatch reports the observed channel size. No digest or header byte enters
+context.
+
+The open/read checks establish an honest observational filesystem boundary. Pre/post sizes close
+ordinary append/truncate races; the digest proves that the bytes observed by the pass equal the
+baseline. It does not assert an atomic file snapshot or claim the final size check observed all content
+at one instant. Under the local-source contract's non-adversarial assumption—no concurrent same-length
+rewrite/ABA intended to race one pass—a success is linearizable at some point within that byte-
+observation interval. A miss result is always decoded from its independently verified baseline
+snapshot; a hit returns only a baseline-derived retained value. Cryptographic collision, adversarial
+same-length/ABA mutation, and a malicious Java security provider are outside the contract;
+paths/digests/provider messages never enter reports.
+
+### Concrete source serialization and close
+
+G6-004 strengthens only `ImageRasterSource`: one private monitor serializes each entire read and
+close. Immutable metadata, limits, and reports remain independently readable; `isClosed` is safely
+published. Concurrent identical reads are bounded because the first lock owner performs a miss and a
+later identical request hits. Distinct reads serialize too. Different source instances may run
+concurrently because each decoder call creates its own reader.
+
+A read that acquires first may complete before a waiting close. A close that acquires first marks the
+source closed, clears cache references, then closes its channel; every waiting/new read checks state
+and its token immediately after lock acquisition and fails appropriately. Close is not cancellation
+and does not interrupt opaque ImageIO. A close failure leaves state closed/cache empty and follows G4
+primary/suppressed `SOURCE_CLOSE_FAILED` rules.
+
+Failed/cancelled/partial/contract-invalid work never promotes, evicts, or admits. On a miss the order
+is: decode exact snapshot, decide copy/admission eligibility, create the independent consumer copy if
+admitting, construct the complete `RasterRead`, final cancellation checkpoint, perform required
+evictions/insertion and counter updates, then return without further fallible work. On a hit the source
+looks up without promotion, charges/copies into a fresh consumer buffer, constructs the complete
+`RasterRead`, performs the final checkpoint, then remove/reinserts the retained entry and increments
+`hits` before returning without further fallible work. Disabled, oversized, or accounting bypass
+returns the decoder buffer directly after staging the same complete result/checkpoint/counter commit.
+A content-version mismatch is the only failure that intentionally clears existing entries.
+Cancellation after the final checkpoint may lose to successful publication under the unchanged G4
+arbitration.
+
+### Complete PNG physical/safety profile
+
+`ImageSourceLimits` appends positive defaults `maximumContainerElements = 65,536` and
+`maximumInflatedRasterBytes = 67,141,632`. Existing six- and eight-value constructors delegate the new
+fields to defaults; one full ten-value constructor appends them, and all accessors/withers/value
+operations preserve all ten. Limit equality passes; plus one/overflow uses
+`SOURCE_LIMIT_EXCEEDED`, `scope=imageOpen`, `limit=containerElements|inflatedRasterBytes`.
+
+The AWT-free image parser validates one complete PNG physical container and the Level 1
+decode-affecting safety profile in order. It does not claim semantic validation of ignored metadata:
+
+- signature and IHDR retain G6-001 rules; IHDR is first/exactly once;
+- every chunk has checked bounds/type/CRC and increments the container-element count; all four type
+  bytes are ASCII letters and the third reserved-property letter is uppercase;
+- PLTE/tRNS presence/order/profile are exact; IDAT is one consecutive run; unknown critical chunks
+  are unsupported;
+- every other ancillary chunk is deliberately opaque: it may occur anywhere after IHDR and before
+  IEND without a singleton/order claim, is bounded/CRC-checked/skipped, and cannot split an IDAT run;
+- APNG `acTL`, `fcTL`, or `fdAT` is `IMAGE_PROFILE_UNSUPPORTED`, never silently frame zero;
+- zero-length IEND occurs exactly once and ends the physical file; and
+- concatenated IDAT payload is streamed through one `Inflater` solely as validation, with fixed
+  scratch, no retained pixels, and guaranteed `end()` cleanup.
+
+`PLTE` occurs at most once before `tRNS`/IDAT, has a nonzero length divisible by three and at most 256
+entries, is required for indexed color with no more than `2^bitDepth` entries, is forbidden for
+grayscale/grayscale-alpha, and may be ignored as a suggested palette for truecolor variants. `tRNS`
+occurs at most once after any required palette and before IDAT: its length is exactly two for
+grayscale, six for truecolor, and 1 through the palette-entry count for indexed color; it is forbidden
+for the two alpha-bearing color types. Its sample values must fit the IHDR bit depth. These chunks are
+validated but do not change the already fixed JDK sRGB RGBA decode policy.
+
+The validator computes the exact filtered byte count for noninterlaced data or all seven Adam7 passes
+from width/height/bit-depth/color profile, including one leading filter byte for each nonempty row in
+each pass. While counting, it requires every row's filter byte to be 0 through 4. It rejects dictionary
+requests, zlib data errors, premature end, extra compressed bytes/concatenated zlib members, or
+inflated length other than exact, stopping at expected+1. The configured inflated ceiling covers the
+maximum 64 MiB accepted sample payload plus bounded filter-row overhead. Cancellation is checked
+within 4,096 encoded/inflated bytes and around every stage. Only IDAT is inflated; compressed
+text/profile ancillary chunks are never interpreted/decompressed.
+
+### Complete JPEG physical/safety profile
+
+The AWT-free JPEG scanner continues G6-001 parsing through entropy-coded data to exactly one physical
+EOI. The finite accepted state machine is:
+
+| Phase | Accepted next marker/data | Transition and project-owned checks |
+| --- | --- | --- |
+| Start | `SOI` only | Exact `FFD8`, counted once; any later SOI is invalid. |
+| Before SOF | APP0–APP15, COM, DQT, DHT, DRI, then one SOF0 or SOF2 | Length-bearing segments are complete; SOF retains G6-001 dimensions/component rules. |
+| After SOF/before first scan | APP0–APP15, COM, DQT, DHT, DRI, or SOS | A second SOF is invalid; SOS begins entropy. |
+| Entropy | ordinary bytes, exact `FF00` stuffing, RST0–RST7, or a non-stuffed boundary marker | Restart use obeys the current DRI and sequence below; a boundary enters between-scans or terminal EOI handling. |
+| Between scans | APP0–APP15, COM, DQT, DHT, DRI, another SOS, or EOI | At least one completed SOS is required; no SOF/SOI or entropy byte is legal here. |
+| Terminal | EOI | Exact `FFD9`, counted once, with physical EOF immediately afterward. |
+
+All unlisted markers are rejected. DAC/arithmetic SOFs, DNL, JPG/JPGn extensions, TEM, lossless,
+differential, hierarchical, and reserved markers use `IMAGE_PROFILE_UNSUPPORTED` with `format=JPEG`,
+`field=marker`, and the stable uppercase marker mnemonic/hex byte. A supported marker in the wrong
+phase, a second SOF/SOI, SOS before SOF, or EOI before a completed scan is
+`IMAGE_CONTAINER_INVALID/reason=markerOrder`.
+
+APP/COM payloads are bounded and skipped without interpretation. DRI has exact segment length four and
+captures its unsigned 16-bit restart interval; zero disables restarts. DQT is parsed as one or more
+tables with 8- or 16-bit precision, IDs 0 through 3, and exact 64-value payloads. DHT is parsed as one
+or more DC/AC tables with class 0 or 1, IDs 0 through 3, 16 code-length counts, a checked symbol sum at
+most 256, and exact payload exhaustion. Tables may repeat/replace and may appear in any non-start,
+nonterminal header/between-scan phase listed above; whether a scan has every semantically required
+table remains the JDK reader's codec check under the existing opaque-call reservation.
+
+Each SOS has exact length `6 + 2 * componentCount`, uses 1 through the SOF component count unique
+declared IDs, and validates table selectors in 0 through 3. For SOF0 it requires `Ss=0`, `Se=63`, and
+`Ah=Al=0`. For SOF2 a DC scan requires `Ss=Se=0` and may contain one or more components; an AC scan
+requires `1 <= Ss <= Se <= 63` and exactly one component. Each progressive scan is either initial
+`Ah=0` or refinement `Ah=Al+1`, and both approximation nibbles are at most 13. It then requires at
+least one entropy byte before the next boundary. Ordinary entropy bytes are accepted without Huffman
+decoding. Exact `FF00` is the
+only stuffed literal; repeated `FF` bytes may fill before a nonzero marker. RST markers are legal only
+when the current DRI interval is nonzero, start at RST0 for each scan, and advance modulo eight; exact
+MCU spacing remains the codec's job. All other standalone-marker appearances are invalid.
+
+SOI, every length-bearing marker, SOS, every RST, and EOI count against
+`maximumContainerElements`; fill bytes and `FF00` do not. Every segment length is at least two and
+wholly within the snapshot. The scanner checkpoints within each 4,096 physical bytes, so marker-fill
+and entropy-heavy files remain bounded by encoded bytes even where no marker count advances.
+
+This task therefore closes G6-001's explicit trailing/concatenated JPEG non-claim. It does not parse
+EXIF/ICC/color semantics or promise polling inside opaque ImageIO. Full scanners use only fixed
+at-most-4,096-byte scratch plus the bounded open snapshot and introduce no generic binary-parser API.
+
+Container failure uses `IMAGE_CONTAINER_INVALID`, component `image`, absolute byte offset when known,
+and exact context `format` plus one reason:
+
+```text
+chunkType | chunkOrder | chunkLength | chunkCrc | palette | filter | missingData | missingEnd |
+trailingData | markerOrder | segmentLength | table | scan | entropy | dictionary |
+compressedData | decodedLength
+```
+
+Reason selection is deterministic:
+
+At physical EOF, required data takes precedence over the end marker: PNG with no IDAT and no IEND, or
+JPEG with no SOS and no EOI, is `missingData`; `missingEnd` applies only after required data/scan
+exists. All other rows are evaluated at the first failing physical condition.
+
+| Format condition | Reason |
+| --- | --- |
+| PNG nonletter/reserved-bit chunk type | `chunkType` |
+| PNG physical order, duplicate singleton, or nonconsecutive IDAT | `chunkOrder` |
+| PNG checked length/bounds/truncation | `chunkLength` |
+| PNG CRC mismatch | `chunkCrc` |
+| PNG PLTE/tRNS profile failure | `palette` |
+| PNG inflated row filter outside 0–4 | `filter` |
+| PNG missing IDAT / missing IEND / bytes after IEND | `missingData` / `missingEnd` / `trailingData` |
+| PNG zlib dictionary request / `DataFormatException` or extra member / wrong inflated count | `dictionary` / `compressedData` / `decodedLength` |
+| JPEG supported marker in the wrong phase | `markerOrder` |
+| JPEG segment length/bounds/truncation | `segmentLength` |
+| JPEG DQT/DHT/DRI structural payload failure | `table` |
+| JPEG SOS field/component failure | `scan` |
+| JPEG stuffing/restart/entropy transition failure | `entropy` |
+| JPEG missing SOS / missing EOI / bytes after EOI | `missingData` / `missingEnd` / `trailingData` |
+
+Unsupported animation/critical/profile cases remain `IMAGE_PROFILE_UNSUPPORTED`. Decoder failure
+after a valid container remains `IMAGE_DECODE_FAILED`. Raw marker/chunk bytes, paths, digests, and
+localized errors never enter diagnostics. Cache bypass/eviction emits no source report.
+
+### Verification and simplicity
+
+Cache tests pin every key inclusion/exclusion, exact budgets, successful-access LRU, bypasses,
+metrics, duplicate source IDs without sharing, fresh result ownership, hit/miss equality for both
+interpolations, opacity/placement exclusion, and disabled-versus-cached render equivalence. Mutation
+tests cover length/header/body, open instability, miss snapshot change, clear/restoration/reopen, and
+irrelevant sidecar changes. Race tests cover serialized identical/distinct reads, both read/close
+orders, close failure, waiting cancellation, hit-copy cancellation, miss/decode/admission cancellation,
+and success-only promotion/admission.
+
+PNG tests cover chunk/CRC/order/IEND/trailing/APNG, PLTE/tRNS, exact noninterlaced/Adam7 lengths,
+Inflater state, limits, truncation, and cancellation. JPEG tests cover baseline/progressive multi-scan,
+stuffing/fill/restart, marker/segment limits, missing/duplicate EOI/SOI, concatenated/trailing data, and
+decompression-heavy/corrupt cases. Architecture tests allow only the exact per-source cache and literal
+SHA call, keep io-image AWT-free, and reject static/shared/AWT caches, soft refs, executors, discovery,
+or public metrics.
+
+Public Javadocs cover the policy variant/accessor semantics, default budgets, retained-cache ownership,
+constructor compatibility, new limits, mutation boundary, and thread/lifecycle contract. API/value
+tests pin `ImageCachePolicy` equality/hash/toString, empty versus present optional limits, null and
+positive/equality/plus-one validation, every options/limits wither preserving unrelated fields, and
+the old three-/six-/eight-value constructor defaults. Javadoc/doclint remains part of the module and
+quality checks.
+
+The fixed task card remains one vertical capability but implementation is reviewed in three internal
+milestones: (A) the two physical/safety validators, new limits/diagnostics, and hostile fixture matrix;
+(B) exact open/read snapshots, content versioning, serialized read/close lifecycle, and mutation/race
+tests with caching disabled; then (C) policy, LRU/accounting/metrics, fresh-result integration, render
+equivalence, and architecture rules. Each milestone runs the narrow image-module tests it introduces,
+may be reviewed independently, and may not mark G6-004 complete or unblock G6-005 until all three plus
+the final task validation pass together.
+
+The focused image/AWT/architecture/viewer checks, `qualityGate`, and whitespace are complete. No
+timing threshold, benchmark, render-regression, performance, native, publication, or corpus lane runs;
+G6-005 exercises the hardened/cache path natively and G7 supplies performance evidence.
+
+One source-owned canonical result cache, one policy, one version, and two finite format validators are
+the complete hardening slice. There is no refresh API, public version, cache SPI, process cache,
+metadata tree, writer, or concurrency framework. If implementation effort must be sequenced inside the
+task, validators/versioning land before cache admission, but the task is complete only when the one
+observable cached hardened source works end to end.
