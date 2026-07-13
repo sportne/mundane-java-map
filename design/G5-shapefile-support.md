@@ -315,11 +315,11 @@ but unrecognized definition is retained as `CrsMetadata.unknown` and emits
 `SHAPEFILE_PRJ_CRS_UNRECOGNIZED`.
 
 The recognizer is one fixed format-local tokenizer and two structural matchers, not a public registry
-or general WKT semantic engine. The tokenizer accepts only bracketed WKT1 identifiers, quoted strings,
-commas, and finite decimal numbers, with at most 16 nesting levels and 512 tokens. Insignificant ASCII
-whitespace and numeric lexical differences compare equal; keyword matching is ASCII-case-insensitive,
-while quoted names and child order are exact. Extra/reordered nodes simply produce retained unknown
-metadata.
+or general WKT semantic engine. The tokenizer accepts bracketed WKT1 identifiers, bounded bare
+identifier scalar arguments, quoted strings, commas, and finite decimal numbers, with at most 16
+nesting levels and 512 tokens. Insignificant ASCII whitespace and numeric lexical differences compare
+equal; keyword matching is ASCII-case-insensitive, while quoted names and child order are exact.
+Extra/reordered nodes simply produce retained unknown metadata.
 
 The only recognized trees are:
 
@@ -1744,3 +1744,197 @@ deletion suppression, query projection, and file release; a lightweight viewer a
 surviving geometry still fits/renders without adding attribute UI or cartographic behavior.
 G5-006 validation runs the focused format/viewer checks, the normal gate, and whitespace. Corpus,
 fuzz, Native Image, rendering-regression, and performance lanes remain owned by later tasks.
+
+### PRJ retention and recognized CRS (G5-007)
+
+#### Delivery boundary and metadata outcomes
+
+G5-007 replaces only the staged `profile=prj` branch after G5-002's component snapshot. It depends
+on the existing G4 CRS values and G5-002 opener/options, not on SHX or DBF: an integrated branch runs
+PRJ after whatever earlier optional sidecar phases it contains and preserves their warning order; a
+G5-002-only branch can implement the same PRJ phase directly. One integrator still owns the shared
+facade/open transaction. No SHP geometry, ID, query, attribute, index, or source-order behavior
+changes.
+
+There is no new public API. The existing `ShapefileOpenOptions.crsOverride()` remains the only caller
+declaration, and source metadata uses the existing immutable `CrsMetadata`. The package-private
+`PrjReader`, `PrjTokenizer`, and `PrjRecognizer` are same-package peers in
+`io.github.mundanej.map.io.shapefile`; they are not a public WKT model, parser SPI, registry extension,
+or `internal.prj` subpackage. Raw WKT never becomes a `CrsRegistry` alias.
+
+Successful opening selects exactly one metadata result:
+
+| PRJ state | No override | Override present |
+| --- | --- | --- |
+| Missing | absent CRS, no warning | recognized override, no retained definition or warning |
+| ASCII-blank | absent CRS plus `SHAPEFILE_PRJ_BLANK` | recognized override plus the same warning; blank text is not retained |
+| Recognized | canonical recognized metadata with exact retained text | same result when definitions match; different definitions terminate `SHAPEFILE_CRS_CONFLICT` |
+| Syntactically valid unknown | unknown metadata with exact retained text plus `SHAPEFILE_PRJ_CRS_UNRECOGNIZED` | recognized override retaining the exact text plus `SHAPEFILE_PRJ_OVERRIDE_USED` |
+| Invalid | terminal `SHAPEFILE_PRJ_INVALID` | same terminal result; override never conceals hostile input |
+
+Recognized metadata has no invented declared identifier: it contains the canonical G4 definition,
+empty declared identifier, and retained PRJ text. Unknown metadata likewise has empty declared
+identifier and retained text. Override-only metadata has the override definition and no retained
+definition. The two recognized definitions come from exact
+`CrsRegistry.level1().resolve("EPSG:4326"|"EPSG:3857")` calls; the format neither reconstructs nor
+modifies their axes, units, domains, or canonical identifiers.
+
+#### Bounded read, decode, and syntax representation
+
+PRJ resolution is the final sidecar phase. The opener checks cancellation, opens the snapshotted PRJ
+positionally, captures its size, and enforces `prjBytes` before allocation. It reads exactly the
+captured bytes into one charged array. A non-throwing EOF before that boundary is terminal
+`SHAPEFILE_PRJ_INVALID/reason=truncated` at the first missing byte. It then rechecks size; a changed
+value is terminal `SHAPEFILE_PRJ_INVALID/reason=sizeChanged` at byte zero before temporary close or
+decode. Only an unchanged complete read proceeds to close the channel and decode before
+metadata/source publication. A leading `EF BB BF` is consumed only as an optional UTF-8 BOM; the retained definition
+is the exact strict UTF-8 decode after it, including all remaining case and whitespace. An incomplete
+BOM is malformed UTF-8/syntax, and a later U+FEFF has no special status.
+
+Decoding uses a `StandardCharsets.UTF_8` decoder with malformed and unmappable actions `REPORT` into
+one prospectively charged `char[]` capped at 16,385 units. More than G4's 16,384 retained UTF-16 units
+terminates before String construction; equality is accepted. The final retained String is separately
+charged at two bytes per UTF-16 unit. A byte array larger than `maximumPrjBytes` uses the shared
+`SOURCE_LIMIT_EXCEEDED/prjBytes`; retained text over the G4 character cap uses the inherited
+`CRS_RETAINED_DEFINITION_TOO_LONG`. Neither case is downgraded to unrecognized metadata.
+
+After strict decode, syntax is scanned over the original UTF-8 bytes after the BOM so every token can
+retain an exact component-byte span without a second text-to-byte map. The tokenizer owns only:
+
+```text
+byte[512] tokenKinds
+int[1024] tokenStartEndByteOffsets
+byte[16] grammarStack
+```
+
+A separate `tokenCount` scalar is the used length; it is not a reason to resize or allocate per token.
+The fixed arrays and stack are charged once before scanning.
+
+All punctuation is tokenized, so the 512-token ceiling counts identifiers, strings, numbers,
+brackets, and commas. Depth is checked before pushing the seventeenth node. Each token starts only
+after capacity, `parserAllocationBytes`, and cancellation checks; no partially accepted token array
+is published. The arrays are opening temporaries discarded after recognition.
+
+The accepted syntax is one root node consuming the whole non-whitespace input:
+
+```text
+node       := identifier '[' argument (',' argument)* ']'
+argument   := node | bare-identifier | quoted-string | decimal
+identifier := ASCII letter or '_' followed by ASCII letters, digits, or '_'
+bare-identifier := identifier not followed by '['
+decimal    := sign? (digits+ ('.' digits*)? | '.' digits+) ([Ee] sign? digits+)?
+```
+
+ASCII `0x09` through `0x0d` and space `0x20` are the complete insignificant-whitespace/blank set.
+Quoted strings permit valid UTF-8 scalar content and doubled `""` as an embedded quote; U+0000
+through U+001F, U+007F, and an unterminated quote are invalid. Parentheses, braces, semicolons, equals
+signs, comments, multiple roots, trailing tokens, empty argument lists, and every other token form are
+outside this profile. Bare identifiers make ordinary bounded WKT1 such as `AXIS["X",EAST]`
+syntactically valid but do not make it recognized. `.5` and `5.` are valid decimals; an exponent
+marker/sign without at least one following digit is not. Decimal syntax is validated by a bounded
+byte scan. Exact numeric comparison
+normalizes sign, leading/trailing zeroes, point position, and exponent with saturating checked
+counters, so lexical differences compare equal without constructing a numeric object or expanding a
+large exponent.
+
+Lexing and grammar state advance together from low to high byte offset and stop at the first failure.
+An invalid token byte wins at that byte before grammar interpretation. Once a token's lexical form is
+known, the 513th-token check wins at its start before storage/grammar, and a seventeenth-level opening
+bracket wins before the grammar push. Otherwise an unexpected valid token reports its start: this
+covers missing commas, unexpected punctuation, trailing tokens, and multiple roots. An empty argument
+list or missing argument reports the closing bracket; at end of input, an unterminated quote, missing
+argument, missing root bracket, or otherwise incomplete production reports the captured EOF offset.
+For an invalid exponent, a non-digit where the first exponent digit is required reports that byte,
+while a missing digit at EOF reports EOF. These rules fix one precedence without a recovery parse.
+
+This grammar proves bounded structural validity only. It does not assign general WKT semantics or
+retain an AST. A valid tree that fails the two matchers is unknown, not malformed.
+
+#### Exact recognition and override arbitration
+
+`PrjRecognizer` compares token kinds, nesting, child order, case-insensitive ASCII keywords, exact
+case-sensitive quoted names, and normalized decimal values directly against two fixed token trees:
+
+- `EPSG:4326`: `GEOGCS["GCS_WGS_1984", DATUM["D_WGS_1984",
+  SPHEROID["WGS_1984",6378137,298.257223563]], PRIMEM["Greenwich",0],
+  UNIT["Degree",0.0174532925199433]]`.
+- `EPSG:3857`: `PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere", <the exact GEOGCS above>,
+  PROJECTION["Mercator_Auxiliary_Sphere"], PARAMETER["False_Easting",0],
+  PARAMETER["False_Northing",0], PARAMETER["Central_Meridian",0],
+  PARAMETER["Standard_Parallel_1",0], PARAMETER["Auxiliary_Sphere_Type",0],
+  UNIT["Meter",1]]`.
+
+Insignificant ASCII whitespace, keyword case, and equivalent numeric spelling may differ. Quoted
+names, child order, and tree shape may not. An `AUTHORITY`, `AXIS`, extension, alternate name,
+additional/reordered child, or otherwise valid near miss is retained unknown. No identifier,
+coordinate range, filename, WKT name, or caller registry is consulted heuristically.
+
+Recognition precedes override arbitration. A canonical recognized definition equal to the override
+is clean; inequality is terminal even if the view could transform between them. Unknown plus override
+retains the text as provenance but takes semantics only from the explicit override. Unknown without
+override remains non-renderable metadata and later follows G4's normal
+`CRS_DEFINITION_UNKNOWN`; missing/blank without override follows `CRS_METADATA_MISSING`.
+
+#### Diagnostics, cleanup, and evidence
+
+Earlier SHX/DBF/CPG warnings retain their established order. PRJ contributes at most its warnings in
+this order after complete syntax/recognition: blank, or unrecognized followed by override-used instead
+of unrecognized when an override wins. There is never both `SHAPEFILE_PRJ_CRS_UNRECOGNIZED` and
+`SHAPEFILE_PRJ_OVERRIDE_USED` for one input.
+
+| Condition | Location and code | Exact context |
+| --- | --- | --- |
+| ASCII-blank retained input | `prj`, byte after BOM; warning `SHAPEFILE_PRJ_BLANK` | empty |
+| Exact positional read reaches EOF before captured size | `prj`, first missing byte; `SHAPEFILE_PRJ_INVALID` | `reason=truncated` |
+| Size after a complete read differs from captured size | `prj`, byte zero; `SHAPEFILE_PRJ_INVALID` | `actualBytes=<new size>`, `capturedBytes=<open size>`, `reason=sizeChanged` |
+| Invalid UTF-8 | `prj`, first malformed input byte; `SHAPEFILE_PRJ_INVALID` | `reason=encoding` |
+| Invalid token/grammar | `prj`, first responsible token byte or EOF; same code | `reason=syntax` |
+| Seventeenth nesting level | `prj`, opening bracket; same code | `reason=nesting` |
+| 513th token | `prj`, token start; same code | `reason=tokens` |
+| Decoded definition reaches the 16,385th UTF-16 unit | component `prj`, no byte offset; `CRS_RETAINED_DEFINITION_TOO_LONG` | `maximum=16384`, `requested=16385` |
+| Valid unknown tree | `prj`, byte after BOM; warning `SHAPEFILE_PRJ_CRS_UNRECOGNIZED` | empty |
+| Override accepts unknown tree | same location; warning `SHAPEFILE_PRJ_OVERRIDE_USED` | `selected=<canonical identifier>` |
+| Recognized tree conflicts with override | `prj`, root identifier; `SHAPEFILE_CRS_CONFLICT` | `declared=<PRJ canonical identifier>`, `override=<override canonical identifier>` |
+
+Limits/cancellation retain the shared shapes. Thrown PRJ open/size/read failures are
+`SHAPEFILE_IO_FAILED` with `operation=...`; a temporary close failure after successful read uses
+`operation=close`, no byte offset, and the bounded `causeKind`. With an earlier primary failure the
+close throwable is suppressed. A PRJ failure then closes transaction-owned DBF, if present, and SHP
+in reverse order. On success, the PRJ handle/byte/token/decoder temporaries are gone before the final
+cancellation check atomically transfers source handles and immutable metadata. No source state is
+partially updated, and metadata remains readable after source close.
+
+Cancellation is checked before/after open, size, read, decode, temporary close, token/matcher stages,
+within 4,096 controlled bytes/characters/tokens, and before warning/metadata/source publication.
+Cleanup never polls cancellation. There is no memory mapping, retained token tree, cache, WKT
+registry, external library, reflection, resource scan, or AWT dependency.
+
+Fixtures pin exact retention with/without BOM; both canonical trees; keyword/whitespace/numeric
+equivalence; every quoted-name/constant/order/extra near miss; Unicode retained-unknown text; all
+override rows; missing/blank/invalid/unknown distinctions; encoded, retained-character, token, depth,
+and allocation boundaries; byte-accurate malformed UTF-8/syntax locations; short reads, size mutation,
+cancellation, temporary-close failure, reverse cleanup, and metadata survival after close.
+
+The viewer becomes `shapefile-viewer <path.shp> [EPSG:4326|EPSG:3857]`: one argument exercises PRJ
+metadata; the optional second remains the explicit override. Argument count and an optional exact
+registry key are validated before Swing scheduling; absence never selects a default CRS. The package-
+visible helper becomes `createMapView(Path, Optional<CrsDefinition>)`. It opens the source with the
+corresponding options and always constructs the existing fixed view with a fresh Level 1 registry,
+EPSG:4326 map coordinates, and EPSG:3857 display coordinates. A recognized 4326 source therefore uses
+the registered forward operation and a recognized 3857 source the identity operation.
+
+The helper owns the opened source until `ownedFeature` transfers it to an unattached binding; the
+binding owns it until successful installation; the view owns it afterward. Cleanup is stage-exact:
+failure before view construction closes the source; failure with a constructed view but before binding
+transfer closes the source then the view; failure while an unattached binding owns the source closes
+the binding then the view; and failure after installation, including fit, closes only the owning view.
+The startup failure remains primary and cleanup failures are suppressed in that listed order. A
+successfully returned view owns the chain and window teardown closes it on the EDT. Thus one-argument
+missing/unknown PRJ produces G4's exact
+`CRS_METADATA_MISSING`/`CRS_DEFINITION_UNKNOWN` attachment failure without leaking the already opened
+source.
+
+Temporary 4326 and 3857 fixtures prove fit/render through registered direct operations, an equal
+override, conflict rejection, retained unknown inspection, and normal G4 missing/unknown attachment
+diagnostics. G5-007 validation runs the focused format/core/viewer checks, normal gate, and whitespace;
+no corpus, native, fuzz, rendering-regression, or performance lane is introduced.
