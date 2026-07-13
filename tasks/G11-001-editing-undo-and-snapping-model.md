@@ -7,51 +7,68 @@ Type: HITL
 
 ## Goal
 
-Define a bounded editing model with immutable commands, transaction ownership, undo/redo, and explicit
-snapping behavior before mutable workflows are added to the map library.
+Approve a bounded, point-first editing design in which an application-owned session atomically
+replaces immutable feature records, preserves revision-checked undo/redo, and snaps through an
+explicit same-CRS vertex/segment query before production editing work begins.
 
 ## Context
 
-Level 1 public values are immutable and interaction tools have explicit lifecycle. Editing must preserve
-those properties instead of making geometries or layers mutable in place.
+Level 1 public values are immutable, sources are read-only, and interaction tools have explicit
+lifecycle. The authoritative architecture is the
+[G11 editing design](../design/G11-editing-styling-persistence-adapters-export.md#editing-undo-and-snapping-model-g11-001),
+which preserves those properties instead of making geometries, layers, or source adapters mutable.
 
 ## Scope
 
-Decide editable target ownership, command/result contracts, transaction and validation boundaries,
-history ownership/limits, undo/redo grouping, failure and conflict behavior, selection integration, and
-snapping targets, priority, pixel/map tolerance, tie-breaking, and CRS handling. Define the smallest
-observable first edit slice and decompose create/move/delete, history, and snapping work as needed.
+Approve immutable create/replace/delete commands, snapshot and result values, one externally serialized
+owner-thread core session, atomic revision semantics, stable edit problems, bounded snapshot/delta
+history accounting and whole-entry eviction, non-reentrant event ordering, an explicit borrowed AWT
+binding, and a view-bound point controller. Fix the first snap profile to bounded cancellable same-CRS
+vertex/segment candidates with explicit forward/reverse operations, inclusive pixel tolerance, and
+deterministic ties. Define point create/move/delete, selection, preview, cancellation, and four later
+vertical slices.
 
 ## Out of scope
 
-Production editing APIs, collaborative editing, topology engines, persistence, format write-back,
-unbounded history, hidden mutation of source features, and coupling public APIs to JTS.
+Production editing APIs, implementation task files, collaborative editing, line/polygon editing,
+topology engines, persistence, format write-back, cross-CRS/live-source snapping, unbounded history,
+hidden mutation of source features, and coupling public APIs to JTS.
 
 ## Acceptance criteria
 
-- A maintainer approves who owns edit state, when immutable replacement values are produced, and how
-  transactions succeed, fail, or roll back.
-- Undo/redo grouping, bounded history eviction, command failure, and listener/event ordering are
-  deterministic and documented.
-- Snapping has explicit target types, tolerance units, priority/tie policy, cancellation, and behavior
-  for unsupported or mismatched CRS data.
-- Follow-up tasks each deliver a runnable edit behavior with tests and preserve compatibility with
-  read-only sources; no empty editing module is created.
+- The named checkpoint approves owner-thread session/binding/controller ownership, closed immutable
+  commands, atomic staging, monotonic revisions, rejection/unchanged behavior, and complete rollback.
+- Current snapshots and undo/redo have deterministic logical-payload accounting; whole-entry eviction,
+  branch replacement, reverse/forward delta replay, selection continuity, reentrant-mutation rejection,
+  and post-commit listener failure behavior are fixed.
+- Binding replacement clears an active dependent controller before detach, while a captured viewport
+  mismatch suppresses preview and rejects release without touching session state.
+- Move captures only when the current complete-snapshot point selection is the existing symbol-aware
+  topmost hit; invalid selection and delete outcomes use one stable reasoned rejection.
+- Snapping fixes same-CRS vertex/segment candidates, inclusive logical-pixel tolerance, distance/type/
+  explicit-reference-order/geometry-index ties, exact forward/reverse CRS operations, exclusion,
+  bounded cancellation,
+  gesture snapshots, limits, and mismatch rejection.
+- G11-010 through G11-013 each leave a runnable point-edit behavior through the real stack; no empty
+  module, mutable geometry API, source write-back path, or speculative topology framework is planned.
 
 ## Required tests
 
-No production tests. Define later state-transition, transaction rollback, bounded-history,
-selection/tool integration, snapping boundary/tie, and immutable-value tests.
+No production tests. The design specifies later API immutability, owner-thread/session state,
+snapshot/history bounds, atomic rollback, eviction, notification failure, controller/selection/tool
+lifecycle, binding/view invalidation, render integration, and snapping geometry/cancellation/boundary/
+tie/limit tests.
 
 ## Validation
 
 ```bash
-./gradlew :modules:mundane-map-api:check :modules:mundane-map-core:check --console=plain
+./gradlew :modules:mundane-map-api:check :modules:mundane-map-core:check :modules:mundane-map-awt:check --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
 ```
 
 ## Notes
 
-HITL checkpoint: the maintainer approves ownership, transaction/history semantics, snapping policy, and
-the first vertical slice before public API implementation.
+HITL checkpoint: **G11 editing command and snapping profile approval**. The maintainer approves the
+immutable-record session, transaction/history/event semantics, same-CRS snap policy, point-tool scope,
+and four-slice decomposition before public API implementation.

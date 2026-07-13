@@ -59,6 +59,7 @@ design task; there are no empty speculative design files.
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-007 and holistic closeout approved |
+| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -136,6 +137,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-13 | Materialize strict GPX 1.1 and static KML 2.2 feature subsets with the JDK StAX parser. | Separate eager readers, caller-owned symbols, bounded UTF-8/XML state machines, and explicit ignored-content warnings provide useful interchange without a shared XML framework, live parser lifecycle, network behavior, or KML presentation engine. |
 | 2026-07-13 | Acquire remote XYZ tiles explicitly into detached raster snapshots. | A blocking caller-thread client, bounded asynchronous HTTP batches, strict no-credential requests, and transactional decoded caching keep network latency and lifetime out of Swing paint and the format-neutral raster contract. |
 | 2026-07-13 | Defer another projection until one complete use-case evidence packet justifies a direct core operation or optional PROJ adapter. | Existing profiles need only EPSG:4326/EPSG:3857; a three-outcome evidence gate prevents speculative formulas, CRS databases, native bridges, and raster-warp promises while preserving explicit consumer registration. |
+| 2026-07-13 | Model editing as bounded immutable-record replacement in one application-owned session. | Atomic revisions, delta history, same-CRS snapping, and an explicit AWT binding add point editing without mutable geometry, source write-back, topology machinery, or a generic command framework. |
 
 ## Task design traceability
 
@@ -201,3 +203,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G10-005 | Separate GPX/KML modules, secure JDK StAX boundary, exact 2D feature mappings, bounded eager sources, stable diagnostics, and eight later vertical slices | Approved |
 | G10-006 | Explicit XYZ acquisition client, strict URI/HTTP profile, detached raster snapshot, bounded cache/cancellation, and three later vertical slices | Approved |
 | G10-007 | Three-outcome projection evidence gate, current DEFER result, future core/PROJ obligations, and G10 simplicity closeout | Approved |
+| G11-001 | Immutable edit commands/snapshots, atomic revisions, bounded delta history, same-CRS vertex/segment snapping, point-first AWT integration, and four later slices | Approved |

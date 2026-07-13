@@ -146,9 +146,13 @@ separately decomposed.
 
 ### G11 — Editing, styling, persistence, adapters, and export
 
-- Editing with explicit transactions, undo/redo, and snapping.
+- Editing uses an application-owned, point-first immutable-record session: atomic revision-checked
+  transactions, bounded delta undo/redo, and explicit same-CRS vertex/segment snapping precede any
+  mutable workflow. Read-only sources are never written or disguised as edit state. The approved
+  design decomposes implementation into session, history, snapping, and point-tool vertical slices.
 - Thematic styling and improved deterministic label placement.
 - Explicit versioned project/workspace persistence without Java serialization.
 - Optional JTS, PROJ, SQLite, and GDAL adapters whose types do not leak into the API.
 - A bounded deterministic vector map export profile.
-- See the [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
+- See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
+  [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
