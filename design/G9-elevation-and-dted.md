@@ -778,3 +778,360 @@ performance, and render-regression lanes do not run. Two public types, one priva
 eager grid result, three generated fixtures, and one staged consumer extension are enough: there is
 no empty module, reader framework, public header model, file-retaining source, viewer, or speculative
 lazy abstraction.
+
+## DTED validation and diagnostics (G9-004)
+
+### Hardening preserves one strict profile
+
+G9-004 completes the hostile-input contract for the G9-003 reader; it does not add a second DTED
+dialect. The normative format reference remains MIL-PRF-89020B sections 3.10 through 3.13 and its
+UHL, DSI, ACC, and data-record tables. Parsing is fail-closed and exact for that supported profile:
+there is no repair, resynchronization, guessed byte order, ignored checksum, substituted count,
+clamped elevation, partial result, or warning-based recovery.
+
+An exact left-justified `SRTM` plus six spaces in the ten-byte digitizing/collection-system field and
+the corresponding `X` in ACC byte 24 form one valid producer marker; both must be present or absent.
+They are not feature switches. A fixed-array SRTM-produced file is accepted only
+when it independently satisfies every G9-003 level, dimension, partial-cell, no-subregion, record,
+and sample rule. In particular, the marker does not enable partial Level 1, variable-length profiles,
+or accuracy subregions. Those profiles remain `DTED_PROFILE_UNSUPPORTED` until a later task designs
+their additional semantics and fixtures. This recognizes harmless provenance without promising the
+separate SRTM partial-cell profile.
+
+On the supported no-subregion path, header parsing classifies every fixed field in exactly one of four
+ways:
+
+- a consumed field has the exact literal, numeric, coordinate, date, or enumerated grammar below and
+  contributes to the supported-profile or cross-header checks;
+- a required-blank field contains only ASCII space;
+- a free-text field contains only printable ASCII `0x20..0x7e`, is never retained, and has no effect
+  on acceptance beyond that byte grammar; or
+- a well-formed discriminator outside the supported profile produces `DTED_PROFILE_UNSUPPORTED`
+  rather than being mislabeled malformed.
+
+A valid multiple-accuracy discriminator terminates after its UHL/ACC consistency check; its dependent
+subregion payload is deliberately not parsed. An unsupported result promises only that the
+discriminator is well formed, not that the unsupported payload would satisfy the specification. This
+keeps a no-subregion reader from implementing and testing an unused subregion parser merely to reject
+its result.
+
+No whole-record `String`, regex, default charset, locale, Unicode normalization, producer lookup, or
+security interpretation is used. Fixed slices are checked directly as bytes. A field that combines
+digits and a suffix is parsed only after every position has passed its ASCII grammar. Dates are
+`0000` where the format permits an unused value, or `YYMM` with month `01..12`; no century or calendar
+date is inferred. Accuracy is exactly four digits or left-justified `NA` followed by two spaces.
+Coordinates retain G9-003's integral tenths-of-arc-second representation and full-degree cell rules.
+
+### One format-specific immutable limit value
+
+The DTED package adds one public final immutable value and extends the existing options by one real
+field:
+
+```text
+DtedLimits
+  defaults()
+  maximumFileBytes() -> long
+  withMaximumFileBytes(long) -> DtedLimits
+  maximumProfiles() -> int
+  withMaximumProfiles(int) -> DtedLimits
+  maximumSamplesPerProfile() -> int
+  withMaximumSamplesPerProfile(int) -> DtedLimits
+  maximumTotalSamples() -> long
+  withMaximumTotalSamples(long) -> DtedLimits
+  maximumProfileBytes() -> int
+  withMaximumProfileBytes(int) -> DtedLimits
+  maximumParserAllocationBytes() -> long
+  withMaximumParserAllocationBytes(long) -> DtedLimits
+
+DtedOpenOptions
+  dtedLimits() -> DtedLimits
+  withDtedLimits(DtedLimits) -> DtedOpenOptions
+```
+
+`DtedOpenOptions.defaults()` now combines `ElevationSourceLimits.defaults()` and
+`DtedLimits.defaults()`. Both values retain private construction, complete withers, value equality,
+bounded path-free `toString`, parameter-named null failures, positive-maximum validation, and full
+package/type/member Javadocs. Existing options remain source compatible. There is no generic binary
+parser limit, mutable builder, system property, string-key option, or process-wide default.
+
+Defaults are conservative but admit every fixed one-degree Level 0/1/2 cell in the approved profile:
+
+| Ceiling | Default |
+| --- | ---: |
+| File bytes | 33,554,432 |
+| Longitude profiles | 4,096 |
+| Samples per profile | 4,096 |
+| Total samples | 16,777,216 |
+| One complete data record | 8,192 bytes |
+| Cumulative parser allocation | 268,435,456 bytes |
+
+The captured channel size is checked against `fileBytes` before any header read or buffer allocation.
+After complete header grammar and supported-profile derivation, the reader checks `profiles`,
+`samplesPerProfile`, checked `totalSamples`, and checked `profileBytes = 12 + 2 * rowCount`, in that
+order. Equality is accepted. The requested value is the exact nonnegative result or `Long.MAX_VALUE`
+when checked arithmetic overflows. Valid standard dimensions are still limited by the smaller caller
+configuration; malformed dimensions fail their header/profile rule before being presented as a
+resource limit.
+
+`parserAllocationBytes` is a monotone logical reservation for project-owned primitive storage during
+one open. It charges before allocation and never decrements, making acceptance independent of GC and
+void distribution. It includes one 2,700-byte scratch reused successively for UHL, DSI, and ACC, the
+exact reusable profile buffer, the complete temporary `double[]` and potential `BitSet` word storage,
+and the complete value/mask storage copied
+by `PackedElevationGrid`. The full mask is charged even when no void occurs. Fixed object headers,
+JDK channel internals, immutable metadata, and the bounded terminal diagnostic are excluded, matching
+G4/G9 logical accounting. Checked addition/multiplication precedes every charge; exceeding the limit
+fails before the allocation or opaque copy that would cross it. The default permits the worst-case
+zone-I Level 2 temporary and final grids to coexist without implying that the JVM will reserve a
+particular object-layout size. For established sample count `n`, the final prospective charge is
+exactly `2_700 + profileBytes + 2 * (8 * n + 8 * ceil(n / 64))`, with every operation checked.
+
+Format limit failures use the existing `SOURCE_LIMIT_EXCEEDED` code with no location and exactly:
+
+```text
+limit=fileBytes | profiles | samplesPerProfile | totalSamples | profileBytes |
+      parserAllocationBytes
+maximum=<configured decimal>
+requested=<exact decimal or Long.MAX_VALUE>
+scope=dtedOpen
+```
+
+Format limits run before G9-001's columns, rows, samples, and retained-sample-byte limits. If a valid
+file exceeds both, the DTED limit therefore wins deterministically. G9-001 failures retain
+`scope=elevationOpen` and their existing limit tokens. Limits do not turn a malformed header, wrong
+record count, or trailing payload into a resource failure.
+
+### Complete fixed-header validation
+
+The reader validates sections in physical order and stops at the first terminal defect. A short fixed
+section is owned by that section: bytes `0..79` are UHL, `80..727` DSI, and `728..3427` ACC. A file
+ending inside one produces that section's invalid code with `reason=truncated`, the section start as
+the location, and exact `expectedBytes`/`actualBytes`. Once a section is complete, fields are checked
+in increasing byte-offset order along the supported path; the documented ACC discriminator exit is
+the sole early semantic termination.
+
+UHL validation covers every byte:
+
+- `UHL1`, full-degree longitude and latitude origins, positive four-digit tenths-of-arc-second
+  intervals, four-digit-or-`NA  ` absolute vertical accuracy, and a left-justified `S|C|U|R`
+  security code padded to three bytes are consumed grammar;
+- the 12-byte producer reference is printable free text, longitude/latitude counts are four digits,
+  and the multiple-accuracy flag is `0|1`; and
+- the final 24 reserved bytes are spaces. A syntactically valid flag `1` is outside the supported
+  no-subregion profile and is classified only after the remaining header grammar is established.
+
+DSI validation likewise covers all 648 bytes:
+
+- `DSI`, security classification `S|C|U|R`, two printable ASCII control/release bytes, 27 printable
+  handling bytes, and 26 required spaces precede series grammar `DTED` plus one digit; levels `0..2`
+  are supported and `3..9` are well-formed unsupported discriminators;
+- the producer reference is printable, the following eight reserved bytes are spaces, edition is
+  `01..99`, match/merge version is `A..Z`, date fields follow the fixed date grammar, maintenance
+  description is `0000` or one byte `A..Z` plus three digits, and producer code is uppercase ASCII
+  alphanumeric/space without an external FIPS lookup;
+- 16 reserved bytes are spaces; the nine-byte product specification is ASCII alphanumeric, its
+  amendment/change is two digits, and its date follows the fixed date grammar. The supported profile
+  requires `PRF89020B`; another well-formed product token is unsupported rather than malformed;
+- vertical datum is three uppercase ASCII alphanumeric bytes, horizontal datum is five uppercase
+  ASCII alphanumeric bytes, the ten-byte digitizing/collection field is printable free text,
+  compilation date follows the fixed date grammar, and the next 22 bytes are spaces; `MSL|E96` and
+  `WGS84` are the supported datum values;
+- origin, SW/NW/NE/SE corners, zero-or-well-formed orientation, intervals, row/column counts, and
+  `00..99` partial indicator use their exact fixed grammars; and
+- the final 101 NIMA-use, 100 producing-nation, and 156 comment bytes are printable free text and are
+  discarded.
+
+ACC validation covers all 2,700 bytes on the supported path and reaches its discriminator on every
+path:
+
+- `ACC` and the four overall accuracy fields use their exact literal/accuracy grammars;
+- bytes 20 through 23 and 25 through 55 are spaces; byte 24 is either space or the documented SRTM
+  marker `X` and has no independent behavior;
+- multiple-accuracy outline flag is `00` or `02..09`; only `00` is supported; and
+- under supported `00`, all nine 284-byte subregion slots and the final reserved areas are spaces.
+  Populated bytes under `00` are `DTED_ACC_INVALID` with `reason=unexpectedSubregionData`.
+
+Before inspecting bytes after the ACC flag, the reader compares the normalized UHL/ACC
+multiple-accuracy declarations and the DSI/ACC SRTM marker pair. UHL `0` is equivalent only to ACC
+`00`; UHL `1` is equivalent to ACC `02..09`. Exact collection value `SRTM` plus six spaces is
+equivalent only to ACC byte-24 `X`; every other printable collection value is equivalent only to an
+ACC space. A mismatch is `DTED_HEADER_INCONSISTENT`. A consistent `02..09` then terminates as
+`DTED_PROFILE_UNSUPPORTED` at the ACC flag without interpreting its 2,643 dependent payload bytes.
+For consistent `00`, the reader validates those bytes as the required-blank supported profile.
+
+The parser does not retain or expose classification, producer, dates, accuracy numbers, comments,
+SRTM provenance, or partial percentage. It validates them only to keep record boundaries and the
+declared profile unambiguous. Unknown security/release code semantics are not authorization logic;
+printable fixed bytes are sufficient where the specification delegates the code to producers.
+
+After supported-path field grammar succeeds, the remaining duplicated declarations are compared in
+this fixed order: UHL/DSI origin, intervals, and dimensions. Supported-profile checks then run in this
+order: series/level and product specification; WGS84 plus `MSL|E96`; zero orientation; one-degree
+non-wrapping origin/corners; standard level/latitude-zone intervals and counts; then level-specific
+partial policy. A well-formed unsupported semantic value uses `DTED_PROFILE_UNSUPPORTED`; two
+individually valid duplicated values that disagree use `DTED_HEADER_INCONSISTENT`. Except for the
+explicit multiple-accuracy early exit, complete physical field grammar precedes those classifications,
+so a malformed later supported-profile field wins over them; among reached valid fields, a duplicate
+mismatch wins over an unsupported semantic profile.
+
+### Exact file, record, checksum, and sample rules
+
+The expected fixed-file length remains:
+
+```text
+3_428 + columnCount * (12 + 2 * rowCount)
+```
+
+It is derived with checked `long` arithmetic after format and elevation limits. The initially captured
+size must equal it before sample storage is allocated. Short and long content use
+`DTED_FILE_LENGTH_MISMATCH`; no prefix or trailing bytes are accepted. The channel size is read again
+after the final profile and before close/publication. A changed size produces the same code with the
+initial captured size as `expectedBytes` and current size as `actualBytes`. This detects ordinary
+append/truncate races; the eager source is not a cryptographic file-snapshot protocol and makes no
+claim about adversarial same-length rewrites after bytes have been consumed.
+
+One exact reusable byte buffer holds a complete data record. For physical profile `p` in
+`0..columnCount-1`, validation order is:
+
+1. read the complete fixed frame at its checked expected offset;
+2. require sentinel `0xaa`, unsigned 24-bit block count `p`, unsigned 16-bit longitude count `p`, and
+   unsigned 16-bit latitude count zero;
+3. sum the unsigned values of the eight preamble bytes and all `2 * rowCount` sample bytes into a
+   `long`, compare its low unsigned 32 bits with the final four big-endian checksum bytes; and
+4. decode samples in physical south-to-north order only after the checksum succeeds.
+
+There is no checksum-disable option. Preamble/count defects win over a simultaneous checksum defect;
+a checksum defect wins over sample semantics. The checksum is not added to itself and is compared as
+an unsigned decimal value. Since the supported record maximum is 7,214 bytes, the arithmetic cannot
+overflow `long`, but it remains checked by construction rather than an `int` assumption.
+
+Every two-byte sample is decoded from unsigned bytes as signed magnitude. `0xffff` is structural
+no-data; `0x8000` is canonical finite positive zero. Any other positive magnitude above 9,000 or
+negative magnitude above 12,000 is `DTED_ELEVATION_OUT_OF_RANGE`; no clamp or two's-complement guess
+is attempted. A no-data word is accepted only for a G9-003-supported nonzero-partial Level 2 cell and
+sets the mask without a warning. In a complete cell it is `DTED_DATA_RECORD_INVALID` with
+`reason=voidInComplete`. The declared partial percentage is not recomputed from void count because
+the format value is coverage metadata, not an exact null ratio. A partial Level 2 cell may contain no
+voids.
+
+All target-index arithmetic is checked before the first sample allocation and asserted while
+transposing. A failure that should have been excluded by the established dimensions is an unexpected
+implementation defect, not a new hostile-input branch. Successful opening still yields an empty
+diagnostic report; hardening adds no recoverable warning.
+
+### Stable diagnostic vocabulary and precedence
+
+The complete terminal DTED vocabulary is deliberately small:
+
+| Code | Stable use |
+| --- | --- |
+| `DTED_IO_FAILED` | mapped open, size, read, or transaction-close `IOException` |
+| `DTED_UHL_INVALID` | truncated or malformed UHL byte/field |
+| `DTED_DSI_INVALID` | truncated or malformed DSI byte/field |
+| `DTED_ACC_INVALID` | truncated or malformed ACC byte/field |
+| `DTED_PROFILE_UNSUPPORTED` | well-formed profile discriminator outside this reader; dependent unsupported payload may be unvalidated |
+| `DTED_HEADER_INCONSISTENT` | individually valid duplicated header declarations disagree |
+| `DTED_FILE_LENGTH_MISMATCH` | checked expected/captured/final file size differs |
+| `DTED_DATA_RECORD_INVALID` | truncated frame, preamble/count defect, forbidden void, or malformed record structure |
+| `DTED_CHECKSUM_MISMATCH` | stored unsigned record checksum differs from the computed value |
+| `DTED_ELEVATION_OUT_OF_RANGE` | non-void signed-magnitude value is outside `-12000..9000` metres |
+
+The first eight codes retain G9-003's meaning; only the last two are added. All are one terminal
+`SourceException` report using the caller's identity. `DTED_IO_FAILED` uses component `dted` for
+open/size/close and the active section for a read. `NoSuchFileException`, `AccessDeniedException`, and
+`ClosedChannelException` map respectively to `causeKind=notFound`, `accessDenied`, and `closed`; every
+other `IOException` maps to `other`. Its only other context is
+`operation=open|size|read|close`. A known read position is the byte offset; otherwise it is absent.
+
+Every context map follows G4's lexicographic key canonicalization. Tables below name complete key sets,
+not insertion order. Header outcomes have these exact shapes:
+
+| Outcome | Location | Complete context |
+| --- | --- | --- |
+| Short UHL/DSI/ACC section | section component and section-start offset | `actualBytes`, `expectedBytes`, `reason=truncated` |
+| Malformed reached field | section component and field-start offset | `field=<token>`, `reason=literal|grammar|reserved|range|unexpectedSubregionData` |
+| Unsupported discriminator | discriminator component and field-start offset | `profile=level|productSpecification|datum|orientation|grid|accuracySubregions|partialCell` |
+| Duplicate mismatch | later declaration's component and field-start offset | `field=origin|interval|rows|columns|accuracyOutline|producerProfile`, `first=uhl|dsi`, `second=dsi|acc` |
+| File-length mismatch | component `dted`, no byte offset | `actualBytes`, `expectedBytes` |
+
+For a short section, `expectedBytes` is that section's fixed length and `actualBytes` is the available
+count from its start; there is deliberately no `field` key because a complete field may not be
+available. The closed header field-token vocabulary is:
+
+| Component | `field` tokens |
+| --- | --- |
+| `uhl` | `sentinel`, `longitudeOrigin`, `latitudeOrigin`, `longitudeInterval`, `latitudeInterval`, `absoluteVerticalAccuracy`, `securityCode`, `uniqueReference`, `longitudeCount`, `latitudeCount`, `multipleAccuracy`, `reserved` |
+| `dsi` | `sentinel`, `securityClassification`, `securityControlRelease`, `securityHandling`, `reserved`, `series`, `uniqueReference`, `edition`, `matchMergeVersion`, `maintenanceDate`, `matchMergeDate`, `maintenanceDescription`, `producerCode`, `productSpecification`, `amendmentChange`, `specificationDate`, `verticalDatum`, `horizontalDatum`, `collectionSystem`, `compilationDate`, `origin`, `southWestCorner`, `northWestCorner`, `northEastCorner`, `southEastCorner`, `orientation`, `latitudeInterval`, `longitudeInterval`, `latitudeCount`, `longitudeCount`, `partialCell`, `nimaUse`, `producingNationUse`, `comments` |
+| `acc` | `sentinel`, `absoluteHorizontalAccuracy`, `absoluteVerticalAccuracy`, `relativeHorizontalAccuracy`, `relativeVerticalAccuracy`, `reserved`, `srtmMarker`, `multipleAccuracy`, `subregionData` |
+
+`literal` is only a wrong fixed literal/sentinel, `grammar` a positional ASCII-shape defect,
+`reserved` a non-space required-blank byte, `range` a syntactically numeric value outside its field's
+domain, and `unexpectedSubregionData` a non-space supported-profile ACC tail. Repeated reserved slices
+share the `reserved` token and are disambiguated by their absolute location. No open-ended field or
+reason string may be constructed from input.
+
+Data outcomes use component `data`, positive `recordNumber=p+1`, and these complete shapes:
+
+| Condition | Byte offset | Complete context |
+| --- | --- | --- |
+| Short fixed frame | first missing frame byte | `actualBytes`, `expectedBytes`, `field=frame`, `reason=truncated` |
+| Wrong sentinel | record start | `field=sentinel`, `reason=literal` |
+| Wrong block/longitude/latitude count | corresponding count start | `actual`, `expected`, `field=blockCount|longitudeCount|latitudeCount`, `reason=mismatch` |
+| Void in complete cell | sample-word start | `field=sample`, `reason=voidInComplete`, `sampleIndex` |
+| Checksum mismatch | stored-checksum start | `actual`, `expected` as unsigned decimals |
+| Elevation out of range | sample-word start | `direction=positive|negative`, `magnitude`, `sampleIndex` |
+
+`sampleIndex` is the zero-based physical south-to-north index. For a checksum, `actual` is the stored
+unsigned value and `expected` the computed value. Counts, sizes, magnitudes, and indexes are safe
+canonical decimals. No diagnostic context or message contains a path, raw byte/string, datum
+text, producer text, fixture name, localized exception message, or stack trace.
+
+The full opening precedence is:
+
+1. public argument and options validation, then already-cancelled token;
+2. channel open, initial size, `fileBytes`, and initial header-scratch allocation reservation;
+3. complete UHL/DSI grammar and ACC grammar through its multiple-accuracy flag in physical order;
+4. UHL/ACC accuracy and DSI/ACC producer-marker consistency; either the multiple-accuracy early exit
+   or supported ACC tail grammar; then remaining cross-header consistency and profile semantics;
+5. DTED dimension/profile limits, then G9 elevation limits;
+6. checked expected file length, remaining parser-allocation reservation, and temporary allocation;
+7. data profiles in physical order: frame, preamble/counts, checksum, then samples;
+8. cancellation and final channel size, transaction close, packed copy, post-copy cancellation, and
+   publication as established by G9-003.
+
+Cancellation checkpoints remain G9-003's approved ones and never outrank a failure already observed.
+The first terminal failure is primary; transaction cleanup happens exactly once and a mapped close
+failure is suppressed beneath that primary. A clean close failure remains `DTED_IO_FAILED`, while a
+published elevation source retains G9-001's `SOURCE_CLOSE_FAILED`. Unexpected runtime failures and
+errors are cleaned up and rethrown unchanged. No parser failure publishes a grid or leaves a channel
+open.
+
+### Hostile fixtures and deterministic mutation evidence
+
+Exact byte-level tests extend the independent G9-003 writers; production parser constants, field
+tables, and checksum helpers are not shared with them. Table-driven cases cover each header field
+class and offset, valid-but-unsupported values, every duplicate mismatch, each configured limit at
+maximum and maximum plus one, all checked arithmetic, file-size/trailing data, record preamble/count
+order, checksum boundaries, signed-magnitude zero/range/void behavior, cancellation, and
+primary/suppressed cleanup. Truncation cases include zero bytes, every fixed-section and required-field
+boundary, every Level 0 data-record boundary, and positions inside a preamble, first/interior/last
+sample, and checksum. Each expected diagnostic asserts complete code, severity, source, location,
+ordered context, and path-free bounded message.
+
+A separate deterministic mutation test exercises the public `DtedFiles.open` facade with a compact
+valid generated zone-V Level 0 cell. Its fixed seed is hexadecimal `0x4454454447393034`. Exactly 64
+cases are derived from finite operators: one-byte bit replacement, fixed-slice ASCII replacement,
+count/sample/checksum overwrite, truncation, and bounded append. Generated inputs are at most 65,536
+bytes and run with matching small file, dimension, and 2 MiB parser-allocation ceilings. The same case
+sequence runs twice in fresh temporary directories and must produce identical normalized outcomes:
+either a fully queryable/closeable source satisfying its metadata/sample invariants or one bounded
+documented `SourceException`. Any unexpected exception, hang, leaked handle, differing outcome, or
+partially usable result fails. The aggregate uses a 30-second test timeout and records no machine
+timing as performance evidence.
+
+This is a deterministic robustness test, not a production fuzzer, new Gradle lane, random CI job,
+coverage claim, corpus substitute, or security certification. G9-006 owns real producer files and
+provenance; G9-007 owns memory/read measurements. G9-004 runs the DTED module and architecture checks,
+the normal quality gate, and whitespace only. It does not run publication, corpus, render-regression,
+performance, or Native Image lanes and introduces no cache, lazy source, native code, dependency,
+viewer, or public parser model.
