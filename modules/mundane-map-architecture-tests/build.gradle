@@ -1,12 +1,211 @@
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
+import org.gradle.api.tasks.Classpath
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
+
 plugins {
     id 'mundane-map.architecture-test-conventions'
 }
 
+def inventory = gradle.ext.mapProjectInventory
+def productionInventory = inventory.findAll { it.category != 'SUPPORT' }
+def level1Inventory = productionInventory.findAll { it.releaseLevel == 1 }
+
+sourceSets {
+    architectureFixtures
+}
+
+configurations.architectureFixturesImplementation.extendsFrom(configurations.testImplementation)
+
 dependencies {
-    testImplementation project(':modules:mundane-map-api')
-    testImplementation project(':modules:mundane-map-core')
-    testImplementation project(':modules:mundane-map-awt')
+    productionInventory.each { entry ->
+        testImplementation project(entry.path)
+    }
+}
+
+@DisableCachingByDefault(because = 'Resolves and verifies production runtime classpaths')
+abstract class VerifyRuntimeClasspath extends DefaultTask {
+    @Input
+    abstract Property<String> getModulePath()
+
+    @Classpath
+    abstract ConfigurableFileCollection getRuntimeClasspathFiles()
+
+    @Classpath
+    abstract ConfigurableFileCollection getAllowedProjectArtifacts()
+
+    @TaskAction
+    void verifyRuntime() {
+        verifyFiles(
+                modulePath.get(),
+                runtimeClasspathFiles.files,
+                allowedProjectArtifacts.files)
+    }
+
+    static void verifyFiles(
+            String modulePath, Collection<File> runtimeFiles, Collection<File> allowedFiles) {
+        Set<java.nio.file.Path> allowed = allowedFiles.collect {
+            it.toPath().toAbsolutePath().normalize()
+        } as Set
+        Set<java.nio.file.Path> unexpected = runtimeFiles.collect {
+            it.toPath().toAbsolutePath().normalize()
+        }.findAll { !allowed.contains(it) } as Set
+        if (!unexpected.isEmpty()) {
+            throw new GradleException(
+            "JDK-only runtime boundary violated by ${modulePath}: "
+            + "${unexpected.sort()}")
+        }
+    }
+}
+
+@DisableCachingByDefault(because = 'Verifies declared production project dependency edges')
+abstract class VerifyProjectDependencies extends DefaultTask {
+    @Input
+    abstract Property<String> getModulePath()
+
+    @Input
+    abstract SetProperty<String> getDeclaredProjectPaths()
+
+    @Input
+    abstract SetProperty<String> getAllowedProjectPaths()
+
+    @TaskAction
+    void verifyDependencies() {
+        verifyEdges(modulePath.get(), declaredProjectPaths.get(), allowedProjectPaths.get())
+    }
+
+    static void verifyEdges(String modulePath, Set<String> declared, Set<String> allowed) {
+        if (declared != allowed) {
+            throw new GradleException(
+            "Runtime project boundary violated by ${modulePath}: "
+            + "declared ${declared.sort()}, allowed ${allowed.sort()}")
+        }
+    }
+}
+
+@DisableCachingByDefault(because = 'Proves runtime dependency rules reject invalid fixtures')
+abstract class TestRuntimeClasspathRule extends DefaultTask {
+    @TaskAction
+    void verifyNegativeFixture() {
+        File externalArtifact = new File(temporaryDir, 'external-adapter.jar')
+        externalArtifact.bytes = []
+        boolean runtimeRejected = false
+        try {
+            VerifyRuntimeClasspath.verifyFiles(
+                    ':fixtures:level1', [externalArtifact], [])
+        } catch (GradleException expected) {
+            if (!expected.message.contains(':fixtures:level1')
+                    || !expected.message.contains('external-adapter.jar')) {
+                throw new GradleException(
+                'Runtime dependency rule produced an unstable diagnostic', expected)
+            }
+            runtimeRejected = true
+        }
+        if (!runtimeRejected) {
+            throw new GradleException('Runtime dependency rule accepted an external artifact')
+        }
+        boolean projectEdgeRejected = false
+        try {
+            VerifyProjectDependencies.verifyEdges(
+                    ':fixtures:io', [':modules:mundane-map-awt'] as Set, [] as Set)
+        } catch (GradleException expected) {
+            if (!expected.message.contains(':fixtures:io')
+                    || !expected.message.contains(':modules:mundane-map-awt')) {
+                throw new GradleException(
+                'Project dependency rule produced an unstable diagnostic', expected)
+            }
+            projectEdgeRejected = true
+        }
+        if (!projectEdgeRejected) {
+            throw new GradleException(
+            'Project dependency rule accepted an undeclared project edge')
+        }
+    }
+}
+
+def runtimeVerificationTasks = level1Inventory.collect { entry ->
+    def targetProject = project(entry.path)
+    targetProject.tasks.register(
+            'verifyJdkOnlyRuntimeArchitecture', VerifyRuntimeClasspath) {
+                group = 'verification'
+                description = "Verifies the JDK-only runtime graph for ${entry.path}."
+                modulePath = entry.path
+                runtimeClasspathFiles.from(targetProject.configurations.runtimeClasspath)
+                allowedProjectArtifacts.from(entry.allowedRuntimeProjects.collect { allowedPath ->
+                    project(allowedPath).tasks.named('jar')
+                })
+            }
+}
+
+def projectDependencyVerificationTasks = productionInventory.collect { entry ->
+    def targetProject = project(entry.path)
+    targetProject.tasks.register(
+            'verifyDeclaredRuntimeArchitecture', VerifyProjectDependencies) {
+                group = 'verification'
+                description = "Verifies declared production project edges for ${entry.path}."
+                modulePath = entry.path
+                declaredProjectPaths.set(providers.provider {
+                    targetProject.configurations.runtimeClasspath.allDependencies
+                            .withType(ProjectDependency)
+                            .collect { dependency -> dependency.path } as Set
+                })
+                allowedProjectPaths.set(entry.allowedRuntimeProjects as Set)
+            }
+}
+
+def testRuntimeClasspathRule = tasks.register(
+        'testRuntimeClasspathRule', TestRuntimeClasspathRule) {
+            group = 'verification'
+            description = 'Proves the Level 1 runtime dependency rule rejects external artifacts.'
+        }
+
+def verifyRuntimeArchitecture = tasks.register('verifyRuntimeArchitecture') {
+    group = 'verification'
+    description = 'Verifies production project edges and Level 1 resolved runtime graphs.'
+    dependsOn runtimeVerificationTasks
+    dependsOn projectDependencyVerificationTasks
+    dependsOn testRuntimeClasspathRule
+}
+
+def moduleDescriptors = productionInventory.collect { entry ->
+    def targetProject = project(entry.path)
+    [
+        entry.path,
+        entry.category,
+        entry.releaseLevel,
+        entry.nativeTarget,
+        targetProject.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath,
+        [
+            new File(targetProject.projectDir, 'src/main/resources').absolutePath,
+            targetProject.layout.buildDirectory.dir('resources/main').get().asFile.absolutePath,
+        ].join(File.pathSeparator),
+        entry.allowedRuntimeProjects.join(','),
+    ].join('\t')
+}.join('\n')
+
+tasks.named('test') {
+    dependsOn verifyRuntimeArchitecture
+    dependsOn tasks.named(sourceSets.architectureFixtures.classesTaskName)
+    dependsOn productionInventory.collect { entry ->
+        project(entry.path).tasks.named('classes')
+    }
+    inputs.files(productionInventory.collect { entry ->
+        project(entry.path).layout.buildDirectory.dir('classes/java/main')
+    })
+    inputs.files(productionInventory.collect { entry ->
+        new File(project(entry.path).projectDir, 'src/main/resources')
+    })
+    inputs.files(sourceSets.architectureFixtures.output.classesDirs)
+    inputs.dir(file('src/architectureFixtures/resources'))
+    systemProperty 'map.architecture.modules', moduleDescriptors
+    systemProperty 'map.architecture.fixtureClasses',
+            layout.buildDirectory.dir('classes/java/architectureFixtures').get().asFile.absolutePath
+    systemProperty 'map.architecture.fixtureResources',
+            file('src/architectureFixtures/resources').absolutePath
 }
 
 description = 'Architecture and dependency-boundary tests.'
-

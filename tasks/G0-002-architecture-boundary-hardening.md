@@ -1,6 +1,6 @@
 # G0-002 — Architecture Boundary Hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G0-001
 Gate: G0
 Type: AFK
@@ -66,3 +66,8 @@ Prefer bytecode and resolved-configuration inspection over source-text matching.
 data-driven so later working `mundane-map-io-*` modules are included explicitly when registered,
 without reflection or classpath scanning.
 
+Completed on 2026-07-13 with an authoritative per-project runtime allowlist, owning-project Level 1
+runtime graph checks, module-specific ArchUnit imports, public-signature and prohibited-mechanism
+inspection, source/generated resource-tree checks, and isolated negative fixtures for every grouped
+boundary. The focused architecture test and full `qualityGate` evidence are recorded with the task
+commit.

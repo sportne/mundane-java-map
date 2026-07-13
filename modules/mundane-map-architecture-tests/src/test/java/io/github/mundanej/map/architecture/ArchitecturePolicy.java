@@ -1,0 +1,361 @@
+package io.github.mundanej.map.architecture;
+
+import com.tngtech.archunit.core.domain.Dependency;
+import com.tngtech.archunit.core.domain.JavaAccess;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaField;
+import com.tngtech.archunit.core.domain.JavaMember;
+import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaModifier;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+
+final class ArchitecturePolicy {
+    private static final Map<String, String> JDK_MODULE_BY_PACKAGE = jdkModulesByPackage();
+
+    private ArchitecturePolicy() {}
+
+    static List<String> moduleBoundaryViolations(
+            ModuleDescriptor module,
+            Collection<JavaClass> classes,
+            Map<String, String> owningModuleByClass) {
+        List<String> violations = new ArrayList<>();
+        Set<String> allowedModules = new HashSet<>(module.allowedRuntimeProjects());
+        allowedModules.add(module.path());
+        for (JavaClass javaClass : classes) {
+            for (Dependency dependency : javaClass.getDirectDependenciesFromSelf()) {
+                JavaClass target = dependency.getTargetClass().getBaseComponentType();
+                String targetModule = owningModuleByClass.get(target.getName());
+                if (targetModule != null
+                        && !moduleAllowsTarget(module, targetModule, allowedModules)) {
+                    violations.add(
+                            diagnostic(
+                                    "module dependency",
+                                    module.path(),
+                                    javaClass,
+                                    target.getName()));
+                    continue;
+                }
+                String jdkModule = JDK_MODULE_BY_PACKAGE.get(target.getPackageName());
+                if (jdkModule != null && !allowedJdkModules(module).contains(jdkModule)) {
+                    violations.add(
+                            diagnostic(
+                                    "JDK module " + jdkModule,
+                                    module.path(),
+                                    javaClass,
+                                    target.getName()));
+                } else if (module.releaseLevel() == 1
+                        && module.category().equals("JDK_RUNTIME")
+                        && targetModule == null
+                        && jdkModule == null
+                        && !target.getName().startsWith("io.github.mundanej.map.")) {
+                    violations.add(
+                            diagnostic(
+                                    "external runtime type",
+                                    module.path(),
+                                    javaClass,
+                                    target.getName()));
+                }
+            }
+        }
+        return violations;
+    }
+
+    static List<String> publicApiViolations(Collection<JavaClass> classes) {
+        List<String> violations = new ArrayList<>();
+        for (JavaClass javaClass : classes) {
+            if (!javaClass.getModifiers().contains(JavaModifier.PUBLIC)) {
+                continue;
+            }
+            javaClass
+                    .getRawSuperclass()
+                    .ifPresent(
+                            type ->
+                                    addApiTypeViolation(
+                                            violations, javaClass, javaClass.getName(), type));
+            for (JavaClass type : javaClass.getRawInterfaces()) {
+                addApiTypeViolation(violations, javaClass, javaClass.getName(), type);
+            }
+            for (JavaMember member : javaClass.getMembers()) {
+                if (!member.getModifiers().contains(JavaModifier.PUBLIC)
+                        && !member.getModifiers().contains(JavaModifier.PROTECTED)) {
+                    continue;
+                }
+                for (JavaClass type : member.getAllInvolvedRawTypes()) {
+                    addApiTypeViolation(violations, javaClass, member.getFullName(), type);
+                }
+            }
+        }
+        return violations;
+    }
+
+    static List<String> prohibitedMechanismViolations(Collection<JavaClass> classes) {
+        List<String> violations = new ArrayList<>();
+        for (JavaClass javaClass : classes) {
+            for (JavaMethod method : javaClass.getMethods()) {
+                if (method.getModifiers().contains(JavaModifier.NATIVE)) {
+                    violations.add(
+                            diagnostic(
+                                    "native method",
+                                    "native-targeted production",
+                                    javaClass,
+                                    method.getFullName()));
+                }
+            }
+            if (javaClass.getRawInterfaces().stream()
+                    .anyMatch(type -> type.getName().equals("java.io.Serializable"))) {
+                violations.add(
+                        diagnostic(
+                                "Java serialization",
+                                "native-targeted production",
+                                javaClass,
+                                "java.io.Serializable"));
+            }
+            for (JavaMember member : javaClass.getMembers()) {
+                for (JavaClass type : member.getAllInvolvedRawTypes()) {
+                    if (isProhibitedDirectType(type.getName())) {
+                        violations.add(
+                                diagnostic(
+                                        "prohibited runtime type",
+                                        "native-targeted production",
+                                        javaClass,
+                                        type.getName()));
+                    }
+                }
+            }
+            for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
+                JavaClass targetOwner = access.getTargetOwner();
+                String owner = targetOwner.getName();
+                String name = access.getName();
+                if (isProhibitedAccess(targetOwner, name)) {
+                    violations.add(
+                            diagnostic(
+                                    "prohibited runtime access",
+                                    "native-targeted production",
+                                    javaClass,
+                                    owner + "." + name));
+                }
+            }
+            if (hasMutableStaticRegistry(javaClass)) {
+                violations.add(
+                        diagnostic(
+                                "mutable global registration",
+                                "native-targeted production",
+                                javaClass,
+                                "static registry holder and mutation access"));
+            }
+        }
+        return violations;
+    }
+
+    static List<String> discoveryResourceViolations(String modulePath, Path resourceRoot)
+            throws IOException {
+        if (!Files.isDirectory(resourceRoot)) {
+            return List.of();
+        }
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(resourceRoot)) {
+            paths.filter(Files::isRegularFile)
+                    .map(resourceRoot::relativize)
+                    .map(path -> path.toString().replace('\\', '/'))
+                    .filter(ArchitecturePolicy::isDiscoveryMetadata)
+                    .forEach(
+                            path ->
+                                    violations.add(
+                                            "resource discovery boundary violated by "
+                                                    + modulePath
+                                                    + ": "
+                                                    + path));
+        }
+        return violations;
+    }
+
+    private static Set<String> allowedJdkModules(ModuleDescriptor module) {
+        if (module.path().endsWith("mundane-map-api")
+                || module.path().endsWith("mundane-map-core")) {
+            return Set.of("java.base");
+        }
+        if (module.path().endsWith("mundane-map-awt")) {
+            return Set.of("java.base", "java.desktop");
+        }
+        Set<String> allowed = new HashSet<>(JDK_MODULE_BY_PACKAGE.values());
+        allowed.remove("java.desktop");
+        return Set.copyOf(allowed);
+    }
+
+    private static boolean moduleAllowsTarget(
+            ModuleDescriptor module, String targetModule, Set<String> declaredAllowedModules) {
+        if (module.path().endsWith("mundane-map-api")) {
+            return targetModule.equals(module.path());
+        }
+        if (module.path().endsWith("mundane-map-core")) {
+            return targetModule.equals(module.path()) || targetModule.endsWith("mundane-map-api");
+        }
+        if (module.path().endsWith("mundane-map-awt")) {
+            return targetModule.equals(module.path())
+                    || targetModule.endsWith("mundane-map-api")
+                    || targetModule.endsWith("mundane-map-core");
+        }
+        if (module.path().contains(":mundane-map-io-")
+                && targetModule.endsWith("mundane-map-awt")) {
+            return false;
+        }
+        return declaredAllowedModules.contains(targetModule);
+    }
+
+    private static void addApiTypeViolation(
+            List<String> violations, JavaClass owner, String signature, JavaClass type) {
+        JavaClass baseType = type.getBaseComponentType();
+        String packageName = baseType.getPackageName();
+        if (baseType.isPrimitive()
+                || packageName.equals("io.github.mundanej.map.api")
+                || packageName.startsWith("io.github.mundanej.map.api.")
+                || JDK_MODULE_BY_PACKAGE.get(packageName) != null) {
+            return;
+        }
+        violations.add(
+                diagnostic(
+                        "public API signature",
+                        "mundane-map-api",
+                        owner,
+                        signature + " -> " + type.getName()));
+    }
+
+    private static boolean isProhibitedDirectType(String typeName) {
+        return typeName.startsWith("java.lang.reflect.")
+                || typeName.startsWith("java.lang.invoke.")
+                || typeName.equals("java.lang.reflect.Proxy")
+                || typeName.equals("java.net.URLClassLoader")
+                || typeName.equals("java.util.ServiceLoader")
+                || typeName.startsWith("java.io.ObjectInput")
+                || typeName.startsWith("java.io.ObjectOutput")
+                || typeName.equals("java.io.Serializable")
+                || typeName.equals("java.lang.invoke.VarHandle")
+                || typeName.equals("sun.misc.Unsafe")
+                || typeName.startsWith("jdk.internal.")
+                || typeName.startsWith("sun.");
+    }
+
+    private static boolean isProhibitedAccess(JavaClass ownerType, String name) {
+        String owner = ownerType.getName();
+        if (isProhibitedDirectType(owner)) {
+            return true;
+        }
+        if (owner.equals("java.lang.Class")) {
+            return !name.equals("getResource")
+                    && !name.equals("getResourceAsStream")
+                    && !name.equals("desiredAssertionStatus");
+        }
+        if (ownerType.isAssignableTo(ClassLoader.class)) {
+            return name.equals("loadClass")
+                    || name.equals("defineClass")
+                    || name.equals("getResources")
+                    || name.equals("getSystemResources")
+                    || name.equals("resources");
+        }
+        if (owner.equals("java.lang.Thread") && name.equals("getContextClassLoader")) {
+            return true;
+        }
+        return (owner.equals("java.lang.System") || owner.equals("java.lang.Runtime"))
+                && (name.equals("load") || name.equals("loadLibrary"));
+    }
+
+    private static boolean hasMutableStaticRegistry(JavaClass javaClass) {
+        return javaClass.getMethods().stream()
+                .filter(method -> method.getModifiers().contains(JavaModifier.STATIC))
+                .anyMatch(
+                        method ->
+                                accessesStaticRegistryHolder(method)
+                                        && method.getMethodCallsFromSelf().stream()
+                                                .anyMatch(
+                                                        call ->
+                                                                isMutationMethod(
+                                                                        call.getTargetOwner()
+                                                                                .getName(),
+                                                                        call.getName())));
+    }
+
+    private static boolean accessesStaticRegistryHolder(JavaMethod method) {
+        return method.getFieldAccesses().stream()
+                .map(access -> access.getTarget().resolveMember())
+                .flatMap(java.util.Optional::stream)
+                .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                .map(JavaField::getRawType)
+                .anyMatch(ArchitecturePolicy::isRegistryHolderType);
+    }
+
+    private static boolean isRegistryHolderType(JavaClass type) {
+        String name = type.getName();
+        return type.isAssignableTo(Map.class)
+                || type.isAssignableTo(Collection.class)
+                || name.endsWith("Registry")
+                || name.endsWith("PluginManager");
+    }
+
+    private static boolean isMutationMethod(String owner, String name) {
+        if (owner.endsWith("Registry") || owner.endsWith("PluginManager")) {
+            return name.startsWith("register") || name.startsWith("install");
+        }
+        return owner.startsWith("java.util.")
+                && (name.equals("put")
+                        || name.equals("putAll")
+                        || name.equals("putIfAbsent")
+                        || name.equals("compute")
+                        || name.equals("computeIfAbsent")
+                        || name.equals("computeIfPresent")
+                        || name.equals("merge")
+                        || name.equals("replace")
+                        || name.equals("replaceAll")
+                        || name.equals("remove")
+                        || name.equals("clear")
+                        || name.equals("add")
+                        || name.equals("addAll"));
+    }
+
+    private static boolean isDiscoveryMetadata(String path) {
+        return path.startsWith("META-INF/services/")
+                || path.equals("META-INF/spring.factories")
+                || path.equals(
+                        "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports");
+    }
+
+    private static String diagnostic(
+            String boundary, String module, JavaClass origin, String offendingSymbol) {
+        return boundary
+                + " boundary violated by "
+                + module
+                + ": "
+                + origin.getName()
+                + " -> "
+                + offendingSymbol;
+    }
+
+    private static Map<String, String> jdkModulesByPackage() {
+        Map<String, String> result = new HashMap<>();
+        for (Module module : ModuleLayer.boot().modules()) {
+            if (module.getName() != null) {
+                module.getPackages()
+                        .forEach(packageName -> result.put(packageName, module.getName()));
+            }
+        }
+        return Map.copyOf(result);
+    }
+
+    record ModuleDescriptor(
+            String path,
+            String category,
+            int releaseLevel,
+            boolean nativeTarget,
+            Path classesDirectory,
+            Set<Path> resourcesDirectories,
+            Set<String> allowedRuntimeProjects) {}
+}

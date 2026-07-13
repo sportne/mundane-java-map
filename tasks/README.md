@@ -109,7 +109,7 @@ Level 1 is complete only when G8-004 is complete.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G0-001 — Current baseline verification](G0-001-current-baseline-verification.md) | Complete | AFK | None | Restore the Java 21 Gradle baseline and prove normal/publication staging. |
-| [G0-002 — Architecture boundary hardening](G0-002-architecture-boundary-hardening.md) | Proposed | AFK | G0-001 | Mechanically enforce production, AWT, I/O, dependency, and native boundaries. |
+| [G0-002 — Architecture boundary hardening](G0-002-architecture-boundary-hardening.md) | Complete | AFK | G0-001 | Mechanically enforce production, AWT, I/O, dependency, and native boundaries. |
 
 ### G1 — First map slice
 

@@ -10,11 +10,12 @@ features; packed coordinates; Web Mercator and viewport math; Swing rendering; p
 fit-to-data, pointer-coordinate events; a basic viewer; architecture tests; and an offscreen native
 smoke entrypoint.
 
-G0-001 now verifies the fixed Java 21 artifact baseline, strict root/included-build repository modes,
-normal JVM gate, and exact three-module publication staging. G0 remains open until G0-002 makes every
-architecture boundary executable. Several G1 behaviors still lack direct tests, and an actual Native
-Image run has not been recorded in the current environment, so G1 remains **implemented in source;
-verification pending**.
+G0 is complete. G0-001 verifies the fixed Java 21 artifact baseline, strict root/included-build
+repository modes, normal JVM gate, and exact three-module publication staging. G0-002 now enforces
+the authoritative runtime graph, module/toolkit/I/O direction, public API isolation, resource
+discovery restrictions, and prohibited native-targeted mechanisms with positive and negative
+evidence. Several G1 behaviors still lack direct tests, and an actual Native Image run has not been
+recorded in the current environment, so G1 remains **implemented in source; verification pending**.
 
 ## Level 1
 

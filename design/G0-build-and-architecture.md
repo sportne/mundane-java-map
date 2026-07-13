@@ -34,12 +34,14 @@ There are two explicit modes:
 The root and included build consume the same checked-in version catalog. An incomplete offline
 repository fails through normal Gradle resolution with the missing coordinate and repository path;
 the build does not obscure that evidence with a custom fallback or machine-specific cache lookup.
-Offline verification uses a temporary, explicit Maven-layout fixture rather than a developer's
-global Gradle cache. The verification harness creates an isolated temporary `GRADLE_USER_HOME`
-containing only a checksum-verified, pre-provisioned Gradle wrapper distribution. It then runs with
-Gradle offline mode, a locally installed Java 21 toolchain, and toolchain auto-download disabled.
-Wrapper provisioning is an explicit harness precondition; it is not counted as Maven dependency
-resolution and must complete before network isolation is asserted.
+Offline verification first completes an explicit provisioning build of a copied repository so the
+full actual quality-gate dependency set is known independent of outer task order. The harness
+validates the content-addressed cache digest for every provisioned artifact while copying it into a
+temporary Maven-layout repository; the offline child never consumes the ambient cache directly. It
+uses a second fresh source copy and an isolated temporary `GRADLE_USER_HOME` containing only a
+checksum-verified, pre-provisioned Gradle wrapper distribution. It then runs with Gradle offline
+mode, the resolved local Java 21 compiler plus the current test JDK declared explicitly, automatic
+toolchain discovery/download disabled, and the temporary repository as the sole resolution source.
 
 ### Normal quality gate
 
@@ -123,8 +125,9 @@ level, publication eligibility, and Native Image policy:
 - **Support**: architecture tests, native smoke, performance evidence, examples, and consumer
   fixtures. Support projects are checked but never published or treated as production dependencies.
 
-The checked-project, published-project, Level 1 release, runtime-dependency, architecture-test, and
-native-target inputs are derived from that inventory rather than maintained as independent lists.
+Each production entry also owns its exact `allowedRuntimeProjects` edges. The checked-project,
+published-project, Level 1 release, runtime-dependency, architecture-test, and native-target inputs
+are derived from that inventory rather than maintained as independent lists.
 Settings and the inventory must contain the same included subprojects; configuration fails when a
 project is absent, duplicated, or uncategorized. A production module is registered only with working
 behavior and tests, so this rule does not justify creating empty future modules.
@@ -133,9 +136,11 @@ behavior and tests, so this rule does not justify creating empty future modules.
 
 The normal quality gate enforces boundaries at complementary levels:
 
-1. Resolved production runtime configurations from the project inventory must contain only JDK
-   facilities and explicitly allowed `mundane-map` project artifacts for Level 1. Test and build-tool
-   configurations are not mistaken for runtime dependencies.
+1. Every production runtime configuration must declare exactly the `mundane-map` project edges in
+   its inventory entry. Resolved Level 1 runtime configurations must additionally contain only JDK
+   facilities and those allowed project artifacts. This separates project-direction enforcement
+   from the external artifacts intentionally permitted inside a future Optional adapter. Test and
+   build-tool configurations are not mistaken for production runtime dependencies.
 2. Class-file rules enforce package direction, AWT confinement, public-signature purity, and native
    targeting. Public API types cannot mention core, AWT, format, or external-adapter types.
 3. Direct mechanism checks inspect class access flags and symbolic member references. They reject
@@ -144,14 +149,18 @@ The normal quality gate enforces boundaries at complementary levels:
    `java.lang.invoke` and do not fail the rule; explicit references to `MethodHandle`, `MethodHandles`,
    or `CallSite` do. `VarHandle` is outside the dynamic-invocation match but is disallowed by default
    until a task records a concrete concurrency or performance need and adds an exact rule decision.
+   Native-targeted project calls on `Class` are denied except explicitly named resource loading and
+   compiler assertion-status lookup; this closed profile avoids an incomplete reflection-method list.
 4. Resource-tree inspection rejects service-provider descriptors and other declared discovery
    metadata. It does not reject an explicitly named application resource merely because it is in a
    JAR.
 5. Positive fixtures demonstrate allowed dependencies. Negative fixtures live in a dedicated
    architecture-fixture source set whose output is never added to a production, publication, or
-   native runtime. Each rule imports one deliberately violating fixture; forbidden dependency cases
-   use a detached fixture-only configuration, so testing the rule cannot change a published module's
-   dependency graph. A failure names the rule, module, class or dependency, and offending symbol.
+   native runtime. Resolved Level 1 runtime files are checked by a task registered on the project
+   that owns the configuration, avoiding unsafe cross-project resolution. Each rule imports one
+   deliberately violating fixture, and a task-local external-file fixture proves the runtime rule
+   without changing a published module's dependency graph. A failure names the rule, module, class
+   or dependency, and offending symbol.
 
 Native-targeted Level 1 production code must not directly use:
 
@@ -165,12 +174,17 @@ Native-targeted Level 1 production code must not directly use:
 
 Explicit registration means the application or a documented default constructor supplies concrete
 renderers, decoders, projections, or adapters by stable key. A registry is instance-owned and passed
-to the component that uses it; it has no static registration entry point or mutable static holder.
-The architecture test maintains an explicit list of registry contract types and rejects static fields
-of those types plus static mutation methods on them. Registration contract tests cover ownership and
-duplicate-key behavior. These mechanical checks do not claim to infer every indirect global-state
-pattern, which remains part of design and code review. An immutable built-in catalog constant is not
-a mutable registry. Registration never depends on what happens to be present on the classpath.
+to the component that uses it; it has no mutable static holder. The architecture test structurally
+rejects a static method that accesses a static `Map`, `Collection`, or registry-named holder and also
+invokes a corresponding collection or registry mutation. Registry-named mutation matching includes
+specific operations such as `registerRenderer` rather than relying on the entry-point method's name.
+It does not reject a stateless static factory merely because its name contains `register`, nor an
+immutable static catalog next to an instance-owned mutable registry; future registry contract types
+join the holder matcher when introduced.
+Registration contract tests cover ownership and duplicate-key behavior. These mechanical checks do
+not claim to infer every indirect global-state pattern, which remains part of design and code review.
+An immutable built-in catalog constant is not a mutable registry. Registration never depends on what
+happens to be present on the classpath.
 
 The G6 requirement to use the JDK's standard PNG/JPEG `ImageIO` readers has one exact opaque-JDK
 qualification. The public JDK exposes those readers only through the ImageIO registry; initializing
@@ -217,6 +231,9 @@ allowlist own the exact edges when those tasks implement them.
 ### G0 design closeout
 
 The build baseline and architecture enforcement share the single project inventory described above;
-they do not introduce a runtime framework or duplicate module lists. G0 therefore leaves the runtime
-model unchanged while turning its existing boundaries into deterministic build evidence. Future
-gates extend the inventory only when a vertical slice delivers working behavior and tests.
+they do not introduce a runtime framework or duplicate module lists. Gate closeout confirmed that
+one small ArchUnit policy helper, one dedicated negative-fixture source set, and owning-project
+runtime tasks are sufficient: no production abstraction or architecture plugin framework is needed.
+G0 therefore leaves the runtime model unchanged while turning its existing boundaries into
+deterministic build evidence. Future gates extend the inventory only when a vertical slice delivers
+working behavior and tests.
