@@ -44,6 +44,11 @@ scenario that renders a curved vector path, ordered composite, and raster icon t
 Focused architecture checks include the native support classes and resources without broadening the
 production-module inventory. Linux x86-64 GraalVM CE Java 21.0.2 built and ran the executable; this
 evidence makes no Windows or macOS Native Image claim.
+G4-001 is complete: the maintainer-approved format-neutral source profile fixes synchronous bounded
+feature/raster pull contracts, explicit ownership and close behavior, canonical immutable attributes,
+typed limits, cancellation checkpoints, strict raster windows, and stable structured diagnostics.
+The approved signatures are compiled as test-only sketches; production contracts remain deferred to
+the G4-003 and G4-004 vertical slices.
 
 ## Level 1
 

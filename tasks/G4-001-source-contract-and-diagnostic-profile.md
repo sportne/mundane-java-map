@@ -1,6 +1,6 @@
 # G4-001 — Source Contract and Diagnostic Profile
 
-Status: Proposed
+Status: Complete
 Depends on: G1-001
 Gate: G4
 Type: HITL
@@ -20,7 +20,8 @@ module.
 
 ## Scope
 
-- A source-contract and diagnostic decision record in `DESIGN.md`.
+- A source-contract and diagnostic decision record linked from `DESIGN.md` and maintained in
+  `design/G4-sources-and-crs.md`.
 - Compile-level public contract sketches against `modules/mundane-map-api`.
 - Compatibility policy for `Layer`, `InMemoryLayer`, `Feature`, and existing examples.
 
@@ -68,3 +69,7 @@ git diff --check
 Prefer synchronous pull contracts for Level 1. Do not introduce reactive streams, plugin discovery,
 generic parser abstractions, or an empty I/O module while recording this decision.
 
+Completed on 2026-07-14 after explicit maintainer approval of the named G4 source-contract
+checkpoint. The test-only `SourceContractSketchesTest` fixture compiles the approved feature/raster,
+cursor, cancellation, and diagnostic shape without adding production APIs. Production contracts
+remain deferred to the G4-003 and G4-004 vertical slices as designed.
