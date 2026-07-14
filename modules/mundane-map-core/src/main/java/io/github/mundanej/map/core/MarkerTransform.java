@@ -1,6 +1,8 @@
 package io.github.mundanej.map.core;
 
+import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.Envelope;
+import java.util.Objects;
 
 /** Read-only marker affine coefficients and their axis-aligned nominal screen bounds. */
 public final class MarkerTransform {
@@ -62,5 +64,31 @@ public final class MarkerTransform {
     /** Returns the axis-aligned bounds of the transformed view-box corners. */
     public Envelope nominalScreenBounds() {
         return nominalScreenBounds;
+    }
+
+    /** Inverse-maps one finite screen coordinate into marker-local coordinates. */
+    public Coordinate screenToLocal(Coordinate screen) {
+        Objects.requireNonNull(screen, "screen");
+        double maximum =
+                Math.max(
+                        Math.max(Math.abs(m00), Math.abs(m01)),
+                        Math.max(Math.abs(m10), Math.abs(m11)));
+        int exponent = Math.getExponent(maximum);
+        double a = Math.scalb(m00, -exponent);
+        double b = Math.scalb(m01, -exponent);
+        double c = Math.scalb(m10, -exponent);
+        double d = Math.scalb(m11, -exponent);
+        double determinant = a * d - b * c;
+        if (!Double.isFinite(determinant) || determinant == 0.0) {
+            throw new IllegalStateException("Marker transform must remain finite and invertible");
+        }
+        double translatedX = Math.scalb(screen.x(), -exponent) - Math.scalb(m02, -exponent);
+        double translatedY = Math.scalb(screen.y(), -exponent) - Math.scalb(m12, -exponent);
+        double localX = (d * translatedX - b * translatedY) / determinant;
+        double localY = (-c * translatedX + a * translatedY) / determinant;
+        if (!Double.isFinite(localX) || !Double.isFinite(localY)) {
+            throw new IllegalArgumentException("Screen coordinate is outside the inverse domain");
+        }
+        return new Coordinate(localX, localY);
     }
 }

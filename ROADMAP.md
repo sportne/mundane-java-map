@@ -57,6 +57,9 @@ G3-001 is complete: immutable toolkit-neutral tool events feed one core lifecycl
 the AWT adapter explicitly converts local input, preserves passed pan/zoom and compatibility
 observers, owns predefined cursor mapping, and cancels or quarantines stale gestures at view
 lifecycle boundaries.
+G3-002 is complete: immutable toolkit-neutral hit/selection identities and robust core screen
+predicates feed explicit AWT renderer hit callbacks; hit traversal mirrors reverse paint order and
+single primary clicks update stable-ID selection before compatibility observers run.
 
 ## Level 1
 

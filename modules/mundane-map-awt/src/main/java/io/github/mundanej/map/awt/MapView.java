@@ -7,12 +7,15 @@ import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
+import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.HatchFillSymbol;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapCursorIntent;
+import io.github.mundanej.map.api.MapHit;
+import io.github.mundanej.map.api.MapHitResults;
 import io.github.mundanej.map.api.MapInputModifier;
 import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapPointerEvent;
@@ -46,6 +49,7 @@ import io.github.mundanej.map.core.MapToolRouter;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.MarkerTransform;
 import io.github.mundanej.map.core.RouteOutcome;
+import io.github.mundanej.map.core.ScreenGeometryHits;
 import io.github.mundanej.map.core.SymbolTransforms;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
@@ -65,6 +69,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
@@ -90,6 +95,9 @@ import javax.swing.JComponent;
  */
 @SuppressWarnings({"deprecation", "serial"})
 public final class MapView extends JComponent {
+    /** Default logical-pixel tolerance for click selection. */
+    public static final double DEFAULT_SELECTION_TOLERANCE_PIXELS = 4.0;
+
     private static final long serialVersionUID = 1L;
     private static final int DEFAULT_WIDTH = 800;
     private static final int DEFAULT_HEIGHT = 600;
@@ -104,6 +112,7 @@ public final class MapView extends JComponent {
     private final MapToolRouter toolRouter = new MapToolRouter();
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private List<Layer> layers = List.of();
+    private Optional<FeatureSelection> selection = Optional.empty();
     private MapViewport viewport = MapViewport.initial(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     private Point dragAnchor;
     private double lastPointerX = DEFAULT_WIDTH / 2.0;
@@ -207,13 +216,79 @@ public final class MapView extends JComponent {
 
     /** Replaces the ordered layer snapshot and repaints the component. */
     public void setLayers(List<Layer> layers) {
-        this.layers = List.copyOf(Objects.requireNonNull(layers, "layers"));
+        List<Layer> candidate = List.copyOf(Objects.requireNonNull(layers, "layers"));
+        ViewContentSnapshot snapshot = captureContent(candidate);
+        Optional<FeatureSelection> reconciled = reconcile(selection, snapshot);
+        this.layers = candidate;
+        this.selection = reconciled;
         repaint();
     }
 
     /** Returns the ordered layer snapshot. */
     public List<Layer> layers() {
         return layers;
+    }
+
+    /** Returns the selected stable feature identity after reconciling current content. */
+    public Optional<FeatureSelection> selection() {
+        ViewContentSnapshot snapshot = captureContent(layers);
+        reconcileSelection(snapshot, true);
+        return selection;
+    }
+
+    /** Selects an identity that exists uniquely in the current content snapshot. */
+    public void setSelection(FeatureSelection requested) {
+        Objects.requireNonNull(requested, "requested");
+        ViewContentSnapshot snapshot = captureContent(layers);
+        if (!contains(snapshot, requested)) {
+            throw new IllegalArgumentException("selection must identify a current feature");
+        }
+        if (!selection.equals(Optional.of(requested))) {
+            selection = Optional.of(requested);
+            repaint();
+        }
+    }
+
+    /** Clears selection without consulting potentially mutable layer content. */
+    public void clearSelection() {
+        if (selection.isPresent()) {
+            selection = Optional.empty();
+            repaint();
+        }
+    }
+
+    /** Returns visible feature hits in deterministic topmost-first paint order. */
+    public MapHitResults hitTest(double screenX, double screenY, double tolerancePixels) {
+        if (!Double.isFinite(screenX)
+                || !Double.isFinite(screenY)
+                || !Double.isFinite(tolerancePixels)
+                || tolerancePixels < 0.0) {
+            throw new IllegalArgumentException(
+                    "Hit coordinates and non-negative tolerance must be finite");
+        }
+        Dimension size = effectiveSize();
+        ViewContentSnapshot snapshot = captureContent(layers);
+        reconcileSelection(snapshot, true);
+        if (screenX < 0.0 || screenX >= size.width || screenY < 0.0 || screenY >= size.height) {
+            return MapHitResults.of(List.of());
+        }
+        double cappedTolerance = Math.min(tolerancePixels, Math.hypot(size.width, size.height));
+        MapViewport viewportSnapshot = viewport();
+        Rectangle2D clip = new Rectangle2D.Double(0.0, 0.0, size.width, size.height);
+        List<MapHit> hits = new ArrayList<>();
+        for (int layerIndex = snapshot.layers().size() - 1; layerIndex >= 0; layerIndex--) {
+            LayerSnapshot layer = snapshot.layers().get(layerIndex);
+            for (int featureIndex = layer.features().size() - 1;
+                    featureIndex >= 0;
+                    featureIndex--) {
+                Feature feature = layer.features().get(featureIndex);
+                if (hitFeature(
+                        feature, viewportSnapshot, clip, screenX, screenY, cappedTolerance)) {
+                    hits.add(new MapHit(layer.id(), feature.id()));
+                }
+            }
+        }
+        return MapHitResults.of(hits);
     }
 
     /** Returns the current viewport, resized to the component's current dimensions. */
@@ -321,6 +396,10 @@ public final class MapView extends JComponent {
     @Override
     protected void paintComponent(Graphics graphics) {
         synchronizeViewportSize();
+        ViewContentSnapshot content = captureContent(layers);
+        reconcileSelection(content, false);
+        MapViewport viewportSnapshot = viewport;
+        MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
         Graphics2D graphics2D = (Graphics2D) graphics.create();
         try {
             if (isOpaque()) {
@@ -329,9 +408,9 @@ public final class MapView extends JComponent {
             }
             graphics2D.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            for (Layer layer : layers) {
+            for (LayerSnapshot layer : content.layers()) {
                 for (Feature feature : layer.features()) {
-                    renderFeature(graphics2D, feature);
+                    renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
                 }
             }
         } finally {
@@ -339,7 +418,11 @@ public final class MapView extends JComponent {
         }
     }
 
-    private void renderFeature(Graphics2D graphics, Feature feature) {
+    private void renderFeature(
+            Graphics2D graphics,
+            Feature feature,
+            MapViewport viewportSnapshot,
+            MapScreenBasis basisSnapshot) {
         Symbol symbol = feature.symbol();
         if (!(symbol instanceof FeatureStyle)
                 && symbol.role() != geometryRole(feature.geometry())) {
@@ -347,7 +430,7 @@ public final class MapView extends JComponent {
         }
         Optional<Coordinate> markerAnchor =
                 feature.geometry() instanceof PointGeometry point
-                        ? Optional.of(toScreen(point.coordinate()))
+                        ? Optional.of(toScreen(point.coordinate(), viewportSnapshot))
                         : Optional.empty();
         AwtSymbolRenderContext context =
                 context(
@@ -359,7 +442,9 @@ public final class MapView extends JComponent {
                         1.0,
                         false,
                         OptionalDouble.empty(),
-                        markerAnchor);
+                        markerAnchor,
+                        viewportSnapshot,
+                        basisSnapshot);
         SymbolRenderResult result = dispatch(symbol, context);
         if (feature.geometry() instanceof PointGeometry) {
             Envelope bounds = result.nominalMarkerBounds().orElseThrow();
@@ -376,7 +461,9 @@ public final class MapView extends JComponent {
             double inheritedOpacity,
             boolean closedRing,
             OptionalDouble endpointBearing,
-            Optional<Coordinate> markerAnchor) {
+            Optional<Coordinate> markerAnchor,
+            MapViewport viewportSnapshot,
+            MapScreenBasis basisSnapshot) {
         return new AwtSymbolRenderContext(
                 graphics,
                 role,
@@ -384,12 +471,12 @@ public final class MapView extends JComponent {
                 featureGeometry,
                 renderGeometry,
                 mapToDisplay,
-                viewport(),
+                viewportSnapshot,
                 inheritedOpacity,
                 closedRing,
                 endpointBearing,
                 markerAnchor,
-                screenBasis(),
+                basisSnapshot,
                 this);
     }
 
@@ -419,6 +506,552 @@ public final class MapView extends JComponent {
         return result;
     }
 
+    private boolean hitFeature(
+            Feature feature,
+            MapViewport viewportSnapshot,
+            Rectangle2D clip,
+            double queryX,
+            double queryY,
+            double tolerance) {
+        Symbol symbol = feature.symbol();
+        Optional<Coordinate> markerAnchor =
+                feature.geometry() instanceof PointGeometry point
+                        ? Optional.of(toScreen(point.coordinate(), viewportSnapshot))
+                        : Optional.empty();
+        AwtSymbolHitContext context =
+                hitContext(
+                        symbol.role(),
+                        feature.id(),
+                        feature.geometry(),
+                        feature.geometry(),
+                        viewportSnapshot,
+                        1.0,
+                        false,
+                        OptionalDouble.empty(),
+                        markerAnchor,
+                        queryX,
+                        queryY,
+                        tolerance,
+                        clip);
+        return dispatchHit(symbol, context);
+    }
+
+    private AwtSymbolHitContext hitContext(
+            SymbolRole role,
+            String featureId,
+            Geometry featureGeometry,
+            Geometry renderGeometry,
+            MapViewport viewportSnapshot,
+            double inheritedOpacity,
+            boolean closedRing,
+            OptionalDouble endpointBearing,
+            Optional<Coordinate> markerAnchor,
+            double queryX,
+            double queryY,
+            double tolerance,
+            Rectangle2D clip) {
+        return new AwtSymbolHitContext(
+                role,
+                featureId,
+                featureGeometry,
+                renderGeometry,
+                viewportSnapshot,
+                inheritedOpacity,
+                closedRing,
+                endpointBearing,
+                markerAnchor,
+                screenBasis(viewportSnapshot),
+                queryX,
+                queryY,
+                tolerance,
+                clip,
+                this);
+    }
+
+    private boolean dispatchHit(Symbol symbol, AwtSymbolHitContext context) {
+        SymbolSnapshot snapshot = new SymbolSnapshot(symbol.role(), symbol.rendererKey());
+        AwtSymbolRenderer renderer = symbolRenderers.find(snapshot.role(), snapshot.rendererKey());
+        if (renderer == null) {
+            throw rendererNotRegistered(snapshot);
+        }
+        if (!renderer.supports(symbol)) {
+            throw rendererValueMismatch(snapshot);
+        }
+        return renderer.hitTest(symbol, context);
+    }
+
+    boolean hitChild(Symbol child, AwtSymbolHitContext parent, double multiplier) {
+        return dispatchHit(
+                child,
+                hitContext(
+                        parent.role(),
+                        parent.featureId(),
+                        parent.featureGeometry(),
+                        parent.renderGeometry(),
+                        parent.viewport(),
+                        parent.inheritedOpacity() * multiplier,
+                        parent.closedRing(),
+                        parent.endpointBearingDegrees(),
+                        parent.markerAnchorScreen(),
+                        parent.queryX(),
+                        parent.queryY(),
+                        parent.tolerancePixels(),
+                        parent.componentClip()));
+    }
+
+    @SuppressWarnings("deprecation")
+    boolean hitBuiltIn(Symbol value, AwtSymbolHitContext context) {
+        if (value instanceof CompositeSymbol composite) {
+            if (context.inheritedOpacity() * composite.opacity() == 0.0) {
+                return false;
+            }
+            List<Symbol> children = composite.children();
+            for (int index = children.size() - 1; index >= 0; index--) {
+                if (context.hitChild(children.get(index), composite.opacity())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (value instanceof FeatureStyle style) {
+            return hitLegacy(style, context);
+        }
+        if (value instanceof VectorMarkerSymbol marker) {
+            return hitVectorMarker(marker, context);
+        }
+        if (value instanceof RasterIconSymbol icon) {
+            return hitRasterIcon(icon, context);
+        }
+        if (value instanceof SolidLineSymbol line
+                && context.renderGeometry() instanceof LineStringGeometry geometry) {
+            return hitLine(line, geometry, context);
+        }
+        if (value instanceof SolidFillSymbol fill
+                && context.renderGeometry() instanceof PolygonGeometry polygon) {
+            if (hitOutline(fill.outline(), polygon, context, fill.opacity())) {
+                return true;
+            }
+            ScreenPolygon screenPolygon = screenPolygon(polygon, context.viewport());
+            boolean fillHit =
+                    context.inheritedOpacity() * fill.opacity() > 0.0
+                            && fill.fill().alpha() > 0
+                            && ScreenGeometryHits.filledPolygonWithin(
+                                    screenPolygon.rings().getFirst(),
+                                    screenPolygon.rings().subList(1, screenPolygon.rings().size()),
+                                    context.queryX(),
+                                    context.queryY(),
+                                    context.tolerancePixels());
+            return analyticOrClipped(fillHit, screenPolygon.path(), context);
+        }
+        if (value instanceof HatchFillSymbol hatch
+                && context.renderGeometry() instanceof PolygonGeometry polygon) {
+            if (hitOutline(hatch.outline(), polygon, context, hatch.opacity())) {
+                return true;
+            }
+            return hitHatch(hatch, polygon, context);
+        }
+        throw rendererValueMismatch(new SymbolSnapshot(value.role(), value.rendererKey()));
+    }
+
+    private boolean hitLegacy(FeatureStyle style, AwtSymbolHitContext context) {
+        Geometry geometry = context.renderGeometry();
+        if (geometry instanceof PointGeometry point) {
+            Coordinate screen = toScreen(point.coordinate(), context.viewport());
+            double radius = style.pointDiameter() / 2.0;
+            Shape circle =
+                    new Ellipse2D.Double(
+                            screen.x() - radius, screen.y() - radius, radius * 2.0, radius * 2.0);
+            if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
+                Shape stroke =
+                        new BasicStroke(
+                                        (float) style.strokeWidth(),
+                                        BasicStroke.CAP_ROUND,
+                                        BasicStroke.JOIN_ROUND)
+                                .createStrokedShape(circle);
+                double centerDistance =
+                        Math.hypot(context.queryX() - screen.x(), context.queryY() - screen.y());
+                boolean strokeHit =
+                        ScreenGeometryHits.pointWithin(
+                                        screen.x(),
+                                        screen.y(),
+                                        context.queryX(),
+                                        context.queryY(),
+                                        radius
+                                                + style.strokeWidth() / 2.0
+                                                + context.tolerancePixels())
+                                && centerDistance
+                                        >= Math.max(
+                                                0.0,
+                                                radius
+                                                        - style.strokeWidth() / 2.0
+                                                        - context.tolerancePixels());
+                if (analyticOrClipped(strokeHit, stroke, context)) {
+                    return true;
+                }
+            }
+            boolean fillHit =
+                    style.fill().alpha() > 0
+                            && ScreenGeometryHits.pointWithin(
+                                    screen.x(),
+                                    screen.y(),
+                                    context.queryX(),
+                                    context.queryY(),
+                                    radius + context.tolerancePixels());
+            return analyticOrClipped(fillHit, circle, context);
+        }
+        if (geometry instanceof LineStringGeometry line) {
+            CoordinateSequence screen = toScreen(line.coordinates(), context.viewport());
+            LineEndpointBearings bearings =
+                    LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+            if (bearings.startBearingDegrees().isEmpty()
+                    && bearings.endBearingDegrees().isEmpty()) {
+                return false;
+            }
+            Shape footprint =
+                    new BasicStroke(
+                                    (float) style.strokeWidth(),
+                                    BasicStroke.CAP_ROUND,
+                                    BasicStroke.JOIN_ROUND)
+                            .createStrokedShape(screenPath(screen, false));
+            boolean hit =
+                    style.stroke().alpha() > 0
+                            && style.strokeWidth() > 0.0
+                            && ScreenGeometryHits.polylineWithin(
+                                    screen,
+                                    false,
+                                    context.queryX(),
+                                    context.queryY(),
+                                    style.strokeWidth() / 2.0 + context.tolerancePixels());
+            return analyticOrClipped(hit, footprint, context);
+        }
+        PolygonGeometry polygon = (PolygonGeometry) geometry;
+        ScreenPolygon screenPolygon = screenPolygon(polygon, context.viewport());
+        Shape path = screenPolygon.path();
+        if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
+            Shape stroke =
+                    new BasicStroke(
+                                    (float) style.strokeWidth(),
+                                    BasicStroke.CAP_ROUND,
+                                    BasicStroke.JOIN_ROUND)
+                            .createStrokedShape(path);
+            double strokeRadius = style.strokeWidth() / 2.0 + context.tolerancePixels();
+            for (CoordinateSequence ring : screenPolygon.rings()) {
+                boolean strokeHit =
+                        ScreenGeometryHits.polylineWithin(
+                                ring, true, context.queryX(), context.queryY(), strokeRadius);
+                if (analyticOrClipped(strokeHit, stroke, context)) {
+                    return true;
+                }
+            }
+        }
+        boolean fillHit =
+                style.fill().alpha() > 0
+                        && ScreenGeometryHits.filledPolygonWithin(
+                                screenPolygon.rings().getFirst(),
+                                screenPolygon.rings().subList(1, screenPolygon.rings().size()),
+                                context.queryX(),
+                                context.queryY(),
+                                context.tolerancePixels());
+        return analyticOrClipped(fillHit, path, context);
+    }
+
+    private boolean hitVectorMarker(VectorMarkerSymbol marker, AwtSymbolHitContext context) {
+        if (context.inheritedOpacity() * marker.opacity() == 0.0) {
+            return false;
+        }
+        MarkerTransform markerTransform =
+                markerTransform(marker.viewBox(), marker.placement(), context);
+        AffineTransform transform = affine(markerTransform);
+        VectorPath2D.Converted converted = VectorPath2D.convert(marker.path());
+        if (marker.stroke().isPresent() && marker.stroke().orElseThrow().color().alpha() > 0) {
+            BasicStroke stroke =
+                    screenStroke(marker.stroke().orElseThrow(), context.mapScreenBasis());
+            if (context.visibleShapeHit(
+                    stroke.createStrokedShape(
+                            transform.createTransformedShape(converted.strokePath())))) {
+                return true;
+            }
+        }
+        return marker.fill().alpha() > 0
+                && context.visibleShapeHit(transform.createTransformedShape(converted.fillPath()));
+    }
+
+    private boolean hitRasterIcon(RasterIconSymbol icon, AwtSymbolHitContext context) {
+        if (context.inheritedOpacity() * icon.opacity() == 0.0) {
+            return false;
+        }
+        MarkerTransform markerTransform =
+                markerTransform(
+                        new Envelope(0.0, 0.0, icon.width(), icon.height()),
+                        icon.placement(),
+                        context);
+        AffineTransform transform = affine(markerTransform);
+        if (context.tolerancePixels() == 0.0) {
+            Coordinate local =
+                    markerTransform.screenToLocal(
+                            new Coordinate(context.queryX(), context.queryY()));
+            if (local.x() < 0.0
+                    || local.x() >= icon.width()
+                    || local.y() < 0.0
+                    || local.y() >= icon.height()) {
+                return false;
+            }
+            for (int y = 0; y < icon.height(); y++) {
+                for (int x = 0; x < icon.width(); x++) {
+                    if ((icon.rgbaAt(x, y) & 0xff) != 0
+                            && rasterSupportContains(icon.interpolation(), x, y, local)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        double expansion = icon.interpolation() == RasterInterpolation.BILINEAR ? 0.5 : 0.0;
+        for (int y = 0; y < icon.height(); y++) {
+            for (int x = 0; x < icon.width(); x++) {
+                if ((icon.rgbaAt(x, y) & 0xff) != 0) {
+                    Rectangle2D support =
+                            new Rectangle2D.Double(
+                                    Math.max(0.0, x - expansion),
+                                    Math.max(0.0, y - expansion),
+                                    Math.min(icon.width(), x + 1.0 + expansion)
+                                            - Math.max(0.0, x - expansion),
+                                    Math.min(icon.height(), y + 1.0 + expansion)
+                                            - Math.max(0.0, y - expansion));
+                    double[] quad = transformedQuad(markerTransform, support);
+                    boolean hit =
+                            ScreenGeometryHits.convexQuadWithin(
+                                    quad,
+                                    context.queryX(),
+                                    context.queryY(),
+                                    context.tolerancePixels());
+                    if (analyticOrClipped(
+                            hit, transform.createTransformedShape(support), context)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean rasterSupportContains(
+            RasterInterpolation interpolation, int x, int y, Coordinate local) {
+        if (interpolation == RasterInterpolation.NEAREST) {
+            return local.x() >= x && local.x() < x + 1.0 && local.y() >= y && local.y() < y + 1.0;
+        }
+        return local.x() > x - 0.5
+                && local.x() < x + 1.5
+                && local.y() > y - 0.5
+                && local.y() < y + 1.5;
+    }
+
+    private static double[] transformedQuad(MarkerTransform transform, Rectangle2D local) {
+        double[] result = new double[8];
+        transformPoint(transform, local.getMinX(), local.getMinY(), result, 0);
+        transformPoint(transform, local.getMaxX(), local.getMinY(), result, 2);
+        transformPoint(transform, local.getMaxX(), local.getMaxY(), result, 4);
+        transformPoint(transform, local.getMinX(), local.getMaxY(), result, 6);
+        return result;
+    }
+
+    private static void transformPoint(
+            MarkerTransform transform, double x, double y, double[] target, int offset) {
+        target[offset] = transform.m00() * x + transform.m01() * y + transform.m02();
+        target[offset + 1] = transform.m10() * x + transform.m11() * y + transform.m12();
+    }
+
+    private boolean hitLine(
+            SolidLineSymbol line, LineStringGeometry geometry, AwtSymbolHitContext context) {
+        double opacity = context.inheritedOpacity() * line.opacity();
+        CoordinateSequence screen = toScreen(geometry.coordinates(), context.viewport());
+        LineEndpointBearings bearings =
+                LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+        if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
+            return false;
+        }
+        int last = geometry.coordinates().size() - 1;
+        if (!context.closedRing()
+                && line.endMarker().isPresent()
+                && bearings.endBearingDegrees().isPresent()
+                && hitEndpoint(
+                        line.endMarker().orElseThrow(),
+                        geometry.coordinates().coordinate(last),
+                        screen.coordinate(last),
+                        bearings.endBearingDegrees().orElseThrow(),
+                        context,
+                        opacity)) {
+            return true;
+        }
+        if (!context.closedRing()
+                && line.startMarker().isPresent()
+                && bearings.startBearingDegrees().isPresent()
+                && hitEndpoint(
+                        line.startMarker().orElseThrow(),
+                        geometry.coordinates().coordinate(0),
+                        screen.coordinate(0),
+                        bearings.startBearingDegrees().orElseThrow(),
+                        context,
+                        opacity)) {
+            return true;
+        }
+        BasicStroke stroke = screenStroke(line.stroke(), context.mapScreenBasis());
+        Shape footprint = stroke.createStrokedShape(screenPath(screen, context.closedRing()));
+        boolean centerlineHit =
+                opacity > 0.0
+                        && line.stroke().color().alpha() > 0
+                        && ScreenGeometryHits.polylineWithin(
+                                screen,
+                                context.closedRing(),
+                                context.queryX(),
+                                context.queryY(),
+                                stroke.getLineWidth() / 2.0 + context.tolerancePixels());
+        return analyticOrClipped(centerlineHit, footprint, context);
+    }
+
+    private boolean hitEndpoint(
+            Symbol marker,
+            Coordinate source,
+            Coordinate screen,
+            double bearing,
+            AwtSymbolHitContext owner,
+            double opacity) {
+        return dispatchHit(
+                marker,
+                hitContext(
+                        SymbolRole.MARKER,
+                        owner.featureId(),
+                        owner.featureGeometry(),
+                        new PointGeometry(source),
+                        owner.viewport(),
+                        opacity,
+                        false,
+                        OptionalDouble.of(bearing),
+                        Optional.of(screen),
+                        owner.queryX(),
+                        owner.queryY(),
+                        owner.tolerancePixels(),
+                        owner.componentClip()));
+    }
+
+    private boolean hitOutline(
+            Optional<? extends Symbol> outline,
+            PolygonGeometry polygon,
+            AwtSymbolHitContext owner,
+            double opacity) {
+        if (outline.isEmpty()) {
+            return false;
+        }
+        List<CoordinateSequence> rings = new ArrayList<>();
+        rings.add(polygon.exterior());
+        rings.addAll(polygon.holes());
+        for (int index = rings.size() - 1; index >= 0; index--) {
+            if (dispatchHit(
+                    outline.orElseThrow(),
+                    hitContext(
+                            SymbolRole.LINE,
+                            owner.featureId(),
+                            owner.featureGeometry(),
+                            new LineStringGeometry(rings.get(index)),
+                            owner.viewport(),
+                            owner.inheritedOpacity() * opacity,
+                            true,
+                            OptionalDouble.empty(),
+                            Optional.empty(),
+                            owner.queryX(),
+                            owner.queryY(),
+                            owner.tolerancePixels(),
+                            owner.componentClip()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hitHatch(
+            HatchFillSymbol hatch, PolygonGeometry polygon, AwtSymbolHitContext context) {
+        double opacity = context.inheritedOpacity() * hatch.opacity();
+        if (opacity == 0.0 || hatch.stroke().color().alpha() == 0) {
+            return false;
+        }
+        ScreenPolygon screenPolygon = screenPolygon(polygon, context.viewport());
+        Rectangle2D work =
+                screenPolygon.path().getBounds2D().createIntersection(context.componentClip());
+        if (work.isEmpty()) {
+            return false;
+        }
+        boolean mapRelative =
+                hatch.rotationMode() == io.github.mundanej.map.api.SymbolRotationMode.MAP_RELATIVE;
+        Coordinate origin =
+                mapRelative
+                        ? context.viewport().worldToScreen(new Coordinate(0.0, 0.0))
+                        : new Coordinate(0.0, 0.0);
+        double bearing = mapRelative ? context.mapScreenBasis().xAxisScreenBearingDegrees() : 0.0;
+        HatchSegments segments =
+                HatchLayouts.cover(
+                        hatch.pattern(),
+                        envelope(work),
+                        origin,
+                        bearing,
+                        SymbolTransforms.screenLength(hatch.spacing(), context.mapScreenBasis()),
+                        hatch.maxSegments(),
+                        context.featureId());
+        Path2D lines = new Path2D.Double();
+        for (int index = 0; index < segments.segmentCount(); index++) {
+            lines.moveTo(segments.x1(index), segments.y1(index));
+            lines.lineTo(segments.x2(index), segments.y2(index));
+        }
+        Area footprint =
+                new Area(
+                        screenStroke(hatch.stroke(), context.mapScreenBasis())
+                                .createStrokedShape(lines));
+        footprint.intersect(new Area(screenPolygon.path()));
+        return context.visibleShapeHit(footprint);
+    }
+
+    private static MarkerTransform markerTransform(
+            Envelope viewBox,
+            io.github.mundanej.map.api.MarkerPlacement placement,
+            AwtSymbolHitContext context) {
+        return context.endpointBearingDegrees().isPresent()
+                ? SymbolTransforms.markerAtScreenBearing(
+                        viewBox,
+                        placement,
+                        context.markerAnchorScreen().orElseThrow(),
+                        context.mapScreenBasis(),
+                        context.endpointBearingDegrees().orElseThrow())
+                : SymbolTransforms.marker(
+                        viewBox,
+                        placement,
+                        context.markerAnchorScreen().orElseThrow(),
+                        context.mapScreenBasis());
+    }
+
+    private static AffineTransform affine(MarkerTransform transform) {
+        return new AffineTransform(
+                transform.m00(),
+                transform.m10(),
+                transform.m01(),
+                transform.m11(),
+                transform.m02(),
+                transform.m12());
+    }
+
+    private static boolean analyticOrClipped(
+            boolean analyticHit, Shape logicalPaintFootprint, AwtSymbolHitContext context) {
+        if (!analyticHit) {
+            return false;
+        }
+        Rectangle2D clip = context.componentClip();
+        double tolerance = context.tolerancePixels();
+        boolean diskInside =
+                context.queryX() - tolerance >= clip.getMinX()
+                        && context.queryY() - tolerance >= clip.getMinY()
+                        && context.queryX() + tolerance < clip.getMaxX()
+                        && context.queryY() + tolerance < clip.getMaxY();
+        return diskInside || context.visibleShapeHit(logicalPaintFootprint);
+    }
+
     SymbolRenderResult renderChild(Symbol child, AwtSymbolRenderContext parent, double multiplier) {
         AwtSymbolRenderContext childContext =
                 context(
@@ -430,7 +1063,9 @@ public final class MapView extends JComponent {
                         parent.inheritedOpacity() * multiplier,
                         parent.closedRing(),
                         parent.endpointBearingDegrees(),
-                        parent.markerAnchorScreen());
+                        parent.markerAnchorScreen(),
+                        parent.viewport(),
+                        parent.mapScreenBasis());
         return dispatch(child, childContext);
     }
 
@@ -444,7 +1079,12 @@ public final class MapView extends JComponent {
         }
         if (value instanceof FeatureStyle style) {
             Rectangle2D bounds =
-                    renderLegacyFeature(context.parentGraphics(), context.renderGeometry(), style);
+                    renderLegacyFeature(
+                            context.parentGraphics(),
+                            context.renderGeometry(),
+                            style,
+                            context.featureId(),
+                            context.viewport());
             return bounds == null
                     ? SymbolRenderResult.none()
                     : SymbolRenderResult.markerBounds(envelope(bounds));
@@ -531,7 +1171,11 @@ public final class MapView extends JComponent {
     }
 
     private Rectangle2D renderLegacyFeature(
-            Graphics2D graphics, Geometry geometry, FeatureStyle style) {
+            Graphics2D graphics,
+            Geometry geometry,
+            FeatureStyle style,
+            String featureId,
+            MapViewport viewportSnapshot) {
         graphics.setStroke(
                 new BasicStroke(
                         (float) style.strokeWidth(),
@@ -539,22 +1183,32 @@ public final class MapView extends JComponent {
                         BasicStroke.JOIN_ROUND));
 
         if (geometry instanceof PointGeometry point) {
-            return renderLegacyPoint(graphics, point, style);
+            return renderLegacyPoint(graphics, point, style, viewportSnapshot);
         } else if (geometry instanceof LineStringGeometry line) {
             if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
-                Path2D path = path(line.coordinates(), false);
+                CoordinateSequence screen = toScreen(line.coordinates(), viewportSnapshot);
+                LineEndpointBearings bearings =
+                        LineTangents.outwardScreenBearings(screen, featureId, 0);
+                if (bearings.startBearingDegrees().isEmpty()
+                        && bearings.endBearingDegrees().isEmpty()) {
+                    return null;
+                }
+                Path2D path = screenPath(screen, false);
                 graphics.setColor(color(style.stroke()));
                 graphics.draw(path);
             }
         } else if (geometry instanceof PolygonGeometry polygon) {
-            renderPolygon(graphics, polygon, style);
+            renderPolygon(graphics, polygon, style, viewportSnapshot);
         }
         return null;
     }
 
     private Rectangle2D renderLegacyPoint(
-            Graphics2D graphics, PointGeometry point, FeatureStyle style) {
-        Coordinate screen = toScreen(point.coordinate());
+            Graphics2D graphics,
+            PointGeometry point,
+            FeatureStyle style,
+            MapViewport viewportSnapshot) {
+        Coordinate screen = toScreen(point.coordinate(), viewportSnapshot);
         double diameter = style.pointDiameter();
         double radius = diameter / 2.0;
         Ellipse2D marker =
@@ -657,7 +1311,7 @@ public final class MapView extends JComponent {
 
     private void renderRegisteredLine(SolidLineSymbol line, AwtSymbolRenderContext context) {
         LineStringGeometry geometry = (LineStringGeometry) context.renderGeometry();
-        CoordinateSequence screen = toScreen(geometry.coordinates());
+        CoordinateSequence screen = toScreen(geometry.coordinates(), context.viewport());
         LineEndpointBearings bearings =
                 LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
         if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
@@ -708,7 +1362,9 @@ public final class MapView extends JComponent {
                         inheritedOpacity,
                         false,
                         OptionalDouble.of(bearing),
-                        Optional.of(screenEndpoint)));
+                        Optional.of(screenEndpoint),
+                        owner.viewport(),
+                        owner.mapScreenBasis()));
     }
 
     private static void paintLinePart(
@@ -734,7 +1390,7 @@ public final class MapView extends JComponent {
 
     private void renderRegisteredFill(Symbol symbol, AwtSymbolRenderContext context) {
         PolygonGeometry geometry = (PolygonGeometry) context.renderGeometry();
-        ScreenPolygon polygon = screenPolygon(geometry);
+        ScreenPolygon polygon = screenPolygon(geometry, context.viewport());
         if (symbol instanceof SolidFillSymbol fill) {
             double opacity = context.inheritedOpacity() * fill.opacity();
             if (opacity > 0.0 && fill.fill().alpha() > 0) {
@@ -759,6 +1415,7 @@ public final class MapView extends JComponent {
                     hatch,
                     polygon,
                     context.mapScreenBasis(),
+                    context.viewport(),
                     context.featureId(),
                     opacity);
             hatch.outline()
@@ -788,7 +1445,9 @@ public final class MapView extends JComponent {
                             inheritedOpacity,
                             true,
                             OptionalDouble.empty(),
-                            Optional.empty()));
+                            Optional.empty(),
+                            owner.viewport(),
+                            owner.mapScreenBasis()));
         }
     }
 
@@ -797,6 +1456,7 @@ public final class MapView extends JComponent {
             HatchFillSymbol hatch,
             ScreenPolygon polygon,
             MapScreenBasis basis,
+            MapViewport viewportSnapshot,
             String featureId,
             double opacity) {
         if (opacity == 0.0 || hatch.stroke().color().alpha() == 0) {
@@ -819,7 +1479,7 @@ public final class MapView extends JComponent {
                 hatch.rotationMode() == io.github.mundanej.map.api.SymbolRotationMode.MAP_RELATIVE;
         Coordinate origin =
                 mapRelative
-                        ? viewport().worldToScreen(new Coordinate(0.0, 0.0))
+                        ? viewportSnapshot.worldToScreen(new Coordinate(0.0, 0.0))
                         : new Coordinate(0.0, 0.0);
         double bearing = mapRelative ? basis.xAxisScreenBearingDegrees() : 0.0;
         double spacing = SymbolTransforms.screenLength(hatch.spacing(), basis);
@@ -865,12 +1525,12 @@ public final class MapView extends JComponent {
         return new Point2D.Double(nominalBounds.getMaxX() + 4.0, nominalBounds.getMinY() - 2.0);
     }
 
-    private void renderPolygon(Graphics2D graphics, PolygonGeometry polygon, FeatureStyle style) {
-        Path2D path = new Path2D.Double(Path2D.WIND_EVEN_ODD);
-        append(path, polygon.exterior(), true);
-        for (CoordinateSequence hole : polygon.holes()) {
-            append(path, hole, true);
-        }
+    private void renderPolygon(
+            Graphics2D graphics,
+            PolygonGeometry polygon,
+            FeatureStyle style,
+            MapViewport viewportSnapshot) {
+        Path2D path = screenPolygon(polygon, viewportSnapshot).path();
         if (style.fill().alpha() > 0) {
             graphics.setColor(color(style.fill()));
             graphics.fill(path);
@@ -881,27 +1541,21 @@ public final class MapView extends JComponent {
         }
     }
 
-    private Path2D path(CoordinateSequence coordinates, boolean close) {
-        Path2D path = new Path2D.Double();
-        append(path, coordinates, close);
-        return path;
-    }
-
-    private CoordinateSequence toScreen(CoordinateSequence source) {
+    private CoordinateSequence toScreen(CoordinateSequence source, MapViewport viewportSnapshot) {
         double[] ordinates = new double[source.size() * 2];
         for (int index = 0; index < source.size(); index++) {
-            Coordinate screen = toScreen(source.coordinate(index));
+            Coordinate screen = toScreen(source.coordinate(index), viewportSnapshot);
             ordinates[index * 2] = screen.x();
             ordinates[index * 2 + 1] = screen.y();
         }
         return CoordinateSequence.of(ordinates);
     }
 
-    private ScreenPolygon screenPolygon(PolygonGeometry polygon) {
+    private ScreenPolygon screenPolygon(PolygonGeometry polygon, MapViewport viewportSnapshot) {
         List<CoordinateSequence> rings = new ArrayList<>();
-        rings.add(toScreen(polygon.exterior()));
+        rings.add(toScreen(polygon.exterior(), viewportSnapshot));
         for (CoordinateSequence hole : polygon.holes()) {
-            rings.add(toScreen(hole));
+            rings.add(toScreen(hole, viewportSnapshot));
         }
         Path2D screenPath = new Path2D.Double(Path2D.WIND_EVEN_ODD);
         for (CoordinateSequence ring : rings) {
@@ -910,8 +1564,8 @@ public final class MapView extends JComponent {
         return new ScreenPolygon(screenPath, List.copyOf(rings));
     }
 
-    private MapScreenBasis screenBasis() {
-        double screenPixelsPerMapUnit = 1.0 / viewport().worldUnitsPerPixel();
+    private static MapScreenBasis screenBasis(MapViewport viewportSnapshot) {
+        double screenPixelsPerMapUnit = 1.0 / viewportSnapshot.worldUnitsPerPixel();
         return MapScreenBasis.of(
                 new Coordinate(screenPixelsPerMapUnit, 0.0),
                 new Coordinate(0.0, -screenPixelsPerMapUnit));
@@ -933,20 +1587,8 @@ public final class MapView extends JComponent {
         }
     }
 
-    private void append(Path2D path, CoordinateSequence coordinates, boolean close) {
-        Coordinate first = toScreen(coordinates.coordinate(0));
-        path.moveTo(first.x(), first.y());
-        for (int index = 1; index < coordinates.size(); index++) {
-            Coordinate screen = toScreen(coordinates.coordinate(index));
-            path.lineTo(screen.x(), screen.y());
-        }
-        if (close) {
-            path.closePath();
-        }
-    }
-
-    private Coordinate toScreen(Coordinate source) {
-        return viewport.worldToScreen(mapToDisplay.transform(source));
+    Coordinate toScreen(Coordinate source, MapViewport viewportSnapshot) {
+        return viewportSnapshot.worldToScreen(mapToDisplay.transform(source));
     }
 
     private static Color color(Rgba color) {
@@ -1081,6 +1723,22 @@ public final class MapView extends JComponent {
                     public void mouseClicked(MouseEvent event) {
                         RoutedMouse routed = routeMouse(event, MapToolEvent.Type.CLICK);
                         if (!routed.outcome().suppressDefault()) {
+                            if (button(event.getButton()).equals(MapPointerButton.PRIMARY)
+                                    && event.getClickCount() == 1
+                                    && !event.isPopupTrigger()
+                                    && modifiers(event).isEmpty()) {
+                                Optional<MapHit> topmost =
+                                        hitTest(
+                                                        event.getX(),
+                                                        event.getY(),
+                                                        DEFAULT_SELECTION_TOLERANCE_PIXELS)
+                                                .topmost();
+                                updateSelection(
+                                        topmost.map(
+                                                hit ->
+                                                        new FeatureSelection(
+                                                                hit.layerId(), hit.featureId())));
+                            }
                             firePointer(
                                     MapPointerEvent.Type.CLICKED,
                                     event.getX(),
@@ -1438,6 +2096,71 @@ public final class MapView extends JComponent {
                 || code.equals("CRS_TRANSFORM_NON_FINITE");
     }
 
+    private static ViewContentSnapshot captureContent(List<Layer> sourceLayers) {
+        List<LayerSnapshot> captured = new ArrayList<>(sourceLayers.size());
+        Set<String> layerIds = new HashSet<>();
+        for (Layer layer : sourceLayers) {
+            Objects.requireNonNull(layer, "layer");
+            String layerId = requireContentId(layer.id(), "layer.id");
+            if (!layerIds.add(layerId)) {
+                throw new IllegalArgumentException("layer.id must be unique: " + layerId);
+            }
+            List<Feature> features =
+                    List.copyOf(Objects.requireNonNull(layer.features(), "layer.features"));
+            Set<String> featureIds = new HashSet<>();
+            for (Feature feature : features) {
+                Objects.requireNonNull(feature, "feature");
+                String featureId = requireContentId(feature.id(), "feature.id");
+                if (!featureIds.add(featureId)) {
+                    throw new IllegalArgumentException(
+                            "feature.id must be unique within layer " + layerId + ": " + featureId);
+                }
+            }
+            captured.add(new LayerSnapshot(layerId, features));
+        }
+        return new ViewContentSnapshot(List.copyOf(captured));
+    }
+
+    private static String requireContentId(String value, String field) {
+        Objects.requireNonNull(value, field);
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        return value;
+    }
+
+    private static Optional<FeatureSelection> reconcile(
+            Optional<FeatureSelection> current, ViewContentSnapshot snapshot) {
+        return current.filter(selection -> contains(snapshot, selection));
+    }
+
+    private static boolean contains(ViewContentSnapshot snapshot, FeatureSelection requested) {
+        for (LayerSnapshot layer : snapshot.layers()) {
+            if (layer.id().equals(requested.layerId())) {
+                return layer.features().stream()
+                        .anyMatch(feature -> feature.id().equals(requested.featureId()));
+            }
+        }
+        return false;
+    }
+
+    private void reconcileSelection(ViewContentSnapshot snapshot, boolean repaintOnChange) {
+        Optional<FeatureSelection> reconciled = reconcile(selection, snapshot);
+        if (!reconciled.equals(selection)) {
+            selection = reconciled;
+            if (repaintOnChange) {
+                repaint();
+            }
+        }
+    }
+
+    private void updateSelection(Optional<FeatureSelection> next) {
+        if (!selection.equals(next)) {
+            selection = next;
+            repaint();
+        }
+    }
+
     private void synchronizeViewportSize() {
         Dimension size = effectiveSize();
         if (viewport.width() != size.width || viewport.height() != size.height) {
@@ -1515,6 +2238,10 @@ public final class MapView extends JComponent {
     }
 
     private record RoutedMouse(RouteOutcome outcome, MapToolEvent event) {}
+
+    private record LayerSnapshot(String id, List<Feature> features) {}
+
+    private record ViewContentSnapshot(List<LayerSnapshot> layers) {}
 
     private record CoordinateConfiguration(
             CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs) {}

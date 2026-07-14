@@ -27,4 +27,14 @@ public interface AwtSymbolRenderer {
      * invalid-result diagnostic.
      */
     SymbolRenderResult render(Symbol value, AwtSymbolRenderContext context);
+
+    /**
+     * Tests the supported value's logical painted footprint.
+     *
+     * <p>The default keeps custom renderers deterministically non-hittable until they explicitly
+     * opt in. Implementations must honor the component clip exposed by the callback-scoped context.
+     */
+    default boolean hitTest(Symbol value, AwtSymbolHitContext context) {
+        return false;
+    }
 }

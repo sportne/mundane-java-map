@@ -1,6 +1,6 @@
 # G3-002 — Symbol-Aware Hit Testing and Selection
 
-Status: Proposed
+Status: Complete
 Depends on: G3-001, G2-005
 Gate: G3
 Type: AFK
@@ -66,3 +66,8 @@ Use direct iteration for this slice; the packed spatial index belongs to G7. Avo
 public hit results or core algorithms even when AWT uses shapes internally for renderer-specific
 footprints.
 
+Completed on 2026-07-14. Immutable toolkit-neutral hit and selection identities, robust screen-space
+geometry predicates, and explicit AWT renderer hit callbacks now mirror reverse paint order across
+legacy, vector, raster, line, fill, hatch, endpoint, and composite symbols. Single primary clicks
+select before compatibility observers run, while content snapshots validate identities and clear
+stale selections transactionally.

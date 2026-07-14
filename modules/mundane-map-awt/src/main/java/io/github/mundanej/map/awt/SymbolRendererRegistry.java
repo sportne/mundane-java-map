@@ -136,6 +136,11 @@ public final class SymbolRendererRegistry {
                                 Symbol value, AwtSymbolRenderContext context) {
                             return context.renderBuiltIn(value);
                         }
+
+                        @Override
+                        public boolean hitTest(Symbol value, AwtSymbolHitContext context) {
+                            return context.hitBuiltIn(value);
+                        }
                     });
         }
 
