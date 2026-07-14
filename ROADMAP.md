@@ -84,8 +84,11 @@ to the working G5-002 vertical slice.
 G5-002 is complete: the new JDK-only format module positionally reads bounded null, Point, and
 MultiPoint SHP records through the format-neutral source/cursor contracts, stages all not-yet-owned
 sidecars, and renders a supplied file in the explicit-CRS shapefile viewer. Parser internals remain
-package-private and AWT-free; later G5 slices retain ownership of SHX, DBF/CPG, PRJ, multipart lines
-and polygons, corpus/fuzz hardening, and Native Image evidence.
+package-private and AWT-free; later G5 slices retain ownership of DBF/CPG, PRJ, multipart lines and
+polygons, corpus/fuzz hardening, and Native Image evidence.
+G5-003 is complete: a validated SHX sidecar becomes one immutable packed physical-address table;
+missing or rejected indexes emit a stable opening warning and fall back wholly to the sequential
+oracle, while indexed cursors revalidate SHP framing and never expose random or spatial access.
 
 ## Level 1
 

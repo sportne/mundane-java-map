@@ -61,6 +61,17 @@ final class ShapefileAccounting {
                         offset);
     }
 
+    boolean canAllocate(long bytes) {
+        if (bytes < 0) {
+            return false;
+        }
+        try {
+            return Math.addExact(allocation, bytes) <= limits.maximumParserAllocationBytes();
+        } catch (ArithmeticException exception) {
+            return false;
+        }
+    }
+
     private long charge(
             String name,
             long current,

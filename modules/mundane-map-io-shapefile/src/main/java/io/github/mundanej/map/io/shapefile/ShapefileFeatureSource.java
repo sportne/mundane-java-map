@@ -27,6 +27,8 @@ final class ShapefileFeatureSource implements FeatureSource {
     private final ShpHeader header;
     private final ShapefileOpenOptions options;
     private final FeatureSourceMetadata metadata;
+    private final ShxIndex index;
+    private final DiagnosticReport openingDiagnostics;
     private ShapefileCursor cursor;
     private boolean closed;
 
@@ -36,11 +38,15 @@ final class ShapefileFeatureSource implements FeatureSource {
             long size,
             ShpHeader header,
             Optional<CrsMetadata> crs,
-            ShapefileOpenOptions options) {
+            ShapefileOpenOptions options,
+            ShxIndex index,
+            DiagnosticReport openingDiagnostics) {
         this.channel = channel;
         capturedSize = size;
         this.header = header;
         this.options = options;
+        this.index = index;
+        this.openingDiagnostics = openingDiagnostics;
         metadata =
                 new FeatureSourceMetadata(
                         identity, header.extent(), OptionalLong.empty(), Optional.empty(), crs);
@@ -58,7 +64,7 @@ final class ShapefileFeatureSource implements FeatureSource {
 
     @Override
     public DiagnosticReport openingDiagnostics() {
-        return DiagnosticReport.empty();
+        return openingDiagnostics;
     }
 
     @Override
@@ -101,7 +107,8 @@ final class ShapefileFeatureSource implements FeatureSource {
                         query,
                         cancellation,
                         effective,
-                        options.shapefileLimits());
+                        options.shapefileLimits(),
+                        index);
         return cursor;
     }
 

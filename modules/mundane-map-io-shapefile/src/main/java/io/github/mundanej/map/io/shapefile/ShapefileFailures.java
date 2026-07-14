@@ -46,12 +46,7 @@ final class ShapefileFailures {
 
     static SourceException io(
             String source, String component, String operation, long offset, Exception cause) {
-        String kind =
-                cause instanceof NoSuchFileException
-                        ? "notFound"
-                        : cause instanceof AccessDeniedException
-                                ? "accessDenied"
-                                : cause instanceof ClosedChannelException ? "closed" : "other";
+        String kind = causeKind(cause);
         DiagnosticLocation location =
                 new DiagnosticLocation(
                         Optional.of(component),
@@ -71,6 +66,14 @@ final class ShapefileFailures {
         return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal, cause);
     }
 
+    static String causeKind(Exception cause) {
+        return cause instanceof NoSuchFileException
+                ? "notFound"
+                : cause instanceof AccessDeniedException
+                        ? "accessDenied"
+                        : cause instanceof ClosedChannelException ? "closed" : "other";
+    }
+
     static SourceException cancelled(String source) {
         return failure(
                 source,
@@ -80,6 +83,27 @@ final class ShapefileFailures {
                 -1,
                 "Shapefile operation was cancelled",
                 Map.of("operation", "shapefile"));
+    }
+
+    static SourceException withOpeningWarnings(
+            SourceException failure, List<SourceDiagnostic> warnings, long omittedWarnings) {
+        if (warnings.isEmpty() && omittedWarnings == 0) {
+            return failure;
+        }
+        java.util.ArrayList<SourceDiagnostic> combined = new java.util.ArrayList<>(warnings);
+        combined.addAll(failure.report().entries());
+        SourceException enriched =
+                new SourceException(
+                        new DiagnosticReport(
+                                combined,
+                                Math.addExact(
+                                        omittedWarnings, failure.report().omittedWarningCount())),
+                        failure.terminal(),
+                        failure.getCause());
+        for (Throwable suppressed : failure.getSuppressed()) {
+            enriched.addSuppressed(suppressed);
+        }
+        return enriched;
     }
 
     static SourceException limit(

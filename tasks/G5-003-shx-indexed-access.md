@@ -1,6 +1,6 @@
 # G5-003 — SHX indexed access
 
-Status: Proposed
+Status: Complete
 Depends on: G5-002
 Gate: G5
 Type: AFK
@@ -89,3 +89,11 @@ Do not conceal a bad index by returning partial data. Fallback happens only duri
 observable once through the source report, and uses G5-002's unchanged sequential oracle. A valid SHX
 is an internal packed address table, not a public random-record facility or a spatial index. Preserve
 the exact validation/diagnostic order in the G5 design.
+
+Completed on 2026-07-14 with an internal immutable packed SHX address table and all-or-nothing
+opening validation. Valid indexes drive the existing sequential payload decoder in physical order;
+missing or rejected indexes publish one bounded opening warning and use the unchanged sequential
+fallback, while cursor-time SHP/index mutation remains terminal. Byte-authored and fault-injected
+evidence covers header/entry/SHP cross-checks, limit and allocation fallback, I/O classification,
+cancellation and cleanup, indexed/sequential equivalence, viewer rendering, and same-size mutation.
+No public random-access, feature-count, spatial-index, or repair API was added.

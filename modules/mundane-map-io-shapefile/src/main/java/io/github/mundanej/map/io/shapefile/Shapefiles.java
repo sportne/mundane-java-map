@@ -2,8 +2,12 @@ package io.github.mundanej.map.io.shapefile;
 
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.DiagnosticLocation;
+import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.DiagnosticSeverity;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.io.IOException;
@@ -50,7 +54,8 @@ public final class Shapefiles {
      * @param identity stable identity used by the source and its diagnostics
      * @param shpPath path to the required {@code .shp} main file
      * @param options immutable parser, query, and CRS options
-     * @param cancellation signal checked during component discovery and main-file opening
+     * @param cancellation signal checked throughout component discovery, main-file opening, and
+     *     optional index validation
      * @return an open feature source owned by the caller
      * @throws NullPointerException if any argument is {@code null}
      * @throws IllegalArgumentException if {@code shpPath} does not end in {@code .shp}, ignoring
@@ -95,35 +100,12 @@ public final class Shapefiles {
         }
         String stem = filename.substring(0, filename.length() - 4);
         Path parent = path.getParent();
-        String stagedComponent = null;
-        for (String component : List.of("shx", "dbf", "cpg", "prj")) {
-            Path lower =
-                    (parent == null
-                            ? Path.of(stem + '.' + component)
-                            : parent.resolve(stem + '.' + component));
-            Path upper =
-                    (parent == null
-                            ? Path.of(stem + '.' + component.toUpperCase(java.util.Locale.ROOT))
-                            : parent.resolve(
-                                    stem + '.' + component.toUpperCase(java.util.Locale.ROOT)));
-            boolean low = exists(identity.id(), access, lower, cancellation, component);
-            boolean up = exists(identity.id(), access, upper, cancellation, component);
-            if (low && up) {
-                try {
-                    checkpoint(identity.id(), cancellation);
-                    if (!access.isSameFile(lower, upper)) {
-                        throw ambiguous(identity.id(), component);
-                    }
-                    checkpoint(identity.id(), cancellation);
-                } catch (IOException e) {
-                    throw ambiguous(identity.id(), component);
-                }
-            }
-            if ((low || up) && stagedComponent == null) {
-                stagedComponent = component;
-            }
-        }
+        Path shx = select(identity.id(), access, parent, stem, "shx", cancellation);
+        Path dbf = select(identity.id(), access, parent, stem, "dbf", cancellation);
+        Path cpg = select(identity.id(), access, parent, stem, "cpg", cancellation);
+        Path prj = select(identity.id(), access, parent, stem, "prj", cancellation);
         checkpoint(identity.id(), cancellation);
+        List<SourceDiagnostic> openingWarnings = new java.util.ArrayList<>(1);
         ShapefileFileAccess.Channel channel;
         try {
             channel = access.open(path);
@@ -165,16 +147,10 @@ public final class Shapefiles {
                                 "actualBytes",
                                 Long.toString(size)));
             }
-            if (options.shapefileLimits().maximumParserAllocationBytes() < 100) {
-                throw ShapefileFailures.limit(
-                        identity.id(),
-                        "shapefileOpen",
-                        "parserAllocationBytes",
-                        100,
-                        options.shapefileLimits().maximumParserAllocationBytes(),
-                        OptionalLong.empty(),
-                        0);
-            }
+            ShapefileAccounting openingAccounting =
+                    new ShapefileAccounting(
+                            identity.id(), "shapefileOpen", options.shapefileLimits());
+            openingAccounting.allocate(100, OptionalLong.empty(), 0);
             ByteBuffer header = ByteBuffer.allocate(100);
             try {
                 readExact(identity.id(), channel, header, 0, cancellation, true);
@@ -183,6 +159,28 @@ public final class Shapefiles {
                         identity.id(), "shp", "read", header.position(), exception);
             }
             ShpHeader parsed = parseHeader(identity.id(), header.array(), size);
+            checkpoint(identity.id(), cancellation);
+            ShxIndex index = null;
+            if (shx == null) {
+                openingWarnings.add(missingShx(identity.id()));
+            } else {
+                ShxReader.Result result =
+                        ShxReader.read(
+                                identity.id(),
+                                shx,
+                                access,
+                                channel,
+                                size,
+                                parsed,
+                                options.shapefileLimits(),
+                                openingAccounting,
+                                header,
+                                cancellation);
+                index = result.index().orElse(null);
+                result.warning().ifPresent(openingWarnings::add);
+            }
+            String stagedComponent =
+                    dbf != null ? "dbf" : cpg != null ? "cpg" : prj != null ? "prj" : null;
             if (stagedComponent != null) {
                 throw ShapefileFailures.failure(
                         identity.id(),
@@ -200,11 +198,73 @@ public final class Shapefiles {
                                     value ->
                                             CrsMetadata.recognized(
                                                     value, Optional.empty(), Optional.empty()));
-            return new ShapefileFeatureSource(identity, channel, size, parsed, crs, options);
+            return new ShapefileFeatureSource(
+                    identity,
+                    channel,
+                    size,
+                    parsed,
+                    crs,
+                    options,
+                    index,
+                    new DiagnosticReport(openingWarnings, 0));
         } catch (RuntimeException | Error failure) {
-            closeSuppressed(channel, failure);
-            throw failure;
+            Throwable emitted =
+                    failure instanceof SourceException sourceFailure
+                            ? ShapefileFailures.withOpeningWarnings(
+                                    sourceFailure, openingWarnings, 0)
+                            : failure;
+            closeSuppressed(channel, emitted);
+            if (emitted instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw (Error) emitted;
         }
+    }
+
+    private static Path select(
+            String source,
+            ShapefileFileAccess access,
+            Path parent,
+            String stem,
+            String component,
+            CancellationToken cancellation) {
+        Path lower =
+                parent == null
+                        ? Path.of(stem + '.' + component)
+                        : parent.resolve(stem + '.' + component);
+        String upperName = stem + '.' + component.toUpperCase(java.util.Locale.ROOT);
+        Path upper = parent == null ? Path.of(upperName) : parent.resolve(upperName);
+        boolean low = exists(source, access, lower, cancellation, component);
+        boolean up = exists(source, access, upper, cancellation, component);
+        if (low && up) {
+            try {
+                checkpoint(source, cancellation);
+                if (!access.isSameFile(lower, upper)) {
+                    throw ambiguous(source, component);
+                }
+                checkpoint(source, cancellation);
+            } catch (IOException exception) {
+                throw ambiguous(source, component);
+            }
+        }
+        return low ? lower : up ? upper : null;
+    }
+
+    private static SourceDiagnostic missingShx(String source) {
+        return new SourceDiagnostic(
+                "SHAPEFILE_SHX_MISSING",
+                DiagnosticSeverity.WARNING,
+                source,
+                Optional.of(
+                        new DiagnosticLocation(
+                                Optional.of("shx"),
+                                OptionalLong.empty(),
+                                java.util.OptionalInt.empty(),
+                                java.util.OptionalInt.empty(),
+                                Optional.empty(),
+                                OptionalLong.empty())),
+                "Shapefile index is missing; sequential access will be used",
+                Map.of());
     }
 
     private static boolean exists(

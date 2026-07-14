@@ -38,12 +38,14 @@ final class ShapefileCursor implements FeatureCursor {
     private final CancellationToken cancellation;
     private final FeatureQueryAccounting queryAccounting;
     private final ShapefileAccounting format;
+    private final ShxIndex index;
     private final ByteBuffer recordHeader;
     private final ByteBuffer point;
     private final ByteBuffer prefix;
     private final ByteBuffer coordinate;
     private long nextOffset = 100;
     private long ordinal = 1;
+    private int indexEntry;
     private FeatureRecord current;
     private State state = State.NEW;
 
@@ -55,13 +57,15 @@ final class ShapefileCursor implements FeatureCursor {
             FeatureQuery query,
             CancellationToken cancellation,
             FeatureQueryLimits limits,
-            ShapefileLimits formatLimits) {
+            ShapefileLimits formatLimits,
+            ShxIndex index) {
         this.source = source;
         this.channel = channel;
         this.size = size;
         this.header = header;
         this.query = query;
         this.cancellation = cancellation;
+        this.index = index;
         queryAccounting = new FeatureQueryAccounting(source.metadata().identity().id(), limits);
         format =
                 new ShapefileAccounting(
@@ -83,13 +87,13 @@ final class ShapefileCursor implements FeatureCursor {
         try {
             while (true) {
                 checkpoint();
-                if (nextOffset == size) {
+                if (index != null ? indexEntry == index.size() : nextOffset == size) {
                     checkSize();
                     state = State.EXHAUSTED;
                     release();
                     return false;
                 }
-                long start = nextOffset;
+                long start = index == null ? nextOffset : index.offsetBytes(indexEntry);
                 long remaining = size - start;
                 if (remaining < 8) {
                     throw recordFailure(
@@ -156,6 +160,23 @@ final class ShapefileCursor implements FeatureCursor {
                                     Long.toString(size - start - 8)));
                 }
                 format.recordBytes(contentBytes, ordinal, start + 4);
+                if (index != null) {
+                    long indexedBytes = index.contentBytes(indexEntry);
+                    if (contentBytes != indexedBytes) {
+                        throw recordFailure(
+                                "SHAPEFILE_RECORD_LENGTH_INVALID",
+                                ordinal,
+                                start + 4,
+                                Map.of(
+                                        "reason",
+                                        "indexMismatch",
+                                        "actualBytes",
+                                        Long.toString(contentBytes),
+                                        "expectedBytes",
+                                        Long.toString(indexedBytes)));
+                    }
+                    indexEntry++;
+                }
                 format.physicalRecord(ordinal, start);
                 queryAccounting.recordExamined();
                 long recordOrdinal = ordinal++;
