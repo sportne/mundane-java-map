@@ -77,6 +77,10 @@ bounded direct conversion, atomic cancellation/report publication, fixed nearest
 decoder, worker, cache, or warp abstraction. The gate-level design review found no additional
 abstraction necessary: feature cursors and all-or-nothing raster reads remain separate synchronous
 contracts sharing only the approved diagnostics, cancellation, limits, and ownership foundations.
+G5-001 is complete: the maintainer-approved read-only profile accepts only null, point, multipoint,
+polyline, and polygon records; rejects implicit Z/M reduction; fixes finite SHP/SHX/DBF/CPG/PRJ,
+encoding, limit, diagnostic, lifecycle, and fixture policies; and leaves the first production module
+to the working G5-002 vertical slice.
 
 ## Level 1
 

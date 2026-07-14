@@ -1,6 +1,6 @@
 # G5-001 — Shapefile supported-profile decision
 
-Status: Proposed
+Status: Complete
 Depends on: G4-002, G4-003
 Gate: G5
 Type: HITL
@@ -68,3 +68,9 @@ git diff --check
 Keep the profile deliberately smaller than general shapefile compatibility. Production parsing must
 remain JDK-only, bounded, non-reflective, and suitable for Native Image. Do not add a module until
 G5-002 delivers working behavior and tests.
+
+Completed on 2026-07-14 after explicit maintainer approval of every HITL checkpoint through G5-010.
+The approved profile fixes the five 2D shape codes, rejects Z/M reduction, defines finite sidecar and
+encoding policies, selects all twelve parser ceilings, and records stable diagnostic, lifecycle, and
+fixture matrices. No production module or public API is added by this decision task; G5-002 owns the
+first working parser slice.
