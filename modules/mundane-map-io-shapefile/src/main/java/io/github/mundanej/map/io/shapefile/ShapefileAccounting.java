@@ -113,6 +113,17 @@ final class ShapefileAccounting {
                         offset);
     }
 
+    void decodedCharacters(long count, long offset) {
+        decodedCharacters =
+                charge(
+                        "decodedTextCharacters",
+                        decodedCharacters,
+                        count,
+                        limits.maximumDecodedTextCharacters(),
+                        OptionalLong.empty(),
+                        offset);
+    }
+
     void allocate(long bytes, OptionalLong record, long offset) {
         allocation =
                 charge(

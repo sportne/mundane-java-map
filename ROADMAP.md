@@ -104,6 +104,11 @@ memo-free dBASE III/IV/5 profile uses explicit caller/CPG/LDID/fallback encoding
 single-byte tables, stable row/field diagnostics, prospective limits, cancellation, and reverse-order
 cleanup; the viewer proves a non-ASCII attribute and deleted-row suppression without introducing AWT
 or provider discovery in the format module.
+G5-007 is complete: a strict bounded UTF-8 PRJ reader retains exact input after an optional BOM, one
+fixed-capacity WKT1 tokenizer validates the approved grammar, and two direct structural matchers alone
+recognize EPSG:4326/EPSG:3857. Missing, blank, unknown, invalid, equal/conflicting override, limit,
+cancellation, and cleanup outcomes remain distinct and structured; the PRJ-aware viewer exercises
+recognized geographic/projected paths without guessing, discovery, or a general WKT abstraction.
 
 ## Level 1
 

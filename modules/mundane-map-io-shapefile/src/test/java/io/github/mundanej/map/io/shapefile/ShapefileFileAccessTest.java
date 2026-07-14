@@ -75,15 +75,15 @@ class ShapefileFileAccessTest {
     }
 
     @Test
-    void closesAValidShpWhenAnUnsupportedPrjSidecarIsDiscovered() {
+    void closesAValidShpWhenThePrjSidecarIsInvalid() {
         FakeAccess access = new FakeAccess(ShpFixtures.file(0, 0, 0, 0, 0));
         access.prjPresent = true;
 
         SourceException result = assertThrows(SourceException.class, () -> open(access));
 
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", result.terminal().code());
+        assertEquals("SHAPEFILE_PRJ_INVALID", result.terminal().code());
         assertEquals("prj", result.terminal().location().orElseThrow().component().orElseThrow());
-        assertEquals(1, access.channel.closeCount);
+        assertEquals(2, access.channel.closeCount);
     }
 
     @Test

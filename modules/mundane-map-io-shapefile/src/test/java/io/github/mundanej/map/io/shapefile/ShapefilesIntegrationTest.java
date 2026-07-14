@@ -97,7 +97,7 @@ class ShapefilesIntegrationTest {
     }
 
     @Test
-    void openingCancellationAndUnsupportedPrjAreStructured() throws Exception {
+    void openingCancellationAndInvalidPrjAreStructured() throws Exception {
         Path path = write("cancel.shp", ShpFixtures.file(0, 0, 0, 0, 0));
         CancellationSource cancellation = new CancellationSource();
         cancellation.cancel();
@@ -115,7 +115,7 @@ class ShapefilesIntegrationTest {
                         .code());
         Files.write(directory.resolve("cancel.prj"), new byte[] {1});
         SourceException staged = assertThrows(SourceException.class, () -> open(path));
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", staged.terminal().code());
+        assertEquals("SHAPEFILE_PRJ_INVALID", staged.terminal().code());
         assertEquals("prj", staged.terminal().location().orElseThrow().component().orElseThrow());
     }
 
@@ -227,7 +227,7 @@ class ShapefilesIntegrationTest {
     }
 
     @Test
-    void treatsLowercaseAndUppercaseHardLinksAsOneUnsupportedPrjSidecar() throws Exception {
+    void treatsLowercaseAndUppercaseHardLinksAsOneInvalidPrjSidecar() throws Exception {
         Path alias = write("alias.shp", ShpFixtures.file(0, 0, 0, 0, 0));
         Path lower = Files.write(directory.resolve("alias.prj"), new byte[] {1});
         Path upper = directory.resolve("alias.PRJ");
@@ -238,7 +238,7 @@ class ShapefilesIntegrationTest {
                     "Hard links unavailable: " + exception.getClass());
         }
         SourceException staged = assertThrows(SourceException.class, () -> open(alias));
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", staged.terminal().code());
+        assertEquals("SHAPEFILE_PRJ_INVALID", staged.terminal().code());
         assertEquals("prj", staged.terminal().location().orElseThrow().component().orElseThrow());
     }
 

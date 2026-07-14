@@ -86,7 +86,7 @@ class ShxIntegrationTest {
     }
 
     @Test
-    void missingOrIgnoredIndexWarningPrecedesUnsupportedPrjTerminal() throws Exception {
+    void missingOrIgnoredIndexWarningPrecedesInvalidPrjTerminal() throws Exception {
         Path missing = dataset("missing-before-prj", 0, 0, 0, 0, 0);
         write("missing-before-prj.prj", new byte[] {1});
         assertWarningBeforeStagedTerminal(missing, "SHAPEFILE_SHX_MISSING", "prj");
@@ -526,7 +526,7 @@ class ShxIntegrationTest {
         assertEquals(3, failure.report().entries().size());
         assertEquals(warningCode, failure.report().entries().get(0).code());
         assertEquals("SHAPEFILE_DBF_MISSING", failure.report().entries().get(1).code());
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", failure.report().entries().get(2).code());
+        assertEquals("SHAPEFILE_PRJ_INVALID", failure.report().entries().get(2).code());
         assertEquals(failure.terminal(), failure.report().entries().get(2));
         assertEquals(
                 component, failure.terminal().location().orElseThrow().component().orElseThrow());

@@ -1,6 +1,6 @@
 # G5-007 — PRJ retention and recognized CRS
 
-Status: Proposed
+Status: Complete
 Depends on: G5-002, G4-002
 Gate: G5
 Type: AFK
@@ -80,3 +80,10 @@ Recognition must be deliberately narrow. Preserve input for future adapters, but
 retention means semantic understanding. Keep tokenizer, matcher, and reader peers package-private in
 the existing `io.github.mundanej.map.io.shapefile` package; do not add a WKT model, parser SPI,
 `internal.prj` package, external dependency, or registry alias.
+
+Completed on 2026-07-14 with a package-private bounded PRJ reader, fixed-capacity WKT1 tokenizer, and
+two exact structural matchers. Strict UTF-8 retention, syntax/token/depth/allocation limits, explicit
+override arbitration, stable diagnostics, cancellation, and temporary-channel cleanup now feed the
+existing immutable CRS metadata without aliases or heuristic transforms. Byte-authored fixtures and
+the PRJ-aware viewer prove recognized EPSG:4326/EPSG:3857 paths, retained unknown definitions,
+missing/blank/invalid distinctions, source-boundary failures, and ownership-safe rendering.

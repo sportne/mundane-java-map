@@ -25,12 +25,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
-/** Explicit-CRS viewer for the supported read-only shapefile profile. */
+/** PRJ-aware viewer for the supported read-only shapefile profile. */
 public final class ShapefileViewer {
     private static final String LAYER_ID = "shapefile";
     private static final String SOURCE_ID = "shapefile-source";
@@ -40,7 +41,7 @@ public final class ShapefileViewer {
     /**
      * Validates arguments before scheduling and launches the Swing window.
      *
-     * @param arguments the SHP path and explicit supported CRS identifier
+     * @param arguments the SHP path and optional explicit supported CRS identifier
      */
     public static void main(String[] arguments) {
         LaunchArguments launch = parseArguments(arguments);
@@ -49,60 +50,79 @@ public final class ShapefileViewer {
 
     static LaunchArguments parseArguments(String[] arguments) {
         Objects.requireNonNull(arguments, "arguments");
-        if (arguments.length != 2) {
+        if (arguments.length < 1 || arguments.length > 2) {
             throw new IllegalArgumentException(
-                    "Usage: shapefile-viewer <path.shp> <EPSG:4326|EPSG:3857>");
-        }
-        String crsKey = Objects.requireNonNull(arguments[1], "arguments[1]");
-        if (!crsKey.equals("EPSG:4326") && !crsKey.equals("EPSG:3857")) {
-            throw new IllegalArgumentException("CRS must be EPSG:4326 or EPSG:3857");
+                    "Usage: shapefile-viewer <path.shp> [EPSG:4326|EPSG:3857]");
         }
         Path path = Path.of(Objects.requireNonNull(arguments[0], "arguments[0]"));
-        CrsDefinition crs = CrsRegistry.level1().resolve(crsKey);
+        Optional<CrsDefinition> crs =
+                arguments.length == 1
+                        ? Optional.empty()
+                        : Optional.of(resolveOverride(arguments[1]));
         return new LaunchArguments(path, crs);
     }
 
-    static MapView createMapView(Path shapefile, CrsDefinition crsOverride) {
+    static MapView createMapView(Path shapefile, Optional<CrsDefinition> crsOverride) {
+        return createMapView(shapefile, crsOverride, ignored -> {});
+    }
+
+    static MapView createMapView(
+            Path shapefile,
+            Optional<CrsDefinition> crsOverride,
+            Consumer<MapView> beforeBindingTransfer) {
         Objects.requireNonNull(shapefile, "shapefile");
         Objects.requireNonNull(crsOverride, "crsOverride");
+        Objects.requireNonNull(beforeBindingTransfer, "beforeBindingTransfer");
         FeatureSource source = null;
         MapLayerBinding binding = null;
         MapView view = null;
         boolean attached = false;
         try {
+            ShapefileOpenOptions options = ShapefileOpenOptions.defaults();
+            if (crsOverride.isPresent()) {
+                options = options.withCrsOverride(crsOverride.orElseThrow());
+            }
             source =
-                    Shapefiles.open(
-                            new SourceIdentity(SOURCE_ID, "Shapefile"),
-                            shapefile,
-                            ShapefileOpenOptions.defaults().withCrsOverride(crsOverride));
-            binding =
-                    MapLayerBinding.ownedFeature(
-                            LAYER_ID, "Shapefile", source, marker(), line(), fill());
-            source = null;
+                    Shapefiles.open(new SourceIdentity(SOURCE_ID, "Shapefile"), shapefile, options);
             view =
                     new MapView(
                             CrsRegistry.level1(),
                             CrsDefinitions.EPSG_4326,
                             CrsDefinitions.EPSG_3857);
+            beforeBindingTransfer.accept(view);
+            binding =
+                    MapLayerBinding.ownedFeature(
+                            LAYER_ID, "Shapefile", source, marker(), line(), fill());
+            source = null;
             view.setLayerBindings(List.of(binding));
             attached = true;
             view.fitToData(32.0);
             return view;
         } catch (RuntimeException | Error failure) {
-            if (view != null) {
-                closeSuppressing(view, failure);
+            if (!attached && view != null && binding != null) {
+                MapLayerBinding transferred = binding;
+                attached =
+                        view.layerBindings().stream()
+                                .anyMatch(candidate -> candidate == transferred);
             }
-            if (!attached && binding != null) {
-                closeSuppressing(binding, failure);
-            } else if (binding == null && source != null) {
-                closeSuppressing(source, failure);
+            if (attached) {
+                closeSuppressing(view, failure);
+            } else {
+                if (binding != null) {
+                    closeSuppressing(binding, failure);
+                } else if (source != null) {
+                    closeSuppressing(source, failure);
+                }
+                if (view != null) {
+                    closeSuppressing(view, failure);
+                }
             }
             throw failure;
         }
     }
 
     private static void showWindow(LaunchArguments launch) {
-        MapView map = createMapView(launch.path(), launch.crs());
+        MapView map = createMapView(launch.path(), launch.crsOverride());
         try {
             JFrame frame = new JFrame("mundane-java-map — shapefile viewer");
             frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
@@ -147,6 +167,14 @@ public final class ShapefileViewer {
         return new SymbolStroke(color, new SymbolLength(width, SymbolUnit.SCREEN_PIXEL));
     }
 
+    private static CrsDefinition resolveOverride(String value) {
+        String crsKey = Objects.requireNonNull(value, "arguments[1]");
+        if (!crsKey.equals("EPSG:4326") && !crsKey.equals("EPSG:3857")) {
+            throw new IllegalArgumentException("CRS must be EPSG:4326 or EPSG:3857");
+        }
+        return CrsRegistry.level1().resolve(crsKey);
+    }
+
     private static void closeSuppressing(AutoCloseable closeable, Throwable primary) {
         try {
             closeable.close();
@@ -157,5 +185,5 @@ public final class ShapefileViewer {
         }
     }
 
-    record LaunchArguments(Path path, CrsDefinition crs) {}
+    record LaunchArguments(Path path, Optional<CrsDefinition> crsOverride) {}
 }

@@ -2,14 +2,19 @@ package io.github.mundanej.map.example.shapefile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
+import io.github.mundanej.map.api.CrsDefinition;
+import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
+import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsOperation;
@@ -23,31 +28,58 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class ShapefileViewerTest {
+    private static final String WGS84_WKT =
+            String.join(
+                    "",
+                    "GEOGCS[\"GCS_WGS_1984\",DATUM[\"D_WGS_1984\",",
+                    "SPHEROID[\"WGS_1984\",6378137,298.257223563]],",
+                    "PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433]]");
+    private static final String WEB_MERCATOR_WKT =
+            "PROJCS[\"WGS_1984_Web_Mercator_Auxiliary_Sphere\","
+                    + WGS84_WKT
+                    + ",PROJECTION[\"Mercator_Auxiliary_Sphere\"],PARAMETER[\"False_Easting\",0],"
+                    + "PARAMETER[\"False_Northing\",0],PARAMETER[\"Central_Meridian\",0],"
+                    + "PARAMETER[\"Standard_Parallel_1\",0],PARAMETER[\"Auxiliary_Sphere_Type\",0],"
+                    + "UNIT[\"Meter\",1]]";
+
     @TempDir Path temporaryDirectory;
 
     @Test
     void validatesTheExplicitCliBeforeSwingScheduling() {
         Path path = temporaryDirectory.resolve("points.shp");
-        ShapefileViewer.LaunchArguments launch =
+        ShapefileViewer.LaunchArguments explicit =
                 ShapefileViewer.parseArguments(new String[] {path.toString(), "EPSG:4326"});
+        ShapefileViewer.LaunchArguments declared =
+                ShapefileViewer.parseArguments(new String[] {path.toString()});
 
-        assertEquals(path, launch.path());
-        assertEquals(CrsDefinitions.EPSG_4326, launch.crs());
+        assertEquals(path, explicit.path());
+        assertEquals(CrsDefinitions.EPSG_4326, explicit.crsOverride().orElseThrow());
+        assertEquals(path, declared.path());
+        assertTrue(declared.crsOverride().isEmpty());
         assertThrows(
                 IllegalArgumentException.class,
-                () -> ShapefileViewer.parseArguments(new String[] {path.toString()}));
+                () -> ShapefileViewer.parseArguments(new String[0]));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        ShapefileViewer.parseArguments(
+                                new String[] {path.toString(), "EPSG:4326", "extra"}));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> ShapefileViewer.parseArguments(new String[] {path.toString(), "epsg:4326"}));
         assertEquals(
                 CrsDefinitions.EPSG_3857,
-                ShapefileViewer.parseArguments(new String[] {path.toString(), "EPSG:3857"}).crs());
+                ShapefileViewer.parseArguments(new String[] {path.toString(), "EPSG:3857"})
+                        .crsOverride()
+                        .orElseThrow());
         assertThrows(NullPointerException.class, () -> ShapefileViewer.parseArguments(null));
         assertThrows(
                 NullPointerException.class,
@@ -55,16 +87,14 @@ class ShapefileViewerTest {
         assertThrows(
                 NullPointerException.class,
                 () -> ShapefileViewer.parseArguments(new String[] {path.toString(), null}));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> ShapefileViewer.main(new String[] {path.toString()}));
+        assertThrows(IllegalArgumentException.class, () -> ShapefileViewer.main(new String[0]));
     }
 
     @Test
     void validatesMapCreationInputsAndClosesOpeningFailures() throws Exception {
         assertThrows(
                 NullPointerException.class,
-                () -> ShapefileViewer.createMapView(null, CrsDefinitions.EPSG_4326));
+                () -> ShapefileViewer.createMapView(null, Optional.of(CrsDefinitions.EPSG_4326)));
         assertThrows(
                 NullPointerException.class,
                 () -> ShapefileViewer.createMapView(temporaryDirectory.resolve("a.shp"), null));
@@ -73,13 +103,15 @@ class ShapefileViewerTest {
                 () ->
                         ShapefileViewer.createMapView(
                                 temporaryDirectory.resolve("missing.shp"),
-                                CrsDefinitions.EPSG_4326));
+                                Optional.of(CrsDefinitions.EPSG_4326)));
 
         Path malformed = temporaryDirectory.resolve("malformed.shp");
         Files.write(malformed, new byte[100]);
         assertThrows(
                 RuntimeException.class,
-                () -> ShapefileViewer.createMapView(malformed, CrsDefinitions.EPSG_4326));
+                () ->
+                        ShapefileViewer.createMapView(
+                                malformed, Optional.of(CrsDefinitions.EPSG_4326)));
         Files.delete(malformed);
     }
 
@@ -108,6 +140,136 @@ class ShapefileViewerTest {
         Files.delete(fixture);
         assertFalse(Files.exists(index));
         assertFalse(Files.exists(fixture));
+    }
+
+    @Test
+    void rendersFromPrjMetadataAndArbitratesExplicitOverrides() throws Exception {
+        Path fixture = temporaryDirectory.resolve("declared.shp");
+        Path prj = temporaryDirectory.resolve("declared.prj");
+        Files.write(fixture, multipointFixture());
+        Files.writeString(prj, WGS84_WKT);
+
+        RenderedView declared = render(fixture, Optional.empty());
+        assertTrue(countNonWhite(declared.image()) > 20);
+        SwingUtilities.invokeAndWait(declared.map()::close);
+
+        RenderedView equal = render(fixture, Optional.of(CrsDefinitions.EPSG_4326));
+        assertTrue(countNonWhite(equal.image()) > 20);
+        SwingUtilities.invokeAndWait(equal.map()::close);
+
+        SourceException conflict =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                ShapefileViewer.createMapView(
+                                        fixture, Optional.of(CrsDefinitions.EPSG_3857)));
+        assertEquals("SHAPEFILE_CRS_CONFLICT", conflict.terminal().code());
+
+        Files.delete(prj);
+        Files.delete(fixture);
+        assertFalse(Files.exists(prj));
+        assertFalse(Files.exists(fixture));
+    }
+
+    @Test
+    void rendersPrjDerivedWebMercatorThroughTheIdentitySourcePath() throws Exception {
+        Path fixture = temporaryDirectory.resolve("projected.shp");
+        Path prj = temporaryDirectory.resolve("projected.prj");
+        Files.write(fixture, multipointFixture());
+        Files.writeString(prj, WEB_MERCATOR_WKT);
+
+        RenderedView projected = render(fixture, Optional.empty());
+
+        assertTrue(countNonWhite(projected.image()) > 20);
+        SwingUtilities.invokeAndWait(projected.map()::close);
+        Files.delete(prj);
+        Files.delete(fixture);
+    }
+
+    @Test
+    void missingAndUnknownPrjFailAttachmentWithoutRetainingFiles() throws Exception {
+        Path missing = temporaryDirectory.resolve("missing-crs.shp");
+        Files.write(missing, multipointFixture());
+        CrsException missingFailure =
+                assertThrows(
+                        CrsException.class,
+                        () -> ShapefileViewer.createMapView(missing, Optional.empty()));
+        assertEquals("CRS_METADATA_MISSING", missingFailure.problem().code());
+        Files.delete(missing);
+
+        Path unknown = temporaryDirectory.resolve("unknown-crs.shp");
+        Path unknownPrj = temporaryDirectory.resolve("unknown-crs.prj");
+        Files.write(unknown, multipointFixture());
+        Files.writeString(unknownPrj, "GEOGCS[\"Unknown\",UNIT[\"Degree\",1]]");
+        CrsException unknownFailure =
+                assertThrows(
+                        CrsException.class,
+                        () -> ShapefileViewer.createMapView(unknown, Optional.empty()));
+        assertEquals("CRS_DEFINITION_UNKNOWN", unknownFailure.problem().code());
+        Files.delete(unknownPrj);
+        Files.delete(unknown);
+    }
+
+    @Test
+    void cleanupTracksOwnershipBeforeAndAfterBindingInstallation() throws Exception {
+        Path fixture = temporaryDirectory.resolve("ownership.shp");
+        Path prj = temporaryDirectory.resolve("ownership.prj");
+        Files.write(fixture, multipointFixture());
+        Files.writeString(prj, WGS84_WKT);
+
+        AtomicReference<MapView> beforeView = new AtomicReference<>();
+        RuntimeException beforeTransfer = new RuntimeException("before transfer");
+        RuntimeException first =
+                assertThrows(
+                        RuntimeException.class,
+                        () ->
+                                ShapefileViewer.createMapView(
+                                        fixture,
+                                        Optional.empty(),
+                                        view -> {
+                                            beforeView.set(view);
+                                            throw beforeTransfer;
+                                        }));
+        assertSame(beforeTransfer, first);
+        assertEquals(0, first.getSuppressed().length);
+        assertTrue(beforeView.get().layerBindings().isEmpty());
+        assertThrows(
+                IllegalStateException.class,
+                () -> beforeView.get().setLayerBindings(java.util.List.of()));
+
+        AtomicReference<MapView> installedView = new AtomicReference<>();
+        AtomicReference<MapLayerBinding> installedBinding = new AtomicReference<>();
+        AtomicBoolean installationObserved = new AtomicBoolean();
+        RuntimeException afterInstall = new RuntimeException("after install");
+        RuntimeException second =
+                assertThrows(
+                        RuntimeException.class,
+                        () ->
+                                ShapefileViewer.createMapView(
+                                        fixture,
+                                        Optional.empty(),
+                                        map -> {
+                                            installedView.set(map);
+                                            map.addMapSourceReportListener(
+                                                    ignored -> {
+                                                        if (installationObserved.compareAndSet(
+                                                                false, true)) {
+                                                            installedBinding.set(
+                                                                    map.layerBindings().getFirst());
+                                                            throw afterInstall;
+                                                        }
+                                                    });
+                                        }));
+        assertSame(afterInstall, second);
+        assertEquals(0, second.getSuppressed().length);
+        assertTrue(installedView.get().layerBindings().isEmpty());
+        assertTrue(installedBinding.get().isClosed());
+        assertThrows(
+                IllegalStateException.class,
+                () -> installedView.get().setLayerBindings(java.util.List.of()));
+
+        Files.delete(prj);
+        Files.delete(fixture);
     }
 
     @Test
@@ -195,13 +357,18 @@ class ShapefileViewerTest {
     }
 
     private static RenderedView render(Path fixture) throws Exception {
+        return render(fixture, Optional.of(CrsDefinitions.EPSG_4326));
+    }
+
+    private static RenderedView render(Path fixture, Optional<CrsDefinition> override)
+            throws Exception {
         AtomicReference<MapView> mapReference = new AtomicReference<>();
         AtomicReference<BufferedImage> imageReference = new AtomicReference<>();
         AtomicReference<MapViewport> viewportReference = new AtomicReference<>();
 
         SwingUtilities.invokeAndWait(
                 () -> {
-                    MapView map = ShapefileViewer.createMapView(fixture, CrsDefinitions.EPSG_4326);
+                    MapView map = ShapefileViewer.createMapView(fixture, override);
                     map.setSize(240, 180);
                     map.fitToData(20.0);
                     mapReference.set(map);

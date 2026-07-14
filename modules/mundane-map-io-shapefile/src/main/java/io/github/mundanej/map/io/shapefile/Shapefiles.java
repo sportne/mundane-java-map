@@ -200,24 +200,20 @@ public final class Shapefiles {
                                 openingWarnings);
                 dbfTable = result.table();
             }
-            String stagedComponent = prj != null ? "prj" : null;
-            if (stagedComponent != null) {
-                throw ShapefileFailures.failure(
-                        identity.id(),
-                        "SHAPEFILE_PROFILE_NOT_IMPLEMENTED",
-                        stagedComponent,
-                        OptionalLong.empty(),
-                        -1,
-                        "Discovered Shapefile component is not implemented",
-                        Map.of("profile", stagedComponent));
-            }
+            PrjReader.Result prjResult =
+                    prj == null
+                            ? PrjReader.missing(options.crsOverride())
+                            : PrjReader.read(
+                                    identity.id(),
+                                    prj,
+                                    access,
+                                    options.crsOverride(),
+                                    options.shapefileLimits(),
+                                    openingAccounting,
+                                    cancellation);
+            openingWarnings.addAll(prjResult.warnings());
             checkpoint(identity.id(), cancellation);
-            Optional<CrsMetadata> crs =
-                    options.crsOverride()
-                            .map(
-                                    value ->
-                                            CrsMetadata.recognized(
-                                                    value, Optional.empty(), Optional.empty()));
+            Optional<CrsMetadata> crs = prjResult.metadata();
             return new ShapefileFeatureSource(
                     identity,
                     channel,
