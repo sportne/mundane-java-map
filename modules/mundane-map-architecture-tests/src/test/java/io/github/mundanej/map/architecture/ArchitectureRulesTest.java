@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.mundanej.map.architecture.ArchitecturePolicy.ModuleDescriptor;
 import java.io.File;
@@ -89,6 +90,38 @@ class ArchitectureRulesTest {
                 });
 
         assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void crsRegistryAndProjectionBoundaryRemainExplicitAndNativeSafe() {
+        ModuleDescriptor api = moduleEndingWith("mundane-map-api");
+        ModuleDescriptor core = moduleEndingWith("mundane-map-core");
+        JavaClass projection =
+                classesByModule.get(api).get("io.github.mundanej.map.api.Projection");
+        JavaClass registry =
+                classesByModule.get(core).get("io.github.mundanej.map.core.CrsRegistry");
+
+        assertTrue(
+                projection.getMethods().stream()
+                        .filter(method -> method.getOwner().equals(projection))
+                        .allMatch(method -> method.getModifiers().contains(JavaModifier.ABSTRACT)),
+                "Projection must not acquire an unsafe default transform");
+        assertTrue(
+                registry.getFields().stream()
+                        .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                        .allMatch(field -> field.getModifiers().contains(JavaModifier.FINAL)),
+                "CrsRegistry must not acquire mutable static state");
+
+        List<JavaClass> crsClasses =
+                classesByModule.get(core).stream()
+                        .filter(
+                                type ->
+                                        type.getSimpleName().contains("Crs")
+                                                || type.getSimpleName().contains("Projection"))
+                        .toList();
+        assertTrue(
+                ArchitecturePolicy.prohibitedMechanismViolations(crsClasses).isEmpty(),
+                "CRS production code must remain explicit and native-safe");
     }
 
     @Test

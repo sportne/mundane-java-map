@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 @SuppressWarnings("deprecation")
@@ -94,11 +95,12 @@ class GeometryModelTest {
         Coordinate mapCoordinate = new Coordinate(-71.0, 42.0);
 
         MapPointerEvent event =
-                new MapPointerEvent(MapPointerEvent.Type.CLICKED, 120.0, 80.0, mapCoordinate);
+                new MapPointerEvent(
+                        MapPointerEvent.Type.CLICKED, 120.0, 80.0, Optional.of(mapCoordinate));
 
         assertEquals(MapPointerEvent.Type.CLICKED, event.type());
         assertEquals(120.0, event.screenX());
         assertEquals(80.0, event.screenY());
-        assertEquals(mapCoordinate, event.mapCoordinate());
+        assertEquals(Optional.of(mapCoordinate), event.mapCoordinate());
     }
 }

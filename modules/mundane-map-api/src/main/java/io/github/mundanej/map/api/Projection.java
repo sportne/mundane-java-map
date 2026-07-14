@@ -1,13 +1,28 @@
 package io.github.mundanej.map.api;
 
-/** Converts source map coordinates to and from projected world coordinates. */
+/** Strict immutable conversion between two recognized coordinate reference systems. */
 public interface Projection {
-    /** Returns a stable human-readable projection identifier. */
-    String id();
+    /** Returns the recognized source definition. */
+    CrsDefinition sourceCrs();
+
+    /** Returns the recognized target definition. */
+    CrsDefinition targetCrs();
+
+    /** Returns the complete accepted forward-operation domain. */
+    Envelope sourceDomain();
+
+    /** Returns the complete accepted inverse-operation domain. */
+    Envelope targetDomain();
 
     /** Projects a source coordinate into world coordinates. */
     Coordinate project(Coordinate source);
 
     /** Converts projected world coordinates back to source coordinates. */
     Coordinate unproject(Coordinate projected);
+
+    /** Strictly projects a source envelope. */
+    Envelope projectEnvelope(Envelope source);
+
+    /** Strictly unprojects a target envelope. */
+    Envelope unprojectEnvelope(Envelope target);
 }

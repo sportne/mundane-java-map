@@ -53,11 +53,15 @@ public final class BasicViewer {
         map.addMapPointerListener(
                 event ->
                         coordinates.setText(
-                                String.format(
-                                        Locale.ROOT,
-                                        "longitude %.5f, latitude %.5f",
-                                        event.mapCoordinate().x(),
-                                        event.mapCoordinate().y())));
+                                event.mapCoordinate()
+                                        .map(
+                                                coordinate ->
+                                                        String.format(
+                                                                Locale.ROOT,
+                                                                "longitude %.5f, latitude %.5f",
+                                                                coordinate.x(),
+                                                                coordinate.y()))
+                                        .orElse("Pointer is outside the map CRS domain")));
 
         frame.add(map, BorderLayout.CENTER);
         frame.add(coordinates, BorderLayout.SOUTH);

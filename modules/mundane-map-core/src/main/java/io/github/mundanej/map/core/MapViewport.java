@@ -18,6 +18,7 @@ public record MapViewport(
         if (!Double.isFinite(worldUnitsPerPixel) || worldUnitsPerPixel <= 0.0) {
             throw new IllegalArgumentException("World units per pixel must be finite and positive");
         }
+        requireFiniteVisibleEdges(width, height, centerX, centerY, worldUnitsPerPixel);
     }
 
     /** Creates a viewport centered at the projected world origin. */
@@ -40,6 +41,9 @@ public record MapViewport(
 
     /** Converts a screen coordinate to a projected-world coordinate. */
     public Coordinate screenToWorld(double screenX, double screenY) {
+        if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
+            throw new IllegalArgumentException("Screen coordinates must be finite");
+        }
         return new Coordinate(
                 centerX + (screenX - width / 2.0) * worldUnitsPerPixel,
                 centerY - (screenY - height / 2.0) * worldUnitsPerPixel);
@@ -47,6 +51,9 @@ public record MapViewport(
 
     /** Returns a viewport panned by a screen-pixel drag delta. */
     public MapViewport panByPixels(double deltaX, double deltaY) {
+        if (!Double.isFinite(deltaX) || !Double.isFinite(deltaY)) {
+            throw new IllegalArgumentException("Pan deltas must be finite");
+        }
         return new MapViewport(
                 width,
                 height,
@@ -61,6 +68,9 @@ public record MapViewport(
      * @param factor values greater than one zoom in; values below one zoom out
      */
     public MapViewport zoomAt(double screenX, double screenY, double factor) {
+        if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
+            throw new IllegalArgumentException("Zoom anchor must be finite");
+        }
         if (!Double.isFinite(factor) || factor <= 0.0) {
             throw new IllegalArgumentException("Zoom factor must be finite and positive");
         }
@@ -78,12 +88,47 @@ public record MapViewport(
         if (!Double.isFinite(paddingPixels) || paddingPixels < 0.0) {
             throw new IllegalArgumentException("Padding must be finite and non-negative");
         }
-        double usableWidth = Math.max(1.0, width - paddingPixels * 2.0);
-        double usableHeight = Math.max(1.0, height - paddingPixels * 2.0);
+        double doubledPadding = paddingPixels * 2.0;
+        if (!Double.isFinite(doubledPadding)) {
+            throw new IllegalArgumentException("Doubled viewport padding must be finite");
+        }
+        double usableWidth = Math.max(1.0, width - doubledPadding);
+        double usableHeight = Math.max(1.0, height - doubledPadding);
         double xUnits = worldEnvelope.width() / usableWidth;
         double yUnits = worldEnvelope.height() / usableHeight;
         double units = Math.max(Math.max(xUnits, yUnits), 1.0e-9);
         Coordinate center = worldEnvelope.center();
         return new MapViewport(width, height, center.x(), center.y(), units);
+    }
+
+    /** Returns the finite projected-world envelope currently visible on screen. */
+    public Envelope visibleWorldEnvelope() {
+        Coordinate topLeft = screenToWorld(0.0, 0.0);
+        Coordinate bottomRight = screenToWorld(width, height);
+        return new Envelope(topLeft.x(), bottomRight.y(), bottomRight.x(), topLeft.y());
+    }
+
+    private static void requireFiniteVisibleEdges(
+            int width, int height, double centerX, double centerY, double worldUnitsPerPixel) {
+        double halfWidth = (width / 2.0) * worldUnitsPerPixel;
+        double halfHeight = (height / 2.0) * worldUnitsPerPixel;
+        double visibleWidth = halfWidth * 2.0;
+        double visibleHeight = halfHeight * 2.0;
+        double minimumX = centerX - halfWidth;
+        double maximumX = centerX + halfWidth;
+        double minimumY = centerY - halfHeight;
+        double maximumY = centerY + halfHeight;
+        if (!Double.isFinite(halfWidth)
+                || !Double.isFinite(halfHeight)
+                || !Double.isFinite(visibleWidth)
+                || !Double.isFinite(visibleHeight)
+                || !Double.isFinite(minimumX)
+                || !Double.isFinite(maximumX)
+                || !Double.isFinite(minimumY)
+                || !Double.isFinite(maximumY)
+                || !Double.isFinite(maximumX - minimumX)
+                || !Double.isFinite(maximumY - minimumY)) {
+            throw new IllegalArgumentException("Viewport visible world edges must be finite");
+        }
     }
 }

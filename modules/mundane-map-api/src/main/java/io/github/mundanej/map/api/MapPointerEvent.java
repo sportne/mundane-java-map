@@ -1,9 +1,11 @@
 package io.github.mundanej.map.api;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /** A pointer event expressed in both screen and source-map coordinate systems. */
-public record MapPointerEvent(Type type, double screenX, double screenY, Coordinate mapCoordinate) {
+public record MapPointerEvent(
+        Type type, double screenX, double screenY, Optional<Coordinate> mapCoordinate) {
     /** Supported event types in the initial interaction slice. */
     public enum Type {
         /** Pointer movement without a button action. */

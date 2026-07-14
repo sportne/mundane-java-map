@@ -144,7 +144,7 @@ Level 1 is complete only when G8-004 is complete.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G4-001 — Source contract and diagnostic profile](G4-001-source-contract-and-diagnostic-profile.md) | Complete | HITL | G1-001 | Lock vector/raster query, lifecycle, limits, attributes, and diagnostics contracts. |
-| [G4-002 — CRS boundary and projection hardening](G4-002-crs-boundary-and-projection-hardening.md) | Proposed | AFK | G4-001 | Add explicit CRS metadata/registration and harden Web Mercator boundaries. |
+| [G4-002 — CRS boundary and projection hardening](G4-002-crs-boundary-and-projection-hardening.md) | Complete | AFK | G4-001 | Add explicit CRS metadata/registration and harden Web Mercator boundaries. |
 | [G4-003 — Feature source query rendering slice](G4-003-feature-source-query-rendering-slice.md) | Proposed | AFK | G2-005, G3-003, G3-004, G4-001, G4-002 | Render bounded viewport queries, including multipoint and multipart geometry. |
 | [G4-004 — Raster source window rendering slice](G4-004-raster-source-window-rendering-slice.md) | Proposed | AFK | G4-003 | Render synthetic toolkit-neutral raster windows with lifecycle and cancellation. |
 

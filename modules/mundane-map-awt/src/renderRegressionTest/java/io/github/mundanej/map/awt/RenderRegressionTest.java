@@ -15,7 +15,6 @@ import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
-import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.Rgba;
@@ -30,6 +29,8 @@ import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
+import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.AlphaComposite;
@@ -70,23 +71,6 @@ class RenderRegressionTest {
     private static final Rgba RED_OVER_WHITE = Rgba.rgb(220, 150, 150);
     private static final RenderTolerance TOLERANCE =
             new RenderTolerance(18, 24, 2, 0.70, 0.02, 0.08, 0.65);
-    private static final Projection IDENTITY =
-            new Projection() {
-                @Override
-                public String id() {
-                    return "identity";
-                }
-
-                @Override
-                public Coordinate project(Coordinate source) {
-                    return source;
-                }
-
-                @Override
-                public Coordinate unproject(Coordinate projected) {
-                    return projected;
-                }
-            };
 
     @Test
     void environmentAndToleranceProfileArePortableAndUnambiguous() {
@@ -640,7 +624,12 @@ class RenderRegressionTest {
     }
 
     private static MapView view(List<Feature> features) {
-        MapView view = new MapView(IDENTITY, SymbolRendererRegistry.builderWithBuiltIns().build());
+        MapView view =
+                new MapView(
+                        CrsRegistry.level1(),
+                        CrsDefinitions.EPSG_3857,
+                        CrsDefinitions.EPSG_3857,
+                        SymbolRendererRegistry.builderWithBuiltIns().build());
         view.setDoubleBuffered(false);
         view.setOpaque(true);
         view.setBackground(new Color(BACKGROUND.red(), BACKGROUND.green(), BACKGROUND.blue()));

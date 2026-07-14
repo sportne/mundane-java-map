@@ -2,10 +2,10 @@ package io.github.mundanej.map.awt;
 
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.Geometry;
-import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.Graphics2D;
@@ -26,7 +26,7 @@ public final class AwtSymbolRenderContext {
     private final String featureId;
     private final Geometry featureGeometry;
     private final Geometry renderGeometry;
-    private final Projection projection;
+    private final CrsOperation mapToDisplay;
     private final MapViewport viewport;
     private final double inheritedOpacity;
     private final boolean closedRing;
@@ -41,7 +41,7 @@ public final class AwtSymbolRenderContext {
             String featureId,
             Geometry featureGeometry,
             Geometry renderGeometry,
-            Projection projection,
+            CrsOperation mapToDisplay,
             MapViewport viewport,
             double inheritedOpacity,
             boolean closedRing,
@@ -54,7 +54,7 @@ public final class AwtSymbolRenderContext {
         this.featureId = Objects.requireNonNull(featureId, "featureId");
         this.featureGeometry = Objects.requireNonNull(featureGeometry, "featureGeometry");
         this.renderGeometry = Objects.requireNonNull(renderGeometry, "renderGeometry");
-        this.projection = Objects.requireNonNull(projection, "projection");
+        this.mapToDisplay = Objects.requireNonNull(mapToDisplay, "mapToDisplay");
         this.viewport = Objects.requireNonNull(viewport, "viewport");
         this.inheritedOpacity = inheritedOpacity;
         this.closedRing = closedRing;
@@ -85,9 +85,9 @@ public final class AwtSymbolRenderContext {
         return renderGeometry;
     }
 
-    /** Returns the source-to-world projection snapshot. */
-    public Projection projection() {
-        return projection;
+    /** Returns the resolved map-to-display operation snapshot. */
+    public CrsOperation mapToDisplayOperation() {
+        return mapToDisplay;
     }
 
     /** Returns the viewport snapshot. */
@@ -129,7 +129,8 @@ public final class AwtSymbolRenderContext {
 
     /** Converts one source coordinate into screen coordinates. */
     public Coordinate sourceToScreen(Coordinate source) {
-        return viewport.worldToScreen(projection.project(Objects.requireNonNull(source, "source")));
+        return viewport.worldToScreen(
+                mapToDisplay.transform(Objects.requireNonNull(source, "source")));
     }
 
     /**

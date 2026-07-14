@@ -19,6 +19,9 @@ public record Envelope(double minX, double minY, double maxX, double maxY) {
         if (minX > maxX || minY > maxY) {
             throw new IllegalArgumentException("Envelope minima must not exceed maxima");
         }
+        if (!Double.isFinite(maxX - minX) || !Double.isFinite(maxY - minY)) {
+            throw new IllegalArgumentException("Envelope spans must be finite");
+        }
     }
 
     /** Returns an envelope containing a single coordinate. */
@@ -39,7 +42,7 @@ public record Envelope(double minX, double minY, double maxX, double maxY) {
 
     /** Returns the center coordinate. */
     public Coordinate center() {
-        return new Coordinate((minX + maxX) / 2.0, (minY + maxY) / 2.0);
+        return new Coordinate(minX + width() / 2.0, minY + height() / 2.0);
     }
 
     /** Returns whether this envelope contains the coordinate, including the boundary. */

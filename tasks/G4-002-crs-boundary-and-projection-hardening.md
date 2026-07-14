@@ -1,6 +1,6 @@
 # G4-002 — CRS Boundary and Projection Hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G4-001
 Gate: G4
 Type: AFK
@@ -75,3 +75,8 @@ git diff --check
 
 Keep registry construction explicit and JDK-only. Preserve raw unknown definitions only within the
 approved text limit; retention is not recognition and must not trigger reflection or optional tools.
+
+Completed on 2026-07-14. The explicit immutable registry now owns the exact EPSG:4326/EPSG:3857
+definitions, aliases, identity operations, and strict Web Mercator directions. CRS metadata retains
+bounded unknown definitions without recognition; envelope, viewport, rendering, and optional pointer
+conversion boundaries reject non-finite or out-of-domain values without clamping.

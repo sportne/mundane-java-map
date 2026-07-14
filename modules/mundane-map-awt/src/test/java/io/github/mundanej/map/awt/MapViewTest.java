@@ -19,7 +19,6 @@ import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
-import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
@@ -60,23 +59,6 @@ import org.junit.jupiter.api.Test;
 class MapViewTest {
     private static final int IMAGE_SIZE = 100;
     private static final double TOLERANCE = 1.0e-9;
-    private static final Projection IDENTITY =
-            new Projection() {
-                @Override
-                public String id() {
-                    return "identity";
-                }
-
-                @Override
-                public Coordinate project(Coordinate source) {
-                    return source;
-                }
-
-                @Override
-                public Coordinate unproject(Coordinate projected) {
-                    return projected;
-                }
-            };
 
     @Test
     void rendersPointFillAndStrokeIndependently() throws Exception {
@@ -825,7 +807,7 @@ class MapViewTest {
     void installedMouseListenersPanResizeAndZoomAroundTheCursor() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
-                    MapView view = new MapView(IDENTITY);
+                    MapView view = TestMapViews.identity();
                     view.setSize(200, 160);
                     view.setViewport(new MapViewport(200, 160, 1000.0, 2000.0, 10.0));
 
@@ -842,7 +824,7 @@ class MapViewTest {
                     assertEquals(800.0, view.viewport().centerX(), TOLERANCE);
                     assertEquals(2300.0, view.viewport().centerY(), TOLERANCE);
 
-                    Coordinate before = view.screenToMap(40.0, 55.0);
+                    Coordinate before = view.screenToMap(40.0, 55.0).orElseThrow();
                     view.dispatchEvent(
                             new MouseWheelEvent(
                                     view,
@@ -856,7 +838,7 @@ class MapViewTest {
                                     MouseWheelEvent.WHEEL_UNIT_SCROLL,
                                     1,
                                     -1));
-                    Coordinate after = view.screenToMap(40.0, 55.0);
+                    Coordinate after = view.screenToMap(40.0, 55.0).orElseThrow();
 
                     assertEquals(before.x(), after.x(), TOLERANCE);
                     assertEquals(before.y(), after.y(), TOLERANCE);
@@ -877,7 +859,7 @@ class MapViewTest {
     void pointerCallbacksCarryScreenAndMapCoordinatesOnTheEdt() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
-                    MapView view = new MapView(IDENTITY);
+                    MapView view = TestMapViews.identity();
                     view.setSize(200, 100);
                     view.setViewport(new MapViewport(200, 100, 10.0, 20.0, 2.0));
                     List<MapPointerEvent> events = new ArrayList<>();
@@ -895,8 +877,11 @@ class MapViewTest {
                             events.stream().map(MapPointerEvent::type).toList());
                     assertEquals(120.0, events.get(0).screenX(), TOLERANCE);
                     assertEquals(40.0, events.get(0).screenY(), TOLERANCE);
-                    assertEquals(new Coordinate(50.0, 40.0), events.get(0).mapCoordinate());
-                    assertEquals(new Coordinate(-30.0, -20.0), events.get(1).mapCoordinate());
+                    assertEquals(
+                            Optional.of(new Coordinate(50.0, 40.0)), events.get(0).mapCoordinate());
+                    assertEquals(
+                            Optional.of(new Coordinate(-30.0, -20.0)),
+                            events.get(1).mapCoordinate());
                 });
     }
 
@@ -904,7 +889,7 @@ class MapViewTest {
     void listenerIdentityDuplicatesAndCallbackMutationAreDeterministic() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
-                    MapView view = new MapView(IDENTITY);
+                    MapView view = TestMapViews.identity();
                     view.setSize(100, 100);
                     EqualListener first = new EqualListener();
                     EqualListener equalButDistinct = new EqualListener();
@@ -921,7 +906,7 @@ class MapViewTest {
                     dispatchMouse(view, MouseEvent.MOUSE_MOVED, 50, 50, MouseEvent.NOBUTTON, 0);
                     assertEquals(3, first.count());
 
-                    MapView mutationView = new MapView(IDENTITY);
+                    MapView mutationView = TestMapViews.identity();
                     mutationView.setSize(100, 100);
                     List<String> calls = new ArrayList<>();
                     MapPointerListener added = event -> calls.add("added");
@@ -950,7 +935,7 @@ class MapViewTest {
     void fitHandlesEmptyPointAndLineLayers() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
-                    MapView view = new MapView(IDENTITY);
+                    MapView view = TestMapViews.identity();
                     view.setSize(200, 100);
                     MapViewport initial = new MapViewport(200, 100, 12.0, 34.0, 5.0);
                     view.setViewport(initial);
@@ -1091,7 +1076,7 @@ class MapViewTest {
 
     private static BufferedImage renderMarkerWithBasis(
             VectorMarkerSymbol symbol, MapScreenBasis basis) {
-        MapView view = new MapView(IDENTITY);
+        MapView view = TestMapViews.identity();
         BufferedImage image =
                 new BufferedImage(IMAGE_SIZE, IMAGE_SIZE, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
@@ -1166,7 +1151,7 @@ class MapViewTest {
     }
 
     private static MapView configuredView(Feature feature) {
-        MapView view = new MapView(IDENTITY);
+        MapView view = TestMapViews.identity();
         view.setSize(IMAGE_SIZE, IMAGE_SIZE);
         view.setViewport(new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 0.0, 0.0, 1.0));
         view.setLayers(List.of(layer(feature)));

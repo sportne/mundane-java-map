@@ -49,6 +49,10 @@ feature/raster pull contracts, explicit ownership and close behavior, canonical 
 typed limits, cancellation checkpoints, strict raster windows, and stable structured diagnostics.
 The approved signatures are compiled as test-only sketches; production contracts remain deferred to
 the G4-003 and G4-004 vertical slices.
+G4-002 is complete: CRS metadata now distinguishes recognized, unknown, and missing states; an
+instance-owned registry explicitly resolves the approved EPSG:4326/EPSG:3857 keys and direct
+operations; and strict projection, envelope, viewport, view, and optional pointer boundaries replace
+silent Web Mercator clamping.
 
 ## Level 1
 

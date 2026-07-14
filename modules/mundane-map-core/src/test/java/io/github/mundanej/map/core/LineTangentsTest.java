@@ -9,7 +9,6 @@ import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.SymbolAnchor;
-import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRotationMode;
 import io.github.mundanej.map.api.SymbolSize;
 import io.github.mundanej.map.api.SymbolUnit;
@@ -43,21 +42,10 @@ class LineTangentsTest {
     }
 
     @Test
-    void overflowHasStableFeaturePartAndEndpointContext() {
-        SymbolException failure =
-                assertThrows(
-                        SymbolException.class,
-                        () ->
-                                LineTangents.outwardScreenBearings(
-                                        CoordinateSequence.of(
-                                                Double.MAX_VALUE, 0.0, -Double.MAX_VALUE, 0.0),
-                                        "overflow-road",
-                                        7));
-        assertEquals(SymbolException.TRANSFORM_NON_FINITE, failure.code());
-        assertEquals("overflow-road", failure.context().get("featureId"));
-        assertEquals("7", failure.context().get("partIndex"));
-        assertEquals("start", failure.context().get("endpoint"));
-        assertEquals("line-tangent-delta", failure.context().get("quantity"));
+    void coordinateSequenceRejectsAnUnrepresentableEnvelopeBeforeTangentWork() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CoordinateSequence.of(Double.MAX_VALUE, 0.0, -Double.MAX_VALUE, 0.0));
     }
 
     @Test

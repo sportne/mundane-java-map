@@ -17,7 +17,6 @@ import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
-import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
@@ -49,23 +48,6 @@ class SymbolRendererRegistryTest {
     private static final SymbolRendererKey CUSTOM_LINE_KEY = new SymbolRendererKey("example.line");
     private static final SymbolRendererKey PARENT_MARKER_KEY =
             new SymbolRendererKey("example.parent-marker");
-    private static final Projection IDENTITY =
-            new Projection() {
-                @Override
-                public String id() {
-                    return "identity";
-                }
-
-                @Override
-                public Coordinate project(Coordinate source) {
-                    return source;
-                }
-
-                @Override
-                public Coordinate unproject(Coordinate projected) {
-                    return projected;
-                }
-            };
 
     @Test
     void builtInsAreSourceListedAndBuildersAreSingleUseAndIsolated() {
@@ -367,7 +349,7 @@ class SymbolRendererRegistryTest {
         try {
             SwingUtilities.invokeAndWait(
                     () -> {
-                        MapView view = new MapView(IDENTITY, registry);
+                        MapView view = TestMapViews.identity(registry);
                         view.setSize(100, 100);
                         view.setViewport(new MapViewport(100, 100, 0, 0, 1));
                         view.setLayers(

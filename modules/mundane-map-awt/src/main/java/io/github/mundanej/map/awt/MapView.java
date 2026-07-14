@@ -3,6 +3,8 @@ package io.github.mundanej.map.awt;
 import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.CrsDefinition;
+import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureStyle;
@@ -26,6 +28,8 @@ import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
+import io.github.mundanej.map.core.CrsOperation;
+import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.HatchLayouts;
 import io.github.mundanej.map.core.HatchSegments;
 import io.github.mundanej.map.core.LineEndpointBearings;
@@ -33,7 +37,6 @@ import io.github.mundanej.map.core.LineTangents;
 import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.MarkerTransform;
-import io.github.mundanej.map.core.ProjectionEnvelopes;
 import io.github.mundanej.map.core.SymbolTransforms;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
@@ -77,7 +80,11 @@ public final class MapView extends JComponent {
     private static final int DEFAULT_HEIGHT = 600;
     private static final double ZOOM_STEP = 1.2;
 
-    private final Projection projection;
+    private final CrsRegistry crsRegistry;
+    private final CrsDefinition mapCrs;
+    private final CrsDefinition displayCrs;
+    private final CrsOperation mapToDisplay;
+    private final CrsOperation displayToMap;
     private final SymbolRendererRegistry symbolRenderers;
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private List<Layer> layers = List.of();
@@ -91,7 +98,34 @@ public final class MapView extends JComponent {
 
     /** Creates an empty view using an explicit immutable symbol renderer registry. */
     public MapView(Projection projection, SymbolRendererRegistry symbolRenderers) {
-        this.projection = Objects.requireNonNull(projection, "projection");
+        this(configuration(projection), symbolRenderers);
+    }
+
+    /** Creates an empty view with explicit map and display coordinate reference systems. */
+    public MapView(CrsRegistry crsRegistry, CrsDefinition mapCrs, CrsDefinition displayCrs) {
+        this(crsRegistry, mapCrs, displayCrs, SymbolRendererRegistry.builtIn());
+    }
+
+    /** Creates an explicitly configured view and symbol-renderer registry. */
+    public MapView(
+            CrsRegistry crsRegistry,
+            CrsDefinition mapCrs,
+            CrsDefinition displayCrs,
+            SymbolRendererRegistry symbolRenderers) {
+        this(
+                new CoordinateConfiguration(
+                        Objects.requireNonNull(crsRegistry, "crsRegistry"),
+                        Objects.requireNonNull(mapCrs, "mapCrs"),
+                        Objects.requireNonNull(displayCrs, "displayCrs")),
+                symbolRenderers);
+    }
+
+    private MapView(CoordinateConfiguration configuration, SymbolRendererRegistry symbolRenderers) {
+        this.crsRegistry = configuration.registry();
+        this.mapCrs = configuration.mapCrs();
+        this.displayCrs = configuration.displayCrs();
+        this.mapToDisplay = crsRegistry.operation(mapCrs, displayCrs);
+        this.displayToMap = crsRegistry.operation(displayCrs, mapCrs);
         this.symbolRenderers = Objects.requireNonNull(symbolRenderers, "symbolRenderers");
         setOpaque(true);
         setBackground(Color.WHITE);
@@ -99,9 +133,14 @@ public final class MapView extends JComponent {
         installInteraction();
     }
 
-    /** Returns the projection used by this view. */
-    public Projection projection() {
-        return projection;
+    /** Returns the map-coordinate CRS used by legacy layers and pointer values. */
+    public CrsDefinition mapCrs() {
+        return mapCrs;
+    }
+
+    /** Returns the world/display CRS used by the viewport. */
+    public CrsDefinition displayCrs() {
+        return displayCrs;
     }
 
     /** Replaces the ordered layer snapshot and repaints the component. */
@@ -133,7 +172,7 @@ public final class MapView extends JComponent {
         for (Layer layer : layers) {
             if (layer.envelope().isPresent()) {
                 Envelope next =
-                        ProjectionEnvelopes.project(projection, layer.envelope().orElseThrow());
+                        mapToDisplay.transformEnvelopeStrict(layer.envelope().orElseThrow());
                 projected = projected == null ? next : projected.union(next);
             }
         }
@@ -144,9 +183,44 @@ public final class MapView extends JComponent {
         }
     }
 
-    /** Converts a screen location into source map coordinates. */
-    public Coordinate screenToMap(double screenX, double screenY) {
-        return projection.unproject(viewport().screenToWorld(screenX, screenY));
+    /** Converts a screen location into map coordinates when it lies in the inverse domain. */
+    public Optional<Coordinate> screenToMap(double screenX, double screenY) {
+        if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
+            throw new IllegalArgumentException("Screen coordinates must be finite");
+        }
+        Coordinate world;
+        try {
+            world = viewport().screenToWorld(screenX, screenY);
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(displayToMap.transform(world));
+        } catch (CrsException exception) {
+            if (isExpectedConversionMiss(exception)) {
+                return Optional.empty();
+            }
+            throw exception;
+        }
+    }
+
+    /** Converts a map coordinate into screen coordinates when it is representable. */
+    public Optional<Coordinate> mapToScreen(Coordinate coordinate) {
+        Objects.requireNonNull(coordinate, "coordinate");
+        Coordinate world;
+        try {
+            world = mapToDisplay.transform(coordinate);
+        } catch (CrsException exception) {
+            if (isExpectedConversionMiss(exception)) {
+                return Optional.empty();
+            }
+            throw exception;
+        }
+        try {
+            return Optional.of(viewport().worldToScreen(world));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
     }
 
     /** Adds a pointer listener. Duplicate instances receive duplicate callbacks. */
@@ -229,7 +303,7 @@ public final class MapView extends JComponent {
                 featureId,
                 featureGeometry,
                 renderGeometry,
-                projection,
+                mapToDisplay,
                 viewport(),
                 inheritedOpacity,
                 closedRing,
@@ -792,7 +866,7 @@ public final class MapView extends JComponent {
     }
 
     private Coordinate toScreen(Coordinate source) {
-        return viewport.worldToScreen(projection.project(source));
+        return viewport.worldToScreen(mapToDisplay.transform(source));
     }
 
     private static Color color(Rgba color) {
@@ -953,6 +1027,23 @@ public final class MapView extends JComponent {
         }
     }
 
+    private static CoordinateConfiguration configuration(Projection projection) {
+        Projection required = Objects.requireNonNull(projection, "projection");
+        CrsRegistry registry =
+                CrsRegistry.builder()
+                        .registerDefinition(required.sourceCrs(), List.of())
+                        .registerDefinition(required.targetCrs(), List.of())
+                        .registerProjection(required)
+                        .build();
+        return new CoordinateConfiguration(registry, required.sourceCrs(), required.targetCrs());
+    }
+
+    private static boolean isExpectedConversionMiss(CrsException exception) {
+        String code = exception.problem().code();
+        return code.equals("CRS_COORDINATE_OUT_OF_DOMAIN")
+                || code.equals("CRS_TRANSFORM_NON_FINITE");
+    }
+
     private void synchronizeViewportSize() {
         Dimension size = effectiveSize();
         if (viewport.width() != size.width || viewport.height() != size.height) {
@@ -965,4 +1056,7 @@ public final class MapView extends JComponent {
         int height = getHeight() > 0 ? getHeight() : getPreferredSize().height;
         return new Dimension(Math.max(1, width), Math.max(1, height));
     }
+
+    private record CoordinateConfiguration(
+            CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs) {}
 }

@@ -1,6 +1,7 @@
 package io.github.mundanej.map.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.mundanej.map.api.Coordinate;
@@ -8,6 +9,47 @@ import io.github.mundanej.map.api.Envelope;
 import org.junit.jupiter.api.Test;
 
 class MapViewportTest {
+    @Test
+    void visibleEnvelopeIsFiniteAndOverflowingViewportsFailAtConstruction() {
+        MapViewport viewport = new MapViewport(200, 100, 10.0, 20.0, 2.0);
+
+        assertEquals(new Envelope(-190.0, -80.0, 210.0, 120.0), viewport.visibleWorldEnvelope());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MapViewport(2, 2, Double.MAX_VALUE, 0.0, Double.MAX_VALUE));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> viewport.screenToWorld(Double.POSITIVE_INFINITY, 0.0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertEquals(viewport, viewport.panByPixels(Double.MAX_VALUE, 0.0)));
+        assertThrows(
+                IllegalArgumentException.class, () -> new MapViewport(2, 2, 0.0, 0.0, 1.0e308));
+        double roundedCenter = -1000.0 * Math.ulp(Double.MAX_VALUE / 2.0);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MapViewport(2, 2, roundedCenter, roundedCenter, Double.MAX_VALUE / 2.0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        MapViewport.fit(
+                                100, 100, new Envelope(0.0, 0.0, 1.0, 1.0), Double.MAX_VALUE));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> viewport.screenToWorld(Double.MAX_VALUE, 0.0));
+        MapViewport largeCenter = new MapViewport(1, 1, 1.0e308, 0.0, 1.0);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> largeCenter.worldToScreen(new Coordinate(-Double.MAX_VALUE, 0.0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(viewport.zoomAt(100.0, 50.0, Double.MIN_VALUE)));
+        MapViewport resizeSource = new MapViewport(1, 1, 0.0, 0.0, 1.0e300);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(resizeSource.resized(Integer.MAX_VALUE, Integer.MAX_VALUE)));
+    }
+
     private static final double TOLERANCE = 1.0e-9;
 
     @Test

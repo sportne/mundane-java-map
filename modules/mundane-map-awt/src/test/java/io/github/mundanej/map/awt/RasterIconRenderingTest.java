@@ -10,7 +10,6 @@ import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.PointGeometry;
-import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.Rgba;
@@ -37,23 +36,6 @@ import org.junit.jupiter.api.Test;
 
 class RasterIconRenderingTest {
     private static final int IMAGE_SIZE = 100;
-    private static final Projection IDENTITY =
-            new Projection() {
-                @Override
-                public String id() {
-                    return "identity";
-                }
-
-                @Override
-                public Coordinate project(Coordinate source) {
-                    return source;
-                }
-
-                @Override
-                public Coordinate unproject(Coordinate projected) {
-                    return projected;
-                }
-            };
 
     @Test
     void rendersNonSquareRowsAlphaAndClockwiseRotation() throws Exception {
@@ -273,7 +255,7 @@ class RasterIconRenderingTest {
     }
 
     private static MapView configuredView(Feature feature, double worldUnitsPerPixel) {
-        MapView view = new MapView(IDENTITY);
+        MapView view = TestMapViews.identity();
         view.setSize(IMAGE_SIZE, IMAGE_SIZE);
         view.setViewport(new MapViewport(IMAGE_SIZE, IMAGE_SIZE, 0, 0, worldUnitsPerPixel));
         view.setLayers(List.of(new InMemoryLayer("layer", "Layer", List.of(feature))));
