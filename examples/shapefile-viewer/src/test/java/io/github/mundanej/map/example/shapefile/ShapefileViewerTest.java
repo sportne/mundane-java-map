@@ -5,10 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
@@ -105,6 +107,32 @@ class ShapefileViewerTest {
         assertFalse(Files.exists(fixture));
     }
 
+    @Test
+    void rendersSingleAndMultipartLinesWithoutBridgingParts() throws Exception {
+        Path fixture = temporaryDirectory.resolve("lines.shp");
+        Files.write(fixture, polylineFixture());
+
+        RenderedView rendered = render(fixture);
+        var projection =
+                CrsRegistry.level1().operation(CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_3857);
+        Coordinate firstPart =
+                rendered.viewport().worldToScreen(projection.transform(new Coordinate(0, 0)));
+        Coordinate secondPart =
+                rendered.viewport().worldToScreen(projection.transform(new Coordinate(2, 0)));
+        Coordinate singlePart =
+                rendered.viewport().worldToScreen(projection.transform(new Coordinate(-1.5, -0.5)));
+        Coordinate interPartGap =
+                rendered.viewport().worldToScreen(projection.transform(new Coordinate(1, 1)));
+
+        assertTrue(hasColoredPixel(rendered.image(), singlePart, 3));
+        assertTrue(hasColoredPixel(rendered.image(), firstPart, 3));
+        assertTrue(hasColoredPixel(rendered.image(), secondPart, 3));
+        assertFalse(hasColoredPixel(rendered.image(), interPartGap, 3));
+        SwingUtilities.invokeAndWait(rendered.map()::close);
+        Files.delete(fixture);
+        assertFalse(Files.exists(fixture));
+    }
+
     private static RenderedView render(Path fixture) throws Exception {
         AtomicReference<MapView> mapReference = new AtomicReference<>();
         AtomicReference<BufferedImage> imageReference = new AtomicReference<>();
@@ -157,6 +185,23 @@ class ShapefileViewerTest {
             }
         }
         return count;
+    }
+
+    private static boolean hasColoredPixel(BufferedImage image, Coordinate coordinate, int radius) {
+        int centerX = (int) Math.round(coordinate.x());
+        int centerY = (int) Math.round(coordinate.y());
+        for (int row = Math.max(0, centerY - radius);
+                row <= Math.min(image.getHeight() - 1, centerY + radius);
+                row++) {
+            for (int column = Math.max(0, centerX - radius);
+                    column <= Math.min(image.getWidth() - 1, centerX + radius);
+                    column++) {
+                if (image.getRGB(column, row) != 0xffff_ffff) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static RenderSignature signature(BufferedImage image) {
@@ -228,6 +273,59 @@ class ShapefileViewerTest {
         bytes.putInt(56).putInt(36);
         assertEquals(116, bytes.position());
         return bytes.array();
+    }
+
+    private static byte[] polylineFixture() {
+        byte[] nullShape = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(0).array();
+        byte[] single = polyline(new int[] {0}, -2, -0.5, -1, -0.5);
+        byte[] multipart = polyline(new int[] {0, 2}, 0, -1, 0, 1, 2, 1, 2, -1);
+        int size = 100 + 8 + nullShape.length + 8 + single.length + 8 + multipart.length;
+        ByteBuffer bytes = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN);
+        bytes.putInt(9994);
+        for (int index = 0; index < 5; index++) {
+            bytes.putInt(0);
+        }
+        bytes.putInt(size / 2);
+        bytes.order(ByteOrder.LITTLE_ENDIAN).putInt(1000).putInt(3);
+        putBounds(bytes, -2, -1, 2, 1);
+        bytes.putDouble(0).putDouble(0).putDouble(0).putDouble(0);
+        putRecord(bytes, 1, nullShape);
+        putRecord(bytes, 2, single);
+        putRecord(bytes, 3, multipart);
+        assertEquals(size, bytes.position());
+        return bytes.array();
+    }
+
+    private static byte[] polyline(int[] starts, double... coordinates) {
+        int points = coordinates.length / 2;
+        double minX = Double.POSITIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY;
+        double maxY = Double.NEGATIVE_INFINITY;
+        for (int index = 0; index < coordinates.length; index += 2) {
+            minX = Math.min(minX, coordinates[index]);
+            minY = Math.min(minY, coordinates[index + 1]);
+            maxX = Math.max(maxX, coordinates[index]);
+            maxY = Math.max(maxY, coordinates[index + 1]);
+        }
+        ByteBuffer bytes =
+                ByteBuffer.allocate(44 + starts.length * 4 + coordinates.length * 8)
+                        .order(ByteOrder.LITTLE_ENDIAN);
+        bytes.putInt(3);
+        putBounds(bytes, minX, minY, maxX, maxY);
+        bytes.putInt(starts.length).putInt(points);
+        for (int start : starts) {
+            bytes.putInt(start);
+        }
+        for (double coordinate : coordinates) {
+            bytes.putDouble(coordinate);
+        }
+        return bytes.array();
+    }
+
+    private static void putRecord(ByteBuffer bytes, int number, byte[] content) {
+        bytes.order(ByteOrder.BIG_ENDIAN).putInt(number).putInt(content.length / 2);
+        bytes.put(content);
     }
 
     private static void putBounds(

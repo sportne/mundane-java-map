@@ -1,6 +1,6 @@
 # G5-004 — Polyline multipart slice
 
-Status: Proposed
+Status: Complete
 Depends on: G5-002
 Gate: G5
 Type: AFK
@@ -78,3 +78,10 @@ git diff --check
 Keep format decoding separate from AWT rendering. Use the G5 design's private `ShpMultipartReader`
 and `PolylineDecoder`; validate every value as it enters packed storage and publish only through the
 immutable G4 geometry factories. G5-005 reuses the framing reader but owns all polygon semantics.
+
+Completed on 2026-07-14 with a bounded package-private multipart reader and PolyLine decoder. Type-3
+records now preserve singular or packed multipart geometry without bridging parts, while exact
+count, size, allocation, table, coordinate, bounds, cancellation, and diagnostic rules are enforced
+before publication. Byte-authored fixtures cover sequential and SHX-backed decoding, full validation
+before filtering, source reuse after failure, and offscreen viewer rendering with an unpainted
+inter-part gap. Polygon semantics remain staged for G5-005.

@@ -155,7 +155,7 @@ Level 1 is complete only when G8-004 is complete.
 | [G5-001 — Shapefile supported-profile decision](G5-001-shapefile-supported-profile-decision.md) | Complete | HITL | G4-002, G4-003 | Lock the supported 2D shape, sidecar, encoding, mismatch, and limits profile. |
 | [G5-002 — SHP point/multipoint sequential slice](G5-002-shp-point-multipoint-sequential-slice.md) | Complete | AFK | G5-001 | Read and render null, point, and multipoint records from a new working adapter. |
 | [G5-003 — SHX indexed access](G5-003-shx-indexed-access.md) | Complete | AFK | G5-002 | Add validated indexed access and deterministic fallback behavior. |
-| [G5-004 — Polyline multipart slice](G5-004-polyline-multipart-slice.md) | Proposed | AFK | G5-002 | Read and render bounded single- and multipart polylines. |
+| [G5-004 — Polyline multipart slice](G5-004-polyline-multipart-slice.md) | Complete | AFK | G5-002 | Read and render bounded single- and multipart polylines. |
 | [G5-005 — Polygon holes and multipart slice](G5-005-polygon-holes-multipart-slice.md) | Proposed | AFK | G5-004 | Read and render multipart polygons and holes predictably. |
 | [G5-006 — DBF/CPG attributes and encoding](G5-006-dbf-cpg-attributes-and-encoding.md) | Proposed | AFK | G5-002 | Expose bounded DBF attributes with explicit CPG/fallback behavior. |
 | [G5-007 — PRJ retention and recognized CRS](G5-007-prj-retention-and-recognized-crs.md) | Proposed | AFK | G5-002, G4-002 | Retain PRJ text and recognize only explicitly registered CRS definitions. |

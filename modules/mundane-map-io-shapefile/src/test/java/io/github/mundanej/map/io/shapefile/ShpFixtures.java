@@ -69,6 +69,37 @@ final class ShpFixtures {
         return b.array();
     }
 
+    static byte[] polyline(int[] partStarts, double... xy) {
+        int pointCount = xy.length / 2;
+        double minX = Double.POSITIVE_INFINITY,
+                minY = Double.POSITIVE_INFINITY,
+                maxX = Double.NEGATIVE_INFINITY,
+                maxY = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < xy.length; i += 2) {
+            minX = Math.min(minX, xy[i]);
+            minY = Math.min(minY, xy[i + 1]);
+            maxX = Math.max(maxX, xy[i]);
+            maxY = Math.max(maxY, xy[i + 1]);
+        }
+        ByteBuffer buffer =
+                ByteBuffer.allocate(44 + partStarts.length * 4 + pointCount * 16)
+                        .order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putInt(3)
+                .putDouble(minX)
+                .putDouble(minY)
+                .putDouble(maxX)
+                .putDouble(maxY)
+                .putInt(partStarts.length)
+                .putInt(pointCount);
+        for (int start : partStarts) {
+            buffer.putInt(start);
+        }
+        for (double value : xy) {
+            buffer.putDouble(value);
+        }
+        return buffer.array();
+    }
+
     static byte[] typed(int type, int bytes) {
         ByteBuffer b = ByteBuffer.allocate(bytes).order(ByteOrder.LITTLE_ENDIAN);
         b.putInt(type);

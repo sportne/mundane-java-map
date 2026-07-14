@@ -152,13 +152,13 @@ class ShapefilesIntegrationTest {
     }
 
     @Test
-    void stagesPolylineAndPolygonHeadersButRejectsZHeaders() throws Exception {
+    void acceptsPolylineStagesPolygonAndRejectsZHeaders() throws Exception {
         Path polyline = write("line.shp", ShpFixtures.file(3, 0, 0, 1, 1));
-        SourceException lineFailure = assertThrows(SourceException.class, () -> open(polyline));
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", lineFailure.terminal().code());
-        assertEquals("polyline", lineFailure.terminal().context().get("profile"));
-        assertEquals(
-                32, lineFailure.terminal().location().orElseThrow().byteOffset().orElseThrow());
+        try (FeatureSource source = open(polyline);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            assertFalse(cursor.advance());
+        }
 
         Path polygon = write("area.shp", ShpFixtures.file(5, 0, 0, 1, 1));
         SourceException areaFailure = assertThrows(SourceException.class, () -> open(polygon));
@@ -370,14 +370,14 @@ class ShapefilesIntegrationTest {
                         "allocation-boundary.shp",
                         ShpFixtures.file(8, 0, 0, 1, 1, ShpFixtures.multipoint(0, 0, 1, 1)));
         assertFirstRecordWithLimits(
-                multipoint, ShapefileLimits.defaults().withMaximumParserAllocationBytes(164));
+                multipoint, ShapefileLimits.defaults().withMaximumParserAllocationBytes(168));
         SourceException allocationFailure =
                 firstAdvanceFailure(
                         multipoint,
-                        ShapefileLimits.defaults().withMaximumParserAllocationBytes(163));
+                        ShapefileLimits.defaults().withMaximumParserAllocationBytes(167));
         assertEquals("parserAllocationBytes", allocationFailure.terminal().context().get("limit"));
-        assertEquals("164", allocationFailure.terminal().context().get("requested"));
-        assertEquals("163", allocationFailure.terminal().context().get("maximum"));
+        assertEquals("168", allocationFailure.terminal().context().get("requested"));
+        assertEquals("167", allocationFailure.terminal().context().get("maximum"));
     }
 
     @Test

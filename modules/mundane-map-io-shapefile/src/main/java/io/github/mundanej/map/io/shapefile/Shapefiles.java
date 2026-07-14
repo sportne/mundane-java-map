@@ -382,7 +382,7 @@ public final class Shapefiles {
             throw header(source, 28, "version", Map.of());
         }
         int type = little.getInt(32);
-        if (type == 3 || type == 5) {
+        if (type == 5) {
             throw ShapefileFailures.failure(
                     source,
                     "SHAPEFILE_PROFILE_NOT_IMPLEMENTED",
@@ -390,9 +390,9 @@ public final class Shapefiles {
                     OptionalLong.empty(),
                     32,
                     "Shapefile geometry profile is not implemented",
-                    Map.of("profile", type == 3 ? "polyline" : "polygon"));
+                    Map.of("profile", "polygon"));
         }
-        if (type != 0 && type != 1 && type != 8) {
+        if (type != 0 && type != 1 && type != 3 && type != 8) {
             throw ShapefileFailures.failure(
                     source,
                     "SHAPEFILE_SHAPE_TYPE_UNSUPPORTED",

@@ -25,11 +25,24 @@ final class ShapefileFailures {
             long offset,
             String message,
             Map<String, String> context) {
+        return failure(
+                source, code, component, record, OptionalInt.empty(), offset, message, context);
+    }
+
+    static SourceException failure(
+            String source,
+            String code,
+            String component,
+            OptionalLong record,
+            OptionalInt part,
+            long offset,
+            String message,
+            Map<String, String> context) {
         DiagnosticLocation location =
                 new DiagnosticLocation(
                         Optional.of(component),
                         record,
-                        OptionalInt.empty(),
+                        part,
                         OptionalInt.empty(),
                         Optional.empty(),
                         offset < 0 ? OptionalLong.empty() : OptionalLong.of(offset));

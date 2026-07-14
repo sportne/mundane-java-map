@@ -50,6 +50,19 @@ final class ShapefileAccounting {
         }
     }
 
+    void parts(long count, long record, long offset) {
+        if (count > limits.maximumParts()) {
+            throw ShapefileFailures.limit(
+                    source,
+                    scope,
+                    "parts",
+                    count,
+                    limits.maximumParts(),
+                    OptionalLong.of(record),
+                    offset);
+        }
+    }
+
     void allocate(long bytes, OptionalLong record, long offset) {
         allocation =
                 charge(

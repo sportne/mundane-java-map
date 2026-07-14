@@ -111,6 +111,33 @@ class ShapefileFileAccessTest {
     }
 
     @Test
+    void reportsPolylinePartTableAndCoordinateShortReadsAtFirstMissingByte() {
+        byte[] content = ShpFixtures.polyline(new int[] {0}, 0, 0, 2, 2);
+
+        FakeAccess table = new FakeAccess(ShpFixtures.file(3, 0, 0, 2, 2, content));
+        try (FeatureSource source = openSource(table);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            table.channel.readLimit = 154;
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertTruncatedPolyline(result, 46, 154);
+        }
+
+        FakeAccess coordinates = new FakeAccess(ShpFixtures.file(3, 0, 0, 2, 2, content));
+        try (FeatureSource source = openSource(coordinates);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            coordinates.channel.readLimit = 178;
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertTruncatedPolyline(result, 70, 178);
+        }
+    }
+
+    @Test
     void cursorReadFailureIsStructuredAndReleasesTheCursorSlot() {
         FakeAccess access =
                 new FakeAccess(ShpFixtures.file(1, 0, 0, 1, 1, ShpFixtures.point(1, 1)));
@@ -182,6 +209,75 @@ class ShapefileFileAccessTest {
         assertMultipointCancellationAtCheckpoint(16);
     }
 
+    @Test
+    void polylineCancellationDuringCoordinateReadReleasesTheCursorSlot() {
+        FakeAccess access =
+                new FakeAccess(
+                        ShpFixtures.file(
+                                3, 0, 0, 2, 2, ShpFixtures.polyline(new int[] {0}, 0, 0, 2, 2)));
+        try (FeatureSource source = openSource(access)) {
+            CancellationToken cancellation = () -> access.channel.lastReadPosition >= 156;
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), cancellation);
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertEquals("SOURCE_CANCELLED", result.terminal().code());
+            try (FeatureCursor replacement =
+                    source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+                assertTrue(replacement.advance());
+            }
+        }
+    }
+
+    @Test
+    void polylineCancellationImmediatelyBeforeVariableAllocationReleasesTheCursorSlot() {
+        FakeAccess access =
+                new FakeAccess(
+                        ShpFixtures.file(
+                                3, 0, 0, 2, 2, ShpFixtures.polyline(new int[] {0}, 0, 0, 2, 2)));
+        try (FeatureSource source = openSource(access)) {
+            int[] checkpointsAfterPrefix = {0};
+            CancellationToken cancellation =
+                    () -> access.channel.lastReadLength == 44 && ++checkpointsAfterPrefix[0] == 2;
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), cancellation);
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertEquals("SOURCE_CANCELLED", result.terminal().code());
+            assertEquals(2, checkpointsAfterPrefix[0]);
+            try (FeatureCursor replacement =
+                    source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+                assertTrue(replacement.advance());
+            }
+        }
+    }
+
+    @Test
+    void polylineCustomCancellationThrowablePropagatesAfterCursorCleanup() {
+        FakeAccess access =
+                new FakeAccess(
+                        ShpFixtures.file(
+                                3, 0, 0, 2, 2, ShpFixtures.polyline(new int[] {0}, 0, 0, 2, 2)));
+        try (FeatureSource source = openSource(access)) {
+            MarkerFailure marker = new MarkerFailure();
+            CancellationToken cancellation =
+                    () -> {
+                        if (access.channel.lastReadPosition >= 156) {
+                            throw marker;
+                        }
+                        return false;
+                    };
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), cancellation);
+
+            assertSame(marker, assertThrows(MarkerFailure.class, cursor::advance));
+
+            try (FeatureCursor replacement =
+                    source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+                assertTrue(replacement.advance());
+            }
+        }
+    }
+
     private static void assertMultipointCancellationAtCheckpoint(int cancellationCheck) {
         FakeAccess access =
                 new FakeAccess(ShpFixtures.file(8, 0, 0, 1, 1, ShpFixtures.multipoint(0, 0)));
@@ -214,6 +310,20 @@ class ShapefileFileAccessTest {
         assertEquals("SHAPEFILE_IO_FAILED", failure.terminal().code());
         assertEquals(operation, failure.terminal().context().get("operation"));
         assertEquals(causeKind, failure.terminal().context().get("causeKind"));
+    }
+
+    private static void assertTruncatedPolyline(
+            SourceException failure, long actualBytes, long offset) {
+        assertEquals("SHAPEFILE_RECORD_LENGTH_INVALID", failure.terminal().code());
+        assertEquals("truncatedPayload", failure.terminal().context().get("reason"));
+        assertEquals("80", failure.terminal().context().get("expectedBytes"));
+        assertEquals(Long.toString(actualBytes), failure.terminal().context().get("actualBytes"));
+        assertEquals(
+                offset, failure.terminal().location().orElseThrow().byteOffset().orElseThrow());
+    }
+
+    private static final class MarkerFailure extends RuntimeException {
+        private static final long serialVersionUID = 1L;
     }
 
     private static final class FakeAccess implements ShapefileFileAccess {
@@ -267,6 +377,8 @@ class ShapefileFileAccessTest {
         private IOException readFailure;
         private IOException closeFailure;
         private int readLimit = Integer.MAX_VALUE;
+        private long lastReadPosition = -1;
+        private int lastReadLength;
         private long reportedSize;
         private int closeCount;
 
@@ -285,6 +397,8 @@ class ShapefileFileAccessTest {
 
         @Override
         public int read(ByteBuffer target, long position) throws IOException {
+            lastReadPosition = position;
+            lastReadLength = target.remaining();
             if (readFailure != null) {
                 throw readFailure;
             }

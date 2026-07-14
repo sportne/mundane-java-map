@@ -89,6 +89,10 @@ polygons, corpus/fuzz hardening, and Native Image evidence.
 G5-003 is complete: a validated SHX sidecar becomes one immutable packed physical-address table;
 missing or rejected indexes emit a stable opening warning and fall back wholly to the sequential
 oracle, while indexed cursors revalidate SHP framing and never expose random or spatial access.
+G5-004 is complete: bounded type-3 PolyLine records map to immutable singular or packed multipart
+line geometry after exact prefix, count, size, allocation, part-table, coordinate, and bounds
+validation. Sequential and SHX-backed paths share the decoder, filtered records remain fully
+validated, and the viewer renders every part without introducing a bridge.
 
 ## Level 1
 

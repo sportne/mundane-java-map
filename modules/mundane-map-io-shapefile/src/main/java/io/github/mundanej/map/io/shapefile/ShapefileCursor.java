@@ -43,6 +43,7 @@ final class ShapefileCursor implements FeatureCursor {
     private final ByteBuffer point;
     private final ByteBuffer prefix;
     private final ByteBuffer coordinate;
+    private final PolylineDecoder polylineDecoder;
     private long nextOffset = 100;
     private long ordinal = 1;
     private int indexEntry;
@@ -70,11 +71,20 @@ final class ShapefileCursor implements FeatureCursor {
         format =
                 new ShapefileAccounting(
                         source.metadata().identity().id(), "shapefileCursor", formatLimits);
-        format.allocate(84, OptionalLong.empty(), 100);
+        format.allocate(88, OptionalLong.empty(), 100);
         recordHeader = ByteBuffer.allocate(8);
         point = ByteBuffer.allocate(20);
-        prefix = ByteBuffer.allocate(40);
+        prefix = ByteBuffer.allocate(44);
         coordinate = ByteBuffer.allocate(16);
+        polylineDecoder =
+                new PolylineDecoder(
+                        source.metadata().identity().id(),
+                        channel,
+                        cancellation,
+                        format,
+                        header.extent(),
+                        prefix,
+                        coordinate);
     }
 
     @Override
@@ -202,9 +212,12 @@ final class ShapefileCursor implements FeatureCursor {
                                     Integer.toString(type)));
                 }
                 Geometry geometry =
-                        type == 1
-                                ? decodePointRecord(recordOrdinal, start, contentBytes)
-                                : decodeMultiPoint(recordOrdinal, start, contentBytes);
+                        switch (type) {
+                            case 1 -> decodePointRecord(recordOrdinal, start, contentBytes);
+                            case 3 -> polylineDecoder.decode(recordOrdinal, start, contentBytes);
+                            case 8 -> decodeMultiPoint(recordOrdinal, start, contentBytes);
+                            default -> throw new IllegalStateException("Validated shape type");
+                        };
                 if (query.sourceBounds().isPresent()
                         && !intersects(geometry.envelope(), query.sourceBounds().orElseThrow())) {
                     continue;
