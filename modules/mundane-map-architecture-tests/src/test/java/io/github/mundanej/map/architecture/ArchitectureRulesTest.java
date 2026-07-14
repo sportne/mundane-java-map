@@ -125,6 +125,127 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void featureSourceSliceRemainsSynchronousAndToolkitNeutral() {
+        ModuleDescriptor api = moduleEndingWith("mundane-map-api");
+        ModuleDescriptor core = moduleEndingWith("mundane-map-core");
+        List<JavaClass> sourceSlice =
+                java.util.stream.Stream.concat(
+                                classesByModule.get(api).stream(),
+                                classesByModule.get(core).stream())
+                        .filter(
+                                type ->
+                                        type.getSimpleName().contains("Source")
+                                                || type.getSimpleName().contains("FeatureCursor")
+                                                || type.getSimpleName().contains("FeatureQuery")
+                                                || type.getSimpleName().contains("FeatureRecord")
+                                                || type.getSimpleName().startsWith("Attribute")
+                                                || type.getSimpleName().startsWith("Diagnostic")
+                                                || type.getSimpleName().startsWith("Cancellation")
+                                                || type.getSimpleName().startsWith("Multi"))
+                        .toList();
+
+        List<String> violations =
+                sourceSlice.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.equals("java.lang.Thread")
+                                                || target.startsWith(
+                                                        "java.util.concurrent.Executor")
+                                                || target.startsWith("java.util.concurrent.Flow")
+                                                || target.startsWith("java.util.concurrent.Future")
+                                                || target.startsWith(
+                                                        "java.util.concurrent.CompletableFuture"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+
+        assertFalse(sourceSlice.isEmpty(), "Expected the production feature-source slice");
+        assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void featureSourceCompositionAddsNoPrefetchOrRetainedRecordCache() {
+        List<JavaClass> production =
+                classesByModule.values().stream().flatMap(JavaClasses::stream).toList();
+        List<String> speculativeWorkers =
+                production.stream()
+                        .map(JavaClass::getSimpleName)
+                        .filter(
+                                name ->
+                                        name.contains("Prefetch")
+                                                || name.contains("FeatureQueryCache")
+                                                || name.contains("FeatureRecordCache"))
+                        .sorted()
+                        .toList();
+        JavaClass mapView =
+                classesByModule
+                        .get(moduleEndingWith("mundane-map-awt"))
+                        .get("io.github.mundanej.map.awt.MapView");
+        String featureRecordType = "io.github.mundanej.map.api.FeatureRecord";
+        List<JavaClass> awtComposition =
+                classesByModule.get(moduleEndingWith("mundane-map-awt")).stream()
+                        .filter(
+                                type ->
+                                        type.getSimpleName().equals("MapView")
+                                                || type.getSimpleName().equals("MapLayerBinding")
+                                                || type.getSimpleName().startsWith("AwtSymbol"))
+                        .toList();
+        List<String> hiddenWorkers =
+                awtComposition.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.equals("java.lang.Thread")
+                                                || target.startsWith(
+                                                        "java.util.concurrent.Executor")
+                                                || target.startsWith("java.util.concurrent.Flow")
+                                                || target.startsWith("java.util.concurrent.Future")
+                                                || target.startsWith(
+                                                        "java.util.concurrent.CompletableFuture"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        List<String> retainedRecords =
+                mapView.getFields().stream()
+                        .filter(
+                                field ->
+                                        field.getAllInvolvedRawTypes().stream()
+                                                .anyMatch(
+                                                        type ->
+                                                                type.getName()
+                                                                        .equals(featureRecordType)))
+                        .map(field -> field.getFullName())
+                        .toList();
+        List<String> emptyFormatModules =
+                modules.stream()
+                        .filter(module -> module.path().contains(":mundane-map-io-"))
+                        .filter(module -> classesByModule.get(module).isEmpty())
+                        .map(ModuleDescriptor::path)
+                        .sorted()
+                        .toList();
+
+        assertTrue(speculativeWorkers.isEmpty(), () -> String.join("\n", speculativeWorkers));
+        assertTrue(hiddenWorkers.isEmpty(), () -> String.join("\n", hiddenWorkers));
+        assertTrue(retainedRecords.isEmpty(), () -> String.join("\n", retainedRecords));
+        assertTrue(emptyFormatModules.isEmpty(), () -> String.join("\n", emptyFormatModules));
+    }
+
+    @Test
     void nativeSmokeSupportAvoidsProhibitedMechanisms() {
         List<String> violations =
                 ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);

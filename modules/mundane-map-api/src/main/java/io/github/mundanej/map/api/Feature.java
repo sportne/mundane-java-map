@@ -11,9 +11,15 @@ public record Feature(
         id = requireText(id, "id");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(geometry, "geometry");
-        attributes = Map.copyOf(Objects.requireNonNull(attributes, "attributes"));
+        attributes = AttributeValues.canonicalize(attributes);
         Objects.requireNonNull(symbol, "symbol");
         validateSymbolRole(id, geometry, symbol);
+    }
+
+    /** Returns the immutable insertion-ordered owned attributes. */
+    @Override
+    public Map<String, Object> attributes() {
+        return java.util.Collections.unmodifiableMap(attributes);
     }
 
     private static String requireText(String value, String name) {
@@ -57,6 +63,15 @@ public record Feature(
         if (geometry instanceof PolygonGeometry) {
             return SymbolRole.FILL;
         }
+        if (geometry instanceof MultiPointGeometry) {
+            return SymbolRole.MARKER;
+        }
+        if (geometry instanceof MultiLineStringGeometry) {
+            return SymbolRole.LINE;
+        }
+        if (geometry instanceof MultiPolygonGeometry) {
+            return SymbolRole.FILL;
+        }
         throw new IllegalArgumentException("Unsupported geometry type");
     }
 
@@ -81,6 +96,15 @@ public record Feature(
         }
         if (geometry instanceof PolygonGeometry) {
             return "POLYGON";
+        }
+        if (geometry instanceof MultiPointGeometry) {
+            return "MULTI_POINT";
+        }
+        if (geometry instanceof MultiLineStringGeometry) {
+            return "MULTI_LINE_STRING";
+        }
+        if (geometry instanceof MultiPolygonGeometry) {
+            return "MULTI_POLYGON";
         }
         return "UNSUPPORTED";
     }

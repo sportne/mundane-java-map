@@ -47,8 +47,8 @@ evidence makes no Windows or macOS Native Image claim.
 G4-001 is complete: the maintainer-approved format-neutral source profile fixes synchronous bounded
 feature/raster pull contracts, explicit ownership and close behavior, canonical immutable attributes,
 typed limits, cancellation checkpoints, strict raster windows, and stable structured diagnostics.
-The approved signatures are compiled as test-only sketches; production contracts remain deferred to
-the G4-003 and G4-004 vertical slices.
+The approved signatures began as test-only sketches. G4-003 now supplies the common and feature-side
+production contracts; raster-specific contracts remain deferred to G4-004.
 G4-002 is complete: CRS metadata now distinguishes recognized, unknown, and missing states; an
 instance-owned registry explicitly resolves the approved EPSG:4326/EPSG:3857 keys and direct
 operations; and strict projection, envelope, viewport, view, and optional pointer boundaries replace
@@ -66,6 +66,10 @@ selection overlays after source content while lifecycle changes conservatively i
 G3-004 is complete: explicit CRS-bound metre strategies drive a packed immutable measurement state,
 bounded command routing, one AWT-owned click measurement tool and clipped final overlay, plus a
 runnable planar/geographic measurement example.
+G4-003 is complete: canonical immutable feature records, typed limits, cancellation and structured
+diagnostics feed a one-cursor in-memory source; packed multipoint/multipart geometry renders and hits
+through explicit owned or borrowed AWT bindings with bounded viewport queries, CRS preflight,
+source reports, stable interaction identity, and deterministic teardown.
 
 ## Level 1
 

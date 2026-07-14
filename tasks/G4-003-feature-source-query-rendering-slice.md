@@ -1,6 +1,6 @@
 # G4-003 — Feature Source Query Rendering Slice
 
-Status: Proposed
+Status: Complete
 Depends on: G2-005, G3-003, G3-004, G4-001, G4-002
 Gate: G4
 Type: AFK

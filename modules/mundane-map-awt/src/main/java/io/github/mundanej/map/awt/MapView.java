@@ -1,14 +1,22 @@
 package io.github.mundanej.map.awt;
 
+import io.github.mundanej.map.api.AttributeSelection;
 import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.CrsException;
+import io.github.mundanej.map.api.DiagnosticLocation;
+import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.DiagnosticSeverity;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
+import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureOverlaySymbols;
+import io.github.mundanej.map.api.FeatureQuery;
+import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSelection;
+import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.HatchFillSymbol;
@@ -25,6 +33,8 @@ import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
 import io.github.mundanej.map.api.MapSelectionEvent;
 import io.github.mundanej.map.api.MapSelectionListener;
+import io.github.mundanej.map.api.MapSourceReportEvent;
+import io.github.mundanej.map.api.MapSourceReportListener;
 import io.github.mundanej.map.api.MapTool;
 import io.github.mundanej.map.api.MapToolCancelReason;
 import io.github.mundanej.map.api.MapToolCommand;
@@ -32,6 +42,9 @@ import io.github.mundanej.map.api.MapToolCommandEvent;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MeasurementState;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
+import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
@@ -40,6 +53,8 @@ import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.SourceDiagnostic;
+import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRendererKey;
@@ -48,6 +63,7 @@ import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.FeatureQueryAccounting;
 import io.github.mundanej.map.core.HatchLayouts;
 import io.github.mundanej.map.core.HatchSegments;
 import io.github.mundanej.map.core.LineEndpointBearings;
@@ -56,6 +72,8 @@ import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapToolRouter;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.MarkerTransform;
+import io.github.mundanej.map.core.QueryEnvelopeStatus;
+import io.github.mundanej.map.core.QueryEnvelopeTransform;
 import io.github.mundanej.map.core.RouteOutcome;
 import io.github.mundanej.map.core.ScreenGeometryHits;
 import io.github.mundanej.map.core.SymbolTransforms;
@@ -109,7 +127,7 @@ import javax.swing.KeyStroke;
  * serialization is inherited for framework compatibility and is not a persistence format.
  */
 @SuppressWarnings({"deprecation", "serial"})
-public final class MapView extends JComponent {
+public final class MapView extends JComponent implements AutoCloseable {
     /** Default logical-pixel tolerance for click selection. */
     public static final double DEFAULT_SELECTION_TOLERANCE_PIXELS = 4.0;
 
@@ -131,10 +149,15 @@ public final class MapView extends JComponent {
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private final List<MapHoverListener> hoverListeners = new ArrayList<>();
     private final List<MapSelectionListener> selectionListeners = new ArrayList<>();
+    private final List<MapSourceReportListener> sourceReportListeners = new ArrayList<>();
+    private final Deque<MapSourceReportEvent> sourceReportNotifications = new ArrayDeque<>();
     private final Deque<InteractionNotification> interactionNotifications = new ArrayDeque<>();
     private final Set<MeasurementTool> measurementClaims =
             Collections.newSetFromMap(new IdentityHashMap<>());
-    private List<Layer> layers = List.of();
+    private List<MapLayerBinding> bindings = List.of();
+    private Map<MapLayerBinding, ResolvedFeatureBinding> resolvedFeatureBindings = Map.of();
+    private final LinkedHashMap<String, DiagnosticReport> sourceReports = new LinkedHashMap<>();
+    private final Map<String, Boolean> sourceAvailability = new LinkedHashMap<>();
     private Optional<FeatureSelection> selection = Optional.empty();
     private Optional<MapHit> hover = Optional.empty();
     private Optional<HoverProbe> hoverProbe = Optional.empty();
@@ -151,6 +174,8 @@ public final class MapView extends JComponent {
     private Set<MapInputModifier> lastModifiers = Set.of();
     private long toolEventSequence;
     private int routerCallDepth;
+    private boolean closed;
+    private boolean drainingSourceReportNotifications;
 
     /** Creates an empty view using the supplied source-to-world projection. */
     public MapView(Projection projection) {
@@ -207,6 +232,7 @@ public final class MapView extends JComponent {
 
     /** Installs one active tool, replacing a distinct active instance by identity. */
     public void setActiveTool(MapTool tool) {
+        requireOpen();
         Objects.requireNonNull(tool, "tool");
         if (tool instanceof MeasurementTool measurement) {
             measurement.claim(this);
@@ -235,6 +261,7 @@ public final class MapView extends JComponent {
 
     /** Clears the active tool, if present. */
     public void clearActiveTool() {
+        requireOpen();
         ToolContextSnapshot context = toolContextSnapshot();
         try {
             applyToolOutcome(
@@ -257,52 +284,140 @@ public final class MapView extends JComponent {
         return toolRouter.activeTool();
     }
 
-    /** Replaces the ordered layer snapshot and repaints the component. */
+    /** Replaces the ordered eager-layer compatibility snapshot. */
     public void setLayers(List<Layer> layers) {
         List<Layer> candidate = List.copyOf(Objects.requireNonNull(layers, "layers"));
-        ViewContentSnapshot snapshot = captureContent(candidate);
-        Optional<FeatureSelection> reconciled = reconcile(selection, snapshot);
-        this.layers = candidate;
+        List<MapLayerBinding> mapped = new ArrayList<>(candidate.size());
+        for (Layer layer : candidate) {
+            mapped.add(MapLayerBinding.snapshot(Objects.requireNonNull(layer, "layer")));
+        }
+        setLayerBindings(mapped);
+    }
+
+    /** Returns eager layers in relative order, excluding source-backed bindings. */
+    public List<Layer> layers() {
+        List<Layer> result = new ArrayList<>();
+        for (MapLayerBinding binding : bindings) {
+            if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
+                result.add(binding.layer());
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    /** Replaces the complete ordered layer-binding stack transactionally. */
+    public void setLayerBindings(List<MapLayerBinding> requested) {
+        requireOpen();
+        List<MapLayerBinding> candidate =
+                List.copyOf(Objects.requireNonNull(requested, "bindings"));
+        CandidateBindings validated = validateBindings(candidate);
+        Set<MapLayerBinding> oldIdentities = identitySet(bindings);
+        List<MapLayerBinding> acquired = new ArrayList<>();
+        try {
+            for (MapLayerBinding binding : candidate) {
+                if (!oldIdentities.contains(binding)) {
+                    binding.claim(this);
+                    acquired.add(binding);
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            for (int index = acquired.size() - 1; index >= 0; index--) {
+                acquired.get(index).release(this);
+            }
+            throw failure;
+        }
+
+        List<MapLayerBinding> previous = bindings;
+        Optional<FeatureSelection> reconciled =
+                reconcileAfterBindingReplacement(selection, previous, candidate);
+        bindings = candidate;
+        resolvedFeatureBindings = validated.resolved();
         hoverProbe = Optional.empty();
         hoverPaintState = Optional.empty();
         selectionPaintState = Optional.empty();
-        boolean interactionChanged = transitionInteraction(reconciled, Optional.empty(), true);
-        if (!interactionChanged) {
-            repaint();
+        Throwable interactionFailure = null;
+        try {
+            boolean interactionChanged = transitionInteraction(reconciled, Optional.empty(), true);
+            if (!interactionChanged) {
+                repaint();
+            }
+        } catch (RuntimeException | Error failure) {
+            interactionFailure = failure;
+        }
+
+        Throwable failure = releaseRemoved(previous, candidate);
+        if (failure == null) {
+            failure = interactionFailure;
+        } else if (interactionFailure != null) {
+            suppressDistinct(failure, interactionFailure);
+        }
+        reconcileReportsAfterReplacement(previous, candidate);
+        failure = drainSourceReportNotifications(failure);
+        if (failure != null) {
+            throwUnchecked(failure);
         }
     }
 
-    /** Returns the ordered layer snapshot. */
-    public List<Layer> layers() {
-        return layers;
+    /** Returns the complete immutable ordered binding stack. */
+    public List<MapLayerBinding> layerBindings() {
+        return bindings;
+    }
+
+    /** Returns non-empty source reports in installed layer order. */
+    public Map<String, DiagnosticReport> sourceReports() {
+        LinkedHashMap<String, DiagnosticReport> ordered = new LinkedHashMap<>();
+        for (MapLayerBinding binding : bindings) {
+            DiagnosticReport report = sourceReports.get(binding.id());
+            if (binding.kind() == MapLayerBinding.Kind.FEATURE
+                    && report != null
+                    && !report.entries().isEmpty()) {
+                ordered.put(binding.id(), report);
+            }
+        }
+        return Collections.unmodifiableMap(ordered);
+    }
+
+    /** Adds a source-report listener; duplicate instances receive duplicate callbacks. */
+    public void addMapSourceReportListener(MapSourceReportListener listener) {
+        sourceReportListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    /** Removes the first identical source-report listener registration. */
+    public void removeMapSourceReportListener(MapSourceReportListener listener) {
+        removeIdentical(sourceReportListeners, listener);
     }
 
     /** Returns the selected stable feature identity after reconciling current content. */
     public Optional<FeatureSelection> selection() {
-        ViewContentSnapshot snapshot = captureContent(layers);
+        ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
         reconcileInteraction(snapshot, true, true);
+        drainSourceReportNotifications();
         return selection;
     }
 
     /** Selects an identity that exists uniquely in the current content snapshot. */
     public void setSelection(FeatureSelection requested) {
+        requireOpen();
         Objects.requireNonNull(requested, "requested");
-        ViewContentSnapshot snapshot = captureContent(layers);
+        ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
         if (!contains(snapshot, requested)) {
             throw new IllegalArgumentException("selection must identify a current feature");
         }
         transitionInteraction(Optional.of(requested), hover, true);
+        drainSourceReportNotifications();
     }
 
     /** Clears selection without consulting potentially mutable layer content. */
     public void clearSelection() {
+        requireOpen();
         transitionInteraction(Optional.empty(), hover, true);
     }
 
     /** Returns the current stable hover identity after reconciling current content. */
     public Optional<MapHit> hover() {
-        ViewContentSnapshot snapshot = captureContent(layers);
+        ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
         reconcileInteraction(snapshot, true, true);
+        drainSourceReportNotifications();
         return hover;
     }
 
@@ -333,6 +448,7 @@ public final class MapView extends JComponent {
 
     /** Replaces the hover overlay symbols and repaints on a real change. */
     public void setHoverOverlaySymbols(FeatureOverlaySymbols overlay) {
+        requireOpen();
         FeatureOverlaySymbols requested = Objects.requireNonNull(overlay, "overlay");
         if (!hoverOverlay.equals(requested)) {
             hoverOverlay = requested;
@@ -347,6 +463,7 @@ public final class MapView extends JComponent {
 
     /** Replaces the selection overlay symbols and repaints on a real change. */
     public void setSelectionOverlaySymbols(FeatureOverlaySymbols overlay) {
+        requireOpen();
         FeatureOverlaySymbols requested = Objects.requireNonNull(overlay, "overlay");
         if (!selectionOverlay.equals(requested)) {
             selectionOverlay = requested;
@@ -364,14 +481,19 @@ public final class MapView extends JComponent {
                     "Hit coordinates and non-negative tolerance must be finite");
         }
         Dimension size = effectiveSize();
-        ViewContentSnapshot snapshot = captureContent(layers);
+        ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
         reconcileInteraction(snapshot, true, true);
         if (screenX < 0.0 || screenX >= size.width || screenY < 0.0 || screenY >= size.height) {
+            drainSourceReportNotifications();
             return MapHitResults.of(List.of());
         }
         double cappedTolerance = Math.min(tolerancePixels, Math.hypot(size.width, size.height));
         MapViewport viewportSnapshot = viewport();
-        return hitTestSnapshot(snapshot, viewportSnapshot, size, screenX, screenY, cappedTolerance);
+        MapHitResults result =
+                hitTestSnapshot(
+                        snapshot, viewportSnapshot, size, screenX, screenY, cappedTolerance);
+        drainSourceReportNotifications();
+        return result;
     }
 
     private MapHitResults hitTestSnapshot(
@@ -388,7 +510,7 @@ public final class MapView extends JComponent {
             for (int featureIndex = layer.features().size() - 1;
                     featureIndex >= 0;
                     featureIndex--) {
-                Feature feature = layer.features().get(featureIndex);
+                VisualFeature feature = layer.features().get(featureIndex);
                 if (hitFeature(
                         feature, viewportSnapshot, clip, screenX, screenY, tolerancePixels)) {
                     hits.add(new MapHit(layer.id(), feature.id()));
@@ -406,6 +528,7 @@ public final class MapView extends JComponent {
 
     /** Replaces the viewport state and repaints the component. */
     public void setViewport(MapViewport viewport) {
+        requireOpen();
         this.viewport = Objects.requireNonNull(viewport, "viewport");
         if (!clearHover()) {
             repaint();
@@ -414,12 +537,32 @@ public final class MapView extends JComponent {
 
     /** Fits all non-empty layers using the requested screen-pixel padding. */
     public void fitToData(double paddingPixels) {
+        requireOpen();
         Envelope projected = null;
-        for (Layer layer : layers) {
-            if (layer.envelope().isPresent()) {
-                Envelope next =
-                        mapToDisplay.transformEnvelopeStrict(layer.envelope().orElseThrow());
+        for (MapLayerBinding binding : bindings) {
+            Optional<Envelope> extent;
+            CrsOperation operation;
+            if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
+                extent = binding.layer().envelope();
+                operation = mapToDisplay;
+            } else {
+                extent = binding.source().metadata().extent();
+                operation = resolvedFeatureBindings.get(binding).sourceToDisplay();
+            }
+            if (extent.isEmpty()) {
+                continue;
+            }
+            try {
+                Envelope next = operation.transformEnvelopeStrict(extent.orElseThrow());
                 projected = projected == null ? next : projected.union(next);
+                if (binding.kind() == MapLayerBinding.Kind.FEATURE) {
+                    updateSourceResult(binding.id(), DiagnosticReport.empty(), true);
+                }
+            } catch (CrsException failure) {
+                if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
+                    throw failure;
+                }
+                updateSourceResult(binding.id(), crsFailure(binding.source(), failure), false);
             }
         }
         if (projected != null) {
@@ -429,6 +572,7 @@ public final class MapView extends JComponent {
                 repaint();
             }
         }
+        drainSourceReportNotifications();
     }
 
     @Override
@@ -509,6 +653,41 @@ public final class MapView extends JComponent {
         runThenClearHover(this::cancelAndRemoveNotify);
     }
 
+    /** Permanently disposes this view and closes installed owned bindings. */
+    @Override
+    public void close() {
+        if (closed) {
+            return;
+        }
+        Throwable primary = null;
+        try {
+            clearActiveTool();
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
+        }
+        List<MapLayerBinding> previous = bindings;
+        closed = true;
+        bindings = List.of();
+        resolvedFeatureBindings = Map.of();
+        selection = Optional.empty();
+        hover = Optional.empty();
+        hoverProbe = Optional.empty();
+        hoverPaintState = Optional.empty();
+        selectionPaintState = Optional.empty();
+        Throwable closeFailure = releaseRemoved(previous, List.of());
+        sourceAvailability.clear();
+        if (primary == null) {
+            primary = closeFailure;
+        } else if (closeFailure != null) {
+            suppressDistinct(primary, closeFailure);
+        }
+        repaint();
+        primary = drainSourceReportNotifications(primary);
+        if (primary != null) {
+            throwUnchecked(primary);
+        }
+    }
+
     private void cancelAndRemoveNotify() {
         Throwable primary = null;
         try {
@@ -535,24 +714,25 @@ public final class MapView extends JComponent {
     @Override
     protected void paintComponent(Graphics graphics) {
         synchronizeViewportSize();
-        ViewContentSnapshot content = captureContent(layers);
-        boolean interactionChanged = reconcileInteraction(content, false, false);
-        MapViewport viewportSnapshot = viewport;
-        MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
-        Optional<MapHit> hoverSnapshot = hover;
-        Optional<FeatureSelection> selectionSnapshot = selection;
-        MapTool activeToolSnapshot = toolRouter.activeTool().orElse(null);
-        Optional<MeasurementState> measurementSnapshot =
-                activeToolSnapshot instanceof MeasurementTool measurement
-                        ? Optional.of(measurement.state())
-                        : Optional.empty();
-        OverlayCandidate hoverCandidate = null;
-        OverlayCandidate selectionCandidate = null;
-        boolean paintStateChanged = false;
         Graphics2D graphics2D = (Graphics2D) graphics.create();
+        boolean interactionChanged = false;
+        boolean paintStateChanged = false;
         RuntimeException runtimeFailure = null;
         Error errorFailure = null;
         try {
+            ViewContentSnapshot content = captureContent(bindings, viewport);
+            interactionChanged = reconcileInteraction(content, false, false);
+            MapViewport viewportSnapshot = viewport;
+            MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
+            Optional<MapHit> hoverSnapshot = hover;
+            Optional<FeatureSelection> selectionSnapshot = selection;
+            MapTool activeToolSnapshot = toolRouter.activeTool().orElse(null);
+            Optional<MeasurementState> measurementSnapshot =
+                    activeToolSnapshot instanceof MeasurementTool measurement
+                            ? Optional.of(measurement.state())
+                            : Optional.empty();
+            OverlayCandidate hoverCandidate = null;
+            OverlayCandidate selectionCandidate = null;
             if (isOpaque()) {
                 graphics2D.setColor(getBackground());
                 graphics2D.fillRect(0, 0, getWidth(), getHeight());
@@ -560,7 +740,7 @@ public final class MapView extends JComponent {
             graphics2D.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             for (LayerSnapshot layer : content.layers()) {
-                for (Feature feature : layer.features()) {
+                for (VisualFeature feature : layer.features()) {
                     SymbolRenderResult result =
                             renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
                     if (hoverSnapshot.isPresent()
@@ -607,6 +787,23 @@ public final class MapView extends JComponent {
         }
         try {
             drainInteractionNotifications();
+        } catch (RuntimeException notificationFailure) {
+            if (runtimeFailure == null && errorFailure == null) {
+                runtimeFailure = notificationFailure;
+            } else {
+                suppressDistinct(
+                        errorFailure != null ? errorFailure : runtimeFailure, notificationFailure);
+            }
+        } catch (Error notificationFailure) {
+            if (runtimeFailure == null && errorFailure == null) {
+                errorFailure = notificationFailure;
+            } else {
+                suppressDistinct(
+                        errorFailure != null ? errorFailure : runtimeFailure, notificationFailure);
+            }
+        }
+        try {
+            drainSourceReportNotifications();
         } catch (RuntimeException notificationFailure) {
             if (runtimeFailure == null && errorFailure == null) {
                 runtimeFailure = notificationFailure;
@@ -699,7 +896,7 @@ public final class MapView extends JComponent {
 
     private SymbolRenderResult renderFeature(
             Graphics2D graphics,
-            Feature feature,
+            VisualFeature feature,
             MapViewport viewportSnapshot,
             MapScreenBasis basisSnapshot) {
         Symbol symbol = feature.symbol();
@@ -709,7 +906,11 @@ public final class MapView extends JComponent {
         }
         Optional<Coordinate> markerAnchor =
                 feature.geometry() instanceof PointGeometry point
-                        ? Optional.of(toScreen(point.coordinate(), viewportSnapshot))
+                        ? Optional.of(
+                                toScreen(
+                                        point.coordinate(),
+                                        feature.sourceToDisplay(),
+                                        viewportSnapshot))
                         : Optional.empty();
         AwtSymbolRenderContext context =
                 context(
@@ -718,6 +919,7 @@ public final class MapView extends JComponent {
                         feature.id(),
                         feature.geometry(),
                         feature.geometry(),
+                        feature.sourceToDisplay(),
                         1.0,
                         false,
                         OptionalDouble.empty(),
@@ -741,11 +943,15 @@ public final class MapView extends JComponent {
         if (candidate == null || candidate.presence() != AwtLogicalPaintPresence.PRESENT) {
             return;
         }
-        Feature feature = candidate.feature();
+        VisualFeature feature = candidate.feature();
         Symbol symbol = overlaySymbol(overlay, feature.geometry());
         Optional<Coordinate> markerAnchor =
                 feature.geometry() instanceof PointGeometry point
-                        ? Optional.of(toScreen(point.coordinate(), viewportSnapshot))
+                        ? Optional.of(
+                                toScreen(
+                                        point.coordinate(),
+                                        feature.sourceToDisplay(),
+                                        viewportSnapshot))
                         : Optional.empty();
         dispatch(
                 symbol,
@@ -755,6 +961,7 @@ public final class MapView extends JComponent {
                         feature.id(),
                         feature.geometry(),
                         feature.geometry(),
+                        feature.sourceToDisplay(),
                         1.0,
                         false,
                         OptionalDouble.empty(),
@@ -764,13 +971,13 @@ public final class MapView extends JComponent {
     }
 
     private static Symbol overlaySymbol(FeatureOverlaySymbols overlay, Geometry geometry) {
-        if (geometry instanceof PointGeometry) {
+        if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
             return overlay.marker();
         }
-        if (geometry instanceof LineStringGeometry) {
+        if (geometry instanceof LineStringGeometry || geometry instanceof MultiLineStringGeometry) {
             return overlay.line();
         }
-        if (geometry instanceof PolygonGeometry) {
+        if (geometry instanceof PolygonGeometry || geometry instanceof MultiPolygonGeometry) {
             return overlay.fill();
         }
         throw new IllegalArgumentException("Unsupported overlay geometry");
@@ -790,6 +997,7 @@ public final class MapView extends JComponent {
             String featureId,
             Geometry featureGeometry,
             Geometry renderGeometry,
+            CrsOperation sourceToDisplay,
             double inheritedOpacity,
             boolean closedRing,
             OptionalDouble endpointBearing,
@@ -802,7 +1010,7 @@ public final class MapView extends JComponent {
                 featureId,
                 featureGeometry,
                 renderGeometry,
-                mapToDisplay,
+                sourceToDisplay,
                 viewportSnapshot,
                 inheritedOpacity,
                 closedRing,
@@ -839,7 +1047,7 @@ public final class MapView extends JComponent {
     }
 
     private boolean hitFeature(
-            Feature feature,
+            VisualFeature feature,
             MapViewport viewportSnapshot,
             Rectangle2D clip,
             double queryX,
@@ -848,7 +1056,11 @@ public final class MapView extends JComponent {
         Symbol symbol = feature.symbol();
         Optional<Coordinate> markerAnchor =
                 feature.geometry() instanceof PointGeometry point
-                        ? Optional.of(toScreen(point.coordinate(), viewportSnapshot))
+                        ? Optional.of(
+                                toScreen(
+                                        point.coordinate(),
+                                        feature.sourceToDisplay(),
+                                        viewportSnapshot))
                         : Optional.empty();
         AwtSymbolHitContext context =
                 hitContext(
@@ -856,6 +1068,7 @@ public final class MapView extends JComponent {
                         feature.id(),
                         feature.geometry(),
                         feature.geometry(),
+                        feature.sourceToDisplay(),
                         viewportSnapshot,
                         1.0,
                         false,
@@ -873,6 +1086,7 @@ public final class MapView extends JComponent {
             String featureId,
             Geometry featureGeometry,
             Geometry renderGeometry,
+            CrsOperation sourceToDisplay,
             MapViewport viewportSnapshot,
             double inheritedOpacity,
             boolean closedRing,
@@ -887,6 +1101,7 @@ public final class MapView extends JComponent {
                 featureId,
                 featureGeometry,
                 renderGeometry,
+                sourceToDisplay,
                 viewportSnapshot,
                 inheritedOpacity,
                 closedRing,
@@ -920,6 +1135,7 @@ public final class MapView extends JComponent {
                         parent.featureId(),
                         parent.featureGeometry(),
                         parent.renderGeometry(),
+                        parent.sourceToDisplayOperation(),
                         parent.viewport(),
                         parent.inheritedOpacity() * multiplier,
                         parent.closedRing(),
@@ -945,6 +1161,9 @@ public final class MapView extends JComponent {
             }
             return false;
         }
+        if (isMultipart(context.renderGeometry())) {
+            return hitMultipart(value, context);
+        }
         if (value instanceof FeatureStyle style) {
             return hitLegacy(style, context);
         }
@@ -963,7 +1182,8 @@ public final class MapView extends JComponent {
             if (hitOutline(fill.outline(), polygon, context, fill.opacity())) {
                 return true;
             }
-            ScreenPolygon screenPolygon = screenPolygon(polygon, context.viewport());
+            ScreenPolygon screenPolygon =
+                    screenPolygon(polygon, context.sourceToDisplayOperation(), context.viewport());
             boolean fillHit =
                     context.inheritedOpacity() * fill.opacity() > 0.0
                             && fill.fill().alpha() > 0
@@ -985,10 +1205,45 @@ public final class MapView extends JComponent {
         throw rendererValueMismatch(new SymbolSnapshot(value.role(), value.rendererKey()));
     }
 
+    private boolean hitMultipart(Symbol value, AwtSymbolHitContext context) {
+        List<Geometry> components = singularComponents(context.renderGeometry());
+        for (int index = components.size() - 1; index >= 0; index--) {
+            Geometry component = components.get(index);
+            Optional<Coordinate> anchor =
+                    component instanceof PointGeometry point
+                            ? Optional.of(context.sourceToScreen(point.coordinate()))
+                            : Optional.empty();
+            if (dispatchHit(
+                    value,
+                    hitContext(
+                            context.role(),
+                            context.featureId(),
+                            context.featureGeometry(),
+                            component,
+                            context.sourceToDisplayOperation(),
+                            context.viewport(),
+                            context.inheritedOpacity(),
+                            false,
+                            OptionalDouble.empty(),
+                            anchor,
+                            context.queryX(),
+                            context.queryY(),
+                            context.tolerancePixels(),
+                            context.componentClip()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean hitLegacy(FeatureStyle style, AwtSymbolHitContext context) {
         Geometry geometry = context.renderGeometry();
         if (geometry instanceof PointGeometry point) {
-            Coordinate screen = toScreen(point.coordinate(), context.viewport());
+            Coordinate screen =
+                    toScreen(
+                            point.coordinate(),
+                            context.sourceToDisplayOperation(),
+                            context.viewport());
             double radius = style.pointDiameter() / 2.0;
             Shape circle =
                     new Ellipse2D.Double(
@@ -1032,7 +1287,11 @@ public final class MapView extends JComponent {
             return analyticOrClipped(fillHit, circle, context);
         }
         if (geometry instanceof LineStringGeometry line) {
-            CoordinateSequence screen = toScreen(line.coordinates(), context.viewport());
+            CoordinateSequence screen =
+                    toScreen(
+                            line.coordinates(),
+                            context.sourceToDisplayOperation(),
+                            context.viewport());
             LineEndpointBearings bearings =
                     LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
             if (bearings.startBearingDegrees().isEmpty()
@@ -1057,7 +1316,8 @@ public final class MapView extends JComponent {
             return analyticOrClipped(hit, footprint, context);
         }
         PolygonGeometry polygon = (PolygonGeometry) geometry;
-        ScreenPolygon screenPolygon = screenPolygon(polygon, context.viewport());
+        ScreenPolygon screenPolygon =
+                screenPolygon(polygon, context.sourceToDisplayOperation(), context.viewport());
         Shape path = screenPolygon.path();
         if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
             Shape stroke =
@@ -1196,7 +1456,11 @@ public final class MapView extends JComponent {
     private boolean hitLine(
             SolidLineSymbol line, LineStringGeometry geometry, AwtSymbolHitContext context) {
         double opacity = context.inheritedOpacity() * line.opacity();
-        CoordinateSequence screen = toScreen(geometry.coordinates(), context.viewport());
+        CoordinateSequence screen =
+                toScreen(
+                        geometry.coordinates(),
+                        context.sourceToDisplayOperation(),
+                        context.viewport());
         LineEndpointBearings bearings =
                 LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
         if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
@@ -1255,6 +1519,7 @@ public final class MapView extends JComponent {
                         owner.featureId(),
                         owner.featureGeometry(),
                         new PointGeometry(source),
+                        owner.sourceToDisplayOperation(),
                         owner.viewport(),
                         opacity,
                         false,
@@ -1285,6 +1550,7 @@ public final class MapView extends JComponent {
                             owner.featureId(),
                             owner.featureGeometry(),
                             new LineStringGeometry(rings.get(index)),
+                            owner.sourceToDisplayOperation(),
                             owner.viewport(),
                             owner.inheritedOpacity() * opacity,
                             true,
@@ -1306,7 +1572,8 @@ public final class MapView extends JComponent {
         if (opacity == 0.0 || hatch.stroke().color().alpha() == 0) {
             return false;
         }
-        ScreenPolygon screenPolygon = screenPolygon(polygon, context.viewport());
+        ScreenPolygon screenPolygon =
+                screenPolygon(polygon, context.sourceToDisplayOperation(), context.viewport());
         Rectangle2D work =
                 screenPolygon.path().getBounds2D().createIntersection(context.componentClip());
         if (work.isEmpty()) {
@@ -1392,6 +1659,7 @@ public final class MapView extends JComponent {
                         parent.featureId(),
                         parent.featureGeometry(),
                         parent.renderGeometry(),
+                        parent.mapToDisplayOperation(),
                         parent.inheritedOpacity() * multiplier,
                         parent.closedRing(),
                         parent.endpointBearingDegrees(),
@@ -1408,6 +1676,9 @@ public final class MapView extends JComponent {
                 result = result.union(context.renderChild(child, composite.opacity()));
             }
             return result;
+        }
+        if (isMultipart(context.renderGeometry())) {
+            return renderMultipart(value, context);
         }
         if (value instanceof FeatureStyle style) {
             Rectangle2D bounds =
@@ -1457,6 +1728,97 @@ public final class MapView extends JComponent {
             return SymbolRenderResult.none(renderRegisteredFill(value, context));
         }
         throw rendererValueMismatch(new SymbolSnapshot(value.role(), value.rendererKey()));
+    }
+
+    private SymbolRenderResult renderMultipart(Symbol value, AwtSymbolRenderContext context) {
+        SymbolRenderResult result = SymbolRenderResult.none(AwtLogicalPaintPresence.EMPTY);
+        for (Geometry component : singularComponents(context.renderGeometry())) {
+            Optional<Coordinate> anchor =
+                    component instanceof PointGeometry point
+                            ? Optional.of(context.sourceToScreen(point.coordinate()))
+                            : Optional.empty();
+            result =
+                    result.union(
+                            dispatch(
+                                    value,
+                                    context(
+                                            context.parentGraphics(),
+                                            context.role(),
+                                            context.featureId(),
+                                            context.featureGeometry(),
+                                            component,
+                                            context.mapToDisplayOperation(),
+                                            context.inheritedOpacity(),
+                                            false,
+                                            OptionalDouble.empty(),
+                                            anchor,
+                                            context.viewport(),
+                                            context.mapScreenBasis())));
+        }
+        return result;
+    }
+
+    private static boolean isMultipart(Geometry geometry) {
+        return geometry instanceof MultiPointGeometry
+                || geometry instanceof MultiLineStringGeometry
+                || geometry instanceof MultiPolygonGeometry;
+    }
+
+    private static List<Geometry> singularComponents(Geometry geometry) {
+        if (geometry instanceof MultiPointGeometry points) {
+            List<Geometry> result = new ArrayList<>(points.coordinates().size());
+            for (int index = 0; index < points.coordinates().size(); index++) {
+                result.add(new PointGeometry(points.coordinates().coordinate(index)));
+            }
+            return result;
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            List<Geometry> result = new ArrayList<>(lines.partCount());
+            for (int index = 0; index < lines.partCount(); index++) {
+                result.add(
+                        new LineStringGeometry(
+                                coordinateSlice(
+                                        lines.coordinates(),
+                                        lines.partOffset(index),
+                                        lines.partOffset(index + 1))));
+            }
+            return result;
+        }
+        if (geometry instanceof MultiPolygonGeometry polygons) {
+            List<Geometry> result = new ArrayList<>(polygons.polygonCount());
+            for (int polygonIndex = 0; polygonIndex < polygons.polygonCount(); polygonIndex++) {
+                int firstRing = polygons.polygonRingOffset(polygonIndex);
+                int lastRing = polygons.polygonRingOffset(polygonIndex + 1);
+                CoordinateSequence exterior =
+                        coordinateSlice(
+                                polygons.coordinates(),
+                                polygons.ringOffset(firstRing),
+                                polygons.ringOffset(firstRing + 1));
+                List<CoordinateSequence> holes = new ArrayList<>(lastRing - firstRing - 1);
+                for (int ringIndex = firstRing + 1; ringIndex < lastRing; ringIndex++) {
+                    holes.add(
+                            coordinateSlice(
+                                    polygons.coordinates(),
+                                    polygons.ringOffset(ringIndex),
+                                    polygons.ringOffset(ringIndex + 1)));
+                }
+                result.add(new PolygonGeometry(exterior, holes));
+            }
+            return result;
+        }
+        throw new IllegalArgumentException("Geometry is not multipart");
+    }
+
+    private static CoordinateSequence coordinateSlice(
+            CoordinateSequence coordinates, int start, int end) {
+        double[] ordinates = new double[Math.multiplyExact(end - start, 2)];
+        for (int sourceIndex = start, targetIndex = 0;
+                sourceIndex < end;
+                sourceIndex++, targetIndex += 2) {
+            ordinates[targetIndex] = coordinates.x(sourceIndex);
+            ordinates[targetIndex + 1] = coordinates.y(sourceIndex);
+        }
+        return CoordinateSequence.of(ordinates);
     }
 
     private SymbolRenderResult renderRasterIcon(
@@ -1683,7 +2045,11 @@ public final class MapView extends JComponent {
     private AwtLogicalPaintPresence renderRegisteredLine(
             SolidLineSymbol line, AwtSymbolRenderContext context) {
         LineStringGeometry geometry = (LineStringGeometry) context.renderGeometry();
-        CoordinateSequence screen = toScreen(geometry.coordinates(), context.viewport());
+        CoordinateSequence screen =
+                toScreen(
+                        geometry.coordinates(),
+                        context.mapToDisplayOperation(),
+                        context.viewport());
         LineEndpointBearings bearings =
                 LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
         if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
@@ -1744,6 +2110,7 @@ public final class MapView extends JComponent {
                         owner.featureId(),
                         owner.featureGeometry(),
                         new PointGeometry(sourceEndpoint),
+                        owner.mapToDisplayOperation(),
                         inheritedOpacity,
                         false,
                         OptionalDouble.of(bearing),
@@ -1776,7 +2143,8 @@ public final class MapView extends JComponent {
     private AwtLogicalPaintPresence renderRegisteredFill(
             Symbol symbol, AwtSymbolRenderContext context) {
         PolygonGeometry geometry = (PolygonGeometry) context.renderGeometry();
-        ScreenPolygon polygon = screenPolygon(geometry, context.viewport());
+        ScreenPolygon polygon =
+                screenPolygon(geometry, context.mapToDisplayOperation(), context.viewport());
         if (symbol instanceof SolidFillSymbol fill) {
             double opacity = context.inheritedOpacity() * fill.opacity();
             AwtLogicalPaintPresence presence =
@@ -1848,6 +2216,7 @@ public final class MapView extends JComponent {
                                                     owner.featureId(),
                                                     owner.featureGeometry(),
                                                     new LineStringGeometry(ring),
+                                                    owner.mapToDisplayOperation(),
                                                     inheritedOpacity,
                                                     true,
                                                     OptionalDouble.empty(),
@@ -1962,9 +2331,17 @@ public final class MapView extends JComponent {
     }
 
     private CoordinateSequence toScreen(CoordinateSequence source, MapViewport viewportSnapshot) {
+        return toScreen(source, mapToDisplay, viewportSnapshot);
+    }
+
+    private CoordinateSequence toScreen(
+            CoordinateSequence source,
+            CrsOperation sourceToDisplayOperation,
+            MapViewport viewportSnapshot) {
         double[] ordinates = new double[source.size() * 2];
         for (int index = 0; index < source.size(); index++) {
-            Coordinate screen = toScreen(source.coordinate(index), viewportSnapshot);
+            Coordinate screen =
+                    toScreen(source.coordinate(index), sourceToDisplayOperation, viewportSnapshot);
             ordinates[index * 2] = screen.x();
             ordinates[index * 2 + 1] = screen.y();
         }
@@ -1972,10 +2349,17 @@ public final class MapView extends JComponent {
     }
 
     private ScreenPolygon screenPolygon(PolygonGeometry polygon, MapViewport viewportSnapshot) {
+        return screenPolygon(polygon, mapToDisplay, viewportSnapshot);
+    }
+
+    private ScreenPolygon screenPolygon(
+            PolygonGeometry polygon,
+            CrsOperation sourceToDisplayOperation,
+            MapViewport viewportSnapshot) {
         List<CoordinateSequence> rings = new ArrayList<>();
-        rings.add(toScreen(polygon.exterior(), viewportSnapshot));
+        rings.add(toScreen(polygon.exterior(), sourceToDisplayOperation, viewportSnapshot));
         for (CoordinateSequence hole : polygon.holes()) {
-            rings.add(toScreen(hole, viewportSnapshot));
+            rings.add(toScreen(hole, sourceToDisplayOperation, viewportSnapshot));
         }
         Path2D screenPath = new Path2D.Double(Path2D.WIND_EVEN_ODD);
         for (CoordinateSequence ring : rings) {
@@ -2008,7 +2392,14 @@ public final class MapView extends JComponent {
     }
 
     Coordinate toScreen(Coordinate source, MapViewport viewportSnapshot) {
-        return viewportSnapshot.worldToScreen(mapToDisplay.transform(source));
+        return toScreen(source, mapToDisplay, viewportSnapshot);
+    }
+
+    Coordinate toScreen(
+            Coordinate source,
+            CrsOperation sourceToDisplayOperation,
+            MapViewport viewportSnapshot) {
+        return viewportSnapshot.worldToScreen(sourceToDisplayOperation.transform(source));
     }
 
     private static Color color(Rgba color) {
@@ -2034,13 +2425,13 @@ public final class MapView extends JComponent {
     }
 
     private static SymbolRole geometryRole(Geometry geometry) {
-        if (geometry instanceof PointGeometry) {
+        if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
             return SymbolRole.MARKER;
         }
-        if (geometry instanceof LineStringGeometry) {
+        if (geometry instanceof LineStringGeometry || geometry instanceof MultiLineStringGeometry) {
             return SymbolRole.LINE;
         }
-        if (geometry instanceof PolygonGeometry) {
+        if (geometry instanceof PolygonGeometry || geometry instanceof MultiPolygonGeometry) {
             return SymbolRole.FILL;
         }
         return null;
@@ -2053,7 +2444,8 @@ public final class MapView extends JComponent {
                 Map.of("quantity", quantity));
     }
 
-    private static SymbolException roleMismatch(Feature feature, SymbolSnapshot symbolSnapshot) {
+    private static SymbolException roleMismatch(
+            VisualFeature feature, SymbolSnapshot symbolSnapshot) {
         LinkedHashMap<String, String> context = new LinkedHashMap<>();
         context.put("featureId", feature.id());
         context.put("geometryKind", geometryKind(feature.geometry()));
@@ -2095,6 +2487,15 @@ public final class MapView extends JComponent {
         }
         if (geometry instanceof PolygonGeometry) {
             return "POLYGON";
+        }
+        if (geometry instanceof MultiPointGeometry) {
+            return "MULTI_POINT";
+        }
+        if (geometry instanceof MultiLineStringGeometry) {
+            return "MULTI_LINE_STRING";
+        }
+        if (geometry instanceof MultiPolygonGeometry) {
+            return "MULTI_POLYGON";
         }
         return "UNSUPPORTED";
     }
@@ -2320,7 +2721,7 @@ public final class MapView extends JComponent {
     private void updateHoverFromMove(MouseEvent event) {
         synchronizeViewportSize();
         Dimension size = effectiveSize();
-        ViewContentSnapshot content = captureContent(layers);
+        ViewContentSnapshot content = captureContentAtBoundary(bindings, viewport);
         MapViewport viewportSnapshot = viewport;
         Optional<FeatureSelection> reconciledSelection = reconcile(selection, content);
         Optional<MapHit> nextHover = Optional.empty();
@@ -2338,14 +2739,18 @@ public final class MapView extends JComponent {
                                     DEFAULT_HOVER_TOLERANCE_PIXELS)
                             .topmost();
         }
-        hoverProbe = Optional.of(new HoverProbe(event.getX(), event.getY()));
+        hoverProbe =
+                content.allSourcesAvailable()
+                        ? Optional.of(new HoverProbe(event.getX(), event.getY()))
+                        : Optional.empty();
         transitionInteraction(reconciledSelection, nextHover, true);
+        drainSourceReportNotifications();
     }
 
     private void updateClickInteraction(MouseEvent event) {
         synchronizeViewportSize();
         Dimension size = effectiveSize();
-        ViewContentSnapshot content = captureContent(layers);
+        ViewContentSnapshot content = captureContentAtBoundary(bindings, viewport);
         Optional<FeatureSelection> nextSelection = reconcile(selection, content);
         if (button(event.getButton()).equals(MapPointerButton.PRIMARY)
                 && event.getClickCount() == 1
@@ -2368,6 +2773,7 @@ public final class MapView extends JComponent {
         }
         hoverProbe = Optional.empty();
         transitionInteraction(nextSelection, Optional.empty(), true);
+        drainSourceReportNotifications();
     }
 
     private RoutedMouse routeMouse(MouseEvent event, MapToolEvent.Type type) {
@@ -2625,29 +3031,534 @@ public final class MapView extends JComponent {
                 || code.equals("CRS_TRANSFORM_NON_FINITE");
     }
 
-    private static ViewContentSnapshot captureContent(List<Layer> sourceLayers) {
-        List<LayerSnapshot> captured = new ArrayList<>(sourceLayers.size());
-        Set<String> layerIds = new HashSet<>();
-        for (Layer layer : sourceLayers) {
-            Objects.requireNonNull(layer, "layer");
-            String layerId = requireContentId(layer.id(), "layer.id");
-            if (!layerIds.add(layerId)) {
-                throw new IllegalArgumentException("layer.id must be unique: " + layerId);
+    private ViewContentSnapshot captureContent(
+            List<MapLayerBinding> sourceBindings, MapViewport viewportSnapshot) {
+        if (closed) {
+            return new ViewContentSnapshot(List.of());
+        }
+        List<LayerSnapshot> captured = new ArrayList<>(sourceBindings.size());
+        for (MapLayerBinding binding : sourceBindings) {
+            if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
+                captured.add(captureSnapshot(binding));
+            } else {
+                captured.add(captureFeatureSource(binding, viewportSnapshot));
             }
-            List<Feature> features =
-                    List.copyOf(Objects.requireNonNull(layer.features(), "layer.features"));
-            Set<String> featureIds = new HashSet<>();
-            for (Feature feature : features) {
-                Objects.requireNonNull(feature, "feature");
-                String featureId = requireContentId(feature.id(), "feature.id");
-                if (!featureIds.add(featureId)) {
-                    throw new IllegalArgumentException(
-                            "feature.id must be unique within layer " + layerId + ": " + featureId);
-                }
-            }
-            captured.add(new LayerSnapshot(layerId, features));
         }
         return new ViewContentSnapshot(List.copyOf(captured));
+    }
+
+    private ViewContentSnapshot captureContentAtBoundary(
+            List<MapLayerBinding> sourceBindings, MapViewport viewportSnapshot) {
+        try {
+            return captureContent(sourceBindings, viewportSnapshot);
+        } catch (RuntimeException | Error failure) {
+            throwUnchecked(drainSourceReportNotifications(failure));
+            throw new AssertionError("unreachable");
+        }
+    }
+
+    private LayerSnapshot captureSnapshot(MapLayerBinding binding) {
+        Layer layer = binding.layer();
+        String currentLayerId = requireContentId(layer.id(), "layer.id");
+        if (!binding.id().equals(currentLayerId)) {
+            throw new IllegalArgumentException("layer.id changed after binding");
+        }
+        List<Feature> features =
+                List.copyOf(Objects.requireNonNull(layer.features(), "layer.features"));
+        Set<String> featureIds = new HashSet<>();
+        List<VisualFeature> visual = new ArrayList<>(features.size());
+        for (Feature feature : features) {
+            Objects.requireNonNull(feature, "feature");
+            String featureId = requireContentId(feature.id(), "feature.id");
+            if (!featureIds.add(featureId)) {
+                throw new IllegalArgumentException(
+                        "feature.id must be unique within layer "
+                                + currentLayerId
+                                + ": "
+                                + featureId);
+            }
+            visual.add(
+                    new VisualFeature(
+                            feature.id(),
+                            feature.name(),
+                            feature.geometry(),
+                            feature.symbol(),
+                            mapToDisplay));
+        }
+        return new LayerSnapshot(currentLayerId, List.copyOf(visual), false, true);
+    }
+
+    private LayerSnapshot captureFeatureSource(
+            MapLayerBinding binding, MapViewport viewportSnapshot) {
+        FeatureSource source = binding.source();
+        ResolvedFeatureBinding resolved = resolvedFeatureBindings.get(binding);
+        MapLayerBinding.Operation operation = binding.beginOperation();
+        DiagnosticReport planning = DiagnosticReport.empty();
+        DiagnosticReport encountered = DiagnosticReport.empty();
+        try {
+            QueryEnvelopeTransform transformed =
+                    resolved.displayToSource()
+                            .transformQueryEnvelope(viewportSnapshot.visibleWorldEnvelope());
+            if (transformed.status() == QueryEnvelopeStatus.OUTSIDE) {
+                planning = queryEnvelopeWarning(source, "CRS_QUERY_ENVELOPE_OUTSIDE_DOMAIN");
+                encountered = planning;
+                MapLayerBinding.Phase phase = operation.finish(true);
+                if (phase == MapLayerBinding.Phase.CANCELLED) {
+                    DiagnosticReport cancelled = cancellationReport(source);
+                    updateSourceResult(binding.id(), cancelled, false);
+                    return new LayerSnapshot(binding.id(), List.of(), true, false);
+                }
+                updateSourceResult(binding.id(), planning, true);
+                return new LayerSnapshot(binding.id(), List.of(), true, true);
+            }
+            if (transformed.status() == QueryEnvelopeStatus.CLIPPED) {
+                planning = queryEnvelopeWarning(source, "CRS_QUERY_ENVELOPE_CLIPPED");
+            }
+            encountered = planning;
+
+            FeatureQuery query =
+                    new FeatureQuery(
+                            transformed.transformedEnvelope(),
+                            AttributeSelection.NONE,
+                            Optional.empty());
+            List<FeatureRecord> staged = new ArrayList<>();
+            FeatureQueryAccounting accounting =
+                    new FeatureQueryAccounting(
+                            source.metadata().identity().id(), source.limits().queryLimits());
+            DiagnosticReport cursorReport;
+            try (FeatureCursor cursor = source.openCursor(query, operation.token())) {
+                while (cursor.advance()) {
+                    FeatureRecord record = cursor.current();
+                    encountered = mergeReports(planning, cursor.diagnostics(), source);
+                    accounting.recordReturned(record, 1, operation.token());
+                    staged.add(record);
+                }
+                cursorReport = cursor.diagnostics();
+            }
+            encountered = mergeReports(planning, cursorReport, source);
+            for (FeatureRecord record : staged) {
+                preflight(record.geometry(), resolved.sourceToDisplay(), operation.token(), source);
+            }
+            MapLayerBinding.Phase phase = operation.finish(true);
+            if (phase == MapLayerBinding.Phase.CANCELLED) {
+                DiagnosticReport cancelled =
+                        mergeReports(encountered, cancellationReport(source), source);
+                updateSourceResult(binding.id(), cancelled, false);
+                return new LayerSnapshot(binding.id(), List.of(), true, false);
+            }
+            DiagnosticReport report = encountered;
+            updateSourceResult(binding.id(), report, true);
+            List<VisualFeature> visual = new ArrayList<>(staged.size());
+            for (FeatureRecord record : staged) {
+                visual.add(
+                        new VisualFeature(
+                                record.id(),
+                                record.name(),
+                                record.geometry(),
+                                sourceSymbol(binding, record.geometry()),
+                                resolved.sourceToDisplay()));
+            }
+            return new LayerSnapshot(binding.id(), List.copyOf(visual), true, true);
+        } catch (SourceException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport failureWarnings = withoutTerminal(failure.report());
+            DiagnosticReport observed =
+                    failureWarnings.entries().isEmpty()
+                                    && failureWarnings.omittedWarningCount() == 0
+                            ? encountered
+                            : mergeReports(planning, failureWarnings, source);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                            ? mergeReports(observed, cancellationReport(source), source)
+                            : mergeReports(observed, terminalOnly(failure.report()), source);
+            updateSourceResult(binding.id(), report, false);
+            return new LayerSnapshot(binding.id(), List.of(), true, false);
+        } catch (CrsException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                            ? mergeReports(encountered, cancellationReport(source), source)
+                            : mergeReports(encountered, crsFailure(source, failure), source);
+            updateSourceResult(binding.id(), report, false);
+            return new LayerSnapshot(binding.id(), List.of(), true, false);
+        } catch (RuntimeException | Error failure) {
+            operation.finish(false);
+            throw failure;
+        } finally {
+            binding.endOperation(operation);
+        }
+    }
+
+    private static Symbol sourceSymbol(MapLayerBinding binding, Geometry geometry) {
+        return switch (geometryRole(geometry)) {
+            case MARKER -> binding.marker();
+            case LINE -> binding.line();
+            case FILL -> binding.fill();
+            case LEGACY_GEOMETRY ->
+                    throw new IllegalArgumentException("Unsupported source geometry");
+        };
+    }
+
+    private static void preflight(
+            Geometry geometry,
+            CrsOperation sourceToDisplay,
+            io.github.mundanej.map.api.CancellationToken cancellation,
+            FeatureSource source) {
+        int index = 0;
+        for (CoordinateSequence sequence : coordinateSequences(geometry)) {
+            for (int coordinateIndex = 0; coordinateIndex < sequence.size(); coordinateIndex++) {
+                if ((index++ & 4095) == 0 && cancellation.isCancellationRequested()) {
+                    throw cancellationException(source);
+                }
+                sourceToDisplay.transform(sequence.coordinate(coordinateIndex));
+            }
+        }
+        if (cancellation.isCancellationRequested()) {
+            throw cancellationException(source);
+        }
+    }
+
+    private static List<CoordinateSequence> coordinateSequences(Geometry geometry) {
+        if (geometry instanceof PointGeometry point) {
+            return List.of(CoordinateSequence.of(point.coordinate().x(), point.coordinate().y()));
+        }
+        if (geometry instanceof LineStringGeometry line) {
+            return List.of(line.coordinates());
+        }
+        if (geometry instanceof PolygonGeometry polygon) {
+            List<CoordinateSequence> sequences = new ArrayList<>();
+            sequences.add(polygon.exterior());
+            sequences.addAll(polygon.holes());
+            return sequences;
+        }
+        if (geometry instanceof MultiPointGeometry points) {
+            return List.of(points.coordinates());
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return List.of(lines.coordinates());
+        }
+        return List.of(((MultiPolygonGeometry) geometry).coordinates());
+    }
+
+    private CandidateBindings validateBindings(List<MapLayerBinding> candidate) {
+        Set<String> ids = new HashSet<>();
+        Set<MapLayerBinding> identities = identitySet(List.of());
+        Set<FeatureSource> sources = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<String> sourceIds = new HashSet<>();
+        IdentityHashMap<MapLayerBinding, ResolvedFeatureBinding> resolved = new IdentityHashMap<>();
+        for (MapLayerBinding binding : candidate) {
+            Objects.requireNonNull(binding, "binding");
+            if (!identities.add(binding)) {
+                throw new IllegalArgumentException("A binding instance may appear only once");
+            }
+            if (!ids.add(requireContentId(binding.id(), "binding.id"))) {
+                throw new IllegalArgumentException("binding.id must be unique: " + binding.id());
+            }
+            if (binding.isClosed()) {
+                throw new IllegalStateException("binding is closed: " + binding.id());
+            }
+            if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
+                validateSnapshotFeatures(binding);
+                continue;
+            }
+            FeatureSource source = binding.source();
+            if (source.isClosed()) {
+                throw new IllegalStateException("source is closed: " + binding.id());
+            }
+            if (!sources.add(source)) {
+                throw new IllegalArgumentException("A source instance may be bound only once");
+            }
+            if (!sourceIds.add(source.metadata().identity().id())) {
+                throw new IllegalArgumentException(
+                        "source identity must be unique: " + source.metadata().identity().id());
+            }
+            for (MapLayerBinding installed : bindings) {
+                if (installed != binding
+                        && installed.kind() == MapLayerBinding.Kind.FEATURE
+                        && installed.source() == source
+                        && installed.owned()) {
+                    throw new IllegalStateException(
+                            "An owned source cannot be transferred to a replacement binding");
+                }
+            }
+            CrsOperation sourceToDisplay =
+                    crsRegistry.operationFromMetadata(source.metadata().crs(), displayCrs);
+            CrsOperation displayToSource =
+                    crsRegistry.operation(displayCrs, sourceToDisplay.sourceCrs());
+            validateSourceSymbol(binding.marker(), SymbolRole.MARKER);
+            validateSourceSymbol(binding.line(), SymbolRole.LINE);
+            validateSourceSymbol(binding.fill(), SymbolRole.FILL);
+            resolved.put(binding, new ResolvedFeatureBinding(sourceToDisplay, displayToSource));
+        }
+        return new CandidateBindings(Collections.unmodifiableMap(resolved));
+    }
+
+    private static void validateSnapshotFeatures(MapLayerBinding binding) {
+        List<Feature> features =
+                List.copyOf(Objects.requireNonNull(binding.layer().features(), "layer.features"));
+        Set<String> featureIds = new HashSet<>();
+        for (Feature feature : features) {
+            Objects.requireNonNull(feature, "feature");
+            String featureId = requireContentId(feature.id(), "feature.id");
+            if (!featureIds.add(featureId)) {
+                throw new IllegalArgumentException(
+                        "feature.id must be unique within layer "
+                                + binding.id()
+                                + ": "
+                                + featureId);
+            }
+        }
+    }
+
+    private void validateSourceSymbol(Symbol symbol, SymbolRole role) {
+        if (symbol.role() != role) {
+            throw new IllegalArgumentException("Source symbol role must be " + role);
+        }
+        AwtSymbolRenderer renderer = symbolRenderers.find(role, symbol.rendererKey());
+        if (renderer == null) {
+            throw rendererNotRegistered(new SymbolSnapshot(role, symbol.rendererKey()));
+        }
+        if (!renderer.supports(symbol)) {
+            throw rendererValueMismatch(new SymbolSnapshot(role, symbol.rendererKey()));
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                validateSourceSymbol(child, role);
+            }
+        }
+    }
+
+    private static Set<MapLayerBinding> identitySet(List<MapLayerBinding> values) {
+        Set<MapLayerBinding> result = Collections.newSetFromMap(new IdentityHashMap<>());
+        result.addAll(values);
+        return result;
+    }
+
+    private static Optional<FeatureSelection> reconcileAfterBindingReplacement(
+            Optional<FeatureSelection> current,
+            List<MapLayerBinding> previous,
+            List<MapLayerBinding> candidate) {
+        if (current.isEmpty()) {
+            return current;
+        }
+        FeatureSelection selected = current.orElseThrow();
+        MapLayerBinding old = bindingById(previous, selected.layerId());
+        if (old == null) {
+            return Optional.empty();
+        }
+        if (old.kind() == MapLayerBinding.Kind.FEATURE) {
+            return identitySet(candidate).contains(old) ? current : Optional.empty();
+        }
+        MapLayerBinding replacement = bindingById(candidate, selected.layerId());
+        if (replacement == null || replacement.kind() != MapLayerBinding.Kind.SNAPSHOT) {
+            return Optional.empty();
+        }
+        return replacement.layer().features().stream()
+                        .anyMatch(feature -> feature.id().equals(selected.featureId()))
+                ? current
+                : Optional.empty();
+    }
+
+    private static MapLayerBinding bindingById(List<MapLayerBinding> values, String id) {
+        for (MapLayerBinding binding : values) {
+            if (binding.id().equals(id)) {
+                return binding;
+            }
+        }
+        return null;
+    }
+
+    private void reconcileReportsAfterReplacement(
+            List<MapLayerBinding> previous, List<MapLayerBinding> candidate) {
+        Set<MapLayerBinding> oldIdentities = identitySet(previous);
+        for (MapLayerBinding binding : candidate) {
+            if (binding.kind() == MapLayerBinding.Kind.FEATURE
+                    && !oldIdentities.contains(binding)) {
+                DiagnosticReport opening = binding.source().openingDiagnostics();
+                if (!opening.entries().isEmpty()) {
+                    transitionSourceReport(binding.id(), Optional.of(opening));
+                }
+                sourceAvailability.put(binding.id(), true);
+            }
+        }
+    }
+
+    private Throwable releaseRemoved(
+            List<MapLayerBinding> previous, List<MapLayerBinding> candidate) {
+        Set<MapLayerBinding> retained = identitySet(candidate);
+        Throwable primary = null;
+        for (int index = previous.size() - 1; index >= 0; index--) {
+            MapLayerBinding binding = previous.get(index);
+            if (retained.contains(binding)) {
+                continue;
+            }
+            try {
+                if (binding.owned()) {
+                    binding.closeFromOwner(this);
+                } else {
+                    binding.release(this);
+                }
+            } catch (RuntimeException | Error failure) {
+                if (failure instanceof SourceException sourceFailure) {
+                    transitionSourceReport(binding.id(), Optional.of(sourceFailure.report()));
+                }
+                if (primary == null) {
+                    primary = failure;
+                } else {
+                    suppressDistinct(primary, failure);
+                }
+            }
+            if (binding.kind() == MapLayerBinding.Kind.FEATURE) {
+                transitionSourceReport(binding.id(), Optional.empty());
+                sourceAvailability.remove(binding.id());
+            }
+        }
+        return primary;
+    }
+
+    private void updateSourceResult(String layerId, DiagnosticReport report, boolean available) {
+        transitionSourceReport(
+                layerId, report.entries().isEmpty() ? Optional.empty() : Optional.of(report));
+        Boolean previous = sourceAvailability.put(layerId, available);
+        if (previous != null && previous.booleanValue() != available) {
+            repaint();
+        }
+    }
+
+    private void transitionSourceReport(String layerId, Optional<DiagnosticReport> next) {
+        Optional<DiagnosticReport> previous = Optional.ofNullable(sourceReports.get(layerId));
+        if (previous.equals(next)) {
+            return;
+        }
+        if (next.isPresent()) {
+            sourceReports.put(layerId, next.orElseThrow());
+        } else {
+            sourceReports.remove(layerId);
+        }
+        sourceReportNotifications.add(new MapSourceReportEvent(layerId, previous, next));
+    }
+
+    private void drainSourceReportNotifications() {
+        if (drainingSourceReportNotifications) {
+            return;
+        }
+        drainingSourceReportNotifications = true;
+        try {
+            while (!sourceReportNotifications.isEmpty()) {
+                MapSourceReportEvent event = sourceReportNotifications.removeFirst();
+                for (MapSourceReportListener listener : List.copyOf(sourceReportListeners)) {
+                    listener.onMapSourceReportChanged(event);
+                }
+            }
+        } finally {
+            drainingSourceReportNotifications = false;
+        }
+    }
+
+    private Throwable drainSourceReportNotifications(Throwable primary) {
+        try {
+            drainSourceReportNotifications();
+        } catch (RuntimeException | Error failure) {
+            if (primary == null) {
+                return failure;
+            }
+            suppressDistinct(primary, failure);
+        }
+        return primary;
+    }
+
+    private static DiagnosticReport queryEnvelopeWarning(FeatureSource source, String code) {
+        SourceDiagnostic warning =
+                new SourceDiagnostic(
+                        code,
+                        DiagnosticSeverity.WARNING,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        code.equals("CRS_QUERY_ENVELOPE_CLIPPED")
+                                ? "Visible query envelope was clipped to the CRS domain"
+                                : "Visible query envelope is outside the CRS domain",
+                        Map.of());
+        return new DiagnosticReport(List.of(warning), 0);
+    }
+
+    private static DiagnosticReport crsFailure(FeatureSource source, CrsException failure) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        failure.problem().code(),
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        failure.problem().message(),
+                        failure.problem().context());
+        return new DiagnosticReport(List.of(terminal), 0);
+    }
+
+    private static DiagnosticReport cancellationReport(FeatureSource source) {
+        return cancellationException(source).report();
+    }
+
+    private static SourceException cancellationException(FeatureSource source) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        "SOURCE_CANCELLED",
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        "Source operation was cancelled",
+                        Map.of("operation", "map-view-query"));
+        return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal);
+    }
+
+    private static DiagnosticReport mergeReports(
+            DiagnosticReport first, DiagnosticReport second, FeatureSource source) {
+        int maximum = source.limits().queryLimits().retainedWarnings();
+        List<SourceDiagnostic> entries = new ArrayList<>();
+        SourceDiagnostic terminal = null;
+        long omitted = saturatingAdd(first.omittedWarningCount(), second.omittedWarningCount());
+        for (DiagnosticReport report : List.of(first, second)) {
+            for (SourceDiagnostic diagnostic : report.entries()) {
+                if (diagnostic.severity() == DiagnosticSeverity.ERROR) {
+                    terminal = diagnostic;
+                } else if (entries.size() < maximum) {
+                    entries.add(diagnostic);
+                } else {
+                    omitted = omitted == Long.MAX_VALUE ? omitted : omitted + 1;
+                }
+            }
+        }
+        if (terminal != null) {
+            entries.add(terminal);
+        }
+        return new DiagnosticReport(entries, omitted);
+    }
+
+    private static DiagnosticReport withoutTerminal(DiagnosticReport report) {
+        List<SourceDiagnostic> warnings = new ArrayList<>();
+        for (SourceDiagnostic diagnostic : report.entries()) {
+            if (diagnostic.severity() == DiagnosticSeverity.WARNING) {
+                warnings.add(diagnostic);
+            }
+        }
+        return new DiagnosticReport(warnings, report.omittedWarningCount());
+    }
+
+    private static DiagnosticReport terminalOnly(DiagnosticReport report) {
+        SourceDiagnostic terminal = report.entries().getLast();
+        if (terminal.severity() != DiagnosticSeverity.ERROR) {
+            throw new IllegalArgumentException("A failure report requires a terminal error");
+        }
+        return new DiagnosticReport(List.of(terminal), 0);
+    }
+
+    private static long saturatingAdd(long first, long second) {
+        long result = first + second;
+        return result < 0 || result < first ? Long.MAX_VALUE : result;
+    }
+
+    private void requireOpen() {
+        if (closed) {
+            throw new IllegalStateException("MapView is closed");
+        }
     }
 
     private static String requireContentId(String value, String field) {
@@ -2666,6 +3577,17 @@ public final class MapView extends JComponent {
     private static boolean contains(ViewContentSnapshot snapshot, FeatureSelection requested) {
         for (LayerSnapshot layer : snapshot.layers()) {
             if (layer.id().equals(requested.layerId())) {
+                return layer.sourceBacked()
+                        || layer.features().stream()
+                                .anyMatch(feature -> feature.id().equals(requested.featureId()));
+            }
+        }
+        return false;
+    }
+
+    private static boolean contains(ViewContentSnapshot snapshot, MapHit requested) {
+        for (LayerSnapshot layer : snapshot.layers()) {
+            if (layer.id().equals(requested.layerId())) {
                 return layer.features().stream()
                         .anyMatch(feature -> feature.id().equals(requested.featureId()));
             }
@@ -2673,16 +3595,13 @@ public final class MapView extends JComponent {
         return false;
     }
 
-    private static boolean contains(ViewContentSnapshot snapshot, MapHit requested) {
-        return contains(snapshot, new FeatureSelection(requested.layerId(), requested.featureId()));
-    }
-
     private boolean reconcileInteraction(
             ViewContentSnapshot snapshot, boolean repaintOnChange, boolean drainNotifications) {
         Optional<FeatureSelection> reconciledSelection = reconcile(selection, snapshot);
         Optional<MapHit> reconciledHover = hover.filter(hit -> contains(snapshot, hit));
-        if (hoverProbe.isPresent()) {
-            HoverProbe probe = hoverProbe.orElseThrow();
+        Optional<HoverProbe> transactionProbe = hoverProbe;
+        if (transactionProbe.isPresent()) {
+            HoverProbe probe = transactionProbe.orElseThrow();
             Dimension size = effectiveSize();
             if (probe.screenX() >= 0.0
                     && probe.screenX() < size.width
@@ -2700,6 +3619,9 @@ public final class MapView extends JComponent {
             } else {
                 reconciledHover = Optional.empty();
             }
+        }
+        if (!snapshot.allSourcesAvailable()) {
+            hoverProbe = Optional.empty();
         }
         return transitionInteraction(
                 reconciledSelection, reconciledHover, repaintOnChange, drainNotifications);
@@ -2977,7 +3899,7 @@ public final class MapView extends JComponent {
 
     private record HoverProbe(double screenX, double screenY) {}
 
-    private record OverlayCandidate(Feature feature, AwtLogicalPaintPresence presence) {}
+    private record OverlayCandidate(VisualFeature feature, AwtLogicalPaintPresence presence) {}
 
     private record InteractionNotification(
             MapSelectionEvent selectionEvent, MapHoverEvent hoverEvent) {
@@ -2990,9 +3912,34 @@ public final class MapView extends JComponent {
         }
     }
 
-    private record LayerSnapshot(String id, List<Feature> features) {}
+    private record VisualFeature(
+            String id,
+            String name,
+            Geometry geometry,
+            Symbol symbol,
+            CrsOperation sourceToDisplay) {}
 
-    private record ViewContentSnapshot(List<LayerSnapshot> layers) {}
+    private record LayerSnapshot(
+            String id,
+            List<VisualFeature> features,
+            boolean sourceBacked,
+            boolean sourceAvailable) {}
+
+    private record ViewContentSnapshot(List<LayerSnapshot> layers) {
+        private boolean allSourcesAvailable() {
+            for (LayerSnapshot layer : layers) {
+                if (layer.sourceBacked() && !layer.sourceAvailable()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    private record ResolvedFeatureBinding(
+            CrsOperation sourceToDisplay, CrsOperation displayToSource) {}
+
+    private record CandidateBindings(Map<MapLayerBinding, ResolvedFeatureBinding> resolved) {}
 
     private record CoordinateConfiguration(
             CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs) {}

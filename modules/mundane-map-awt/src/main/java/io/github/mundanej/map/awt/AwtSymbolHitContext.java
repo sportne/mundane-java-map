@@ -5,6 +5,7 @@ import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.ScreenGeometryHits;
@@ -25,6 +26,7 @@ public final class AwtSymbolHitContext {
     private final String featureId;
     private final Geometry featureGeometry;
     private final Geometry renderGeometry;
+    private final CrsOperation sourceToDisplay;
     private final MapViewport viewport;
     private final double inheritedOpacity;
     private final boolean closedRing;
@@ -42,6 +44,7 @@ public final class AwtSymbolHitContext {
             String featureId,
             Geometry featureGeometry,
             Geometry renderGeometry,
+            CrsOperation sourceToDisplay,
             MapViewport viewport,
             double inheritedOpacity,
             boolean closedRing,
@@ -57,6 +60,7 @@ public final class AwtSymbolHitContext {
         this.featureId = Objects.requireNonNull(featureId, "featureId");
         this.featureGeometry = Objects.requireNonNull(featureGeometry, "featureGeometry");
         this.renderGeometry = Objects.requireNonNull(renderGeometry, "renderGeometry");
+        this.sourceToDisplay = Objects.requireNonNull(sourceToDisplay, "sourceToDisplay");
         this.viewport = Objects.requireNonNull(viewport, "viewport");
         this.inheritedOpacity = inheritedOpacity;
         this.closedRing = closedRing;
@@ -143,7 +147,11 @@ public final class AwtSymbolHitContext {
 
     /** Converts a source-map coordinate with the fixed projection and viewport snapshots. */
     public Coordinate sourceToScreen(Coordinate coordinate) {
-        return owner.toScreen(coordinate, viewport);
+        return owner.toScreen(coordinate, sourceToDisplay, viewport);
+    }
+
+    CrsOperation sourceToDisplayOperation() {
+        return sourceToDisplay;
     }
 
     /** Tests a child with inherited opacity and the same derived context. */
