@@ -53,6 +53,10 @@ G4-002 is complete: CRS metadata now distinguishes recognized, unknown, and miss
 instance-owned registry explicitly resolves the approved EPSG:4326/EPSG:3857 keys and direct
 operations; and strict projection, envelope, viewport, view, and optional pointer boundaries replace
 silent Web Mercator clamping.
+G3-001 is complete: immutable toolkit-neutral tool events feed one core lifecycle and capture router;
+the AWT adapter explicitly converts local input, preserves passed pan/zoom and compatibility
+observers, owns predefined cursor mapping, and cancels or quarantines stale gestures at view
+lifecycle boundaries.
 
 ## Level 1
 

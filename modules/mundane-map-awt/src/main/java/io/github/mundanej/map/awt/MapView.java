@@ -12,8 +12,15 @@ import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.HatchFillSymbol;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.MapCursorIntent;
+import io.github.mundanej.map.api.MapInputModifier;
+import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
+import io.github.mundanej.map.api.MapTool;
+import io.github.mundanej.map.api.MapToolCancelReason;
+import io.github.mundanej.map.api.MapToolContext;
+import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
@@ -35,18 +42,24 @@ import io.github.mundanej.map.core.HatchSegments;
 import io.github.mundanej.map.core.LineEndpointBearings;
 import io.github.mundanej.map.core.LineTangents;
 import io.github.mundanej.map.core.MapScreenBasis;
+import io.github.mundanej.map.core.MapToolRouter;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.MarkerTransform;
+import io.github.mundanej.map.core.RouteOutcome;
 import io.github.mundanej.map.core.SymbolTransforms;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.Shape;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.awt.event.InputEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -58,14 +71,16 @@ import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.Set;
 import javax.swing.JComponent;
-import javax.swing.SwingUtilities;
 
 /**
  * A lightweight Swing map component for projected vector features.
@@ -86,10 +101,16 @@ public final class MapView extends JComponent {
     private final CrsOperation mapToDisplay;
     private final CrsOperation displayToMap;
     private final SymbolRendererRegistry symbolRenderers;
+    private final MapToolRouter toolRouter = new MapToolRouter();
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private List<Layer> layers = List.of();
     private MapViewport viewport = MapViewport.initial(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     private Point dragAnchor;
+    private double lastPointerX = DEFAULT_WIDTH / 2.0;
+    private double lastPointerY = DEFAULT_HEIGHT / 2.0;
+    private Set<MapPointerButton> lastButtonsDown = Set.of();
+    private Set<MapInputModifier> lastModifiers = Set.of();
+    private long toolEventSequence;
 
     /** Creates an empty view using the supplied source-to-world projection. */
     public MapView(Projection projection) {
@@ -128,6 +149,7 @@ public final class MapView extends JComponent {
         this.displayToMap = crsRegistry.operation(displayCrs, mapCrs);
         this.symbolRenderers = Objects.requireNonNull(symbolRenderers, "symbolRenderers");
         setOpaque(true);
+        setFocusable(true);
         setBackground(Color.WHITE);
         setPreferredSize(new Dimension(DEFAULT_WIDTH, DEFAULT_HEIGHT));
         installInteraction();
@@ -141,6 +163,46 @@ public final class MapView extends JComponent {
     /** Returns the world/display CRS used by the viewport. */
     public CrsDefinition displayCrs() {
         return displayCrs;
+    }
+
+    /** Installs one active tool, replacing a distinct active instance by identity. */
+    public void setActiveTool(MapTool tool) {
+        Objects.requireNonNull(tool, "tool");
+        ToolContextSnapshot context = toolContextSnapshot();
+        try {
+            applyToolOutcome(
+                    toolRouter.setActiveTool(
+                            tool,
+                            cancelEvent(MapToolCancelReason.TOOL_REPLACED, context),
+                            context));
+        } catch (RuntimeException | Error failure) {
+            dragAnchor = null;
+            applyCurrentToolCursor();
+            throw failure;
+        } finally {
+            dragAnchor = null;
+        }
+    }
+
+    /** Clears the active tool, if present. */
+    public void clearActiveTool() {
+        ToolContextSnapshot context = toolContextSnapshot();
+        try {
+            applyToolOutcome(
+                    toolRouter.clearActiveTool(
+                            cancelEvent(MapToolCancelReason.TOOL_CLEARED, context), context));
+        } catch (RuntimeException | Error failure) {
+            dragAnchor = null;
+            applyCurrentToolCursor();
+            throw failure;
+        } finally {
+            dragAnchor = null;
+        }
+    }
+
+    /** Returns the active tool, if any. */
+    public Optional<MapTool> activeTool() {
+        return toolRouter.activeTool();
     }
 
     /** Replaces the ordered layer snapshot and repaints the component. */
@@ -235,6 +297,24 @@ public final class MapView extends JComponent {
                 pointerListeners.remove(index);
                 return;
             }
+        }
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        if (isEnabled()) {
+            resumeTool();
+        }
+    }
+
+    @Override
+    public void removeNotify() {
+        try {
+            cancelInteraction(MapToolCancelReason.VIEW_REMOVED, lastButtonsDown);
+        } finally {
+            dragAnchor = null;
+            super.removeNotify();
         }
     }
 
@@ -974,42 +1054,151 @@ public final class MapView extends JComponent {
                 new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent event) {
-                        if (SwingUtilities.isLeftMouseButton(event)) {
+                        requestFocusInWindow();
+                        RoutedMouse routed = routeMouse(event, MapToolEvent.Type.PRESS);
+                        if (!routed.outcome().suppressDefault()
+                                && button(event.getButton()).equals(MapPointerButton.PRIMARY)
+                                && buttonsDown(event, MapToolEvent.Type.PRESS)
+                                        .equals(Set.of(MapPointerButton.PRIMARY))) {
                             dragAnchor = event.getPoint();
-                        }
-                    }
-
-                    @Override
-                    public void mouseReleased(MouseEvent event) {
-                        if (SwingUtilities.isLeftMouseButton(event)) {
+                        } else {
                             dragAnchor = null;
                         }
                     }
 
                     @Override
+                    public void mouseReleased(MouseEvent event) {
+                        try {
+                            routeMouse(event, MapToolEvent.Type.RELEASE);
+                        } finally {
+                            if (button(event.getButton()).equals(MapPointerButton.PRIMARY)) {
+                                dragAnchor = null;
+                            }
+                        }
+                    }
+
+                    @Override
                     public void mouseClicked(MouseEvent event) {
-                        firePointer(MapPointerEvent.Type.CLICKED, event.getX(), event.getY());
+                        RoutedMouse routed = routeMouse(event, MapToolEvent.Type.CLICK);
+                        if (!routed.outcome().suppressDefault()) {
+                            firePointer(
+                                    MapPointerEvent.Type.CLICKED,
+                                    event.getX(),
+                                    event.getY(),
+                                    routed.event().mapCoordinate());
+                        }
+                    }
+
+                    @Override
+                    public void mouseEntered(MouseEvent event) {
+                        rememberPointer(event, buttonsDown(event, null));
+                        if (isEnabled() && isDisplayable()) {
+                            resumeTool();
+                        }
+                    }
+
+                    @Override
+                    public void mouseExited(MouseEvent event) {
+                        Set<MapPointerButton> down = buttonsDown(event, null);
+                        rememberPointer(event, down);
+                        if (!toolRouter.captured()) {
+                            try {
+                                cancelInteraction(MapToolCancelReason.POINTER_EXITED, down);
+                            } finally {
+                                dragAnchor = null;
+                            }
+                        }
                     }
                 });
         addMouseMotionListener(
                 new MouseMotionAdapter() {
                     @Override
                     public void mouseDragged(MouseEvent event) {
-                        if (dragAnchor != null) {
+                        Set<MapPointerButton> down = buttonsDown(event, MapToolEvent.Type.DRAG);
+                        if (down.isEmpty()) {
+                            rememberPointer(event, down);
+                            try {
+                                cancelInteraction(MapToolCancelReason.POINTER_STATE_LOST, down);
+                            } finally {
+                                dragAnchor = null;
+                            }
+                            return;
+                        }
+                        RouteOutcome outcome = routeMouse(event, MapToolEvent.Type.DRAG).outcome();
+                        boolean solePrimary = down.equals(Set.of(MapPointerButton.PRIMARY));
+                        if (dragAnchor != null && solePrimary) {
                             double deltaX = event.getX() - dragAnchor.x;
                             double deltaY = event.getY() - dragAnchor.y;
-                            viewport = viewport().panByPixels(deltaX, deltaY);
                             dragAnchor = event.getPoint();
-                            repaint();
+                            if (!outcome.suppressDefault()) {
+                                viewport = viewport().panByPixels(deltaX, deltaY);
+                                repaint();
+                            }
+                        } else if (!solePrimary) {
+                            dragAnchor = null;
                         }
                     }
 
                     @Override
                     public void mouseMoved(MouseEvent event) {
-                        firePointer(MapPointerEvent.Type.MOVED, event.getX(), event.getY());
+                        Set<MapPointerButton> down = buttonsDown(event, MapToolEvent.Type.MOVE);
+                        if (!down.isEmpty()) {
+                            rememberPointer(event, down);
+                            try {
+                                cancelInteraction(MapToolCancelReason.POINTER_STATE_LOST, down);
+                            } finally {
+                                dragAnchor = null;
+                            }
+                            return;
+                        }
+                        RoutedMouse routed = routeMouse(event, MapToolEvent.Type.MOVE);
+                        if (!routed.outcome().suppressDefault()) {
+                            firePointer(
+                                    MapPointerEvent.Type.MOVED,
+                                    event.getX(),
+                                    event.getY(),
+                                    routed.event().mapCoordinate());
+                        }
                     }
                 });
-        addMouseWheelListener(this::zoom);
+        addMouseWheelListener(
+                event -> {
+                    RouteOutcome outcome = routeWheel(event);
+                    if (!outcome.suppressDefault()) {
+                        zoom(event);
+                    }
+                });
+        addFocusListener(
+                new FocusAdapter() {
+                    @Override
+                    public void focusLost(FocusEvent event) {
+                        try {
+                            cancelInteraction(MapToolCancelReason.FOCUS_LOST, lastButtonsDown);
+                        } finally {
+                            dragAnchor = null;
+                        }
+                    }
+
+                    @Override
+                    public void focusGained(FocusEvent event) {
+                        if (isEnabled() && isDisplayable()) {
+                            resumeTool();
+                        }
+                    }
+                });
+        addPropertyChangeListener(
+                "enabled",
+                event -> {
+                    if (Boolean.FALSE.equals(event.getNewValue())) {
+                        try {
+                            cancelInteraction(MapToolCancelReason.VIEW_DISABLED, lastButtonsDown);
+                        } finally {
+                            dragAnchor = null;
+                        }
+                    } else if (isDisplayable()) {
+                        resumeTool();
+                    }
+                });
     }
 
     private void zoom(MouseWheelEvent event) {
@@ -1018,13 +1207,218 @@ public final class MapView extends JComponent {
         repaint();
     }
 
-    private void firePointer(MapPointerEvent.Type type, double screenX, double screenY) {
-        MapPointerEvent event =
-                new MapPointerEvent(type, screenX, screenY, screenToMap(screenX, screenY));
+    private RoutedMouse routeMouse(MouseEvent event, MapToolEvent.Type type) {
+        Set<MapPointerButton> down = buttonsDown(event, type);
+        rememberPointer(event, down);
+        ToolContextSnapshot context = toolContextSnapshot();
+        MapToolEvent converted =
+                new MapToolEvent(
+                        nextToolSequence(),
+                        type,
+                        event.getX(),
+                        event.getY(),
+                        context.screenToMap(event.getX(), event.getY()),
+                        changedButton(event, type),
+                        down,
+                        modifiers(event),
+                        (type == MapToolEvent.Type.PRESS
+                                        || type == MapToolEvent.Type.RELEASE
+                                        || type == MapToolEvent.Type.CLICK)
+                                ? event.getClickCount()
+                                : 0,
+                        0.0,
+                        (type == MapToolEvent.Type.PRESS
+                                        || type == MapToolEvent.Type.RELEASE
+                                        || type == MapToolEvent.Type.CLICK)
+                                ? event.isPopupTrigger()
+                                : false,
+                        Optional.empty());
+        try {
+            RouteOutcome outcome = toolRouter.route(converted, context);
+            applyToolOutcome(outcome);
+            return new RoutedMouse(outcome, converted);
+        } catch (RuntimeException | Error failure) {
+            dragAnchor = null;
+            applyCurrentToolCursor();
+            throw failure;
+        }
+    }
+
+    private RouteOutcome routeWheel(MouseWheelEvent event) {
+        Set<MapPointerButton> down = buttonsDown(event, MapToolEvent.Type.WHEEL);
+        rememberPointer(event, down);
+        ToolContextSnapshot context = toolContextSnapshot();
+        MapToolEvent converted =
+                new MapToolEvent(
+                        nextToolSequence(),
+                        MapToolEvent.Type.WHEEL,
+                        event.getX(),
+                        event.getY(),
+                        context.screenToMap(event.getX(), event.getY()),
+                        MapPointerButton.NONE,
+                        down,
+                        modifiers(event),
+                        0,
+                        event.getPreciseWheelRotation(),
+                        false,
+                        Optional.empty());
+        try {
+            RouteOutcome outcome = toolRouter.route(converted, context);
+            applyToolOutcome(outcome);
+            return outcome;
+        } catch (RuntimeException | Error failure) {
+            dragAnchor = null;
+            applyCurrentToolCursor();
+            throw failure;
+        }
+    }
+
+    private void cancelInteraction(MapToolCancelReason reason, Set<MapPointerButton> buttonsDown) {
+        ToolContextSnapshot context = toolContextSnapshot();
+        MapToolEvent cancel =
+                new MapToolEvent(
+                        nextToolSequence(),
+                        MapToolEvent.Type.CANCEL,
+                        lastPointerX,
+                        lastPointerY,
+                        context.screenToMap(lastPointerX, lastPointerY),
+                        MapPointerButton.NONE,
+                        buttonsDown,
+                        lastModifiers,
+                        0,
+                        0.0,
+                        false,
+                        Optional.of(reason));
+        try {
+            applyToolOutcome(toolRouter.cancelInteraction(cancel, context));
+        } catch (RuntimeException | Error failure) {
+            applyCurrentToolCursor();
+            throw failure;
+        }
+    }
+
+    private MapToolEvent cancelEvent(MapToolCancelReason reason, ToolContextSnapshot context) {
+        return new MapToolEvent(
+                nextToolSequence(),
+                MapToolEvent.Type.CANCEL,
+                lastPointerX,
+                lastPointerY,
+                context.screenToMap(lastPointerX, lastPointerY),
+                MapPointerButton.NONE,
+                lastButtonsDown,
+                lastModifiers,
+                0,
+                0.0,
+                false,
+                Optional.of(reason));
+    }
+
+    private void firePointer(
+            MapPointerEvent.Type type,
+            double screenX,
+            double screenY,
+            Optional<Coordinate> mapCoordinate) {
+        MapPointerEvent event = new MapPointerEvent(type, screenX, screenY, mapCoordinate);
         List<MapPointerListener> snapshot = List.copyOf(pointerListeners);
         for (MapPointerListener listener : snapshot) {
             listener.onMapPointerEvent(event);
         }
+    }
+
+    private ToolContextSnapshot toolContextSnapshot() {
+        synchronizeViewportSize();
+        return new ToolContextSnapshot(viewport);
+    }
+
+    private void applyToolOutcome(RouteOutcome outcome) {
+        setCursor(isEnabled() ? cursor(outcome.cursorIntent()) : Cursor.getDefaultCursor());
+    }
+
+    private void resumeTool() {
+        try {
+            applyToolOutcome(toolRouter.resume());
+        } catch (RuntimeException | Error failure) {
+            applyCurrentToolCursor();
+            throw failure;
+        }
+    }
+
+    private void applyCurrentToolCursor() {
+        setCursor(
+                isEnabled() ? cursor(toolRouter.currentCursorIntent()) : Cursor.getDefaultCursor());
+    }
+
+    private static Cursor cursor(MapCursorIntent intent) {
+        return switch (intent) {
+            case DEFAULT -> Cursor.getDefaultCursor();
+            case CROSSHAIR -> Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR);
+            case HAND -> Cursor.getPredefinedCursor(Cursor.HAND_CURSOR);
+            case MOVE -> Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR);
+        };
+    }
+
+    private long nextToolSequence() {
+        if (toolEventSequence == Long.MAX_VALUE) {
+            throw new IllegalStateException("Map-tool event sequence exhausted");
+        }
+        return ++toolEventSequence;
+    }
+
+    private void rememberPointer(MouseEvent event, Set<MapPointerButton> buttonsDown) {
+        lastPointerX = event.getX();
+        lastPointerY = event.getY();
+        lastButtonsDown = Set.copyOf(buttonsDown);
+        lastModifiers = modifiers(event);
+    }
+
+    private static MapPointerButton changedButton(MouseEvent event, MapToolEvent.Type type) {
+        return switch (type) {
+            case PRESS, RELEASE, CLICK -> button(event.getButton());
+            default -> MapPointerButton.NONE;
+        };
+    }
+
+    private static MapPointerButton button(int number) {
+        return number == 0 ? MapPointerButton.NONE : new MapPointerButton(number);
+    }
+
+    private static Set<MapPointerButton> buttonsDown(MouseEvent event, MapToolEvent.Type type) {
+        Set<MapPointerButton> buttons = new HashSet<>();
+        int modifiers = event.getModifiersEx();
+        for (int number = 1; number <= 20; number++) {
+            if ((modifiers & InputEvent.getMaskForButton(number)) != 0) {
+                buttons.add(new MapPointerButton(number));
+            }
+        }
+        if (type == MapToolEvent.Type.PRESS && event.getButton() > 0) {
+            buttons.add(button(event.getButton()));
+        }
+        if ((type == MapToolEvent.Type.RELEASE || type == MapToolEvent.Type.CLICK)
+                && event.getButton() > 0) {
+            buttons.remove(button(event.getButton()));
+        }
+        return Set.copyOf(buttons);
+    }
+
+    private static Set<MapInputModifier> modifiers(InputEvent event) {
+        EnumSet<MapInputModifier> modifiers = EnumSet.noneOf(MapInputModifier.class);
+        int mask = event.getModifiersEx();
+        if ((mask & InputEvent.SHIFT_DOWN_MASK) != 0) {
+            modifiers.add(MapInputModifier.SHIFT);
+        }
+        if ((mask & InputEvent.CTRL_DOWN_MASK) != 0) {
+            modifiers.add(MapInputModifier.CONTROL);
+        }
+        if ((mask & InputEvent.ALT_DOWN_MASK) != 0) {
+            modifiers.add(MapInputModifier.ALT);
+        }
+        if ((mask & InputEvent.META_DOWN_MASK) != 0) {
+            modifiers.add(MapInputModifier.META);
+        }
+        if ((mask & InputEvent.ALT_GRAPH_DOWN_MASK) != 0) {
+            modifiers.add(MapInputModifier.ALT_GRAPH);
+        }
+        return Set.copyOf(modifiers);
     }
 
     private static CoordinateConfiguration configuration(Projection projection) {
@@ -1056,6 +1450,71 @@ public final class MapView extends JComponent {
         int height = getHeight() > 0 ? getHeight() : getPreferredSize().height;
         return new Dimension(Math.max(1, width), Math.max(1, height));
     }
+
+    private final class ToolContextSnapshot implements MapToolContext {
+        private final MapViewport snapshotViewport;
+
+        private ToolContextSnapshot(MapViewport snapshotViewport) {
+            this.snapshotViewport = snapshotViewport;
+        }
+
+        @Override
+        public CrsDefinition mapCrs() {
+            return mapCrs;
+        }
+
+        @Override
+        public CrsDefinition displayCrs() {
+            return displayCrs;
+        }
+
+        @Override
+        public Optional<Coordinate> mapToScreen(Coordinate coordinate) {
+            Objects.requireNonNull(coordinate, "coordinate");
+            Coordinate world;
+            try {
+                world = mapToDisplay.transform(coordinate);
+            } catch (CrsException exception) {
+                if (isExpectedConversionMiss(exception)) {
+                    return Optional.empty();
+                }
+                throw exception;
+            }
+            try {
+                return Optional.of(snapshotViewport.worldToScreen(world));
+            } catch (IllegalArgumentException exception) {
+                return Optional.empty();
+            }
+        }
+
+        @Override
+        public Optional<Coordinate> screenToMap(double screenX, double screenY) {
+            if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
+                throw new IllegalArgumentException("Screen coordinates must be finite");
+            }
+            Coordinate world;
+            try {
+                world = snapshotViewport.screenToWorld(screenX, screenY);
+            } catch (IllegalArgumentException exception) {
+                return Optional.empty();
+            }
+            try {
+                return Optional.of(displayToMap.transform(world));
+            } catch (CrsException exception) {
+                if (isExpectedConversionMiss(exception)) {
+                    return Optional.empty();
+                }
+                throw exception;
+            }
+        }
+
+        @Override
+        public void requestRepaint() {
+            repaint();
+        }
+    }
+
+    private record RoutedMouse(RouteOutcome outcome, MapToolEvent event) {}
 
     private record CoordinateConfiguration(
             CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs) {}

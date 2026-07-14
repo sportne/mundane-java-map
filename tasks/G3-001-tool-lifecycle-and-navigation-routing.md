@@ -1,6 +1,6 @@
 # G3-001 — Tool Lifecycle and Navigation Routing
 
-Status: Proposed
+Status: Complete
 Depends on: G4-002
 Gate: G3
 Type: AFK
@@ -69,3 +69,8 @@ git diff --check
 
 Keep routing explicit and synchronous; do not use global event listeners, reflection, dynamic proxies,
 or background mutation of Swing state.
+
+Completed on 2026-07-14. Toolkit-neutral immutable input, tool, result, cursor, and context contracts
+now route through one call-thread-confined core state machine. The Swing adapter owns explicit event
+conversion, capture-aware navigation, lifecycle cancellation, cursor mapping, compatibility pointer
+observers, and EDT callbacks while stale gestures remain quarantined across tool sessions.

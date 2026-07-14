@@ -13,6 +13,7 @@ import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.WebMercatorProjection;
+import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.util.ArrayList;
@@ -122,8 +123,10 @@ class MapViewCrsTest {
     }
 
     private static void dispatch(MapView view, int type, int x, int y, int button) {
+        int modifiers = type == MouseEvent.MOUSE_DRAGGED ? InputEvent.BUTTON1_DOWN_MASK : 0;
         view.dispatchEvent(
-                new MouseEvent(view, type, System.currentTimeMillis(), 0, x, y, 1, false, button));
+                new MouseEvent(
+                        view, type, System.currentTimeMillis(), modifiers, x, y, 1, false, button));
     }
 
     private static final class FailingProjection implements Projection {
