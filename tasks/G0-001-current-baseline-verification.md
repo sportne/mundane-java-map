@@ -48,6 +48,8 @@ does not honor the offline repository property, and `.github/workflows/ci.yml` c
 ## Required tests
 
 - Gradle configuration coverage for normal and `map.offlineRepo` repository selection.
+- A separate full-build offline-repository verification using copied sources and isolated Gradle
+  state.
 - JVM CI coverage on Java 21 and at least one newer JDK while compiling with release 21.
 - Publication-staging assertions for expected modules and classifier artifacts.
 
@@ -55,6 +57,7 @@ does not honor the offline repository property, and `.github/workflows/ci.yml` c
 
 ```bash
 ./gradlew checkAll --console=plain
+./gradlew offlineRepositoryVerification --console=plain
 ./gradlew publicationDryRun --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
@@ -67,6 +70,7 @@ temporary repository fixture, but it must not embed machine-specific paths or re
 
 Completed on 2026-07-13 with isolated normal/offline repository-policy fixtures, missing-coordinate
 failure checks, Java 21 class-file verification, exact staged-artifact verification, and successful
-local `checkAll`, `publicationDryRun`, and `qualityGate` runs on Java 21. The CI workflow fixes the
-artifact release at 21 and selects Java 21 or 25 only as the test launcher; execution of that remote
-matrix is rechecked after the authorized final push.
+local `checkAll`, `publicationDryRun`, and `qualityGate` runs on Java 21. The expensive copied-build
+offline proof was separated on 2026-07-13 into `offlineRepositoryVerification`, a Java 21 CI lane
+triggered by Gradle dependency and repository-policy changes. The normal CI matrix fixes the
+artifact release at 21 and selects Java 21 or 25 only as the test launcher.

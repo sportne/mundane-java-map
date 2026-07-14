@@ -32,3 +32,22 @@ tasks.withType(Test).configureEach {
         exceptionFormat = 'full'
     }
 }
+
+tasks.named('test', Test) {
+    useJUnitPlatform {
+        excludeTags 'offline-repository-verification'
+    }
+}
+
+tasks.register('offlineRepositoryVerification', Test) {
+    group = 'verification'
+    description = 'Proves the full build works from one isolated offline Maven repository.'
+    dependsOn tasks.named('testClasses')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'offline-repository-verification'
+    }
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf('Always verifies the current isolated repository state') { true }
+}

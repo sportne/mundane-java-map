@@ -11,6 +11,7 @@
 
 - Full local gate: `./gradlew qualityGate --console=plain`
 - JVM checks: `./gradlew checkAll --console=plain`
+- Offline repository: `./gradlew offlineRepositoryVerification --console=plain`
 - Basic viewer: `./gradlew :examples:basic-viewer:run`
 - Native smoke: `./gradlew nativeSmoke --console=plain`
 - Publication smoke: `./gradlew publicationDryRun --console=plain`
@@ -28,6 +29,5 @@
 ## Validation rule
 
 End each task with its narrowest relevant test command, then run `qualityGate` before handoff.
-Native, corpus, rendering-regression, and performance lanes remain separate unless the task changes
-one of those concerns.
-
+Offline-repository, native, corpus, rendering-regression, and performance lanes remain separate
+unless the task changes one of those concerns.

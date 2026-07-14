@@ -25,6 +25,7 @@ Useful focused commands:
 ./gradlew checkAll --console=plain
 ./gradlew :examples:basic-viewer:run
 ./gradlew :examples:symbol-gallery:run
+./gradlew offlineRepositoryVerification --console=plain
 ./gradlew renderRegression --console=plain
 ./gradlew nativeSmoke --console=plain
 ./gradlew publicationDryRun --console=plain
@@ -36,9 +37,12 @@ ordering, clipping, and interpolation assertions; it never compares complete ima
 Failures may write a diagnostic PNG beneath
 `modules/mundane-map-awt/build/render-regression/diagnostics/`. Passing scenarios write nothing.
 
-`renderRegression` and `nativeSmoke` are intentionally separate from `qualityGate`. Rendering has
-its own Linux CI evidence, while native smoke requires a GraalVM toolchain. The normal gate has no
-platform raster requirement, external services, or native tools.
+`offlineRepositoryVerification`, `renderRegression`, and `nativeSmoke` are intentionally separate
+from `qualityGate`. The offline lane constructs a verified Maven-layout repository, copies the
+project, and proves the complete build with an isolated Gradle home on Java 21. CI runs it only when
+Gradle dependency or repository-policy inputs change. Rendering has its own Linux CI evidence, while
+native smoke requires a GraalVM toolchain. The normal gate has no isolated-build, platform-raster,
+external-service, or native-tool requirement.
 
 The library always compiles to the Java 21 API and class-file baseline. CI may select a newer test
 launcher with `-Pmap.testJavaVersion=<version>` without changing published bytecode.

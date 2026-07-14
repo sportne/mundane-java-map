@@ -18,6 +18,7 @@ import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.UnexpectedBuildFailure;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -30,6 +31,7 @@ class BuildConfigurationTest {
     @TempDir Path temporaryDirectory;
 
     @Test
+    @Tag("offline-repository-verification")
     void actualBuildPassesQualityGateWithOnlyAnIsolatedOfflineRepository() throws Exception {
         Assumptions.assumeFalse(
                 "true".equals(System.getenv("MAP_OFFLINE_VERIFICATION_CHILD")),

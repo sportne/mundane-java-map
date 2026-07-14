@@ -70,8 +70,9 @@ must name supported behavior, limits, malformed-input handling, and stable diagn
   - G5-009 creates `./gradlew shapefileCorpus --console=plain`.
   - G7-001 creates `./gradlew performanceEvidence --console=plain`.
   - G9-006 creates `./gradlew dtedCorpus --console=plain`.
-  - G0-001 creates `publicationDryRun`; G8-003 hardens it and creates `consumerSmoke`, yielding
-    `./gradlew publicationDryRun consumerSmoke --console=plain`.
+  - G0-001 creates `offlineRepositoryVerification` and `publicationDryRun`; the expensive offline
+    proof remains separate from `qualityGate`. G8-003 hardens publication staging and creates
+    `consumerSmoke`, yielding `./gradlew publicationDryRun consumerSmoke --console=plain`.
 - New `mundane-map-io-*` modules are added only in the task that delivers working behavior and
   tests. No task creates an empty future-format module.
 

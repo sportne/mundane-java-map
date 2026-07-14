@@ -42,6 +42,10 @@ uses a second fresh source copy and an isolated temporary `GRADLE_USER_HOME` con
 checksum-verified, pre-provisioned Gradle wrapper distribution. It then runs with Gradle offline
 mode, the resolved local Java 21 compiler plus the current test JDK declared explicitly, automatic
 toolchain discovery/download disabled, and the temporary repository as the sole resolution source.
+This deliberately cold proof is exposed as the separate `offlineRepositoryVerification` task. It is
+not part of `test`, `check`, `checkAll`, or `qualityGate`; CI runs it once on Java 21 when Gradle
+dependency or repository-policy inputs change. Fast repository-selection, invalid-path, and
+missing-coordinate tests remain in the normal gate.
 
 ### Normal quality gate
 
@@ -56,10 +60,11 @@ qualityGate
   +-- each checked project: javadoc
 ```
 
-Normal tests exclude slow, manual, and Native Image tags. Native, corpus, rendering-regression,
-performance, and publication/consumer lanes remain independent so their environmental cost and
-evidence are visible. A project is added to the checked-project list in the same change that adds
-working behavior; there is no empty-module exemption from the gate.
+Normal tests exclude slow, manual, offline-repository, and Native Image tags. Offline-repository,
+native, corpus, rendering-regression, performance, and publication/consumer lanes remain
+independent so their environmental cost and evidence are visible. A project is added to the checked
+project list in the same change that adds working behavior; there is no empty-module exemption from
+the gate.
 
 CI runs the normal gate on Java 21 and at least one supported newer JDK, always targeting release
 21. The two legs are compatibility evidence for one artifact baseline, not separate supported

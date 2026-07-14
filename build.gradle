@@ -296,6 +296,8 @@ def projectInventory = gradle.ext.mapProjectInventory
 def checkedProjects = projectInventory.collect { it.path }
 def publishedProjects = projectInventory.findAll { it.published }.collect { it.path }
 def buildLogicCheck = gradle.includedBuild('build-logic').task(':check')
+def buildLogicOfflineRepositoryVerification =
+        gradle.includedBuild('build-logic').task(':offlineRepositoryVerification')
 
 tasks.register('checkAll') {
     group = 'verification'
@@ -310,6 +312,12 @@ tasks.register('qualityGate') {
     dependsOn 'checkAll'
     dependsOn checkedProjects.collect { "${it}:spotlessCheck" }
     dependsOn checkedProjects.collect { "${it}:javadoc" }
+}
+
+tasks.register('offlineRepositoryVerification') {
+    group = 'verification'
+    description = 'Runs the isolated offline-repository verification lane on Java 21.'
+    dependsOn buildLogicOfflineRepositoryVerification
 }
 
 tasks.named('check') {
