@@ -8,6 +8,8 @@ import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
@@ -98,6 +100,12 @@ public final class MechanismFixtures {
     public static final class UnsafeUse {
         public int addressSize(Unsafe unsafe) {
             return unsafe.addressSize();
+        }
+    }
+
+    public static final class MemoryMappingUse {
+        public MappedByteBuffer map(FileChannel channel) throws IOException {
+            return channel.map(FileChannel.MapMode.READ_ONLY, 0, 1);
         }
     }
 

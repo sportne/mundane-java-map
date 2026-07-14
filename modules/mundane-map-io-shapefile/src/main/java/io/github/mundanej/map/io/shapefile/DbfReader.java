@@ -38,6 +38,7 @@ final class DbfReader {
             List<SourceDiagnostic> warnings) {
         ShapefileFileAccess.Channel channel;
         try {
+            checkpoint(source, cancellation);
             channel = access.open(dbf);
         } catch (IOException exception) {
             throw ShapefileFailures.io(source, "dbf", "open", -1, exception);
@@ -53,11 +54,12 @@ final class DbfReader {
                         "componentBytes",
                         size,
                         options.shapefileLimits().maximumComponentBytes(),
+                        "dbf",
                         OptionalLong.empty(),
                         0);
             }
             checkpoint(source, cancellation);
-            accounting.allocate(65, OptionalLong.empty(), 0);
+            accounting.allocate("dbf", 65, OptionalLong.empty(), 0);
             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
             ByteBuffer descriptor = ByteBuffer.allocate(DESCRIPTOR_BYTES);
             ByteBuffer suffix = ByteBuffer.allocate(1);
@@ -91,7 +93,7 @@ final class DbfReader {
             }
             checkpoint(source, cancellation);
             accounting.allocate(
-                    Math.multiplyExact((long) fieldCount, 33), OptionalLong.empty(), 32);
+                    "dbf", Math.multiplyExact((long) fieldCount, 33), OptionalLong.empty(), 32);
             checkpoint(source, cancellation);
             String[] names = new String[fieldCount];
             byte[] types = new byte[fieldCount];
@@ -185,7 +187,10 @@ final class DbfReader {
                             warnings);
             checkpoint(source, cancellation);
             accounting.allocate(
-                    Math.multiplyExact((long) schemaFields.size(), 40), OptionalLong.empty(), 32);
+                    "dbf",
+                    Math.multiplyExact((long) schemaFields.size(), 40),
+                    OptionalLong.empty(),
+                    32);
             checkpoint(source, cancellation);
             AttributeSchema schema = new AttributeSchema(schemaFields);
             return new Result(
@@ -220,6 +225,10 @@ final class DbfReader {
         try {
             long size = channel.size();
             checkpoint(source, cancellation);
+            if (size < 0) {
+                throw ShapefileFailures.io(
+                        source, "dbf", "size", -1, new IOException("negative captured size"));
+            }
             return size;
         } catch (IOException exception) {
             throw ShapefileFailures.io(source, "dbf", "size", -1, exception);
@@ -296,7 +305,7 @@ final class DbfReader {
             throw fieldFailure(source, field, Optional.empty(), descriptorOffset, "nameWhitespace");
         }
         accounting.allocate(
-                Math.multiplyExact((long) end, 4), OptionalLong.empty(), descriptorOffset);
+                "dbf", Math.multiplyExact((long) end, 4), OptionalLong.empty(), descriptorOffset);
         char[] characters = new char[end];
         for (int index = 0; index < end; index++) {
             characters[index] = (char) (descriptor.get(index) & 0xff);
@@ -391,11 +400,13 @@ final class DbfReader {
             CancellationToken cancellation) {
         target.clear();
         int total = 0;
+        int zeroReads = 0;
         try {
             while (target.hasRemaining()) {
                 checkpoint(source, cancellation);
                 int count = channel.read(target, offset + total);
                 checkpoint(source, cancellation);
+                zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
                 if (count < 0) {
                     break;
                 }

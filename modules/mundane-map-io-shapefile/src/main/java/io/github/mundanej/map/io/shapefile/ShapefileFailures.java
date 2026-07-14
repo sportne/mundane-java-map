@@ -156,11 +156,53 @@ final class ShapefileFailures {
             long maximum,
             OptionalLong record,
             long offset) {
+        return limit(source, scope, limit, requested, maximum, "shp", record, offset);
+    }
+
+    static SourceException limit(
+            String source,
+            String scope,
+            String limit,
+            long requested,
+            long maximum,
+            String component,
+            OptionalLong record,
+            long offset) {
         return failure(
                 source,
                 "SOURCE_LIMIT_EXCEEDED",
-                "shp",
+                component,
                 record,
+                offset,
+                "Shapefile limit exceeded",
+                Map.of(
+                        "scope",
+                        scope,
+                        "limit",
+                        limit,
+                        "requested",
+                        Long.toString(requested),
+                        "maximum",
+                        Long.toString(maximum)));
+    }
+
+    static SourceException limitWithField(
+            String source,
+            String scope,
+            String limit,
+            long requested,
+            long maximum,
+            OptionalLong record,
+            int field,
+            String name,
+            long offset) {
+        return failureWithField(
+                source,
+                "SOURCE_LIMIT_EXCEEDED",
+                "dbf",
+                record,
+                OptionalInt.of(field),
+                Optional.of(name),
                 offset,
                 "Shapefile limit exceeded",
                 Map.of(

@@ -1,6 +1,6 @@
 # G5-008 — Shapefile bounds, diagnostics, and fuzzing
 
-Status: Proposed
+Status: Complete
 Depends on: G5-003, G5-005, G5-006, G5-007
 Gate: G5
 Type: AFK
@@ -89,3 +89,12 @@ Keep fuzzing deterministic and short enough for the normal JVM gate. Commit only
 reproducer bytes for a durable regression. Never catch fatal VM errors to disguise an unchecked
 allocation. Do not add or invoke
 `shapefileCorpus`; G5-009 owns that separate command and real-world corpus lane.
+
+Completed on 2026-07-14 with component-accurate prospective accounting, bounded zero-progress reads,
+hard Java-capacity checks for raised sidecar limits, cancellation-aware sidecar scans, and decimal
+allocation approval before materialization. Test-only adversarial fixtures provide exact structural,
+endian, capacity, warning-order, lifecycle, format-limit, and G4 query-limit boundary evidence. The
+fixed five-seed harness executes 256 replayable cases twice through the public source/cursor path,
+normalizes phase reports independently, enforces exact code/severity allowlists, deletes every fresh
+dataset after close, and checks a clean sentinel after each component family. Architecture policy now
+also prohibits memory mapping and keeps all mutation helpers outside production output.

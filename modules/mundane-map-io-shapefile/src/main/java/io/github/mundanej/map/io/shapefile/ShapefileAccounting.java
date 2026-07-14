@@ -71,6 +71,7 @@ final class ShapefileAccounting {
                     "physicalRecords",
                     count,
                     limits.maximumPhysicalRecords(),
+                    "dbf",
                     OptionalLong.empty(),
                     offset);
         }
@@ -84,6 +85,7 @@ final class ShapefileAccounting {
                     "dbfFields",
                     count,
                     limits.maximumDbfFields(),
+                    "dbf",
                     OptionalLong.empty(),
                     offset);
         }
@@ -103,35 +105,68 @@ final class ShapefileAccounting {
     }
 
     void decodedCharacters(long count, long record, long offset) {
+        decodedCharacters("shp", count, OptionalLong.of(record), offset);
+    }
+
+    void decodedCharacters(long count, long record, int field, String name, long offset) {
         decodedCharacters =
-                charge(
+                chargeWithField(
                         "decodedTextCharacters",
                         decodedCharacters,
                         count,
                         limits.maximumDecodedTextCharacters(),
                         OptionalLong.of(record),
+                        field,
+                        name,
                         offset);
     }
 
     void decodedCharacters(long count, long offset) {
+        decodedCharacters("shp", count, OptionalLong.empty(), offset);
+    }
+
+    void decodedCharacters(String component, long count, long offset) {
+        decodedCharacters(component, count, OptionalLong.empty(), offset);
+    }
+
+    private void decodedCharacters(String component, long count, OptionalLong record, long offset) {
         decodedCharacters =
                 charge(
                         "decodedTextCharacters",
                         decodedCharacters,
                         count,
                         limits.maximumDecodedTextCharacters(),
-                        OptionalLong.empty(),
+                        component,
+                        record,
                         offset);
     }
 
     void allocate(long bytes, OptionalLong record, long offset) {
+        allocate("shp", bytes, record, offset);
+    }
+
+    void allocate(String component, long bytes, OptionalLong record, long offset) {
         allocation =
                 charge(
                         "parserAllocationBytes",
                         allocation,
                         bytes,
                         limits.maximumParserAllocationBytes(),
+                        component,
                         record,
+                        offset);
+    }
+
+    void allocateDbf(long bytes, long record, int field, String name, long offset) {
+        allocation =
+                chargeWithField(
+                        "parserAllocationBytes",
+                        allocation,
+                        bytes,
+                        limits.maximumParserAllocationBytes(),
+                        OptionalLong.of(record),
+                        field,
+                        name,
                         offset);
     }
 
@@ -153,6 +188,17 @@ final class ShapefileAccounting {
             long maximum,
             OptionalLong record,
             long offset) {
+        return charge(name, current, amount, maximum, "shp", record, offset);
+    }
+
+    private long charge(
+            String name,
+            long current,
+            long amount,
+            long maximum,
+            String component,
+            OptionalLong record,
+            long offset) {
         long requested;
         boolean overflow = false;
         try {
@@ -162,7 +208,32 @@ final class ShapefileAccounting {
             overflow = true;
         }
         if (overflow || requested > maximum) {
-            throw ShapefileFailures.limit(source, scope, name, requested, maximum, record, offset);
+            throw ShapefileFailures.limit(
+                    source, scope, name, requested, maximum, component, record, offset);
+        }
+        return requested;
+    }
+
+    private long chargeWithField(
+            String name,
+            long current,
+            long amount,
+            long maximum,
+            OptionalLong record,
+            int field,
+            String fieldName,
+            long offset) {
+        long requested;
+        boolean overflow = false;
+        try {
+            requested = Math.addExact(current, amount);
+        } catch (ArithmeticException exception) {
+            requested = Long.MAX_VALUE;
+            overflow = true;
+        }
+        if (amount < 0 || overflow || requested > maximum) {
+            throw ShapefileFailures.limitWithField(
+                    source, scope, name, requested, maximum, record, field, fieldName, offset);
         }
         return requested;
     }

@@ -272,11 +272,13 @@ final class DbfTable {
         scratch.clear();
         scratch.limit(length);
         int total = 0;
+        int zeroReads = 0;
         try {
             while (scratch.hasRemaining()) {
                 checkpoint(cancellation);
                 int count = channel.read(scratch, offset + total);
                 checkpoint(cancellation);
+                zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
                 if (count < 0) {
                     break;
                 }

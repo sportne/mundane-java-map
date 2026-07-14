@@ -399,12 +399,14 @@ final class ShapefileCursor implements FeatureCursor {
             long contentStart, long coordinateOffset, long expectedBytes, long record) {
         coordinate.clear();
         int total = 0;
+        int zeroReads = 0;
         long position = contentStart + coordinateOffset;
         try {
             while (coordinate.hasRemaining()) {
                 checkpoint();
                 int count = channel.read(coordinate, position + total);
                 checkpoint();
+                zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
                 if (count < 0) {
                     break;
                 }
@@ -436,11 +438,13 @@ final class ShapefileCursor implements FeatureCursor {
     private void readRecordHeader(long position, long record) {
         recordHeader.clear();
         int total = 0;
+        int zeroReads = 0;
         try {
             while (recordHeader.hasRemaining()) {
                 checkpoint();
                 int n = channel.read(recordHeader, position + total);
                 checkpoint();
+                zeroReads = Shapefiles.trackReadProgress(n, zeroReads);
                 if (n < 0) {
                     break;
                 }
@@ -473,11 +477,13 @@ final class ShapefileCursor implements FeatureCursor {
         buffer.clear();
         buffer.limit(length);
         int total = 0;
+        int zeroReads = 0;
         try {
             while (buffer.hasRemaining()) {
                 checkpoint();
                 int n = channel.read(buffer, position + total);
                 checkpoint();
+                zeroReads = Shapefiles.trackReadProgress(n, zeroReads);
                 if (n < 0) {
                     break;
                 }

@@ -72,7 +72,7 @@ final class ShxReader {
                 throw rejected(warning(source, "entry", 100));
             }
             Shapefiles.checkpoint(source, cancellation);
-            accounting.allocate(packedBytes, OptionalLong.empty(), 100);
+            accounting.allocate("shx", packedBytes, OptionalLong.empty(), 100);
             Shapefiles.checkpoint(source, cancellation);
             long[] packed = new long[(int) entryCount];
             Shapefiles.checkpoint(source, cancellation);
@@ -239,6 +239,7 @@ final class ShxReader {
         target.clear();
         target.limit(length);
         int total = 0;
+        int zeroReads = 0;
         while (target.hasRemaining()) {
             Shapefiles.checkpoint(source, cancellation);
             int count;
@@ -251,6 +252,7 @@ final class ShxReader {
                 throw exception;
             }
             Shapefiles.checkpoint(source, cancellation);
+            zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
             if (count < 0) {
                 break;
             }

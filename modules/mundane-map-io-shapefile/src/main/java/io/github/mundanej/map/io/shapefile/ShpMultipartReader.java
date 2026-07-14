@@ -278,11 +278,13 @@ final class ShpMultipartReader {
         target.clear();
         target.limit(length);
         int total = 0;
+        int zeroReads = 0;
         try {
             while (target.hasRemaining()) {
                 checkpoint();
                 int count = channel.read(target, position + total);
                 checkpoint();
+                zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
                 if (count < 0) {
                     break;
                 }

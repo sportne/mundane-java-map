@@ -239,6 +239,7 @@ final class ArchitecturePolicy {
                 || typeName.startsWith("java.io.ObjectInput")
                 || typeName.startsWith("java.io.ObjectOutput")
                 || typeName.equals("java.io.Serializable")
+                || typeName.equals("java.nio.MappedByteBuffer")
                 || typeName.equals("java.lang.invoke.VarHandle")
                 || typeName.equals("sun.misc.Unsafe")
                 || typeName.startsWith("jdk.internal.")
@@ -263,6 +264,9 @@ final class ArchitecturePolicy {
                     || name.equals("resources");
         }
         if (owner.equals("java.lang.Thread") && name.equals("getContextClassLoader")) {
+            return true;
+        }
+        if (owner.equals("java.nio.channels.FileChannel") && name.equals("map")) {
             return true;
         }
         return (owner.equals("java.lang.System") || owner.equals("java.lang.Runtime"))

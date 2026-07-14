@@ -421,6 +421,15 @@ class ArchitectureRulesTest {
         assertTrue(
                 ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty(),
                 "Shapefile production must remain compatible with the native-targeted boundary");
+        assertTrue(
+                formatClasses.stream()
+                        .map(JavaClass::getSimpleName)
+                        .noneMatch(
+                                name ->
+                                        name.contains("Adversarial")
+                                                || name.contains("Mutation")
+                                                || name.contains("Fuzz")),
+                "Shapefile adversarial and mutation helpers must remain test-only");
         assertEquals(
                 Set.of("Shapefiles", "ShapefileOpenOptions", "ShapefileLimits", "DbfEncoding"),
                 publicFormatTypes);
@@ -554,6 +563,7 @@ class ArchitectureRulesTest {
                         "ResourceEnumerationUse",
                         "NativeMethodUse",
                         "UnsafeUse",
+                        "MemoryMappingUse",
                         "NativeLibraryUse",
                         "GlobalRegistryUse",
                         "CustomGlobalRegistryUse");

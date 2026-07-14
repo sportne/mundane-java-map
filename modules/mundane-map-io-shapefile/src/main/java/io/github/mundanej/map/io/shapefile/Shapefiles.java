@@ -28,6 +28,8 @@ import java.util.OptionalLong;
  * the path.
  */
 public final class Shapefiles {
+    private static final int MAXIMUM_ZERO_PROGRESS_READS = 16;
+
     private Shapefiles() {}
 
     /**
@@ -374,10 +376,12 @@ public final class Shapefiles {
             boolean header)
             throws IOException {
         int read = 0;
+        int zeroReads = 0;
         while (target.hasRemaining()) {
             checkpoint(source, token);
             int count = channel.read(target, position + read);
             checkpoint(source, token);
+            zeroReads = trackReadProgress(count, zeroReads);
             if (count < 0) {
                 break;
             }
@@ -403,6 +407,17 @@ public final class Shapefiles {
                             Integer.toString(read)));
         }
         target.flip();
+    }
+
+    static int trackReadProgress(int count, int consecutiveZeroReads) throws IOException {
+        if (count != 0) {
+            return 0;
+        }
+        int next = consecutiveZeroReads + 1;
+        if (next >= MAXIMUM_ZERO_PROGRESS_READS) {
+            throw new IOException("positional read made no progress");
+        }
+        return next;
     }
 
     private static ShpHeader parseHeader(String source, byte[] bytes, long size) {

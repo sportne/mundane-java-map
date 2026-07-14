@@ -13,6 +13,9 @@ import java.util.OptionalLong;
 
 /* Bounded CPG token reader and finite DBF encoding resolver. */
 final class CpgReader {
+    static final int MAXIMUM_PROFILE_BYTES = 256;
+    private static final int READ_CHUNK_BYTES = 4096;
+
     record Result(DbfEncoding encoding) {}
 
     private CpgReader() {}
@@ -73,6 +76,7 @@ final class CpgReader {
             List<SourceDiagnostic> warnings) {
         ShapefileFileAccess.Channel channel;
         try {
+            checkpoint(source, cancellation);
             channel = access.open(path);
         } catch (IOException exception) {
             throw ShapefileFailures.io(source, "cpg", "open", -1, exception);
@@ -87,24 +91,33 @@ final class CpgReader {
                 throw ShapefileFailures.io(source, "cpg", "size", -1, exception);
             }
             checkpoint(source, cancellation);
-            if (size > options.shapefileLimits().maximumCpgBytes()) {
+            if (size < 0) {
+                throw ShapefileFailures.io(
+                        source, "cpg", "size", -1, new IOException("negative captured size"));
+            }
+            long maximum =
+                    Math.min(
+                            options.shapefileLimits().maximumCpgBytes(),
+                            (long) MAXIMUM_PROFILE_BYTES);
+            if (size > maximum) {
                 throw ShapefileFailures.limit(
                         source,
                         "shapefileOpen",
                         "cpgBytes",
                         size,
-                        options.shapefileLimits().maximumCpgBytes(),
+                        maximum,
+                        "cpg",
                         OptionalLong.empty(),
                         0);
             }
             int length = Math.toIntExact(size);
             checkpoint(source, cancellation);
-            accounting.allocate(length, OptionalLong.empty(), 0);
+            accounting.allocate("cpg", length, OptionalLong.empty(), 0);
             checkpoint(source, cancellation);
             byte[] bytes = new byte[length];
             ByteBuffer buffer = ByteBuffer.wrap(bytes);
             readExact(source, channel, buffer, cancellation);
-            return parse(source, bytes, warnings);
+            return parse(source, bytes, cancellation, warnings);
         } catch (RuntimeException | Error failure) {
             primary = failure;
             throw failure;
@@ -127,7 +140,10 @@ final class CpgReader {
     }
 
     private static Optional<DbfEncoding> parse(
-            String source, byte[] bytes, List<SourceDiagnostic> warnings) {
+            String source,
+            byte[] bytes,
+            CancellationToken cancellation,
+            List<SourceDiagnostic> warnings) {
         int start = 0;
         if (bytes.length >= 3
                 && (bytes[0] & 0xff) == 0xef
@@ -136,6 +152,7 @@ final class CpgReader {
             start = 3;
         }
         for (int index = start; index < bytes.length; index++) {
+            checkpoint(source, cancellation, index);
             if ((bytes[index] & 0x80) != 0) {
                 warnings.add(invalid(source, index, "nonAscii"));
                 return Optional.empty();
@@ -143,9 +160,11 @@ final class CpgReader {
         }
         int end = bytes.length;
         while (start < end && whitespace(bytes[start] & 0xff)) {
+            checkpoint(source, cancellation, start);
             start++;
         }
         while (end > start && whitespace(bytes[end - 1] & 0xff)) {
+            checkpoint(source, cancellation, bytes.length - end);
             end--;
         }
         if (start == end) {
@@ -153,6 +172,7 @@ final class CpgReader {
             return Optional.empty();
         }
         for (int index = start; index < end; index++) {
+            checkpoint(source, cancellation, index - start);
             if (whitespace(bytes[index] & 0xff)) {
                 warnings.add(invalid(source, index, "multipleTokens"));
                 return Optional.empty();
@@ -262,11 +282,14 @@ final class CpgReader {
             ByteBuffer buffer,
             CancellationToken cancellation) {
         int total = 0;
+        int zeroReads = 0;
         try {
             while (buffer.hasRemaining()) {
+                buffer.limit(Math.min(buffer.capacity(), total + READ_CHUNK_BYTES));
                 checkpoint(source, cancellation);
                 int count = channel.read(buffer, total);
                 checkpoint(source, cancellation);
+                zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
                 if (count < 0) {
                     break;
                 }
@@ -285,5 +308,12 @@ final class CpgReader {
 
     private static void checkpoint(String source, CancellationToken cancellation) {
         Shapefiles.checkpoint(source, cancellation);
+    }
+
+    private static void checkpoint(
+            String source, CancellationToken cancellation, int controlledBytes) {
+        if ((controlledBytes & 4095) == 0) {
+            checkpoint(source, cancellation);
+        }
     }
 }

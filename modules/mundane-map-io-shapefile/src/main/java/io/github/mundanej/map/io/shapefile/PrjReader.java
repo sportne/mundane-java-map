@@ -22,6 +22,7 @@ import java.util.OptionalLong;
 
 /** Final opening phase for bounded PRJ retention and two-profile recognition. */
 final class PrjReader {
+    static final int MAXIMUM_PROFILE_BYTES = 65_536;
     private static final int CHARACTER_LIMIT = CrsMetadata.RETAINED_DEFINITION_LIMIT;
     private static final int TOKEN_STORAGE_BYTES = 512 + 1024 * Integer.BYTES + 16;
 
@@ -50,18 +51,19 @@ final class PrjReader {
         int base = bom(bytes) ? 3 : 0;
         char[] characters = decode(source, bytes, base, accounting, cancellation);
         int length = decodedLength(source, bytes, base, characters, cancellation);
-        accounting.decodedCharacters(length, base);
-        if (blank(bytes, base)) {
+        accounting.decodedCharacters("prj", length, base);
+        if (blank(source, bytes, base, cancellation)) {
             checkpoint(source, cancellation);
             return new Result(
                     missing(override).metadata(),
                     List.of(warning(source, "SHAPEFILE_PRJ_BLANK", base, Map.of())));
         }
         checkpoint(source, cancellation);
-        accounting.allocate(Math.multiplyExact((long) length, 2), OptionalLong.empty(), base);
+        accounting.allocate(
+                "prj", Math.multiplyExact((long) length, 2), OptionalLong.empty(), base);
         checkpoint(source, cancellation);
         String retained = new String(characters, 0, length);
-        accounting.allocate(TOKEN_STORAGE_BYTES, OptionalLong.empty(), base);
+        accounting.allocate("prj", TOKEN_STORAGE_BYTES, OptionalLong.empty(), base);
         checkpoint(source, cancellation);
         PrjTokenizer tokenizer = new PrjTokenizer(source, bytes, base, cancellation);
         tokenizer.scan();
@@ -131,28 +133,36 @@ final class PrjReader {
                 throw ShapefileFailures.io(source, "prj", "size", -1, exception);
             }
             checkpoint(source, cancellation);
-            if (captured > limits.maximumPrjBytes()) {
+            if (captured < 0) {
+                throw ShapefileFailures.io(
+                        source, "prj", "size", -1, new IOException("negative captured size"));
+            }
+            long maximum = Math.min(limits.maximumPrjBytes(), (long) MAXIMUM_PROFILE_BYTES);
+            if (captured > maximum) {
                 throw ShapefileFailures.limit(
                         source,
                         "shapefileOpen",
                         "prjBytes",
                         captured,
-                        limits.maximumPrjBytes(),
+                        maximum,
+                        "prj",
                         OptionalLong.empty(),
                         0);
             }
             int length = Math.toIntExact(captured);
-            accounting.allocate(length, OptionalLong.empty(), 0);
+            accounting.allocate("prj", length, OptionalLong.empty(), 0);
             checkpoint(source, cancellation);
             byte[] bytes = new byte[length];
             ByteBuffer target = ByteBuffer.wrap(bytes);
             int total = 0;
+            int zeroReads = 0;
             try {
                 while (total < length) {
                     target.limit(Math.min(length, total + 4096));
                     checkpoint(source, cancellation);
                     int count = channel.read(target, total);
                     checkpoint(source, cancellation);
+                    zeroReads = Shapefiles.trackReadProgress(count, zeroReads);
                     if (count < 0) {
                         break;
                     }
@@ -220,7 +230,7 @@ final class PrjReader {
             CancellationToken cancellation) {
         checkpoint(source, cancellation);
         int capacity = Math.min(bytes.length - base, CHARACTER_LIMIT + 1);
-        accounting.allocate((long) capacity * Character.BYTES, OptionalLong.empty(), base);
+        accounting.allocate("prj", (long) capacity * Character.BYTES, OptionalLong.empty(), base);
         checkpoint(source, cancellation);
         char[] characters = new char[capacity];
         return characters;
@@ -276,8 +286,12 @@ final class PrjReader {
                 Map.of("maximum", "16384", "requested", "16385"));
     }
 
-    private static boolean blank(byte[] bytes, int base) {
+    private static boolean blank(
+            String source, byte[] bytes, int base, CancellationToken cancellation) {
         for (int index = base; index < bytes.length; index++) {
+            if (((index - base) & 4095) == 0) {
+                checkpoint(source, cancellation);
+            }
             int value = bytes[index] & 0xff;
             if (value != 0x20 && (value < 0x09 || value > 0x0d)) {
                 return false;

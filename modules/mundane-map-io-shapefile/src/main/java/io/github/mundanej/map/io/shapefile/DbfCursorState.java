@@ -39,7 +39,7 @@ final class DbfCursorState {
         this.cancellation = cancellation;
         this.warningLimit = warningLimit;
         checkpoint();
-        accounting.allocate(table.cursorReservation(selection), OptionalLong.empty(), 0);
+        accounting.allocate("dbf", table.cursorReservation(selection), OptionalLong.empty(), 0);
         checkpoint();
         projection = table.projection(selection);
         marker = ByteBuffer.allocate(1);
@@ -83,6 +83,7 @@ final class DbfCursorState {
         }
         checkpoint();
         accounting.allocate(
+                "dbf",
                 Math.multiplyExact((long) projection.size(), 32),
                 OptionalLong.of(ordinal),
                 table.rowOffset(ordinal));

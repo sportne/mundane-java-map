@@ -147,10 +147,7 @@ final class DbfValueDecoder {
             return AttributeNull.INSTANCE;
         }
         checkpoint();
-        accounting.allocate(
-                Math.multiplyExact((long) produced, 2),
-                OptionalLong.of(record),
-                offset(record, field));
+        allocate(Math.multiplyExact((long) produced, 2), record, field);
         checkpoint();
         return new String(characters, 0, produced);
     }
@@ -171,12 +168,12 @@ final class DbfValueDecoder {
             var flushed = decoded.isError() ? decoded : decoder.flush(output);
             if (decoded.isError() || flushed.isError() || input.hasRemaining()) {
                 int produced = output.position();
-                accounting.decodedCharacters(produced, record, offset(record, field));
+                decodedCharacters(produced, record, field);
                 invalid(record, field, "encoding");
                 return -1;
             }
             int produced = output.position();
-            accounting.decodedCharacters(produced, record, offset(record, field));
+            decodedCharacters(produced, record, field);
             return produced;
         }
         String mapping = manualTable(encoding);
@@ -185,13 +182,13 @@ final class DbfValueDecoder {
             checkpoint(index);
             char value = mapping.charAt(bytes[index] & 0xff);
             if (value == INVALID) {
-                accounting.decodedCharacters(produced, record, offset(record, field));
+                decodedCharacters(produced, record, field);
                 invalid(record, field, "encoding");
                 return -1;
             }
             characters[produced++] = value;
         }
-        accounting.decodedCharacters(produced, record, offset(record, field));
+        decodedCharacters(produced, record, field);
         return produced;
     }
 
@@ -212,7 +209,7 @@ final class DbfValueDecoder {
             String value = ascii(record, field, start, end);
             try {
                 long parsed = Long.parseLong(value);
-                accounting.allocate(8, OptionalLong.of(record), offset(record, field));
+                allocate(8, record, field);
                 return parsed;
             } catch (NumberFormatException exception) {
                 return invalid(record, field, "overflow");
@@ -225,11 +222,8 @@ final class DbfValueDecoder {
         if (scale > decimals) {
             return invalid(record, field, "scale");
         }
-        String value = ascii(record, field, start, end);
-        BigDecimal decimal = new BigDecimal(value);
-        long bytes = 4L + Math.max(1, (decimal.unscaledValue().abs().bitLength() + 7L) / 8L);
-        accounting.allocate(bytes, OptionalLong.of(record), offset(record, field));
-        return decimal;
+        allocate(decimalBytes(start, end), record, field);
+        return new BigDecimal(ascii(record, field, start, end));
     }
 
     private Object floating(long record, int field, int length) {
@@ -254,7 +248,7 @@ final class DbfValueDecoder {
         if (!Double.isFinite(parsed)) {
             return invalid(record, field, "nonFinite");
         }
-        accounting.allocate(8, OptionalLong.of(record), offset(record, field));
+        allocate(8, record, field);
         return parsed;
     }
 
@@ -319,21 +313,50 @@ final class DbfValueDecoder {
     }
 
     private Object scalar(long record, int field, Object value, long bytes) {
-        accounting.allocate(bytes, OptionalLong.of(record), offset(record, field));
+        allocate(bytes, record, field);
         return value;
     }
 
     private String ascii(long record, int field, int start, int end) {
         int length = end - start;
         checkpoint();
-        accounting.allocate(
-                Math.multiplyExact((long) length, 2),
-                OptionalLong.of(record),
-                offset(record, field));
+        allocate(Math.multiplyExact((long) length, 2), record, field);
         for (int index = 0; index < length; index++) {
             characters[index] = (char) (bytes[start + index] & 0xff);
         }
         return new String(characters, 0, length);
+    }
+
+    private long decimalBytes(int start, int end) {
+        long low = 0;
+        long high = 0;
+        if (bytes[start] == '+' || bytes[start] == '-') {
+            start++;
+        }
+        for (int index = start; index < end; index++) {
+            if (bytes[index] == '.') {
+                continue;
+            }
+            long lowProduct = (low & 0xffff_ffffL) * 10 + bytes[index] - '0';
+            long highProduct = (low >>> 32) * 10 + (lowProduct >>> 32);
+            low = (highProduct << 32) | (lowProduct & 0xffff_ffffL);
+            high = high * 10 + (highProduct >>> 32);
+        }
+        int bitLength =
+                high == 0
+                        ? low == 0 ? 0 : Long.SIZE - Long.numberOfLeadingZeros(low)
+                        : Long.SIZE * 2 - Long.numberOfLeadingZeros(high);
+        return 4L + Math.max(1, (bitLength + 7L) / 8L);
+    }
+
+    private void allocate(long bytesToCharge, long record, int field) {
+        accounting.allocateDbf(
+                bytesToCharge, record, field, table.name(field), offset(record, field));
+    }
+
+    private void decodedCharacters(long count, long record, int field) {
+        accounting.decodedCharacters(
+                count, record, field, table.name(field), offset(record, field));
     }
 
     private int leadingSpace(int length) {

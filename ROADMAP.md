@@ -109,6 +109,12 @@ fixed-capacity WKT1 tokenizer validates the approved grammar, and two direct str
 recognize EPSG:4326/EPSG:3857. Missing, blank, unknown, invalid, equal/conflicting override, limit,
 cancellation, and cleanup outcomes remain distinct and structured; the PRJ-aware viewer exercises
 recognized geographic/projected paths without guessing, discovery, or a general WKT abstraction.
+G5-008 is complete: every parser limit now has inclusive boundary evidence with component-accurate
+locations, repeated zero-progress I/O and caller-raised sidecar ceilings terminate predictably, and
+sidecar CPU work remains cancellable. Five committed seeds drive 256 bounded, replayable public-path
+cases twice with exact outcome allowlists and clean-state sentinels; architecture tests also reject
+memory mapping and any production mutation helper. This remains normal-gate evidence, not the
+real-world corpus lane owned by G5-009.
 
 ## Level 1
 
