@@ -8,4 +8,78 @@ dependencies {
     implementation project(':modules:mundane-map-core')
 }
 
+sourceSets {
+    shapefileCorpusTest {
+        java.setSrcDirs([
+            'src/shapefileCorpusTest/java'
+        ])
+        resources.setSrcDirs([
+            'src/shapefileCorpusTest/resources'
+        ])
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    shapefileCorpusTestImplementation.extendsFrom testImplementation
+    shapefileCorpusTestRuntimeOnly.extendsFrom testRuntimeOnly
+    shapefileCorpusTestErrorprone {
+        canBeConsumed = false
+        canBeResolved = true
+        extendsFrom errorprone
+    }
+}
+
+def shapefileCorpusRoot = layout.projectDirectory.dir(
+        'src/shapefileCorpusTest/resources/shapefile-corpus')
+
+tasks.register('shapefileCorpusTest', Test) {
+    group = 'verification'
+    description = 'Runs the checked-in Shapefile interoperability corpus.'
+    testClassesDirs = sourceSets.shapefileCorpusTest.output.classesDirs
+    classpath = sourceSets.shapefileCorpusTest.runtimeClasspath
+    workingDir rootProject.projectDir
+    inputs.dir(shapefileCorpusRoot).withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty 'mundane.map.shapefile.corpus.root',
+            rootProject.relativePath(shapefileCorpusRoot.asFile)
+    systemProperty 'file.encoding', 'UTF-8'
+    systemProperty 'user.language', 'en'
+    systemProperty 'user.country', 'US'
+    systemProperty 'user.timezone', 'UTC'
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
+    maxParallelForks = 1
+    useJUnitPlatform()
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.register('primeShapefileCorpusDependenciesInternal') {
+    group = 'build setup'
+    description = 'Resolves the dependency closure used by the offline corpus lane.'
+    inputs.files([
+        configurations.named('shapefileCorpusTestCompileClasspath'),
+        configurations.named('shapefileCorpusTestRuntimeClasspath'),
+        configurations.named('shapefileCorpusTestAnnotationProcessor'),
+        configurations.named('shapefileCorpusTestErrorprone'),
+        configurations.named('checkstyle'),
+        configurations.named('spotbugs'),
+        configurations.named('spotbugsPlugins'),
+        configurations.named('spotbugsSlf4j'),
+        configurations.named('jacocoAgent')
+    ])
+}
+
+afterEvaluate {
+    def checkTask = tasks.named('check').get()
+    def corpusLifecycleTasks = [
+        tasks.named('checkstyleShapefileCorpusTest').get(),
+        tasks.named('spotbugsShapefileCorpusTest').get()
+    ] as Set
+    def normalDependencies =
+            checkTask.taskDependencies.getDependencies(checkTask).findAll {
+                !corpusLifecycleTasks.contains(it)
+            }
+    checkTask.setDependsOn(normalDependencies)
+}
+
 description = 'JDK-only read-only ESRI Shapefile support.'

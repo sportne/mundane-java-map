@@ -292,6 +292,19 @@ abstract class PrintPublishedArtifacts extends DefaultTask {
     }
 }
 
+@DisableCachingByDefault(because = 'Validates the configured task graph')
+abstract class VerifyShapefileCorpusIsolation extends DefaultTask {
+    @Input
+    abstract ListProperty<String> getViolations()
+
+    @TaskAction
+    void verifyIsolation() {
+        if (!violations.get().isEmpty()) {
+            throw new GradleException(violations.get().join(System.lineSeparator()))
+        }
+    }
+}
+
 def projectInventory = gradle.ext.mapProjectInventory
 def checkedProjects = projectInventory.collect { it.path }
 def publishedProjects = projectInventory.findAll { it.published }.collect { it.path }
@@ -334,6 +347,154 @@ tasks.register('renderRegression') {
     group = 'verification'
     description = 'Runs the separate portable offscreen rendering-regression lane.'
     dependsOn ':modules:mundane-map-awt:renderRegressionTest'
+}
+
+def shapefileCorpusProject = project(':modules:mundane-map-io-shapefile')
+def shapefileCorpusOwnedTasks = [
+    'compileShapefileCorpusTestJava',
+    'processShapefileCorpusTestResources',
+    'shapefileCorpusTestClasses',
+    'shapefileCorpusTest',
+    'checkstyleShapefileCorpusTest',
+    'spotbugsShapefileCorpusTest'
+] as Set
+
+tasks.register('shapefileCorpus') {
+    group = 'verification'
+    description = 'Runs the separate checked-in Shapefile interoperability corpus lane.'
+    dependsOn ':modules:mundane-map-io-shapefile:shapefileCorpusTest'
+    dependsOn ':modules:mundane-map-io-shapefile:checkstyleShapefileCorpusTest'
+    dependsOn ':modules:mundane-map-io-shapefile:spotbugsShapefileCorpusTest'
+    dependsOn tasks.named('verifyShapefileCorpusIsolation')
+}
+
+def verifyShapefileCorpusIsolation = tasks.register(
+        'verifyShapefileCorpusIsolation', VerifyShapefileCorpusIsolation) {
+    group = 'verification'
+    description = 'Proves normal quality roots do not execute the Shapefile corpus lane.'
+    violations.convention([])
+}
+
+gradle.projectsEvaluated {
+    def violations = []
+    def ownedPaths = shapefileCorpusOwnedTasks.collect {
+        ":modules:mundane-map-io-shapefile:${it}".toString()
+    } as Set
+    def auditedRoots = []
+    ['checkAll', 'qualityGate', 'check'].each { taskName ->
+        def candidate = rootProject.tasks.findByName(taskName)
+        if (candidate != null) {
+            auditedRoots.add(candidate)
+        }
+    }
+    checkedProjects.collect { project(it) }.each { auditedProject ->
+        ['check', 'spotlessCheck', 'javadoc'].each { taskName ->
+            def candidate = auditedProject.tasks.findByName(taskName)
+            if (candidate != null) {
+                auditedRoots.add(candidate)
+            }
+        }
+    }
+    def resolveDependencyNotation
+    resolveDependencyNotation = { owner, notation, resolved ->
+        if (notation == null) {
+            return
+        }
+        if (notation instanceof Task) {
+            resolved.add(notation)
+            return
+        }
+        if (notation instanceof org.gradle.api.tasks.TaskReference) {
+            resolved.add(owner.project.tasks.getByPath(notation.name))
+            return
+        }
+        if (notation instanceof Buildable) {
+            notation.buildDependencies.getDependencies(owner).each { resolved.add(it) }
+            return
+        }
+        if (notation instanceof Provider) {
+            resolveDependencyNotation(owner, notation.get(), resolved)
+            return
+        }
+        if (notation instanceof CharSequence) {
+            resolved.add(owner.project.tasks.getByPath(notation.toString()))
+            return
+        }
+        if (notation instanceof Map) {
+            notation.values().each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation instanceof Iterable) {
+            notation.each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation.getClass().isArray()) {
+            notation.each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation instanceof Closure) {
+            def value = notation.maximumNumberOfParameters == 0
+                    ? notation.call()
+                    : notation.call(owner)
+            resolveDependencyNotation(owner, value, resolved)
+            return
+        }
+        if (notation instanceof java.util.concurrent.Callable) {
+            resolveDependencyNotation(owner, notation.call(), resolved)
+            return
+        }
+        throw new GradleException(
+                "Unsupported task dependency notation on ${owner.path}: ${notation.getClass().name}")
+    }
+    def declaredDependencies = { owner ->
+        def resolved = [] as Set
+        owner.getDependsOn().each { notation ->
+            resolveDependencyNotation(owner, notation, resolved)
+        }
+        resolved
+    }
+    def visitDependencies
+    visitDependencies = { owner, visited, matches ->
+        if (!visited.add(owner)) {
+            return
+        }
+        declaredDependencies(owner).each { dependency ->
+            if (ownedPaths.contains(dependency.path)) {
+                matches.add(dependency.path)
+            }
+            visitDependencies(dependency, visited, matches)
+        }
+    }
+    def ownedDependencies = { gateRoot ->
+        def matches = [] as Set
+        visitDependencies(gateRoot, [] as Set, matches)
+        matches
+    }
+    def calibrationRoot = tasks.named('shapefileCorpus').get()
+    def calibration = ownedDependencies(calibrationRoot)
+    def expectedCalibration = [
+        ':modules:mundane-map-io-shapefile:shapefileCorpusTest',
+        ':modules:mundane-map-io-shapefile:checkstyleShapefileCorpusTest',
+        ':modules:mundane-map-io-shapefile:spotbugsShapefileCorpusTest'
+    ] as Set
+    if (!calibration.containsAll(expectedCalibration)) {
+        violations.add(
+                "Corpus dependency-closure verifier failed its positive calibration: ${calibration.sort()}")
+    }
+    auditedRoots.each { gateRoot ->
+        ownedDependencies(gateRoot).each { dependencyPath ->
+            violations.add("Corpus task ${dependencyPath} leaked into ${gateRoot.path}")
+        }
+    }
+    verifyShapefileCorpusIsolation.configure {
+        it.violations.set(violations.unique().sort())
+    }
+}
+
+tasks.register('primeShapefileCorpusDependencies') {
+    group = 'build setup'
+    description = 'Resolves every dependency needed by the offline Shapefile corpus lane.'
+    dependsOn ':modules:mundane-map-io-shapefile:primeShapefileCorpusDependenciesInternal'
 }
 
 tasks.register('cleanReleaseDryRun', Delete) {

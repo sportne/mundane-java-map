@@ -167,6 +167,9 @@ architectural requirement. Level 1 is complete only when
 - Grow through SHX, multipart polylines, polygons/holes, DBF, CPG, and retained/recognized PRJ.
 - Bound records, parts, points, fields, and allocations; cover malformed/hostile inputs,
   deterministic fuzzing, a legally redistributable corpus, stable diagnostics, and Native Image.
+- G5-001 through G5-009 are implemented and verified: the source supports the bounded profile and
+  the separate offline corpus lane covers nine licensed curated/generated datasets while the viewer
+  exposes bounded generic previews and stable reports. Native Image verification remains G5-010.
 - The supported profile and all vertical slices are in the
   [G5 task set](tasks/README.md#g5--read-only-shapefile-support).
 

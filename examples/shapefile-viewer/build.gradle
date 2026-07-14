@@ -13,4 +13,8 @@ application {
     mainClass = 'io.github.mundanej.map.example.shapefile.ShapefileViewer'
 }
 
+tasks.named('run') {
+    workingDir rootProject.projectDir
+}
+
 description = 'Runnable read-only shapefile viewer example.'

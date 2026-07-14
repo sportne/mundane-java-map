@@ -1,0 +1,12 @@
+Natural Earth public-domain dedication
+
+Natural Earth states that all versions of its raster and vector map data are in the public domain
+and may be used in any manner, including modification and redistribution, without permission.
+
+Source: https://www.naturalearthdata.com/about/terms-of-use/
+Dataset: Natural Earth 1:110m Populated Places Simple, version 5.1.2
+Retrieved: 2026-07-14
+
+The curated corpus entry is an excerpt made with pyshp 2.3.1. It retains the publisher's Tokyo
+coordinate and the NAME, POP_MAX, LATITUDE, and LONGITUDE values, while dropping other records and
+columns solely to keep the reviewed interoperability fixture small.

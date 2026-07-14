@@ -1,6 +1,6 @@
 # G5-009 — Shapefile corpus and viewer completion
 
-Status: Proposed
+Status: Complete
 Depends on: G5-008
 Gate: G5
 Type: HITL
@@ -101,3 +101,30 @@ git diff --check
 Prefer purpose-built or public-domain fixtures small enough to review. Keep parser-unit fixtures
 separate from the interoperability corpus; project hand-built/fuzz builders do not create corpus
 artifacts at test time. Do not duplicate G5-008 fuzzing or G5-010 native verification in this lane.
+
+Completed on 2026-07-14. The checked-in nine-dataset corpus records exact checksums, roles,
+expectations, derivations, and license references. Its curated Tokyo point is derived from Natural
+Earth 5.1.2 populated-places data under the recorded public-domain terms; generated fixtures carry
+the project BSD-3-Clause terms. Manifest, public-API integration, indexed/sequential equivalence,
+diagnostic, cleanup, and bytecode-policy tests run in the isolated `shapefileCorpus` lane, including
+an observed local empty-home prime followed by an offline rerun. CI now contains the equivalent job,
+but that job has not yet been observed on the remote. The viewer now performs bounded loading and
+preview work off the EDT, transfers ownership exactly once, presents generic bounded metadata,
+attributes, and diagnostics, and exercises all supported geometry/sidecar profiles. The maintainer's
+explicit advance approval accepted all G3-G5 HITL checkpoints. Representative viewer commands also
+launched on the available display and remained alive without startup errors; visual details were not
+captured, so geometry, fit, part, attribute, and hole behavior is claimed only from the tolerant
+automated rendering and presentation tests.
+
+HITL evidence: the project maintainer approved the complete G3-G5 HITL scope on 2026-07-14,
+including the reviewed G5-009 change set and the Natural Earth public-domain/BSD-3-Clause provenance
+and redistribution disposition recorded by the manifest. Review used OpenJDK 21.0.11 on Linux
+5.15.167.4 WSL2 x86-64 through the WSLg Wayland/X11 bridge (`DISPLAY=:0`, 3840x1080; no application
+scale override). The seven exact viewer commands above launched successfully: curated point and
+each process remained alive for the observation interval without logged startup errors. Screenshot
+capture was unavailable, so this is launch evidence rather than a claim of manual visual inspection.
+Automated invariant tests establish all five encoding paths, recognized CRS fit, multipart-line and
+polygon-hole geometry regions, generic diagnostic presentation, and cleanup. The maintainer's blanket
+HITL approval explicitly accepted this evidence disposition without requiring a later visual
+checkpoint. The independently reviewed diff was accepted after its findings were corrected; the
+containing commit is the authoritative reviewed revision. No G5-009 blocker remains.

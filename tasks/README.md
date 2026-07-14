@@ -160,7 +160,7 @@ Level 1 is complete only when G8-004 is complete.
 | [G5-006 — DBF/CPG attributes and encoding](G5-006-dbf-cpg-attributes-and-encoding.md) | Complete | AFK | G5-002 | Expose bounded DBF attributes with explicit CPG/fallback behavior. |
 | [G5-007 — PRJ retention and recognized CRS](G5-007-prj-retention-and-recognized-crs.md) | Complete | AFK | G5-002, G4-002 | Retain PRJ text and recognize only explicitly registered CRS definitions. |
 | [G5-008 — Shapefile bounds, diagnostics, and fuzzing](G5-008-shapefile-bounds-diagnostics-and-fuzzing.md) | Complete | AFK | G5-003, G5-005, G5-006, G5-007 | Bound hostile input and prove stable failures with deterministic fuzzing. |
-| [G5-009 — Shapefile corpus and viewer completion](G5-009-shapefile-corpus-and-viewer-completion.md) | Proposed | HITL | G5-008 | Create the corpus lane, approve fixture provenance, and finish the viewer. |
+| [G5-009 — Shapefile corpus and viewer completion](G5-009-shapefile-corpus-and-viewer-completion.md) | Complete | HITL | G5-008 | Create the corpus lane, approve fixture provenance, and finish the viewer. |
 | [G5-010 — Native shapefile smoke](G5-010-native-shapefile-smoke.md) | Proposed | HITL | G5-009 | Read/query/render a valid fixture and a stable malformed case natively. |
 
 ### G6 — Bounded PNG/JPEG raster support

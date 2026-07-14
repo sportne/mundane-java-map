@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.shapefile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,8 +11,12 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.CrsException;
+import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.FeatureSourceLimits;
+import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapLayerBinding;
@@ -22,14 +27,21 @@ import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
+import java.awt.EventQueue;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -87,7 +99,6 @@ class ShapefileViewerTest {
         assertThrows(
                 NullPointerException.class,
                 () -> ShapefileViewer.parseArguments(new String[] {path.toString(), null}));
-        assertThrows(IllegalArgumentException.class, () -> ShapefileViewer.main(new String[0]));
     }
 
     @Test
@@ -356,6 +367,215 @@ class ShapefileViewerTest {
         assertFalse(Files.exists(fixture));
     }
 
+    @Test
+    void loadsABoundedPreviewOffTheEdtAndPresentsGenericMetadataAndValues() throws Exception {
+        Path fixture = temporaryDirectory.resolve("preview.shp");
+        Path dbf = temporaryDirectory.resolve("preview.dbf");
+        Path cpg = temporaryDirectory.resolve("preview.cpg");
+        Files.write(fixture, attributeShpFixture());
+        Files.write(dbf, attributeDbfFixture());
+        Files.writeString(cpg, "UTF-8");
+
+        ShapefileViewer.LoadedDataset loaded =
+                ShapefileViewer.load(fixture, Optional.of(CrsDefinitions.EPSG_4326));
+        assertFalse(loaded.source().isClosed());
+        assertEquals(1, loaded.preview().size());
+        assertFalse(loaded.truncated());
+        assertEquals("record:1", loaded.preview().getFirst().id());
+
+        AtomicReference<String> displayed = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    ShapefilePreviewPanel panel = new ShapefilePreviewPanel(loaded);
+                    panel.selectFirstPreview();
+                    displayed.set(panel.displayedText());
+                });
+        assertTrue(displayed.get().contains("NAME: TEXT"));
+        assertTrue(displayed.get().contains("NAME = Café"));
+        assertTrue(displayed.get().contains("Opening diagnostics"));
+        loaded.source().close();
+        Files.delete(cpg);
+        Files.delete(dbf);
+        Files.delete(fixture);
+    }
+
+    @Test
+    void rejectsEdtLoadingRestoresInterruptionAndClosesOnQueueFailure() throws Exception {
+        Path fixture = temporaryDirectory.resolve("lifecycle.shp");
+        Files.write(fixture, multipointFixture());
+
+        AtomicReference<RuntimeException> edtFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () ->
+                        edtFailure.set(
+                                assertThrows(
+                                        IllegalStateException.class,
+                                        () ->
+                                                ShapefileViewer.load(
+                                                        fixture,
+                                                        Optional.of(CrsDefinitions.EPSG_4326)))));
+        assertTrue(edtFailure.get().getMessage().contains("off the event dispatch thread"));
+
+        Thread.currentThread().interrupt();
+        try {
+            assertEquals(7, ShapefileViewer.awaitEdt(() -> 7, EventQueue::invokeLater));
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+
+        ShapefileViewer.LoadedDataset loaded =
+                ShapefileViewer.load(fixture, Optional.of(CrsDefinitions.EPSG_4326));
+        RuntimeException queueFailure = new RuntimeException("queue failed");
+        RuntimeException actual =
+                assertThrows(
+                        RuntimeException.class,
+                        () ->
+                                ShapefileViewer.launchLoaded(
+                                        loaded,
+                                        ignored -> {
+                                            throw queueFailure;
+                                        }));
+        assertSame(queueFailure, actual);
+        assertTrue(loaded.source().isClosed());
+        Files.delete(fixture);
+    }
+
+    @Test
+    void previewReadsOnlyTwentyOnePublishedRecordsAndMarksTruncation() throws Exception {
+        Path fixture = temporaryDirectory.resolve("many.shp");
+        Files.write(fixture, pointFixture(22));
+
+        ShapefileViewer.LoadedDataset loaded =
+                ShapefileViewer.load(fixture, Optional.of(CrsDefinitions.EPSG_4326));
+
+        assertEquals(ShapefileViewer.PREVIEW_LIMIT, loaded.preview().size());
+        assertTrue(loaded.truncated());
+        assertEquals("record:20", loaded.preview().getLast().id());
+        loaded.source().close();
+        Files.delete(fixture);
+    }
+
+    @Test
+    void previewFailureKeepsOperationPrimaryAndSuppressesCursorThenSourceCleanup() {
+        RuntimeException operation = new RuntimeException("advance");
+        RuntimeException cursorCleanup = new RuntimeException("cursor close");
+        RuntimeException sourceCleanup = new RuntimeException("source close");
+        CleanupFailingSource source =
+                new CleanupFailingSource(operation, cursorCleanup, sourceCleanup);
+
+        RuntimeException failure =
+                assertThrows(RuntimeException.class, () -> ShapefileViewer.preview(source));
+
+        assertSame(operation, failure);
+        assertEquals(2, failure.getSuppressed().length);
+        assertSame(cursorCleanup, failure.getSuppressed()[0]);
+        assertSame(sourceCleanup, failure.getSuppressed()[1]);
+    }
+
+    @Test
+    void successfulPreviewCloseFailureClosesCursorAndSourceExactlyOnce() {
+        RuntimeException cursorCleanup = new RuntimeException("cursor close");
+        CursorCloseFailingSource source = new CursorCloseFailingSource(cursorCleanup);
+
+        RuntimeException failure =
+                assertThrows(RuntimeException.class, () -> ShapefileViewer.preview(source));
+
+        assertSame(cursorCleanup, failure);
+        assertEquals(1, source.cursorCloseCount.get());
+        assertEquals(1, source.sourceCloseCount.get());
+    }
+
+    @Test
+    void interruptionDuringWaitIsRestoredAfterTheSingleScheduledTaskCompletes() throws Exception {
+        CountDownLatch callableStarted = new CountDownLatch(1);
+        CountDownLatch releaseCallable = new CountDownLatch(1);
+        AtomicReference<Integer> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean restored = new AtomicBoolean();
+        AtomicInteger scheduled = new AtomicInteger();
+        Thread waiter =
+                new Thread(
+                        () -> {
+                            try {
+                                result.set(
+                                        ShapefileViewer.awaitEdt(
+                                                () -> {
+                                                    callableStarted.countDown();
+                                                    if (!releaseCallable.await(
+                                                            5, TimeUnit.SECONDS)) {
+                                                        throw new IllegalStateException(
+                                                                "callable release timed out");
+                                                    }
+                                                    return 11;
+                                                },
+                                                task -> {
+                                                    scheduled.incrementAndGet();
+                                                    new Thread(task, "viewer-test-scheduler")
+                                                            .start();
+                                                }));
+                            } catch (Throwable throwable) {
+                                failure.set(throwable);
+                            } finally {
+                                restored.set(Thread.currentThread().isInterrupted());
+                            }
+                        },
+                        "viewer-test-waiter");
+
+        waiter.start();
+        assertTrue(callableStarted.await(5, TimeUnit.SECONDS));
+        waiter.interrupt();
+        releaseCallable.countDown();
+        waiter.join(TimeUnit.SECONDS.toMillis(5));
+
+        assertFalse(waiter.isAlive());
+        assertEquals(1, scheduled.get());
+        assertEquals(11, result.get());
+        assertTrue(restored.get());
+        assertNull(failure.get());
+    }
+
+    @Test
+    void cliPresentsArgumentOpenCursorAndAttachmentFailuresOnceWithoutPaths() throws Exception {
+        List<String> reports = new ArrayList<>();
+        assertFalse(ShapefileViewer.runMain(new String[0], reports::add));
+        assertEquals(List.of("shapefile-viewer: SHAPEFILE_VIEWER_ARGUMENT_INVALID"), reports);
+
+        reports.clear();
+        Path truncated = temporaryDirectory.resolve("private-open-name.shp");
+        Files.write(truncated, new byte[10]);
+        assertFalse(
+                ShapefileViewer.runMain(
+                        new String[] {truncated.toString(), "EPSG:4326"}, reports::add));
+        assertEquals(1, reports.size());
+        assertTrue(
+                reports.getFirst().contains("ERROR SHAPEFILE_HEADER_INVALID"), reports::toString);
+        assertFalse(reports.getFirst().contains(truncated.toString()));
+
+        reports.clear();
+        Path malformed = temporaryDirectory.resolve("private-record-name.shp");
+        byte[] recordBytes = pointFixture(1);
+        ByteBuffer.wrap(recordBytes).order(ByteOrder.BIG_ENDIAN).putInt(104, 100);
+        Files.write(malformed, recordBytes);
+        assertFalse(
+                ShapefileViewer.runMain(
+                        new String[] {malformed.toString(), "EPSG:4326"}, reports::add));
+        assertEquals(1, reports.size());
+        assertTrue(reports.getFirst().contains("ERROR SHAPEFILE_RECORD_LENGTH_INVALID"));
+        assertTrue(reports.getFirst().contains("component=shp record=1 offset=104"));
+        assertFalse(reports.getFirst().contains(malformed.toString()));
+
+        reports.clear();
+        Path missingCrs = temporaryDirectory.resolve("private-crs-name.shp");
+        Files.write(missingCrs, multipointFixture());
+        assertFalse(ShapefileViewer.runMain(new String[] {missingCrs.toString()}, reports::add));
+        assertEquals(
+                List.of(
+                        "shapefile-viewer: ERROR CRS_METADATA_MISSING "
+                                + "context={targetCrs=EPSG:3857}"),
+                reports);
+    }
+
     private static RenderedView render(Path fixture) throws Exception {
         return render(fixture, Optional.of(CrsDefinitions.EPSG_4326));
     }
@@ -366,9 +586,9 @@ class ShapefileViewerTest {
         AtomicReference<BufferedImage> imageReference = new AtomicReference<>();
         AtomicReference<MapViewport> viewportReference = new AtomicReference<>();
 
+        MapView map = ShapefileViewer.createMapView(fixture, override);
         SwingUtilities.invokeAndWait(
                 () -> {
-                    MapView map = ShapefileViewer.createMapView(fixture, override);
                     map.setSize(240, 180);
                     map.fitToData(20.0);
                     mapReference.set(map);
@@ -376,6 +596,169 @@ class ShapefileViewerTest {
                     imageReference.set(paint(map, 240, 180));
                 });
         return new RenderedView(mapReference.get(), imageReference.get(), viewportReference.get());
+    }
+
+    private static byte[] pointFixture(int count) {
+        int size = 100 + count * 28;
+        ByteBuffer bytes = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN);
+        bytes.putInt(9994);
+        for (int index = 0; index < 5; index++) {
+            bytes.putInt(0);
+        }
+        bytes.putInt(size / 2);
+        bytes.order(ByteOrder.LITTLE_ENDIAN).putInt(1000).putInt(1);
+        putBounds(bytes, 0, 0, count - 1, count - 1);
+        bytes.putDouble(0).putDouble(0).putDouble(0).putDouble(0);
+        for (int index = 0; index < count; index++) {
+            putRecord(bytes, index + 1, point(index, index));
+        }
+        return bytes.array();
+    }
+
+    private static final class CleanupFailingSource implements FeatureSource {
+        private final RuntimeException operation;
+        private final RuntimeException cursorCleanup;
+        private final RuntimeException sourceCleanup;
+
+        private CleanupFailingSource(
+                RuntimeException operation,
+                RuntimeException cursorCleanup,
+                RuntimeException sourceCleanup) {
+            this.operation = operation;
+            this.cursorCleanup = cursorCleanup;
+            this.sourceCleanup = sourceCleanup;
+        }
+
+        @Override
+        public FeatureSourceMetadata metadata() {
+            return new FeatureSourceMetadata(
+                    new SourceIdentity("cleanup", "Cleanup"),
+                    Optional.empty(),
+                    OptionalLong.empty(),
+                    Optional.empty(),
+                    Optional.empty());
+        }
+
+        @Override
+        public FeatureSourceLimits limits() {
+            return FeatureSourceLimits.LEVEL_1;
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return DiagnosticReport.empty();
+        }
+
+        @Override
+        public FeatureCursor openCursor(FeatureQuery query, CancellationToken cancellation) {
+            return new FeatureCursor() {
+                @Override
+                public boolean advance() {
+                    throw operation;
+                }
+
+                @Override
+                public io.github.mundanej.map.api.FeatureRecord current() {
+                    throw new IllegalStateException("no current record");
+                }
+
+                @Override
+                public DiagnosticReport diagnostics() {
+                    return DiagnosticReport.empty();
+                }
+
+                @Override
+                public boolean isClosed() {
+                    return false;
+                }
+
+                @Override
+                public void close() {
+                    throw cursorCleanup;
+                }
+            };
+        }
+
+        @Override
+        public boolean isClosed() {
+            return false;
+        }
+
+        @Override
+        public void close() {
+            throw sourceCleanup;
+        }
+    }
+
+    private static final class CursorCloseFailingSource implements FeatureSource {
+        private final RuntimeException cursorCleanup;
+        private final AtomicInteger cursorCloseCount = new AtomicInteger();
+        private final AtomicInteger sourceCloseCount = new AtomicInteger();
+
+        private CursorCloseFailingSource(RuntimeException cursorCleanup) {
+            this.cursorCleanup = cursorCleanup;
+        }
+
+        @Override
+        public FeatureSourceMetadata metadata() {
+            return new FeatureSourceMetadata(
+                    new SourceIdentity("close", "Close"),
+                    Optional.empty(),
+                    OptionalLong.empty(),
+                    Optional.empty(),
+                    Optional.empty());
+        }
+
+        @Override
+        public FeatureSourceLimits limits() {
+            return FeatureSourceLimits.LEVEL_1;
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return DiagnosticReport.empty();
+        }
+
+        @Override
+        public FeatureCursor openCursor(FeatureQuery query, CancellationToken cancellation) {
+            return new FeatureCursor() {
+                @Override
+                public boolean advance() {
+                    return false;
+                }
+
+                @Override
+                public io.github.mundanej.map.api.FeatureRecord current() {
+                    throw new IllegalStateException("no current record");
+                }
+
+                @Override
+                public DiagnosticReport diagnostics() {
+                    return DiagnosticReport.empty();
+                }
+
+                @Override
+                public boolean isClosed() {
+                    return cursorCloseCount.get() > 0;
+                }
+
+                @Override
+                public void close() {
+                    cursorCloseCount.incrementAndGet();
+                    throw cursorCleanup;
+                }
+            };
+        }
+
+        @Override
+        public boolean isClosed() {
+            return sourceCloseCount.get() > 0;
+        }
+
+        @Override
+        public void close() {
+            sourceCloseCount.incrementAndGet();
+        }
     }
 
     private static String openingCode(Path fixture) {
