@@ -1,16 +1,30 @@
 package io.github.mundanej.map.nativeimage;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.image.BufferedImage;
+import io.github.mundanej.map.api.BuiltInMarker;
+import io.github.mundanej.map.api.CompositeSymbol;
+import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.VectorPath;
+import io.github.mundanej.map.core.BuiltInMarkers;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class NativeSmokeMainTest {
+    private static final String RESOURCE_CONFIG =
+            "/META-INF/native-image/io.github.mundanej/mundane-map-native-tests/resource-config.json";
+
     @Test
-    void rendersThroughTheSmokePathOnTheJvm() {
+    void rendersTheSharedResourceScenarioOnTheJvm() {
         NativeSmokeMain.runSmoke();
     }
 
@@ -20,19 +34,144 @@ class NativeSmokeMainTest {
     }
 
     @Test
-    void sharedRenderingAssertionRejectsUntouchedImages() {
-        BufferedImage transparent = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
-        assertThrows(
-                IllegalStateException.class, () -> NativeSmokeMain.verifyRendered(transparent));
+    void readsAndPacksTheDeclaredRawResource() {
+        assertArrayEquals(
+                new int[] {
+                    0xff0000ff,
+                    0x00ff00ff,
+                    0x0000ffff,
+                    0xffffff00,
+                    0xffff00ff,
+                    0x00ffffff,
+                    0xff00ff80,
+                    0x000000ff
+                },
+                NativeSmokeMain.loadRasterPixels());
+    }
 
-        BufferedImage white = new BufferedImage(128, 128, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = white.createGraphics();
-        try {
-            graphics.setColor(Color.WHITE);
-            graphics.fillRect(0, 0, white.getWidth(), white.getHeight());
-        } finally {
-            graphics.dispose();
+    @Test
+    void rejectsTruncatedAndOverlongRawResources() {
+        IllegalStateException truncated =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> NativeSmokeMain.decodeRasterPixels(new byte[31]));
+        IllegalStateException overlong =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> NativeSmokeMain.decodeRasterPixels(new byte[33]));
+        assertTrue(truncated.getMessage().startsWith("raster-resource:"));
+        assertTrue(overlong.getMessage().startsWith("raster-resource:"));
+    }
+
+    @Test
+    void exactResourceMetadataDeclaresOnlyTheIcon() throws IOException {
+        String expected =
+                """
+                {
+                  "resources": {
+                    "includes": [
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba\\\\E"
+                      }
+                    ]
+                  }
+                }
+                """;
+        try (InputStream input = NativeSmokeMain.class.getResourceAsStream(RESOURCE_CONFIG)) {
+            if (input == null) {
+                throw new AssertionError("resource-config.json is missing");
+            }
+            String actual = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertEquals(normalize(expected), normalize(actual));
         }
-        assertThrows(IllegalStateException.class, () -> NativeSmokeMain.verifyRendered(white));
+    }
+
+    @Test
+    void sharedAssertionsRejectStraightenedCurves() {
+        NativeSymbolSmokeScenario standard =
+                NativeSymbolSmokeScenario.standard(NativeSmokeMain.loadRasterPixels());
+        VectorPath straightQuadratic =
+                VectorPath.builder()
+                        .moveTo(-0.5, 0.5)
+                        .lineTo(-0.5, 0.0)
+                        .lineTo(0.0, -0.5)
+                        .cubicTo(0.3, -0.5, 0.5, -0.3, 0.5, 0.0)
+                        .lineTo(0.5, 0.5)
+                        .close()
+                        .build();
+        VectorPath straightCubic =
+                VectorPath.builder()
+                        .moveTo(-0.5, 0.5)
+                        .lineTo(-0.5, 0.0)
+                        .quadraticTo(-0.5, -0.5, 0.0, -0.5)
+                        .lineTo(0.5, 0.0)
+                        .lineTo(0.5, 0.5)
+                        .close()
+                        .build();
+
+        assertScenarioFailure(standard.withVectorPath(straightQuadratic), "vector-quadratic");
+        assertScenarioFailure(standard.withVectorPath(straightCubic), "vector-cubic");
+    }
+
+    @Test
+    void sharedAssertionsRejectReversedCompositeAndRasterRows() {
+        NativeSymbolSmokeScenario standard =
+                NativeSymbolSmokeScenario.standard(NativeSmokeMain.loadRasterPixels());
+        List<Symbol> reversedChildren = new ArrayList<>(standard.composite().children());
+        Collections.reverse(reversedChildren);
+        CompositeSymbol reversed = CompositeSymbol.of(reversedChildren, 1.0);
+
+        int[] reversedRows = standard.rasterPixels();
+        for (int column = 0; column < 4; column++) {
+            int first = reversedRows[column];
+            reversedRows[column] = reversedRows[column + 4];
+            reversedRows[column + 4] = first;
+        }
+
+        assertScenarioFailure(standard.withComposite(reversed), "composite-order");
+        assertScenarioFailure(standard.withRasterPixels(reversedRows), "raster-rows");
+    }
+
+    @Test
+    void sharedBoundsRejectAnOversizedCompositeChild() {
+        NativeSymbolSmokeScenario standard =
+                NativeSymbolSmokeScenario.standard(NativeSmokeMain.loadRasterPixels());
+        CompositeSymbol oversized =
+                CompositeSymbol.of(
+                        List.of(
+                                BuiltInMarkers.filledScreen(
+                                        BuiltInMarker.SQUARE,
+                                        NativeSymbolSmokeScenario.COMPOSITE_BLUE,
+                                        60.0,
+                                        1.0),
+                                standard.composite().children().get(1)),
+                        1.0);
+
+        assertScenarioFailure(standard.withComposite(oversized), "composite-order");
+    }
+
+    @Test
+    void scenarioCopiesRasterPixelsDefensively() {
+        int[] pixels = NativeSmokeMain.loadRasterPixels();
+        NativeSymbolSmokeScenario scenario = NativeSymbolSmokeScenario.standard(pixels);
+        pixels[0] = 0;
+        int[] firstCopy = scenario.rasterPixels();
+        firstCopy[0] = 0;
+        assertEquals(0xff0000ff, scenario.rasterPixels()[0]);
+    }
+
+    private static void assertScenarioFailure(
+            NativeSymbolSmokeScenario scenario, String invariantName) {
+        IllegalStateException failure =
+                assertThrows(
+                        IllegalStateException.class, () -> NativeSmokeMain.runScenario(scenario));
+        assertTrue(failure.getMessage().startsWith(invariantName + ":"), failure::getMessage);
+    }
+
+    private static String normalize(String value) {
+        return value.replace("\r\n", "\n").stripTrailing();
     }
 }

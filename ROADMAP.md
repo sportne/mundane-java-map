@@ -39,6 +39,11 @@ G2-006 adds the runnable four-section symbol gallery and an independent, headles
 composition, raster interpolation, directional endpoints, polygon holes, and bounded hatches without
 platform-specific golden images. The maintainer approved the gallery after desktop pan/zoom review;
 its arrow examples use head-only endpoint vectors to avoid double-antialiasing seams.
+G2-007 completes the gate with one explicitly declared raw icon resource and a shared JVM/native
+scenario that renders a curved vector path, ordered composite, and raster icon through `MapView`.
+Focused architecture checks include the native support classes and resources without broadening the
+production-module inventory. Linux x86-64 GraalVM CE Java 21.0.2 built and ran the executable; this
+evidence makes no Windows or macOS Native Image claim.
 
 ## Level 1
 

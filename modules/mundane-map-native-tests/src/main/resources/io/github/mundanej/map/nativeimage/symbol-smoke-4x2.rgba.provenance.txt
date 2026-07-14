@@ -1,0 +1,4 @@
+Origin: Hand-authored for mundane-java-map.
+Copyright: No third-party work is incorporated.
+License: BSD 3-Clause, as stated in the repository root LICENSE file.
+Layout: 4 by 2 top-left-origin, row-major, unpremultiplied RGBA bytes.

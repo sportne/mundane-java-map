@@ -1,0 +1,12 @@
+{
+  "resources": {
+    "includes": [
+      {
+        "condition": {
+          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+        },
+        "pattern": "\\Qio/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba\\E"
+      }
+    ]
+  }
+}

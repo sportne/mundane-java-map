@@ -14,6 +14,7 @@ plugins {
 def inventory = gradle.ext.mapProjectInventory
 def productionInventory = inventory.findAll { it.category != 'SUPPORT' }
 def level1Inventory = productionInventory.findAll { it.releaseLevel == 1 }
+def nativeSmokeProject = project(':modules:mundane-map-native-tests')
 
 sourceSets {
     architectureFixtures
@@ -193,6 +194,7 @@ tasks.named('test') {
     dependsOn productionInventory.collect { entry ->
         project(entry.path).tasks.named('classes')
     }
+    dependsOn nativeSmokeProject.tasks.named('classes')
     inputs.files(productionInventory.collect { entry ->
         project(entry.path).layout.buildDirectory.dir('classes/java/main')
     })
@@ -201,11 +203,21 @@ tasks.named('test') {
     })
     inputs.files(sourceSets.architectureFixtures.output.classesDirs)
     inputs.dir(file('src/architectureFixtures/resources'))
+    inputs.files(nativeSmokeProject.layout.buildDirectory.dir('classes/java/main'))
+    inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/resources'))
+    inputs.dir(nativeSmokeProject.layout.buildDirectory.dir('resources/main'))
     systemProperty 'map.architecture.modules', moduleDescriptors
     systemProperty 'map.architecture.fixtureClasses',
             layout.buildDirectory.dir('classes/java/architectureFixtures').get().asFile.absolutePath
     systemProperty 'map.architecture.fixtureResources',
             file('src/architectureFixtures/resources').absolutePath
+    systemProperty 'map.architecture.nativeSupportClasses',
+            nativeSmokeProject.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
+    systemProperty 'map.architecture.nativeSupportResources',
+            [
+                new File(nativeSmokeProject.projectDir, 'src/main/resources').absolutePath,
+                nativeSmokeProject.layout.buildDirectory.dir('resources/main').get().asFile.absolutePath,
+            ].join(File.pathSeparator)
 }
 
 description = 'Architecture and dependency-boundary tests.'

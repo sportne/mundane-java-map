@@ -1,6 +1,6 @@
 # G2-007 — Native Symbol Resource Smoke
 
-Status: Proposed
+Status: Complete
 Depends on: G2-006
 Gate: G2
 Type: HITL
@@ -62,6 +62,15 @@ git diff --check
 
 ## Notes
 
-If GraalVM is unavailable, automated JVM work may be prepared but the task remains Proposed or becomes
-Blocked with the missing external tool recorded; it cannot be marked Complete from JVM evidence
-alone.
+Completed 2026-07-13. The project maintainer authorized completion of the named **G2 native
+symbol-resource approval** checkpoint in the task conversation. The checked resource configuration
+contains one exact quoted icon pattern; the adjacent provenance records a repository-authored BSD
+3-Clause fixture and is deliberately excluded from Native Image metadata.
+
+Validation evidence was collected on Linux x86_64 under WSL2. Normal JVM validation used Ubuntu
+OpenJDK 21.0.11. Native validation used GraalVM CE 21.0.2+13.1 (`native-image 21.0.2`) from
+`/home/jack/.gradle/jdks/graalvm-community-openjdk-21.0.2+13.1`, selected explicitly through
+`JAVA_HOME` because the default OpenJDK installation does not contain `native-image`. The focused JVM
+and architecture command passed, and `./gradlew nativeSmoke --console=plain` built and ran the
+executable with `mundane-map native smoke: OK`. This is Linux evidence only and makes no Windows or
+macOS Native Image claim.

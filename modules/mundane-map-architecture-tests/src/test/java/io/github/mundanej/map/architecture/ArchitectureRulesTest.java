@@ -7,6 +7,7 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.mundanej.map.architecture.ArchitecturePolicy.ModuleDescriptor;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -25,6 +26,8 @@ class ArchitectureRulesTest {
     private static List<ModuleDescriptor> modules;
     private static Map<ModuleDescriptor, JavaClasses> classesByModule;
     private static JavaClasses fixtureClasses;
+    private static JavaClasses nativeSupportClasses;
+    private static List<Path> nativeSupportResources;
 
     @BeforeAll
     static void importClasses() {
@@ -37,6 +40,19 @@ class ArchitectureRulesTest {
         fixtureClasses =
                 new ClassFileImporter()
                         .importPath(Path.of(System.getProperty("map.architecture.fixtureClasses")));
+        nativeSupportClasses =
+                new ClassFileImporter()
+                        .importPath(
+                                Path.of(
+                                        System.getProperty(
+                                                "map.architecture.nativeSupportClasses")));
+        nativeSupportResources =
+                List.of(
+                                System.getProperty("map.architecture.nativeSupportResources")
+                                        .split(java.util.regex.Pattern.quote(File.pathSeparator)))
+                        .stream()
+                        .map(Path::of)
+                        .toList();
     }
 
     @Test
@@ -75,6 +91,14 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void nativeSmokeSupportAvoidsProhibitedMechanisms() {
+        List<String> violations =
+                ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);
+
+        assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
     void actualProductionResourcesAvoidImplicitDiscoveryMetadata() throws IOException {
         List<String> violations = new ArrayList<>();
         for (ModuleDescriptor module : modules) {
@@ -85,6 +109,18 @@ class ArchitectureRulesTest {
                                     module.path(), resourcesDirectory));
                 }
             }
+        }
+
+        assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void nativeSmokeResourcesAvoidImplicitDiscoveryMetadata() throws IOException {
+        List<String> violations = new ArrayList<>();
+        for (Path resourcesDirectory : nativeSupportResources) {
+            violations.addAll(
+                    ArchitecturePolicy.discoveryResourceViolations(
+                            ":modules:mundane-map-native-tests", resourcesDirectory));
         }
 
         assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
