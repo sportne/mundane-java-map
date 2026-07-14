@@ -97,7 +97,7 @@ class ShapefilesIntegrationTest {
     }
 
     @Test
-    void openingCancellationAndStagedSidecarAreStructured() throws Exception {
+    void openingCancellationAndUnsupportedPrjAreStructured() throws Exception {
         Path path = write("cancel.shp", ShpFixtures.file(0, 0, 0, 0, 0));
         CancellationSource cancellation = new CancellationSource();
         cancellation.cancel();
@@ -113,10 +113,10 @@ class ShapefilesIntegrationTest {
                                                 cancellation.token()))
                         .terminal()
                         .code());
-        Files.write(directory.resolve("cancel.dbf"), new byte[] {1});
+        Files.write(directory.resolve("cancel.prj"), new byte[] {1});
         SourceException staged = assertThrows(SourceException.class, () -> open(path));
         assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", staged.terminal().code());
-        assertEquals("dbf", staged.terminal().location().orElseThrow().component().orElseThrow());
+        assertEquals("prj", staged.terminal().location().orElseThrow().component().orElseThrow());
     }
 
     @Test
@@ -227,10 +227,10 @@ class ShapefilesIntegrationTest {
     }
 
     @Test
-    void treatsLowercaseAndUppercaseHardLinksAsOneStagedSidecar() throws Exception {
+    void treatsLowercaseAndUppercaseHardLinksAsOneUnsupportedPrjSidecar() throws Exception {
         Path alias = write("alias.shp", ShpFixtures.file(0, 0, 0, 0, 0));
-        Path lower = Files.write(directory.resolve("alias.dbf"), new byte[] {1});
-        Path upper = directory.resolve("alias.DBF");
+        Path lower = Files.write(directory.resolve("alias.prj"), new byte[] {1});
+        Path upper = directory.resolve("alias.PRJ");
         try {
             Files.createLink(upper, lower);
         } catch (UnsupportedOperationException | java.io.IOException exception) {
@@ -239,7 +239,7 @@ class ShapefilesIntegrationTest {
         }
         SourceException staged = assertThrows(SourceException.class, () -> open(alias));
         assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", staged.terminal().code());
-        assertEquals("dbf", staged.terminal().location().orElseThrow().component().orElseThrow());
+        assertEquals("prj", staged.terminal().location().orElseThrow().component().orElseThrow());
     }
 
     @Test

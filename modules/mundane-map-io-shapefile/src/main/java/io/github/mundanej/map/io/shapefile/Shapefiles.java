@@ -105,8 +105,9 @@ public final class Shapefiles {
         Path cpg = select(identity.id(), access, parent, stem, "cpg", cancellation);
         Path prj = select(identity.id(), access, parent, stem, "prj", cancellation);
         checkpoint(identity.id(), cancellation);
-        List<SourceDiagnostic> openingWarnings = new java.util.ArrayList<>(1);
+        List<SourceDiagnostic> openingWarnings = new java.util.ArrayList<>();
         ShapefileFileAccess.Channel channel;
+        DbfTable dbfTable = null;
         try {
             channel = access.open(path);
         } catch (IOException exception) {
@@ -179,8 +180,27 @@ public final class Shapefiles {
                 index = result.index().orElse(null);
                 result.warning().ifPresent(openingWarnings::add);
             }
-            String stagedComponent =
-                    dbf != null ? "dbf" : cpg != null ? "cpg" : prj != null ? "prj" : null;
+            if (dbf == null) {
+                openingWarnings.add(sidecarWarning(identity.id(), "SHAPEFILE_DBF_MISSING", "dbf"));
+                if (cpg != null) {
+                    openingWarnings.add(
+                            sidecarWarning(identity.id(), "SHAPEFILE_CPG_WITHOUT_DBF", "cpg"));
+                }
+            } else {
+                DbfReader.Result result =
+                        DbfReader.read(
+                                identity.id(),
+                                dbf,
+                                cpg,
+                                access,
+                                index,
+                                options,
+                                openingAccounting,
+                                cancellation,
+                                openingWarnings);
+                dbfTable = result.table();
+            }
+            String stagedComponent = prj != null ? "prj" : null;
             if (stagedComponent != null) {
                 throw ShapefileFailures.failure(
                         identity.id(),
@@ -206,19 +226,60 @@ public final class Shapefiles {
                     crs,
                     options,
                     index,
-                    new DiagnosticReport(openingWarnings, 0));
+                    dbfTable,
+                    openingReport(openingWarnings, options));
         } catch (RuntimeException | Error failure) {
             Throwable emitted =
                     failure instanceof SourceException sourceFailure
-                            ? ShapefileFailures.withOpeningWarnings(
-                                    sourceFailure, openingWarnings, 0)
+                            ? withOpeningWarnings(sourceFailure, openingWarnings, options)
                             : failure;
+            if (dbfTable != null) {
+                try {
+                    dbfTable.close();
+                } catch (IOException exception) {
+                    emitted.addSuppressed(exception);
+                }
+            }
             closeSuppressed(channel, emitted);
             if (emitted instanceof RuntimeException runtime) {
                 throw runtime;
             }
             throw (Error) emitted;
         }
+    }
+
+    private static DiagnosticReport openingReport(
+            List<SourceDiagnostic> warnings, ShapefileOpenOptions options) {
+        int maximum = options.featureSourceLimits().queryLimits().retainedWarnings();
+        int retained = Math.min(maximum, warnings.size());
+        return new DiagnosticReport(
+                warnings.subList(0, retained), Math.max(0L, (long) warnings.size() - retained));
+    }
+
+    private static SourceException withOpeningWarnings(
+            SourceException failure,
+            List<SourceDiagnostic> warnings,
+            ShapefileOpenOptions options) {
+        DiagnosticReport report = openingReport(warnings, options);
+        return ShapefileFailures.withOpeningWarnings(
+                failure, report.entries(), report.omittedWarningCount());
+    }
+
+    private static SourceDiagnostic sidecarWarning(String source, String code, String component) {
+        return new SourceDiagnostic(
+                code,
+                DiagnosticSeverity.WARNING,
+                source,
+                Optional.of(
+                        new DiagnosticLocation(
+                                Optional.of(component),
+                                OptionalLong.empty(),
+                                java.util.OptionalInt.empty(),
+                                java.util.OptionalInt.empty(),
+                                Optional.empty(),
+                                OptionalLong.empty())),
+                "Optional Shapefile sidecar is absent or ignored",
+                Map.of());
     }
 
     private static Path select(

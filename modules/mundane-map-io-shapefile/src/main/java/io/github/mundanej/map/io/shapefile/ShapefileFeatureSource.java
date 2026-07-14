@@ -1,5 +1,6 @@
 package io.github.mundanej.map.io.shapefile;
 
+import io.github.mundanej.map.api.AttributeSchema;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticLocation;
@@ -28,6 +29,7 @@ final class ShapefileFeatureSource implements FeatureSource {
     private final ShapefileOpenOptions options;
     private final FeatureSourceMetadata metadata;
     private final ShxIndex index;
+    private final DbfTable dbfTable;
     private final DiagnosticReport openingDiagnostics;
     private ShapefileCursor cursor;
     private boolean closed;
@@ -40,16 +42,25 @@ final class ShapefileFeatureSource implements FeatureSource {
             Optional<CrsMetadata> crs,
             ShapefileOpenOptions options,
             ShxIndex index,
+            DbfTable dbfTable,
             DiagnosticReport openingDiagnostics) {
         this.channel = channel;
         capturedSize = size;
         this.header = header;
         this.options = options;
         this.index = index;
+        this.dbfTable = dbfTable;
         this.openingDiagnostics = openingDiagnostics;
         metadata =
                 new FeatureSourceMetadata(
-                        identity, header.extent(), OptionalLong.empty(), Optional.empty(), crs);
+                        identity,
+                        header.extent(),
+                        OptionalLong.empty(),
+                        Optional.of(
+                                dbfTable == null
+                                        ? new AttributeSchema(List.of())
+                                        : dbfTable.schema()),
+                        crs);
     }
 
     @Override
@@ -88,6 +99,19 @@ final class ShapefileFeatureSource implements FeatureSource {
         if (!effective.tightens(options.featureSourceLimits().queryLimits())) {
             throw new IllegalArgumentException("Query limits may only tighten source limits");
         }
+        if (dbfTable != null) {
+            dbfTable.validateSelection(query.attributes());
+        } else if (query.attributes().isOnly()) {
+            String field = query.attributes().orderedNames().get(0);
+            throw ShapefileFailures.failure(
+                    metadata.identity().id(),
+                    "SOURCE_QUERY_ATTRIBUTE_UNKNOWN",
+                    "dbf",
+                    OptionalLong.empty(),
+                    -1,
+                    "Query requested an unknown attribute",
+                    Map.of("field", field));
+        }
         try {
             Shapefiles.checkpoint(metadata.identity().id(), cancellation);
             long actual = channel.size();
@@ -97,6 +121,9 @@ final class ShapefileFeatureSource implements FeatureSource {
             }
         } catch (IOException e) {
             throw ShapefileFailures.io(metadata.identity().id(), "shp", "size", -1, e);
+        }
+        if (dbfTable != null) {
+            dbfTable.checkSize(cancellation);
         }
         cursor =
                 new ShapefileCursor(
@@ -108,7 +135,8 @@ final class ShapefileFeatureSource implements FeatureSource {
                         cancellation,
                         effective,
                         options.shapefileLimits(),
-                        index);
+                        index,
+                        dbfTable);
         return cursor;
     }
 
@@ -142,25 +170,45 @@ final class ShapefileFeatureSource implements FeatureSource {
         if (cursor != null) {
             cursor.closeFromSource();
         }
+        SourceException first = null;
+        if (dbfTable != null) {
+            try {
+                dbfTable.close();
+            } catch (IOException exception) {
+                first = closeFailure("dbf", exception);
+            }
+        }
         try {
             channel.close();
-        } catch (IOException e) {
-            SourceDiagnostic terminal =
-                    new SourceDiagnostic(
-                            "SOURCE_CLOSE_FAILED",
-                            DiagnosticSeverity.ERROR,
-                            metadata.identity().id(),
-                            Optional.of(
-                                    new DiagnosticLocation(
-                                            Optional.of("shp"),
-                                            OptionalLong.empty(),
-                                            OptionalInt.empty(),
-                                            OptionalInt.empty(),
-                                            Optional.empty(),
-                                            OptionalLong.empty())),
-                            "Shapefile source close failed",
-                            Map.of());
-            throw new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal, e);
+        } catch (IOException exception) {
+            SourceException failure = closeFailure("shp", exception);
+            if (first == null) {
+                first = failure;
+            } else {
+                first.addSuppressed(failure);
+            }
         }
+        if (first != null) {
+            throw first;
+        }
+    }
+
+    private SourceException closeFailure(String component, IOException cause) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        "SOURCE_CLOSE_FAILED",
+                        DiagnosticSeverity.ERROR,
+                        metadata.identity().id(),
+                        Optional.of(
+                                new DiagnosticLocation(
+                                        Optional.of(component),
+                                        OptionalLong.empty(),
+                                        OptionalInt.empty(),
+                                        OptionalInt.empty(),
+                                        Optional.empty(),
+                                        OptionalLong.empty())),
+                        "Shapefile source close failed",
+                        Map.of());
+        return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal, cause);
     }
 }

@@ -56,7 +56,7 @@ class ShxIntegrationTest {
         assertEquals(expected, readPointRecords(ignored, query));
 
         try (FeatureSource source = open(indexed)) {
-            assertTrue(source.openingDiagnostics().entries().isEmpty());
+            assertMissingDbfOnly(source.openingDiagnostics());
         }
         try (FeatureSource source = open(missing)) {
             assertWarning(source.openingDiagnostics(), "SHAPEFILE_SHX_MISSING", null, -1);
@@ -77,7 +77,7 @@ class ShxIntegrationTest {
             try (FeatureSource source = open(shp);
                     FeatureCursor cursor =
                             source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
-                assertTrue(source.openingDiagnostics().entries().isEmpty());
+                assertMissingDbfOnly(source.openingDiagnostics());
                 assertTrue(cursor.advance());
                 assertEquals("record:1", cursor.current().id());
                 assertFalse(cursor.advance());
@@ -86,21 +86,17 @@ class ShxIntegrationTest {
     }
 
     @Test
-    void missingOrIgnoredIndexWarningPrecedesEveryStagedSidecarTerminal() throws Exception {
-        for (String component : List.of("dbf", "cpg", "prj")) {
-            String missingStem = "missing-before-" + component;
-            Path missing = dataset(missingStem, 0, 0, 0, 0, 0);
-            write(missingStem + '.' + component, new byte[] {1});
-            assertWarningBeforeStagedTerminal(missing, "SHAPEFILE_SHX_MISSING", component);
+    void missingOrIgnoredIndexWarningPrecedesUnsupportedPrjTerminal() throws Exception {
+        Path missing = dataset("missing-before-prj", 0, 0, 0, 0, 0);
+        write("missing-before-prj.prj", new byte[] {1});
+        assertWarningBeforeStagedTerminal(missing, "SHAPEFILE_SHX_MISSING", "prj");
 
-            String ignoredStem = "ignored-before-" + component;
-            Path ignored = dataset(ignoredStem, 0, 0, 0, 0, 0);
-            byte[] malformed = ShxFixtures.file(0, 0, 0, 0, 0);
-            ByteBuffer.wrap(malformed).order(ByteOrder.BIG_ENDIAN).putInt(0, 9995);
-            write(ignoredStem + ".shx", malformed);
-            write(ignoredStem + '.' + component, new byte[] {1});
-            assertWarningBeforeStagedTerminal(ignored, "SHAPEFILE_SHX_IGNORED", component);
-        }
+        Path ignored = dataset("ignored-before-prj", 0, 0, 0, 0, 0);
+        byte[] malformed = ShxFixtures.file(0, 0, 0, 0, 0);
+        ByteBuffer.wrap(malformed).order(ByteOrder.BIG_ENDIAN).putInt(0, 9995);
+        write("ignored-before-prj.shx", malformed);
+        write("ignored-before-prj.prj", new byte[] {1});
+        assertWarningBeforeStagedTerminal(ignored, "SHAPEFILE_SHX_IGNORED", "prj");
     }
 
     @Test
@@ -117,7 +113,7 @@ class ShxIntegrationTest {
         try (FeatureSource source = open(empty);
                 FeatureCursor cursor =
                         source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
-            assertTrue(source.openingDiagnostics().entries().isEmpty());
+            assertMissingDbfOnly(source.openingDiagnostics());
             assertFalse(cursor.advance());
             assertFalse(cursor.advance());
         }
@@ -509,7 +505,7 @@ class ShxIntegrationTest {
         ShapefileOpenOptions options = ShapefileOpenOptions.defaults().withShapefileLimits(limits);
         try (FeatureSource source =
                 Shapefiles.open(new SourceIdentity("source", "Source"), path, options)) {
-            assertTrue(source.openingDiagnostics().entries().isEmpty());
+            assertMissingDbfOnly(source.openingDiagnostics());
         }
     }
 
@@ -527,10 +523,11 @@ class ShxIntegrationTest {
     private void assertWarningBeforeStagedTerminal(
             Path path, String warningCode, String component) {
         SourceException failure = assertThrows(SourceException.class, () -> open(path));
-        assertEquals(2, failure.report().entries().size());
+        assertEquals(3, failure.report().entries().size());
         assertEquals(warningCode, failure.report().entries().get(0).code());
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", failure.report().entries().get(1).code());
-        assertEquals(failure.terminal(), failure.report().entries().get(1));
+        assertEquals("SHAPEFILE_DBF_MISSING", failure.report().entries().get(1).code());
+        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", failure.report().entries().get(2).code());
+        assertEquals(failure.terminal(), failure.report().entries().get(2));
         assertEquals(
                 component, failure.terminal().location().orElseThrow().component().orElseThrow());
     }
@@ -548,7 +545,7 @@ class ShxIntegrationTest {
 
     private static void assertWarning(
             DiagnosticReport report, String code, String reason, long offset) {
-        assertEquals(1, report.entries().size());
+        assertEquals(2, report.entries().size());
         SourceDiagnostic warning = report.entries().get(0);
         assertEquals(code, warning.code());
         assertEquals("shx", warning.location().orElseThrow().component().orElseThrow());
@@ -563,6 +560,14 @@ class ShxIntegrationTest {
         } else {
             assertEquals(reason, warning.context().get("reason"));
         }
+        assertEquals("SHAPEFILE_DBF_MISSING", report.entries().get(1).code());
+    }
+
+    private static void assertMissingDbfOnly(DiagnosticReport report) {
+        assertEquals(1, report.entries().size());
+        SourceDiagnostic warning = report.entries().get(0);
+        assertEquals("SHAPEFILE_DBF_MISSING", warning.code());
+        assertEquals("dbf", warning.location().orElseThrow().component().orElseThrow());
     }
 
     private Path dataset(

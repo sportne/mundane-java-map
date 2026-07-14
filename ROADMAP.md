@@ -98,6 +98,12 @@ source-stable shells, assign holes to the smallest strict containing shell, and 
 topology without repair. Singular and packed multipart output preserves component-local even-odd
 rendering for holes, disjoint shells, and nested islands under cumulative allocation and topology
 limits.
+G5-006 is complete: bounded positional DBF reads pair each physical attribute row with its SHP
+ordinal, suppress deleted partners, and expose immutable typed attributes in requested order. The
+memo-free dBASE III/IV/5 profile uses explicit caller/CPG/LDID/fallback encoding resolution, committed
+single-byte tables, stable row/field diagnostics, prospective limits, cancellation, and reverse-order
+cleanup; the viewer proves a non-ASCII attribute and deleted-row suppression without introducing AWT
+or provider discovery in the format module.
 
 ## Level 1
 

@@ -5,7 +5,7 @@ import java.util.OptionalLong;
 final class ShapefileAccounting {
     private final String source, scope;
     private final ShapefileLimits limits;
-    private long records, allocation;
+    private long records, allocation, decodedCharacters;
 
     ShapefileAccounting(String source, String scope, ShapefileLimits limits) {
         this.source = source;
@@ -61,6 +61,56 @@ final class ShapefileAccounting {
                     OptionalLong.of(record),
                     offset);
         }
+    }
+
+    void dbfRows(long count, long offset) {
+        if (count > limits.maximumPhysicalRecords()) {
+            throw ShapefileFailures.limit(
+                    source,
+                    scope,
+                    "physicalRecords",
+                    count,
+                    limits.maximumPhysicalRecords(),
+                    OptionalLong.empty(),
+                    offset);
+        }
+    }
+
+    void dbfFields(long count, long offset) {
+        if (count > limits.maximumDbfFields()) {
+            throw ShapefileFailures.limit(
+                    source,
+                    scope,
+                    "dbfFields",
+                    count,
+                    limits.maximumDbfFields(),
+                    OptionalLong.empty(),
+                    offset);
+        }
+    }
+
+    void dbfFieldWidth(long count, int field, long offset) {
+        if (count > limits.maximumDbfFieldWidth()) {
+            throw ShapefileFailures.limitWithField(
+                    source,
+                    scope,
+                    "dbfFieldWidth",
+                    count,
+                    limits.maximumDbfFieldWidth(),
+                    field,
+                    offset);
+        }
+    }
+
+    void decodedCharacters(long count, long record, long offset) {
+        decodedCharacters =
+                charge(
+                        "decodedTextCharacters",
+                        decodedCharacters,
+                        count,
+                        limits.maximumDecodedTextCharacters(),
+                        OptionalLong.of(record),
+                        offset);
     }
 
     void allocate(long bytes, OptionalLong record, long offset) {

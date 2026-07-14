@@ -14,16 +14,24 @@ import java.util.Optional;
 public final class ShapefileOpenOptions {
     private static final ShapefileOpenOptions DEFAULTS =
             new ShapefileOpenOptions(
-                    FeatureSourceLimits.LEVEL_1, ShapefileLimits.defaults(), Optional.empty());
+                    FeatureSourceLimits.LEVEL_1,
+                    ShapefileLimits.defaults(),
+                    Optional.empty(),
+                    Optional.empty());
     private final FeatureSourceLimits featureSourceLimits;
     private final ShapefileLimits shapefileLimits;
     private final Optional<CrsDefinition> crsOverride;
+    private final Optional<DbfEncoding> dbfEncodingOverride;
 
     private ShapefileOpenOptions(
-            FeatureSourceLimits feature, ShapefileLimits shape, Optional<CrsDefinition> crs) {
+            FeatureSourceLimits feature,
+            ShapefileLimits shape,
+            Optional<CrsDefinition> crs,
+            Optional<DbfEncoding> dbfEncoding) {
         featureSourceLimits = Objects.requireNonNull(feature, "featureSourceLimits");
         shapefileLimits = Objects.requireNonNull(shape, "shapefileLimits");
         crsOverride = Objects.requireNonNull(crs, "crsOverride");
+        dbfEncodingOverride = Objects.requireNonNull(dbfEncoding, "dbfEncodingOverride");
     }
 
     /**
@@ -63,6 +71,15 @@ public final class ShapefileOpenOptions {
     }
 
     /**
+     * Returns the explicit DBF encoding override, if supplied.
+     *
+     * @return the DBF encoding override, or empty when file hints select the encoding
+     */
+    public Optional<DbfEncoding> dbfEncodingOverride() {
+        return dbfEncodingOverride;
+    }
+
+    /**
      * Returns a copy with different format-neutral feature-source limits.
      *
      * @param featureSourceLimits limits to apply to feature queries and materialization
@@ -70,7 +87,8 @@ public final class ShapefileOpenOptions {
      * @throws NullPointerException if {@code featureSourceLimits} is {@code null}
      */
     public ShapefileOpenOptions withFeatureSourceLimits(FeatureSourceLimits featureSourceLimits) {
-        return new ShapefileOpenOptions(featureSourceLimits, shapefileLimits, crsOverride);
+        return new ShapefileOpenOptions(
+                featureSourceLimits, shapefileLimits, crsOverride, dbfEncodingOverride);
     }
 
     /**
@@ -81,7 +99,8 @@ public final class ShapefileOpenOptions {
      * @throws NullPointerException if {@code shapefileLimits} is {@code null}
      */
     public ShapefileOpenOptions withShapefileLimits(ShapefileLimits shapefileLimits) {
-        return new ShapefileOpenOptions(featureSourceLimits, shapefileLimits, crsOverride);
+        return new ShapefileOpenOptions(
+                featureSourceLimits, shapefileLimits, crsOverride, dbfEncodingOverride);
     }
 
     /**
@@ -97,7 +116,8 @@ public final class ShapefileOpenOptions {
         return new ShapefileOpenOptions(
                 featureSourceLimits,
                 shapefileLimits,
-                Optional.of(Objects.requireNonNull(crsOverride, "crsOverride")));
+                Optional.of(Objects.requireNonNull(crsOverride, "crsOverride")),
+                dbfEncodingOverride);
     }
 
     /**
@@ -106,7 +126,33 @@ public final class ShapefileOpenOptions {
      * @return a copy whose {@link #crsOverride()} is empty
      */
     public ShapefileOpenOptions withoutCrsOverride() {
-        return new ShapefileOpenOptions(featureSourceLimits, shapefileLimits, Optional.empty());
+        return new ShapefileOpenOptions(
+                featureSourceLimits, shapefileLimits, Optional.empty(), dbfEncodingOverride);
+    }
+
+    /**
+     * Returns a copy with an explicit DBF encoding override.
+     *
+     * @param dbfEncodingOverride encoding used to decode supported DBF character fields
+     * @return a copy containing {@code dbfEncodingOverride}
+     * @throws NullPointerException if {@code dbfEncodingOverride} is {@code null}
+     */
+    public ShapefileOpenOptions withDbfEncodingOverride(DbfEncoding dbfEncodingOverride) {
+        return new ShapefileOpenOptions(
+                featureSourceLimits,
+                shapefileLimits,
+                crsOverride,
+                Optional.of(Objects.requireNonNull(dbfEncodingOverride, "dbfEncodingOverride")));
+    }
+
+    /**
+     * Returns a copy without a DBF encoding override.
+     *
+     * @return a copy whose {@link #dbfEncodingOverride()} is empty
+     */
+    public ShapefileOpenOptions withoutDbfEncodingOverride() {
+        return new ShapefileOpenOptions(
+                featureSourceLimits, shapefileLimits, crsOverride, Optional.empty());
     }
 
     @Override
@@ -114,12 +160,13 @@ public final class ShapefileOpenOptions {
         return other instanceof ShapefileOpenOptions v
                 && featureSourceLimits.equals(v.featureSourceLimits)
                 && shapefileLimits.equals(v.shapefileLimits)
-                && crsOverride.equals(v.crsOverride);
+                && crsOverride.equals(v.crsOverride)
+                && dbfEncodingOverride.equals(v.dbfEncodingOverride);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(featureSourceLimits, shapefileLimits, crsOverride);
+        return Objects.hash(featureSourceLimits, shapefileLimits, crsOverride, dbfEncodingOverride);
     }
 
     @Override
@@ -130,6 +177,8 @@ public final class ShapefileOpenOptions {
                 + shapefileLimits
                 + ", crsOverride="
                 + crsOverride.map(CrsDefinition::canonicalIdentifier)
+                + ", dbfEncodingOverride="
+                + dbfEncodingOverride
                 + "]";
     }
 }

@@ -29,6 +29,35 @@ final class ShapefileFailures {
                 source, code, component, record, OptionalInt.empty(), offset, message, context);
     }
 
+    static SourceException failureWithField(
+            String source,
+            String code,
+            String component,
+            OptionalLong record,
+            OptionalInt field,
+            Optional<String> name,
+            long offset,
+            String message,
+            Map<String, String> context) {
+        DiagnosticLocation location =
+                new DiagnosticLocation(
+                        Optional.of(component),
+                        record,
+                        OptionalInt.empty(),
+                        field,
+                        name,
+                        offset < 0 ? OptionalLong.empty() : OptionalLong.of(offset));
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        code,
+                        DiagnosticSeverity.ERROR,
+                        source,
+                        Optional.of(location),
+                        message,
+                        context);
+        return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal);
+    }
+
     static SourceException failure(
             String source,
             String code,
@@ -132,6 +161,34 @@ final class ShapefileFailures {
                 "SOURCE_LIMIT_EXCEEDED",
                 "shp",
                 record,
+                offset,
+                "Shapefile limit exceeded",
+                Map.of(
+                        "scope",
+                        scope,
+                        "limit",
+                        limit,
+                        "requested",
+                        Long.toString(requested),
+                        "maximum",
+                        Long.toString(maximum)));
+    }
+
+    static SourceException limitWithField(
+            String source,
+            String scope,
+            String limit,
+            long requested,
+            long maximum,
+            int field,
+            long offset) {
+        return failureWithField(
+                source,
+                "SOURCE_LIMIT_EXCEEDED",
+                "dbf",
+                OptionalLong.empty(),
+                OptionalInt.of(field),
+                Optional.empty(),
                 offset,
                 "Shapefile limit exceeded",
                 Map.of(

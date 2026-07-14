@@ -422,7 +422,8 @@ class ArchitectureRulesTest {
                 ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty(),
                 "Shapefile production must remain compatible with the native-targeted boundary");
         assertEquals(
-                Set.of("Shapefiles", "ShapefileOpenOptions", "ShapefileLimits"), publicFormatTypes);
+                Set.of("Shapefiles", "ShapefileOpenOptions", "ShapefileLimits", "DbfEncoding"),
+                publicFormatTypes);
         assertTrue(supportProjects.contains(":examples:shapefile-viewer"));
         assertTrue(
                 modules.stream()

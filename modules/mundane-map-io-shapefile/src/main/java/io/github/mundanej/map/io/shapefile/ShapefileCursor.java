@@ -45,6 +45,7 @@ final class ShapefileCursor implements FeatureCursor {
     private final ByteBuffer coordinate;
     private final PolylineDecoder polylineDecoder;
     private final PolygonDecoder polygonDecoder;
+    private final DbfCursorState dbf;
     private long nextOffset = 100;
     private long ordinal = 1;
     private int indexEntry;
@@ -60,7 +61,8 @@ final class ShapefileCursor implements FeatureCursor {
             CancellationToken cancellation,
             FeatureQueryLimits limits,
             ShapefileLimits formatLimits,
-            ShxIndex index) {
+            ShxIndex index,
+            DbfTable dbfTable) {
         this.source = source;
         this.channel = channel;
         this.size = size;
@@ -96,6 +98,16 @@ final class ShapefileCursor implements FeatureCursor {
                         header.extent(),
                         prefix,
                         coordinate);
+        dbf =
+                dbfTable == null
+                        ? null
+                        : new DbfCursorState(
+                                source.metadata().identity().id(),
+                                dbfTable,
+                                format,
+                                query.attributes(),
+                                cancellation,
+                                limits.retainedWarnings());
     }
 
     @Override
@@ -110,6 +122,10 @@ final class ShapefileCursor implements FeatureCursor {
                 checkpoint();
                 if (index != null ? indexEntry == index.size() : nextOffset == size) {
                     checkSize();
+                    if (dbf != null) {
+                        dbf.checkSize();
+                        dbf.requireExhausted(ordinal - 1);
+                    }
                     state = State.EXHAUSTED;
                     release();
                     return false;
@@ -202,6 +218,7 @@ final class ShapefileCursor implements FeatureCursor {
                 queryAccounting.recordExamined();
                 long recordOrdinal = ordinal++;
                 nextOffset = end;
+                boolean deleted = dbf != null && dbf.deleted(recordOrdinal);
                 readPrefix(point, 4, start + 8, recordOrdinal);
                 point.order(ByteOrder.LITTLE_ENDIAN);
                 int type = point.getInt(0);
@@ -230,6 +247,9 @@ final class ShapefileCursor implements FeatureCursor {
                             case 8 -> decodeMultiPoint(recordOrdinal, start, contentBytes);
                             default -> throw new IllegalStateException("Validated shape type");
                         };
+                if (deleted) {
+                    continue;
+                }
                 if (query.sourceBounds().isPresent()
                         && !intersects(geometry.envelope(), query.sourceBounds().orElseThrow())) {
                     continue;
@@ -242,7 +262,9 @@ final class ShapefileCursor implements FeatureCursor {
                         start + 8);
                 checkpoint();
                 String id = "record:" + recordOrdinal;
-                FeatureRecord result = new FeatureRecord(id, "", geometry, Map.of());
+                Map<String, Object> attributes =
+                        dbf == null ? Map.of() : dbf.attributes(recordOrdinal);
+                FeatureRecord result = new FeatureRecord(id, "", geometry, attributes);
                 queryAccounting.recordReturned(result, 0, cancellation);
                 checkpoint();
                 current = result;
@@ -250,13 +272,23 @@ final class ShapefileCursor implements FeatureCursor {
                 return true;
             }
         } catch (RuntimeException | Error failure) {
+            Throwable emitted = failure;
+            if (failure instanceof SourceException sourceFailure && dbf != null) {
+                DiagnosticReport report = dbf.diagnostics();
+                emitted =
+                        ShapefileFailures.withOpeningWarnings(
+                                sourceFailure, report.entries(), report.omittedWarningCount());
+            }
             state =
-                    failure instanceof SourceException e
+                    emitted instanceof SourceException e
                                     && e.terminal().code().equals("SOURCE_CANCELLED")
                             ? State.CANCELLED
                             : State.FAILED;
             release();
-            throw failure;
+            if (emitted instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw (Error) emitted;
         }
     }
 
@@ -582,7 +614,7 @@ final class ShapefileCursor implements FeatureCursor {
 
     @Override
     public DiagnosticReport diagnostics() {
-        return DiagnosticReport.empty();
+        return dbf == null ? DiagnosticReport.empty() : dbf.diagnostics();
     }
 
     @Override

@@ -25,7 +25,7 @@ class ShxFileAccessTest {
     private static final SourceIdentity IDENTITY = new SourceIdentity("source", "Source");
 
     @Test
-    void shxOpenReadAndCloseIoAreRecoveredWithOneStableWarning() {
+    void shxOpenReadAndCloseIoAreRecoveredWithStableOrderedWarnings() {
         FakeAccess open = validAccess();
         NoSuchFileException openFailure = new NoSuchFileException("must not leak");
         open.shx.openFailure = openFailure;
@@ -200,7 +200,7 @@ class ShxFileAccessTest {
 
         FeatureSource source = open(access, CancellationToken.none());
 
-        assertTrue(source.openingDiagnostics().entries().isEmpty());
+        assertMissingDbfOnly(source);
         assertEquals(1, access.shx.channel.closeCount);
         assertEquals(0, access.shp.channel.closeCount);
         try (FeatureCursor cursor =
@@ -239,7 +239,7 @@ class ShxFileAccessTest {
 
     private static SourceDiagnostic assertIgnored(
             FeatureSource source, String reason, long offset) {
-        assertEquals(1, source.openingDiagnostics().entries().size());
+        assertEquals(2, source.openingDiagnostics().entries().size());
         SourceDiagnostic warning = source.openingDiagnostics().entries().get(0);
         assertEquals("SHAPEFILE_SHX_IGNORED", warning.code());
         assertEquals(DiagnosticSeverity.WARNING, warning.severity());
@@ -251,7 +251,16 @@ class ShxFileAccessTest {
         } else {
             assertEquals(offset, warning.location().orElseThrow().byteOffset().orElseThrow());
         }
+        assertEquals("SHAPEFILE_DBF_MISSING", source.openingDiagnostics().entries().get(1).code());
         return warning;
+    }
+
+    private static void assertMissingDbfOnly(FeatureSource source) {
+        assertEquals(1, source.openingDiagnostics().entries().size());
+        SourceDiagnostic warning = source.openingDiagnostics().entries().get(0);
+        assertEquals("SHAPEFILE_DBF_MISSING", warning.code());
+        assertEquals(DiagnosticSeverity.WARNING, warning.severity());
+        assertEquals("dbf", warning.location().orElseThrow().component().orElseThrow());
     }
 
     private static FakeAccess validAccess() {

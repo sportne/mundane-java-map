@@ -40,5 +40,23 @@ class ShapefileValuesTest {
         assertEquals(CrsDefinitions.EPSG_4326, override.crsOverride().orElseThrow());
         assertEquals(defaults, override.withoutCrsOverride());
         assertEquals(defaults.hashCode(), override.withoutCrsOverride().hashCode());
+
+        ShapefileOpenOptions encoded = defaults.withDbfEncodingOverride(DbfEncoding.IBM850);
+        assertEquals(DbfEncoding.IBM850, encoded.dbfEncodingOverride().orElseThrow());
+        assertEquals(defaults, encoded.withoutDbfEncodingOverride());
+        assertNotEquals(defaults, encoded);
+        assertEquals(
+                java.util.List.of(
+                        DbfEncoding.UTF_8,
+                        DbfEncoding.ISO_8859_1,
+                        DbfEncoding.WINDOWS_1252,
+                        DbfEncoding.IBM437,
+                        DbfEncoding.IBM850),
+                java.util.List.of(DbfEncoding.values()));
+        NullPointerException failure =
+                assertThrows(
+                        NullPointerException.class,
+                        () -> assertEquals(defaults, defaults.withDbfEncodingOverride(null)));
+        assertEquals("dbfEncodingOverride", failure.getMessage());
     }
 }

@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
+import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapView;
@@ -94,7 +96,7 @@ class ShapefileViewerTest {
 
         Path index = temporaryDirectory.resolve("multipoint.shx");
         Files.write(index, multipointIndexFixture());
-        assertEquals("", openingCode(fixture));
+        assertEquals("SHAPEFILE_DBF_MISSING", openingCode(fixture));
         RenderedView indexed = render(fixture);
 
         assertEquals(1, indexed.map().layerBindings().size());
@@ -151,6 +153,44 @@ class ShapefileViewerTest {
 
         SwingUtilities.invokeAndWait(rendered.map()::close);
         Files.delete(fixture);
+        assertFalse(Files.exists(fixture));
+    }
+
+    @Test
+    void loadsNonAsciiAttributesSuppressesDeletedRowsAndReleasesPairedFiles() throws Exception {
+        Path fixture = temporaryDirectory.resolve("attributes.shp");
+        Path dbf = temporaryDirectory.resolve("attributes.dbf");
+        Path cpg = temporaryDirectory.resolve("attributes.cpg");
+        Files.write(fixture, attributeShpFixture());
+        Files.write(dbf, attributeDbfFixture());
+        Files.writeString(cpg, "UTF-8");
+
+        try (FeatureSource source =
+                        Shapefiles.open(
+                                new SourceIdentity("viewer-attributes", "Viewer attributes"),
+                                fixture,
+                                ShapefileOpenOptions.defaults()
+                                        .withCrsOverride(CrsDefinitions.EPSG_4326));
+                var cursor = source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            assertEquals(
+                    java.util.List.of("NAME"),
+                    source.metadata().schema().orElseThrow().fields().stream()
+                            .map(field -> field.name())
+                            .toList());
+            assertTrue(cursor.advance());
+            assertEquals("record:1", cursor.current().id());
+            assertEquals("Café", cursor.current().attributes().get("NAME"));
+            assertFalse(cursor.advance());
+        }
+
+        RenderedView rendered = render(fixture);
+        assertTrue(countNonWhite(rendered.image()) > 5);
+        SwingUtilities.invokeAndWait(rendered.map()::close);
+        Files.delete(cpg);
+        Files.delete(dbf);
+        Files.delete(fixture);
+        assertFalse(Files.exists(cpg));
+        assertFalse(Files.exists(dbf));
         assertFalse(Files.exists(fixture));
     }
 
@@ -280,6 +320,65 @@ class ShapefileViewerTest {
         bytes.putDouble(1.0).putDouble(1.0);
         assertEquals(192, bytes.position());
         return bytes.array();
+    }
+
+    private static byte[] attributeShpFixture() {
+        byte[] first = point(-1, -1);
+        byte[] second = point(1, 1);
+        int size = 100 + 8 + first.length + 8 + second.length;
+        ByteBuffer bytes = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN);
+        bytes.putInt(9994);
+        for (int index = 0; index < 5; index++) {
+            bytes.putInt(0);
+        }
+        bytes.putInt(size / 2);
+        bytes.order(ByteOrder.LITTLE_ENDIAN).putInt(1000).putInt(1);
+        putBounds(bytes, -1, -1, 1, 1);
+        bytes.putDouble(0).putDouble(0).putDouble(0).putDouble(0);
+        putRecord(bytes, 1, first);
+        putRecord(bytes, 2, second);
+        return bytes.array();
+    }
+
+    private static byte[] attributeDbfFixture() {
+        ByteBuffer bytes = ByteBuffer.allocate(121).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.put((byte) 0x03).put((byte) 0).put((byte) 0).put((byte) 0);
+        bytes.putInt(2).putShort((short) 97).putShort((short) 12);
+        while (bytes.position() < 32) {
+            bytes.put((byte) 0);
+        }
+        putDbfField(bytes, "NAME", 'C', 10, 0);
+        putDbfField(bytes, "MEMO", 'M', 1, 0);
+        bytes.put((byte) 0x0d);
+        bytes.put((byte) 0x20);
+        bytes.put(new byte[] {'C', 'a', 'f', (byte) 0xc3, (byte) 0xa9});
+        bytes.put(new byte[] {' ', ' ', ' ', ' ', ' ', 'X'});
+        bytes.put((byte) 0x2a);
+        bytes.put(new byte[] {'d', 'e', 'l', 'e', 't', 'e', 'd', ' ', ' ', ' ', 'Y'});
+        assertEquals(121, bytes.position());
+        return bytes.array();
+    }
+
+    private static void putDbfField(
+            ByteBuffer bytes, String name, char type, int width, int decimals) {
+        int start = bytes.position();
+        for (int index = 0; index < name.length(); index++) {
+            bytes.put((byte) name.charAt(index));
+        }
+        bytes.position(start + 11);
+        bytes.put((byte) type);
+        bytes.position(start + 16);
+        bytes.put((byte) width).put((byte) decimals);
+        bytes.position(start + 32);
+    }
+
+    private static byte[] point(double x, double y) {
+        return ByteBuffer.allocate(20)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .putInt(1)
+                .putDouble(x)
+                .putDouble(y)
+                .array();
     }
 
     private static byte[] multipointIndexFixture() {

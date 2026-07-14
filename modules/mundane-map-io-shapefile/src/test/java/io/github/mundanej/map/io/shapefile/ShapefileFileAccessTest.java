@@ -75,14 +75,14 @@ class ShapefileFileAccessTest {
     }
 
     @Test
-    void closesAValidShpWhenAStagedSidecarIsDiscovered() {
+    void closesAValidShpWhenAnUnsupportedPrjSidecarIsDiscovered() {
         FakeAccess access = new FakeAccess(ShpFixtures.file(0, 0, 0, 0, 0));
-        access.dbfPresent = true;
+        access.prjPresent = true;
 
         SourceException result = assertThrows(SourceException.class, () -> open(access));
 
         assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", result.terminal().code());
-        assertEquals("dbf", result.terminal().location().orElseThrow().component().orElseThrow());
+        assertEquals("prj", result.terminal().location().orElseThrow().component().orElseThrow());
         assertEquals(1, access.channel.closeCount);
     }
 
@@ -435,7 +435,7 @@ class ShapefileFileAccessTest {
     private static final class FakeAccess implements ShapefileFileAccess {
         private final FakeChannel channel;
         private IOException openFailure;
-        private boolean dbfPresent;
+        private boolean prjPresent;
 
         private FakeAccess(byte[] bytes) {
             channel = new FakeChannel(bytes);
@@ -445,7 +445,7 @@ class ShapefileFileAccessTest {
         public boolean exists(Path path) {
             Path fileName = path.getFileName();
             String name = fileName == null ? path.toString() : fileName.toString();
-            return name.equals("fixture.shp") || (dbfPresent && name.equals("fixture.dbf"));
+            return name.equals("fixture.shp") || (prjPresent && name.equals("fixture.prj"));
         }
 
         @Override

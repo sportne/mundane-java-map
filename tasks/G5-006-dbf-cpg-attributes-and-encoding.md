@@ -1,6 +1,6 @@
 # G5-006 — DBF/CPG attributes and encoding
 
-Status: Proposed
+Status: Complete
 Depends on: G5-002
 Gate: G5
 Type: AFK
@@ -98,3 +98,11 @@ dependencies. External DBF library types must not enter `mundane-map-api`.
 The task is independently implementable from G5-002. If G5-003 is already integrated, preserve its
 validated SHX count optimization; otherwise use the required sequential DBF/SHP mismatch path and let
 the shared-facade integrator compose the branches.
+
+Completed on 2026-07-14 with bounded positional DBF reads paired to physical SHP ordinals, a packed
+field plan, immutable typed attributes, and explicit caller/CPG/LDID/fallback encoding resolution.
+The source now validates memo-free dBASE III/IV/5 layouts, suppresses deleted partners, reports stable
+row/field diagnostics, closes DBF before SHP, and retains the complete SHP validation path for missing
+tables. Hand-built fixtures, exhaustive manual-code-page tables, fault-injected lifecycle tests, and
+the viewer prove projection order, invalid-value substitution, cancellation, cleanup, and non-ASCII
+attribute rendering without adding discovery or AWT dependencies to the format module.
