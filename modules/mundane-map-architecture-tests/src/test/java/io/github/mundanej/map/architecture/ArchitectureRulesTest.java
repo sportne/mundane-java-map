@@ -1,5 +1,6 @@
 package io.github.mundanej.map.architecture;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -124,6 +125,36 @@ class ArchitectureRulesTest {
         }
 
         assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void nativeSmokeResourceInventoryIsExplicit() throws IOException {
+        Path sourceResources =
+                nativeSupportResources.stream()
+                        .filter(path -> path.endsWith(Path.of("src", "main", "resources")))
+                        .findFirst()
+                        .orElseThrow();
+        Set<String> actual;
+        try (var paths = java.nio.file.Files.walk(sourceResources)) {
+            actual =
+                    paths.filter(java.nio.file.Files::isRegularFile)
+                            .map(sourceResources::relativize)
+                            .map(path -> path.toString().replace('\\', '/'))
+                            .collect(Collectors.toUnmodifiableSet());
+        }
+
+        assertEquals(
+                Set.of(
+                        "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/"
+                                + "jni-config.json",
+                        "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/"
+                                + "reflect-config.json",
+                        "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/"
+                                + "resource-config.json",
+                        "io/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba",
+                        "io/github/mundanej/map/nativeimage/"
+                                + "symbol-smoke-4x2.rgba.provenance.txt"),
+                actual);
     }
 
     @Test

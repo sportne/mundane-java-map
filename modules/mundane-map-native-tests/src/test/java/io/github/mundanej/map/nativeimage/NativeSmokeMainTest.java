@@ -136,6 +136,19 @@ class NativeSmokeMainTest {
     }
 
     @Test
+    void sharedAssertionsRejectCorruptedRasterColorAndAlpha() {
+        NativeSymbolSmokeScenario standard =
+                NativeSymbolSmokeScenario.standard(NativeSmokeMain.loadRasterPixels());
+        int[] wrongColor = standard.rasterPixels();
+        wrongColor[0] = 0x00ff00ff;
+        int[] wrongAlpha = standard.rasterPixels();
+        wrongAlpha[6] = 0xff00ffff;
+
+        assertScenarioFailure(standard.withRasterPixels(wrongColor), "raster-resource");
+        assertScenarioFailure(standard.withRasterPixels(wrongAlpha), "raster-alpha");
+    }
+
+    @Test
     void sharedBoundsRejectAnOversizedCompositeChild() {
         NativeSymbolSmokeScenario standard =
                 NativeSymbolSmokeScenario.standard(NativeSmokeMain.loadRasterPixels());
