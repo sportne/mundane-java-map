@@ -6,21 +6,23 @@ import io.github.mundanej.map.api.FillSymbol;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MarkerSymbol;
+import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Explicit host binding for either an eager layer snapshot or a synchronous feature source.
+ * Explicit host binding for an eager layer snapshot or one synchronous source.
  *
- * <p>A borrowed feature binding never closes its source. An owned binding closes the source exactly
+ * <p>A borrowed source binding never closes its source. An owned binding closes the source exactly
  * once when removed from its view or when the binding is closed while unattached.
  */
 public final class MapLayerBinding implements AutoCloseable {
     enum Kind {
         SNAPSHOT,
-        FEATURE
+        FEATURE,
+        RASTER
     }
 
     private final Kind kind;
@@ -28,6 +30,7 @@ public final class MapLayerBinding implements AutoCloseable {
     private final String name;
     private final Layer layer;
     private final FeatureSource source;
+    private final RasterSource rasterSource;
     private final MarkerSymbol marker;
     private final LineSymbol line;
     private final FillSymbol fill;
@@ -42,6 +45,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.id = requireText(layer.id(), "layer.id");
         this.name = requireText(layer.name(), "layer.name");
         this.source = null;
+        this.rasterSource = null;
         this.marker = null;
         this.line = null;
         this.fill = null;
@@ -67,6 +71,23 @@ public final class MapLayerBinding implements AutoCloseable {
         this.line = requireRole(line, SymbolRole.LINE, "line");
         this.fill = requireRole(fill, SymbolRole.FILL, "fill");
         this.layer = null;
+        this.rasterSource = null;
+        this.owned = owned;
+    }
+
+    private MapLayerBinding(String id, String name, RasterSource source, boolean owned) {
+        this.kind = Kind.RASTER;
+        this.id = requireText(id, "id");
+        this.name = requireText(name, "name");
+        this.rasterSource = Objects.requireNonNull(source, "source");
+        if (source.isClosed()) {
+            throw new IllegalStateException("source is closed");
+        }
+        this.layer = null;
+        this.source = null;
+        this.marker = null;
+        this.line = null;
+        this.fill = null;
         this.owned = owned;
     }
 
@@ -97,6 +118,16 @@ public final class MapLayerBinding implements AutoCloseable {
         return new MapLayerBinding(id, name, source, marker, line, fill, true);
     }
 
+    /** Creates a raster binding whose source remains caller-owned. */
+    public static MapLayerBinding borrowedRaster(String id, String name, RasterSource source) {
+        return new MapLayerBinding(id, name, source, false);
+    }
+
+    /** Creates a raster binding that assumes exclusive responsibility for closing its source. */
+    public static MapLayerBinding ownedRaster(String id, String name, RasterSource source) {
+        return new MapLayerBinding(id, name, source, true);
+    }
+
     /** Returns the stable layer identifier. */
     public String id() {
         return id;
@@ -121,7 +152,8 @@ public final class MapLayerBinding implements AutoCloseable {
     /** Closes an unattached binding idempotently. */
     @Override
     public void close() {
-        FeatureSource closeSource = null;
+        FeatureSource closeFeatureSource = null;
+        RasterSource closeRasterSource = null;
         synchronized (this) {
             if (closed) {
                 return;
@@ -131,11 +163,14 @@ public final class MapLayerBinding implements AutoCloseable {
             }
             closed = true;
             if (owned) {
-                closeSource = source;
+                closeFeatureSource = source;
+                closeRasterSource = rasterSource;
             }
         }
-        if (closeSource != null) {
-            closeSource.close();
+        if (closeFeatureSource != null) {
+            closeFeatureSource.close();
+        } else if (closeRasterSource != null) {
+            closeRasterSource.close();
         }
     }
 
@@ -149,6 +184,10 @@ public final class MapLayerBinding implements AutoCloseable {
 
     FeatureSource source() {
         return source;
+    }
+
+    RasterSource rasterSource() {
+        return rasterSource;
     }
 
     MarkerSymbol marker() {
@@ -194,7 +233,7 @@ public final class MapLayerBinding implements AutoCloseable {
     }
 
     Operation beginOperation() {
-        if (kind != Kind.FEATURE) {
+        if (kind == Kind.SNAPSHOT) {
             throw new IllegalStateException("Snapshot bindings do not have source operations");
         }
         synchronized (this) {

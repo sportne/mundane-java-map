@@ -246,6 +246,134 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void rasterSourceSliceRemainsDirectSynchronousAndToolkitNeutral() {
+        ModuleDescriptor api = moduleEndingWith("mundane-map-api");
+        ModuleDescriptor core = moduleEndingWith("mundane-map-core");
+        ModuleDescriptor awt = moduleEndingWith("mundane-map-awt");
+        List<JavaClass> rasterContracts =
+                java.util.stream.Stream.concat(
+                                classesByModule.get(api).stream(),
+                                classesByModule.get(core).stream())
+                        .filter(
+                                type ->
+                                        type.getSimpleName().startsWith("Raster")
+                                                || type.getSimpleName().equals("RgbaPixelBuffer")
+                                                || type.getSimpleName()
+                                                        .equals("SyntheticRasterSource"))
+                        .toList();
+        List<String> toolkitOrWorkerDependencies =
+                rasterContracts.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.equals("java.lang.Thread")
+                                                || target.startsWith(
+                                                        "java.util.concurrent.Executor")
+                                                || target.startsWith("java.util.concurrent.Flow")
+                                                || target.startsWith("java.util.concurrent.Future")
+                                                || target.startsWith(
+                                                        "java.util.concurrent.CompletableFuture"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        List<JavaClass> production =
+                classesByModule.values().stream().flatMap(JavaClasses::stream).toList();
+        List<JavaClass> awtClasses = classesByModule.get(awt).stream().toList();
+        List<String> implicitAwtRasterDiscovery =
+                awtClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("javax.imageio.")
+                                                || target.equals("java.util.ServiceLoader"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        List<String> prematureRasterInfrastructure =
+                production.stream()
+                        .map(JavaClass::getSimpleName)
+                        .filter(
+                                name ->
+                                        name.contains("RasterDecoder")
+                                                || name.contains("ImageDecoder")
+                                                || name.contains("RasterCache")
+                                                || name.contains("RasterWorker")
+                                                || name.contains("RasterLoader")
+                                                || name.contains("RasterWarp")
+                                                || name.contains("RasterAffine"))
+                        .sorted()
+                        .toList();
+        JavaClass mapView = classesByModule.get(awt).get("io.github.mundanej.map.awt.MapView");
+        JavaClass converter =
+                classesByModule.get(awt).get("io.github.mundanej.map.awt.AwtRgbaPixels");
+        List<String> retainedMapViewImages =
+                mapView.getFields().stream()
+                        .filter(
+                                field ->
+                                        field.getAllInvolvedRawTypes().stream()
+                                                .anyMatch(
+                                                        type ->
+                                                                type.getName()
+                                                                        .equals(
+                                                                                "java.awt.image.BufferedImage")))
+                        .map(field -> field.getFullName())
+                        .toList();
+        boolean directConversionWired =
+                mapView.getMethods().stream()
+                        .flatMap(method -> method.getMethodCallsFromSelf().stream())
+                        .anyMatch(
+                                call ->
+                                        call.getTargetOwner().equals(converter)
+                                                && call.getName().equals("toBufferedImage"));
+        Set<String> converterDependencies =
+                converter.getDirectDependenciesFromSelf().stream()
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .collect(Collectors.toSet());
+
+        assertFalse(rasterContracts.isEmpty(), "Expected the production raster-source slice");
+        assertTrue(
+                toolkitOrWorkerDependencies.isEmpty(),
+                () -> String.join("\n", toolkitOrWorkerDependencies));
+        assertTrue(
+                implicitAwtRasterDiscovery.isEmpty(),
+                () -> String.join("\n", implicitAwtRasterDiscovery));
+        assertTrue(
+                prematureRasterInfrastructure.isEmpty(),
+                () -> String.join("\n", prematureRasterInfrastructure));
+        assertTrue(retainedMapViewImages.isEmpty(), () -> String.join("\n", retainedMapViewImages));
+        assertTrue(directConversionWired, "MapView must call the direct packed-pixel converter");
+        assertTrue(
+                converter.getModifiers().contains(JavaModifier.FINAL)
+                        && !converter.getModifiers().contains(JavaModifier.PUBLIC),
+                "The direct converter must remain final and package-private");
+        assertTrue(
+                converterDependencies.contains("io.github.mundanej.map.api.RgbaPixelBuffer")
+                        && converterDependencies.contains("java.awt.image.BufferedImage")
+                        && converterDependencies.contains("java.awt.image.DataBufferInt"),
+                "The direct converter must bridge the toolkit-neutral buffer to owned AWT pixels");
+    }
+
+    @Test
     void nativeSmokeSupportAvoidsProhibitedMechanisms() {
         List<String> violations =
                 ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);

@@ -1,6 +1,6 @@
 # G4-004 — Raster Source Window Rendering Slice
 
-Status: Proposed
+Status: Complete
 Depends on: G4-003
 Gate: G4
 Type: AFK

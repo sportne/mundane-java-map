@@ -47,8 +47,8 @@ evidence makes no Windows or macOS Native Image claim.
 G4-001 is complete: the maintainer-approved format-neutral source profile fixes synchronous bounded
 feature/raster pull contracts, explicit ownership and close behavior, canonical immutable attributes,
 typed limits, cancellation checkpoints, strict raster windows, and stable structured diagnostics.
-The approved signatures began as test-only sketches. G4-003 now supplies the common and feature-side
-production contracts; raster-specific contracts remain deferred to G4-004.
+The approved signatures began as test-only sketches. G4-003 supplies the common and feature-side
+production contracts, and G4-004 supplies the raster-specific contracts and working rendering slice.
 G4-002 is complete: CRS metadata now distinguishes recognized, unknown, and missing states; an
 instance-owned registry explicitly resolves the approved EPSG:4326/EPSG:3857 keys and direct
 operations; and strict projection, envelope, viewport, view, and optional pointer boundaries replace
@@ -70,6 +70,13 @@ G4-003 is complete: canonical immutable feature records, typed limits, cancellat
 diagnostics feed a one-cursor in-memory source; packed multipoint/multipart geometry renders and hits
 through explicit owned or borrowed AWT bindings with bounded viewport queries, CRS preflight,
 source reports, stable interaction identity, and deterministic teardown.
+G4-004 completes the gate with strict immutable raster windows and packed RGBA buffers, checked
+request accounting, exact grid-edge visibility planning, and an allocation-free-at-open synthetic
+source. Matching recognized-CRS rasters render through explicit owned or borrowed AWT bindings with
+bounded direct conversion, atomic cancellation/report publication, fixed nearest scaling, and no
+decoder, worker, cache, or warp abstraction. The gate-level design review found no additional
+abstraction necessary: feature cursors and all-or-nothing raster reads remain separate synchronous
+contracts sharing only the approved diagnostics, cancellation, limits, and ownership foundations.
 
 ## Level 1
 
