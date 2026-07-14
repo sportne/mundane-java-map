@@ -63,6 +63,9 @@ single primary clicks update stable-ID selection before compatibility observers 
 G3-003 is complete: stable hover/selection events use one mutation-safe FIFO; built-in renderers
 report logical source-paint presence and MapView paints configurable, non-destructive hover then
 selection overlays after source content while lifecycle changes conservatively invalidate hover.
+G3-004 is complete: explicit CRS-bound metre strategies drive a packed immutable measurement state,
+bounded command routing, one AWT-owned click measurement tool and clipped final overlay, plus a
+runnable planar/geographic measurement example.
 
 ## Level 1
 

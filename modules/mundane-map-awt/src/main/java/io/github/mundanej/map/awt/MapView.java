@@ -27,8 +27,11 @@ import io.github.mundanej.map.api.MapSelectionEvent;
 import io.github.mundanej.map.api.MapSelectionListener;
 import io.github.mundanej.map.api.MapTool;
 import io.github.mundanej.map.api.MapToolCancelReason;
+import io.github.mundanej.map.api.MapToolCommand;
+import io.github.mundanej.map.api.MapToolCommandEvent;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
+import io.github.mundanej.map.api.MeasurementState;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
@@ -69,6 +72,7 @@ import java.awt.Shape;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -82,9 +86,11 @@ import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,7 +98,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
+import java.util.function.Supplier;
 import javax.swing.JComponent;
+import javax.swing.KeyStroke;
 
 /**
  * A lightweight Swing map component for projected vector features.
@@ -124,6 +132,8 @@ public final class MapView extends JComponent {
     private final List<MapHoverListener> hoverListeners = new ArrayList<>();
     private final List<MapSelectionListener> selectionListeners = new ArrayList<>();
     private final Deque<InteractionNotification> interactionNotifications = new ArrayDeque<>();
+    private final Set<MeasurementTool> measurementClaims =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private List<Layer> layers = List.of();
     private Optional<FeatureSelection> selection = Optional.empty();
     private Optional<MapHit> hover = Optional.empty();
@@ -140,6 +150,7 @@ public final class MapView extends JComponent {
     private Set<MapPointerButton> lastButtonsDown = Set.of();
     private Set<MapInputModifier> lastModifiers = Set.of();
     private long toolEventSequence;
+    private int routerCallDepth;
 
     /** Creates an empty view using the supplied source-to-world projection. */
     public MapView(Projection projection) {
@@ -197,19 +208,28 @@ public final class MapView extends JComponent {
     /** Installs one active tool, replacing a distinct active instance by identity. */
     public void setActiveTool(MapTool tool) {
         Objects.requireNonNull(tool, "tool");
-        ToolContextSnapshot context = toolContextSnapshot();
+        if (tool instanceof MeasurementTool measurement) {
+            measurement.claim(this);
+            measurementClaims.add(measurement);
+        }
         try {
+            ToolContextSnapshot context = toolContextSnapshot();
             applyToolOutcome(
-                    toolRouter.setActiveTool(
-                            tool,
-                            cancelEvent(MapToolCancelReason.TOOL_REPLACED, context),
-                            context));
+                    callRouter(
+                            () ->
+                                    toolRouter.setActiveTool(
+                                            tool,
+                                            cancelEvent(MapToolCancelReason.TOOL_REPLACED, context),
+                                            context)));
         } catch (RuntimeException | Error failure) {
             dragAnchor = null;
             applyCurrentToolCursor();
             throw failure;
         } finally {
             dragAnchor = null;
+            if (routerCallDepth == 0) {
+                reconcileMeasurementClaims();
+            }
         }
     }
 
@@ -218,8 +238,11 @@ public final class MapView extends JComponent {
         ToolContextSnapshot context = toolContextSnapshot();
         try {
             applyToolOutcome(
-                    toolRouter.clearActiveTool(
-                            cancelEvent(MapToolCancelReason.TOOL_CLEARED, context), context));
+                    callRouter(
+                            () ->
+                                    toolRouter.clearActiveTool(
+                                            cancelEvent(MapToolCancelReason.TOOL_CLEARED, context),
+                                            context)));
         } catch (RuntimeException | Error failure) {
             dragAnchor = null;
             applyCurrentToolCursor();
@@ -518,6 +541,11 @@ public final class MapView extends JComponent {
         MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
         Optional<MapHit> hoverSnapshot = hover;
         Optional<FeatureSelection> selectionSnapshot = selection;
+        MapTool activeToolSnapshot = toolRouter.activeTool().orElse(null);
+        Optional<MeasurementState> measurementSnapshot =
+                activeToolSnapshot instanceof MeasurementTool measurement
+                        ? Optional.of(measurement.state())
+                        : Optional.empty();
         OverlayCandidate hoverCandidate = null;
         OverlayCandidate selectionCandidate = null;
         boolean paintStateChanged = false;
@@ -558,6 +586,15 @@ public final class MapView extends JComponent {
                     selectionOverlay,
                     viewportSnapshot,
                     basisSnapshot);
+            measurementSnapshot.ifPresent(
+                    state ->
+                            MeasurementOverlayRenderer.render(
+                                    graphics2D,
+                                    state,
+                                    mapToDisplay,
+                                    viewportSnapshot,
+                                    getWidth(),
+                                    getHeight()));
         } catch (RuntimeException failure) {
             runtimeFailure = failure;
         } catch (Error failure) {
@@ -591,6 +628,67 @@ public final class MapView extends JComponent {
         if (runtimeFailure != null) {
             throw runtimeFailure;
         }
+    }
+
+    @Override
+    protected boolean processKeyBinding(
+            KeyStroke keyStroke, KeyEvent event, int condition, boolean pressed) {
+        if (!pressed
+                || event.getModifiersEx() != 0
+                || !isEnabled()
+                || !isDisplayable()
+                || !isFocusOwner()) {
+            return super.processKeyBinding(keyStroke, event, condition, pressed);
+        }
+        if (routeFocusedKey(event.getKeyCode())) {
+            return true;
+        }
+        return super.processKeyBinding(keyStroke, event, condition, pressed);
+    }
+
+    boolean routeFocusedKey(int keyCode) {
+        if (keyCode == KeyEvent.VK_BACK_SPACE && activeTool().isPresent()) {
+            ToolContextSnapshot context = toolContextSnapshot();
+            try {
+                RouteOutcome outcome =
+                        callRouter(
+                                () ->
+                                        toolRouter.routeCommand(
+                                                new MapToolCommandEvent(
+                                                        nextToolSequence(),
+                                                        MapToolCommand.DELETE_BACKWARD),
+                                                context));
+                applyToolOutcome(outcome);
+                if (outcome.suppressDefault()) {
+                    return true;
+                }
+            } catch (RuntimeException | Error failure) {
+                applyCurrentToolCursor();
+                clearHoverSuppressing(failure);
+                throw failure;
+            }
+        } else if (keyCode == KeyEvent.VK_ESCAPE
+                && (activeTool().isPresent() || dragAnchor != null)) {
+            ToolContextSnapshot context = toolContextSnapshot();
+            MapToolEvent cancel = cancelEvent(MapToolCancelReason.USER_CANCEL, context);
+            boolean hadNavigation = dragAnchor != null;
+            try {
+                RouteOutcome outcome =
+                        callRouter(() -> toolRouter.cancelInteraction(cancel, context));
+                dragAnchor = null;
+                applyToolOutcome(outcome);
+                clearHover();
+                if (outcome.suppressDefault() || hadNavigation) {
+                    return true;
+                }
+            } catch (RuntimeException | Error failure) {
+                dragAnchor = null;
+                applyCurrentToolCursor();
+                clearHoverSuppressing(failure);
+                throw failure;
+            }
+        }
+        return false;
     }
 
     private static void suppressDistinct(Throwable primary, Throwable secondary) {
@@ -2299,7 +2397,7 @@ public final class MapView extends JComponent {
                                 : false,
                         Optional.empty());
         try {
-            RouteOutcome outcome = toolRouter.route(converted, context);
+            RouteOutcome outcome = callRouter(() -> toolRouter.route(converted, context));
             applyToolOutcome(outcome);
             return new RoutedMouse(outcome, converted);
         } catch (RuntimeException | Error failure) {
@@ -2328,7 +2426,7 @@ public final class MapView extends JComponent {
                         false,
                         Optional.empty());
         try {
-            RouteOutcome outcome = toolRouter.route(converted, context);
+            RouteOutcome outcome = callRouter(() -> toolRouter.route(converted, context));
             applyToolOutcome(outcome);
             return outcome;
         } catch (RuntimeException | Error failure) {
@@ -2355,7 +2453,7 @@ public final class MapView extends JComponent {
                         false,
                         Optional.of(reason));
         try {
-            applyToolOutcome(toolRouter.cancelInteraction(cancel, context));
+            applyToolOutcome(callRouter(() -> toolRouter.cancelInteraction(cancel, context)));
         } catch (RuntimeException | Error failure) {
             applyCurrentToolCursor();
             throw failure;
@@ -2397,6 +2495,30 @@ public final class MapView extends JComponent {
 
     private void applyToolOutcome(RouteOutcome outcome) {
         setCursor(isEnabled() ? cursor(outcome.cursorIntent()) : Cursor.getDefaultCursor());
+    }
+
+    private <T> T callRouter(Supplier<T> operation) {
+        routerCallDepth++;
+        try {
+            return operation.get();
+        } finally {
+            routerCallDepth--;
+            if (routerCallDepth == 0) {
+                reconcileMeasurementClaims();
+            }
+        }
+    }
+
+    private void reconcileMeasurementClaims() {
+        MapTool active = toolRouter.activeTool().orElse(null);
+        var iterator = measurementClaims.iterator();
+        while (iterator.hasNext()) {
+            MeasurementTool measurement = iterator.next();
+            if (measurement != active) {
+                measurement.release(this);
+                iterator.remove();
+            }
+        }
     }
 
     private void resumeTool() {

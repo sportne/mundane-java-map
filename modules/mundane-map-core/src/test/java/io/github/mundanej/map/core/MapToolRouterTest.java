@@ -12,6 +12,8 @@ import io.github.mundanej.map.api.MapCursorIntent;
 import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapTool;
 import io.github.mundanej.map.api.MapToolCancelReason;
+import io.github.mundanej.map.api.MapToolCommand;
+import io.github.mundanej.map.api.MapToolCommandEvent;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MapToolResult;
@@ -23,6 +25,165 @@ import org.junit.jupiter.api.Test;
 
 class MapToolRouterTest {
     private final MapToolContext context = new StubContext();
+
+    @Test
+    void commandRoutingSharesSequenceRejectsCaptureAndRefreshesCursor() {
+        MapToolRouter router = new MapToolRouter();
+        List<MapToolCommand> commands = new ArrayList<>();
+        MapTool tool =
+                new MapTool() {
+                    @Override
+                    public MapToolResult onMapToolEvent(
+                            MapToolEvent event, MapToolContext ignored) {
+                        return MapToolResult.PASS;
+                    }
+
+                    @Override
+                    public MapToolResult onMapToolCommand(
+                            MapToolCommandEvent event, MapToolContext ignored) {
+                        commands.add(event.command());
+                        return MapToolResult.CONSUME;
+                    }
+
+                    @Override
+                    public MapCursorIntent cursorIntent() {
+                        return MapCursorIntent.CROSSHAIR;
+                    }
+                };
+        router.setActiveTool(tool, cancel(1, MapToolCancelReason.TOOL_REPLACED), context);
+
+        RouteOutcome outcome =
+                router.routeCommand(
+                        new MapToolCommandEvent(2, MapToolCommand.DELETE_BACKWARD), context);
+
+        assertTrue(outcome.suppressDefault());
+        assertFalse(outcome.captured());
+        assertEquals(MapCursorIntent.CROSSHAIR, outcome.cursorIntent());
+        assertEquals(List.of(MapToolCommand.DELETE_BACKWARD), commands);
+        assertThrows(IllegalArgumentException.class, () -> router.route(move(2), context));
+    }
+
+    @Test
+    void commandCannotCapture() {
+        MapToolRouter router = new MapToolRouter();
+        MapTool tool =
+                new MapTool() {
+                    @Override
+                    public MapToolResult onMapToolEvent(
+                            MapToolEvent event, MapToolContext ignored) {
+                        return MapToolResult.PASS;
+                    }
+
+                    @Override
+                    public MapToolResult onMapToolCommand(
+                            MapToolCommandEvent event, MapToolContext ignored) {
+                        return MapToolResult.CAPTURE;
+                    }
+                };
+        router.setActiveTool(tool, cancel(1, MapToolCancelReason.TOOL_REPLACED), context);
+
+        assertThrows(
+                IllegalStateException.class,
+                () ->
+                        router.routeCommand(
+                                new MapToolCommandEvent(2, MapToolCommand.DELETE_BACKWARD),
+                                context));
+    }
+
+    @Test
+    void userCancelSuppressesWhenItEndsCaptureEvenWhenToolPasses() {
+        MapToolRouter router = new MapToolRouter();
+        RecordingTool tool = new RecordingTool(MapToolResult.CAPTURE);
+        router.setActiveTool(tool, cancel(1, MapToolCancelReason.TOOL_REPLACED), context);
+        router.route(press(2, MapPointerButton.PRIMARY), context);
+        tool.result = MapToolResult.PASS;
+
+        RouteOutcome outcome =
+                router.cancelInteraction(
+                        cancel(
+                                3,
+                                MapToolCancelReason.USER_CANCEL,
+                                Set.of(MapPointerButton.PRIMARY)),
+                        context);
+
+        assertTrue(outcome.suppressDefault());
+        assertFalse(outcome.captured());
+    }
+
+    @Test
+    void commandAppliesQueuedReplacementBeforeReturning() {
+        MapToolRouter router = new MapToolRouter();
+        RecordingTool replacement = new RecordingTool(MapToolResult.PASS);
+        MapTool first =
+                new MapTool() {
+                    @Override
+                    public MapToolResult onMapToolEvent(
+                            MapToolEvent event, MapToolContext ignored) {
+                        return MapToolResult.PASS;
+                    }
+
+                    @Override
+                    public MapToolResult onMapToolCommand(
+                            MapToolCommandEvent event, MapToolContext ignored) {
+                        router.setActiveTool(
+                                replacement, cancel(3, MapToolCancelReason.TOOL_REPLACED), context);
+                        return MapToolResult.PASS;
+                    }
+                };
+        router.setActiveTool(first, cancel(1, MapToolCancelReason.TOOL_REPLACED), context);
+
+        RouteOutcome outcome =
+                router.routeCommand(
+                        new MapToolCommandEvent(2, MapToolCommand.DELETE_BACKWARD), context);
+
+        assertTrue(outcome.suppressDefault());
+        assertSame(replacement, router.activeTool().orElseThrow());
+        assertEquals(List.of("activate"), replacement.calls);
+    }
+
+    @Test
+    void commandFailureResetsCursorAndRejectsRecursiveDispatch() {
+        MapToolRouter router = new MapToolRouter();
+        RuntimeException failure = new RuntimeException("command");
+        MapTool tool =
+                new MapTool() {
+                    @Override
+                    public MapToolResult onMapToolEvent(
+                            MapToolEvent event, MapToolContext ignored) {
+                        return MapToolResult.PASS;
+                    }
+
+                    @Override
+                    public MapToolResult onMapToolCommand(
+                            MapToolCommandEvent event, MapToolContext ignored) {
+                        assertThrows(
+                                IllegalStateException.class,
+                                () ->
+                                        router.routeCommand(
+                                                new MapToolCommandEvent(
+                                                        3, MapToolCommand.DELETE_BACKWARD),
+                                                context));
+                        throw failure;
+                    }
+
+                    @Override
+                    public MapCursorIntent cursorIntent() {
+                        return MapCursorIntent.HAND;
+                    }
+                };
+        router.setActiveTool(tool, cancel(1, MapToolCancelReason.TOOL_REPLACED), context);
+
+        assertSame(
+                failure,
+                assertThrows(
+                        RuntimeException.class,
+                        () ->
+                                router.routeCommand(
+                                        new MapToolCommandEvent(2, MapToolCommand.DELETE_BACKWARD),
+                                        context)));
+        assertEquals(MapCursorIntent.DEFAULT, router.currentCursorIntent());
+        assertSame(tool, router.activeTool().orElseThrow());
+    }
 
     @Test
     void activatesCapturesRoutesAndReleasesInOrder() {

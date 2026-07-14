@@ -1,6 +1,6 @@
 # G3-004 — Distance Strategies and Measurement Tool
 
-Status: Proposed
+Status: Complete
 Depends on: G3-003, G4-002
 Gate: G3
 Type: AFK
@@ -79,3 +79,7 @@ git diff --check
 
 Keep the algorithms JDK-only and document numeric tolerances. Do not add PROJ, JTS, or a custom
 native geodesic library for this Level 1 capability.
+
+Completed on 2026-07-14. Exact CRS-bound planar and EPSG:4326 great-circle strategies now feed an
+immutable packed measurement state, bounded semantic command routing, a single-view AWT measurement
+tool, a concrete clipped overlay pass, and a headless-constructible two-CRS viewer.

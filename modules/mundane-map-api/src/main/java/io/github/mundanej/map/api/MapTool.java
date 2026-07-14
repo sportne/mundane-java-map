@@ -8,6 +8,11 @@ public interface MapTool {
     /** Handles one routed event and returns the desired default-routing result. */
     MapToolResult onMapToolEvent(MapToolEvent event, MapToolContext context);
 
+    /** Handles one bounded semantic command. */
+    default MapToolResult onMapToolCommand(MapToolCommandEvent event, MapToolContext context) {
+        return MapToolResult.PASS;
+    }
+
     /** Deactivates this tool and releases tool-owned state. */
     default void onDeactivate(MapToolContext context) {}
 

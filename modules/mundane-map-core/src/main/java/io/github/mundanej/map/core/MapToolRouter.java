@@ -4,6 +4,7 @@ import io.github.mundanej.map.api.MapCursorIntent;
 import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapTool;
 import io.github.mundanej.map.api.MapToolCancelReason;
+import io.github.mundanej.map.api.MapToolCommandEvent;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MapToolResult;
@@ -160,6 +161,48 @@ public final class MapToolRouter {
         }
     }
 
+    /** Routes one bounded semantic command through the active tool session. */
+    public RouteOutcome routeCommand(MapToolCommandEvent event, MapToolContext context) {
+        Objects.requireNonNull(event, "event");
+        Objects.requireNonNull(context, "context");
+        if (dispatching) {
+            throw new IllegalStateException("Recursive map-tool dispatch is not supported");
+        }
+        acceptSequence(event);
+        dispatching = true;
+        try {
+            MapTool session = activeTool;
+            MapToolResult result = MapToolResult.PASS;
+            if (session != null) {
+                result =
+                        Objects.requireNonNull(
+                                session.onMapToolCommand(event, context), "tool result");
+            }
+            if (result == MapToolResult.CAPTURE) {
+                throw new IllegalStateException("A map-tool command cannot capture");
+            }
+            if (pendingOperation != null) {
+                PendingOperation pending = takePending();
+                applyPending(pending);
+                return outcome(true);
+            }
+            if (session != null && session == activeTool) {
+                cursorIntent = Objects.requireNonNull(session.cursorIntent(), "cursorIntent");
+            }
+            return outcome(result != MapToolResult.PASS);
+        } catch (RuntimeException | Error failure) {
+            PendingOperation pending = takePending();
+            cursorIntent = MapCursorIntent.DEFAULT;
+            if (pending != null && pending.kind() == PendingKind.CANCEL) {
+                acceptSequence(pending.event());
+                applyUnavailableCleanup(pending.event());
+            }
+            throw failure;
+        } finally {
+            dispatching = false;
+        }
+    }
+
     /** Cancels the current gesture while leaving the active tool installed. */
     public RouteOutcome cancelInteraction(MapToolEvent externalCancel, MapToolContext context) {
         return cancelInteraction(externalCancel, context, false);
@@ -209,6 +252,7 @@ public final class MapToolRouter {
         }
         try {
             promoteReleaseCandidate();
+            boolean hadCapture = capturedButton != null;
             capturedButton = null;
             quarantinedButtons.addAll(cancel.buttonsDown());
             cursorIntent = MapCursorIntent.DEFAULT;
@@ -228,9 +272,9 @@ public final class MapToolRouter {
                     cursorIntent =
                             Objects.requireNonNull(activeTool.cursorIntent(), "cursorIntent");
                 }
-                return outcome(external || result != MapToolResult.PASS);
+                return outcome(external || hadCapture || result != MapToolResult.PASS);
             }
-            return outcome(external);
+            return outcome(external || hadCapture);
         } catch (RuntimeException | Error failure) {
             pendingOperation = null;
             throw failure;
@@ -483,6 +527,13 @@ public final class MapToolRouter {
     }
 
     private void acceptSequence(MapToolEvent event) {
+        if (event.sequence() <= lastSequence) {
+            throw new IllegalArgumentException("Map-tool event sequence must increase");
+        }
+        lastSequence = event.sequence();
+    }
+
+    private void acceptSequence(MapToolCommandEvent event) {
         if (event.sequence() <= lastSequence) {
             throw new IllegalArgumentException("Map-tool event sequence must increase");
         }
