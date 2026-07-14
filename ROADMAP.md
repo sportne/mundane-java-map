@@ -60,6 +60,9 @@ lifecycle boundaries.
 G3-002 is complete: immutable toolkit-neutral hit/selection identities and robust core screen
 predicates feed explicit AWT renderer hit callbacks; hit traversal mirrors reverse paint order and
 single primary clicks update stable-ID selection before compatibility observers run.
+G3-003 is complete: stable hover/selection events use one mutation-safe FIFO; built-in renderers
+report logical source-paint presence and MapView paints configurable, non-destructive hover then
+selection overlays after source content while lifecycle changes conservatively invalidate hover.
 
 ## Level 1
 

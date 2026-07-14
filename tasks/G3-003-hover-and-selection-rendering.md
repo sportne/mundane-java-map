@@ -1,6 +1,6 @@
 # G3-003 — Hover and Selection Rendering
 
-Status: Proposed
+Status: Complete
 Depends on: G3-002
 Gate: G3
 Type: AFK
@@ -69,3 +69,9 @@ git diff --check
 
 Store stable layer/feature keys rather than mutable renderer objects. Overlay defaults should remain
 small and deterministic; richer theming belongs to Level 2.
+
+Completed on 2026-07-14. Immutable hover/selection transitions and role-complete overlay bundles now
+feed one EDT-confined FIFO notification path. MapView tracks stable identities and a screen probe,
+reports built-in logical source-paint presence, clears hover across interaction/lifecycle boundaries,
+and paints source content followed by eligible hover and selection overlays without mutating source
+features or participating in hit testing.

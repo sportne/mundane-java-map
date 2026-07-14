@@ -7,6 +7,7 @@ import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
+import io.github.mundanej.map.api.FeatureOverlaySymbols;
 import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.Geometry;
@@ -16,10 +17,14 @@ import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapCursorIntent;
 import io.github.mundanej.map.api.MapHit;
 import io.github.mundanej.map.api.MapHitResults;
+import io.github.mundanej.map.api.MapHoverEvent;
+import io.github.mundanej.map.api.MapHoverListener;
 import io.github.mundanej.map.api.MapInputModifier;
 import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapPointerEvent;
 import io.github.mundanej.map.api.MapPointerListener;
+import io.github.mundanej.map.api.MapSelectionEvent;
+import io.github.mundanej.map.api.MapSelectionListener;
 import io.github.mundanej.map.api.MapTool;
 import io.github.mundanej.map.api.MapToolCancelReason;
 import io.github.mundanej.map.api.MapToolContext;
@@ -75,7 +80,9 @@ import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -98,6 +105,9 @@ public final class MapView extends JComponent {
     /** Default logical-pixel tolerance for click selection. */
     public static final double DEFAULT_SELECTION_TOLERANCE_PIXELS = 4.0;
 
+    /** Default logical-pixel tolerance for pointer hover. */
+    public static final double DEFAULT_HOVER_TOLERANCE_PIXELS = 4.0;
+
     private static final long serialVersionUID = 1L;
     private static final int DEFAULT_WIDTH = 800;
     private static final int DEFAULT_HEIGHT = 600;
@@ -111,8 +121,18 @@ public final class MapView extends JComponent {
     private final SymbolRendererRegistry symbolRenderers;
     private final MapToolRouter toolRouter = new MapToolRouter();
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
+    private final List<MapHoverListener> hoverListeners = new ArrayList<>();
+    private final List<MapSelectionListener> selectionListeners = new ArrayList<>();
+    private final Deque<InteractionNotification> interactionNotifications = new ArrayDeque<>();
     private List<Layer> layers = List.of();
     private Optional<FeatureSelection> selection = Optional.empty();
+    private Optional<MapHit> hover = Optional.empty();
+    private Optional<HoverProbe> hoverProbe = Optional.empty();
+    private Optional<AwtLogicalPaintPresence> hoverPaintState = Optional.empty();
+    private Optional<AwtLogicalPaintPresence> selectionPaintState = Optional.empty();
+    private FeatureOverlaySymbols hoverOverlay = FeatureOverlaySymbols.defaultHover();
+    private FeatureOverlaySymbols selectionOverlay = FeatureOverlaySymbols.defaultSelection();
+    private boolean drainingInteractionNotifications;
     private MapViewport viewport = MapViewport.initial(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     private Point dragAnchor;
     private double lastPointerX = DEFAULT_WIDTH / 2.0;
@@ -220,8 +240,13 @@ public final class MapView extends JComponent {
         ViewContentSnapshot snapshot = captureContent(candidate);
         Optional<FeatureSelection> reconciled = reconcile(selection, snapshot);
         this.layers = candidate;
-        this.selection = reconciled;
-        repaint();
+        hoverProbe = Optional.empty();
+        hoverPaintState = Optional.empty();
+        selectionPaintState = Optional.empty();
+        boolean interactionChanged = transitionInteraction(reconciled, Optional.empty(), true);
+        if (!interactionChanged) {
+            repaint();
+        }
     }
 
     /** Returns the ordered layer snapshot. */
@@ -232,7 +257,7 @@ public final class MapView extends JComponent {
     /** Returns the selected stable feature identity after reconciling current content. */
     public Optional<FeatureSelection> selection() {
         ViewContentSnapshot snapshot = captureContent(layers);
-        reconcileSelection(snapshot, true);
+        reconcileInteraction(snapshot, true, true);
         return selection;
     }
 
@@ -243,16 +268,65 @@ public final class MapView extends JComponent {
         if (!contains(snapshot, requested)) {
             throw new IllegalArgumentException("selection must identify a current feature");
         }
-        if (!selection.equals(Optional.of(requested))) {
-            selection = Optional.of(requested);
-            repaint();
-        }
+        transitionInteraction(Optional.of(requested), hover, true);
     }
 
     /** Clears selection without consulting potentially mutable layer content. */
     public void clearSelection() {
-        if (selection.isPresent()) {
-            selection = Optional.empty();
+        transitionInteraction(Optional.empty(), hover, true);
+    }
+
+    /** Returns the current stable hover identity after reconciling current content. */
+    public Optional<MapHit> hover() {
+        ViewContentSnapshot snapshot = captureContent(layers);
+        reconcileInteraction(snapshot, true, true);
+        return hover;
+    }
+
+    /** Adds a hover listener; duplicate instances receive duplicate callbacks. */
+    public void addMapHoverListener(MapHoverListener listener) {
+        hoverListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    /** Removes the first identical hover-listener registration. */
+    public void removeMapHoverListener(MapHoverListener listener) {
+        removeIdentical(hoverListeners, listener);
+    }
+
+    /** Adds a selection listener; duplicate instances receive duplicate callbacks. */
+    public void addMapSelectionListener(MapSelectionListener listener) {
+        selectionListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    /** Removes the first identical selection-listener registration. */
+    public void removeMapSelectionListener(MapSelectionListener listener) {
+        removeIdentical(selectionListeners, listener);
+    }
+
+    /** Returns the immutable hover overlay symbol bundle. */
+    public FeatureOverlaySymbols hoverOverlaySymbols() {
+        return hoverOverlay;
+    }
+
+    /** Replaces the hover overlay symbols and repaints on a real change. */
+    public void setHoverOverlaySymbols(FeatureOverlaySymbols overlay) {
+        FeatureOverlaySymbols requested = Objects.requireNonNull(overlay, "overlay");
+        if (!hoverOverlay.equals(requested)) {
+            hoverOverlay = requested;
+            repaint();
+        }
+    }
+
+    /** Returns the immutable selection overlay symbol bundle. */
+    public FeatureOverlaySymbols selectionOverlaySymbols() {
+        return selectionOverlay;
+    }
+
+    /** Replaces the selection overlay symbols and repaints on a real change. */
+    public void setSelectionOverlaySymbols(FeatureOverlaySymbols overlay) {
+        FeatureOverlaySymbols requested = Objects.requireNonNull(overlay, "overlay");
+        if (!selectionOverlay.equals(requested)) {
+            selectionOverlay = requested;
             repaint();
         }
     }
@@ -268,12 +342,22 @@ public final class MapView extends JComponent {
         }
         Dimension size = effectiveSize();
         ViewContentSnapshot snapshot = captureContent(layers);
-        reconcileSelection(snapshot, true);
+        reconcileInteraction(snapshot, true, true);
         if (screenX < 0.0 || screenX >= size.width || screenY < 0.0 || screenY >= size.height) {
             return MapHitResults.of(List.of());
         }
         double cappedTolerance = Math.min(tolerancePixels, Math.hypot(size.width, size.height));
         MapViewport viewportSnapshot = viewport();
+        return hitTestSnapshot(snapshot, viewportSnapshot, size, screenX, screenY, cappedTolerance);
+    }
+
+    private MapHitResults hitTestSnapshot(
+            ViewContentSnapshot snapshot,
+            MapViewport viewportSnapshot,
+            Dimension size,
+            double screenX,
+            double screenY,
+            double tolerancePixels) {
         Rectangle2D clip = new Rectangle2D.Double(0.0, 0.0, size.width, size.height);
         List<MapHit> hits = new ArrayList<>();
         for (int layerIndex = snapshot.layers().size() - 1; layerIndex >= 0; layerIndex--) {
@@ -283,7 +367,7 @@ public final class MapView extends JComponent {
                     featureIndex--) {
                 Feature feature = layer.features().get(featureIndex);
                 if (hitFeature(
-                        feature, viewportSnapshot, clip, screenX, screenY, cappedTolerance)) {
+                        feature, viewportSnapshot, clip, screenX, screenY, tolerancePixels)) {
                     hits.add(new MapHit(layer.id(), feature.id()));
                 }
             }
@@ -300,7 +384,9 @@ public final class MapView extends JComponent {
     /** Replaces the viewport state and repaints the component. */
     public void setViewport(MapViewport viewport) {
         this.viewport = Objects.requireNonNull(viewport, "viewport");
-        repaint();
+        if (!clearHover()) {
+            repaint();
+        }
     }
 
     /** Fits all non-empty layers using the requested screen-pixel padding. */
@@ -316,7 +402,19 @@ public final class MapView extends JComponent {
         if (projected != null) {
             Dimension size = effectiveSize();
             viewport = MapViewport.fit(size.width, size.height, projected, paddingPixels);
-            repaint();
+            if (!clearHover()) {
+                repaint();
+            }
+        }
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        boolean disabling = isEnabled() && !enabled;
+        if (disabling) {
+            runThenClearHover(() -> super.setEnabled(false));
+        } else {
+            super.setEnabled(enabled);
         }
     }
 
@@ -385,11 +483,29 @@ public final class MapView extends JComponent {
 
     @Override
     public void removeNotify() {
+        runThenClearHover(this::cancelAndRemoveNotify);
+    }
+
+    private void cancelAndRemoveNotify() {
+        Throwable primary = null;
         try {
             cancelInteraction(MapToolCancelReason.VIEW_REMOVED, lastButtonsDown);
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
         } finally {
             dragAnchor = null;
+        }
+        try {
             super.removeNotify();
+        } catch (RuntimeException | Error failure) {
+            if (primary == null) {
+                primary = failure;
+            } else {
+                suppressDistinct(primary, failure);
+            }
+        }
+        if (primary != null) {
+            throwUnchecked(primary);
         }
     }
 
@@ -397,10 +513,17 @@ public final class MapView extends JComponent {
     protected void paintComponent(Graphics graphics) {
         synchronizeViewportSize();
         ViewContentSnapshot content = captureContent(layers);
-        reconcileSelection(content, false);
+        boolean interactionChanged = reconcileInteraction(content, false, false);
         MapViewport viewportSnapshot = viewport;
         MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
+        Optional<MapHit> hoverSnapshot = hover;
+        Optional<FeatureSelection> selectionSnapshot = selection;
+        OverlayCandidate hoverCandidate = null;
+        OverlayCandidate selectionCandidate = null;
+        boolean paintStateChanged = false;
         Graphics2D graphics2D = (Graphics2D) graphics.create();
+        RuntimeException runtimeFailure = null;
+        Error errorFailure = null;
         try {
             if (isOpaque()) {
                 graphics2D.setColor(getBackground());
@@ -410,15 +533,73 @@ public final class MapView extends JComponent {
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             for (LayerSnapshot layer : content.layers()) {
                 for (Feature feature : layer.features()) {
-                    renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
+                    SymbolRenderResult result =
+                            renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
+                    if (hoverSnapshot.isPresent()
+                            && matches(hoverSnapshot.orElseThrow(), layer.id(), feature.id())) {
+                        hoverCandidate = new OverlayCandidate(feature, result.paintPresence());
+                    }
+                    if (selectionSnapshot.isPresent()
+                            && matches(selectionSnapshot.orElseThrow(), layer.id(), feature.id())) {
+                        selectionCandidate = new OverlayCandidate(feature, result.paintPresence());
+                    }
                 }
             }
+            boolean hoverPaintChanged =
+                    retainInteractionPaintState(hoverSnapshot, hoverCandidate, true);
+            boolean selectionPaintChanged =
+                    retainInteractionPaintState(selectionSnapshot, selectionCandidate, false);
+            paintStateChanged = hoverPaintChanged || selectionPaintChanged;
+            renderOverlay(
+                    graphics2D, hoverCandidate, hoverOverlay, viewportSnapshot, basisSnapshot);
+            renderOverlay(
+                    graphics2D,
+                    selectionCandidate,
+                    selectionOverlay,
+                    viewportSnapshot,
+                    basisSnapshot);
+        } catch (RuntimeException failure) {
+            runtimeFailure = failure;
+        } catch (Error failure) {
+            errorFailure = failure;
         } finally {
             graphics2D.dispose();
+            if (interactionChanged || paintStateChanged) {
+                repaint();
+            }
+        }
+        try {
+            drainInteractionNotifications();
+        } catch (RuntimeException notificationFailure) {
+            if (runtimeFailure == null && errorFailure == null) {
+                runtimeFailure = notificationFailure;
+            } else {
+                suppressDistinct(
+                        errorFailure != null ? errorFailure : runtimeFailure, notificationFailure);
+            }
+        } catch (Error notificationFailure) {
+            if (runtimeFailure == null && errorFailure == null) {
+                errorFailure = notificationFailure;
+            } else {
+                suppressDistinct(
+                        errorFailure != null ? errorFailure : runtimeFailure, notificationFailure);
+            }
+        }
+        if (errorFailure != null) {
+            throw errorFailure;
+        }
+        if (runtimeFailure != null) {
+            throw runtimeFailure;
         }
     }
 
-    private void renderFeature(
+    private static void suppressDistinct(Throwable primary, Throwable secondary) {
+        if (primary != secondary) {
+            primary.addSuppressed(secondary);
+        }
+    }
+
+    private SymbolRenderResult renderFeature(
             Graphics2D graphics,
             Feature feature,
             MapViewport viewportSnapshot,
@@ -450,6 +631,59 @@ public final class MapView extends JComponent {
             Envelope bounds = result.nominalMarkerBounds().orElseThrow();
             renderPointLabel(graphics, feature.name(), rectangle(bounds));
         }
+        return result;
+    }
+
+    private void renderOverlay(
+            Graphics2D graphics,
+            OverlayCandidate candidate,
+            FeatureOverlaySymbols overlay,
+            MapViewport viewportSnapshot,
+            MapScreenBasis basisSnapshot) {
+        if (candidate == null || candidate.presence() != AwtLogicalPaintPresence.PRESENT) {
+            return;
+        }
+        Feature feature = candidate.feature();
+        Symbol symbol = overlaySymbol(overlay, feature.geometry());
+        Optional<Coordinate> markerAnchor =
+                feature.geometry() instanceof PointGeometry point
+                        ? Optional.of(toScreen(point.coordinate(), viewportSnapshot))
+                        : Optional.empty();
+        dispatch(
+                symbol,
+                context(
+                        graphics,
+                        symbol.role(),
+                        feature.id(),
+                        feature.geometry(),
+                        feature.geometry(),
+                        1.0,
+                        false,
+                        OptionalDouble.empty(),
+                        markerAnchor,
+                        viewportSnapshot,
+                        basisSnapshot));
+    }
+
+    private static Symbol overlaySymbol(FeatureOverlaySymbols overlay, Geometry geometry) {
+        if (geometry instanceof PointGeometry) {
+            return overlay.marker();
+        }
+        if (geometry instanceof LineStringGeometry) {
+            return overlay.line();
+        }
+        if (geometry instanceof PolygonGeometry) {
+            return overlay.fill();
+        }
+        throw new IllegalArgumentException("Unsupported overlay geometry");
+    }
+
+    private static boolean matches(MapHit hit, String layerId, String featureId) {
+        return hit.layerId().equals(layerId) && hit.featureId().equals(featureId);
+    }
+
+    private static boolean matches(FeatureSelection selection, String layerId, String featureId) {
+        return selection.layerId().equals(layerId) && selection.featureId().equals(featureId);
     }
 
     private AwtSymbolRenderContext context(
@@ -1071,7 +1305,7 @@ public final class MapView extends JComponent {
 
     SymbolRenderResult renderBuiltIn(Symbol value, AwtSymbolRenderContext context) {
         if (value instanceof CompositeSymbol composite) {
-            SymbolRenderResult result = SymbolRenderResult.none();
+            SymbolRenderResult result = SymbolRenderResult.none(AwtLogicalPaintPresence.EMPTY);
             for (Symbol child : composite.children()) {
                 result = result.union(context.renderChild(child, composite.opacity()));
             }
@@ -1085,9 +1319,10 @@ public final class MapView extends JComponent {
                             style,
                             context.featureId(),
                             context.viewport());
+            AwtLogicalPaintPresence presence = legacyPresence(style, context);
             return bounds == null
-                    ? SymbolRenderResult.none()
-                    : SymbolRenderResult.markerBounds(envelope(bounds));
+                    ? SymbolRenderResult.none(presence)
+                    : SymbolRenderResult.markerBounds(envelope(bounds), presence);
         }
         if (value instanceof VectorMarkerSymbol marker) {
             Coordinate anchor = context.markerAnchorScreen().orElseThrow();
@@ -1100,20 +1335,28 @@ public final class MapView extends JComponent {
                             context.mapScreenBasis(),
                             context.inheritedOpacity(),
                             context.endpointBearingDegrees());
-            return SymbolRenderResult.markerBounds(envelope(bounds));
+            boolean present =
+                    context.inheritedOpacity() * marker.opacity() > 0.0
+                            && (marker.fill().alpha() > 0
+                                    || marker.stroke()
+                                                    .map(SymbolStroke::color)
+                                                    .orElse(Rgba.TRANSPARENT)
+                                                    .alpha()
+                                            > 0);
+            return SymbolRenderResult.markerBounds(
+                    envelope(bounds),
+                    present ? AwtLogicalPaintPresence.PRESENT : AwtLogicalPaintPresence.EMPTY);
         }
         if (value instanceof RasterIconSymbol icon) {
             return renderRasterIcon(icon, context);
         }
         if (value instanceof SolidLineSymbol line
                 && context.renderGeometry() instanceof LineStringGeometry) {
-            renderRegisteredLine(line, context);
-            return SymbolRenderResult.none();
+            return SymbolRenderResult.none(renderRegisteredLine(line, context));
         }
         if ((value instanceof SolidFillSymbol || value instanceof HatchFillSymbol)
                 && context.renderGeometry() instanceof PolygonGeometry) {
-            renderRegisteredFill(value, context);
-            return SymbolRenderResult.none();
+            return SymbolRenderResult.none(renderRegisteredFill(value, context));
         }
         throw rendererValueMismatch(new SymbolSnapshot(value.role(), value.rendererKey()));
     }
@@ -1135,12 +1378,14 @@ public final class MapView extends JComponent {
                                 context.markerAnchorScreen().orElseThrow(),
                                 context.mapScreenBasis());
         double opacity = context.inheritedOpacity() * icon.opacity();
+        boolean positiveAlpha = false;
         if (opacity > 0.0) {
             BufferedImage image =
                     new BufferedImage(icon.width(), icon.height(), BufferedImage.TYPE_INT_ARGB);
             for (int y = 0; y < icon.height(); y++) {
                 for (int x = 0; x < icon.width(); x++) {
                     int rgba = icon.rgbaAt(x, y);
+                    positiveAlpha |= (rgba & 0xff) != 0;
                     image.setRGB(x, y, (rgba << 24) | ((rgba >>> 8) & 0x00ff_ffff));
                 }
             }
@@ -1167,7 +1412,35 @@ public final class MapView extends JComponent {
                 child.dispose();
             }
         }
-        return SymbolRenderResult.markerBounds(transform.nominalScreenBounds());
+        return SymbolRenderResult.markerBounds(
+                transform.nominalScreenBounds(),
+                opacity > 0.0 && positiveAlpha
+                        ? AwtLogicalPaintPresence.PRESENT
+                        : AwtLogicalPaintPresence.EMPTY);
+    }
+
+    private AwtLogicalPaintPresence legacyPresence(
+            FeatureStyle style, AwtSymbolRenderContext context) {
+        if (context.renderGeometry() instanceof PointGeometry) {
+            return style.fill().alpha() > 0
+                            || (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0)
+                    ? AwtLogicalPaintPresence.PRESENT
+                    : AwtLogicalPaintPresence.EMPTY;
+        }
+        if (context.renderGeometry() instanceof LineStringGeometry line) {
+            CoordinateSequence screen = toScreen(line.coordinates(), context.viewport());
+            LineEndpointBearings bearings =
+                    LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+            return style.stroke().alpha() > 0
+                            && style.strokeWidth() > 0.0
+                            && (bearings.startBearingDegrees().isPresent()
+                                    || bearings.endBearingDegrees().isPresent())
+                    ? AwtLogicalPaintPresence.PRESENT
+                    : AwtLogicalPaintPresence.EMPTY;
+        }
+        return style.fill().alpha() > 0 || (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0)
+                ? AwtLogicalPaintPresence.PRESENT
+                : AwtLogicalPaintPresence.EMPTY;
     }
 
     private Rectangle2D renderLegacyFeature(
@@ -1309,49 +1582,63 @@ public final class MapView extends JComponent {
                 OptionalDouble.empty());
     }
 
-    private void renderRegisteredLine(SolidLineSymbol line, AwtSymbolRenderContext context) {
+    private AwtLogicalPaintPresence renderRegisteredLine(
+            SolidLineSymbol line, AwtSymbolRenderContext context) {
         LineStringGeometry geometry = (LineStringGeometry) context.renderGeometry();
         CoordinateSequence screen = toScreen(geometry.coordinates(), context.viewport());
         LineEndpointBearings bearings =
                 LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
         if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
-            return;
+            return AwtLogicalPaintPresence.EMPTY;
         }
         double opacity = context.inheritedOpacity() * line.opacity();
+        AwtLogicalPaintPresence presence =
+                opacity > 0.0 && line.stroke().color().alpha() > 0
+                        ? AwtLogicalPaintPresence.PRESENT
+                        : AwtLogicalPaintPresence.EMPTY;
         paintLinePart(
                 context.parentGraphics(), screen, line.stroke(), context.mapScreenBasis(), opacity);
         if (context.closedRing()) {
-            return;
+            return presence;
         }
         if (line.startMarker().isPresent() && bearings.startBearingDegrees().isPresent()) {
-            dispatchEndpoint(
-                    line.startMarker().orElseThrow(),
-                    context,
-                    opacity,
-                    geometry.coordinates().coordinate(0),
-                    screen.coordinate(0),
-                    bearings.startBearingDegrees().orElseThrow());
+            presence =
+                    unionPresence(
+                            presence,
+                            dispatchEndpoint(
+                                            line.startMarker().orElseThrow(),
+                                            context,
+                                            opacity,
+                                            geometry.coordinates().coordinate(0),
+                                            screen.coordinate(0),
+                                            bearings.startBearingDegrees().orElseThrow())
+                                    .paintPresence());
         }
         if (line.endMarker().isPresent() && bearings.endBearingDegrees().isPresent()) {
             int last = geometry.coordinates().size() - 1;
-            dispatchEndpoint(
-                    line.endMarker().orElseThrow(),
-                    context,
-                    opacity,
-                    geometry.coordinates().coordinate(last),
-                    screen.coordinate(last),
-                    bearings.endBearingDegrees().orElseThrow());
+            presence =
+                    unionPresence(
+                            presence,
+                            dispatchEndpoint(
+                                            line.endMarker().orElseThrow(),
+                                            context,
+                                            opacity,
+                                            geometry.coordinates().coordinate(last),
+                                            screen.coordinate(last),
+                                            bearings.endBearingDegrees().orElseThrow())
+                                    .paintPresence());
         }
+        return presence;
     }
 
-    private void dispatchEndpoint(
+    private SymbolRenderResult dispatchEndpoint(
             Symbol marker,
             AwtSymbolRenderContext owner,
             double inheritedOpacity,
             Coordinate sourceEndpoint,
             Coordinate screenEndpoint,
             double bearing) {
-        dispatch(
+        return dispatch(
                 marker,
                 context(
                         owner.parentGraphics(),
@@ -1388,11 +1675,16 @@ public final class MapView extends JComponent {
         }
     }
 
-    private void renderRegisteredFill(Symbol symbol, AwtSymbolRenderContext context) {
+    private AwtLogicalPaintPresence renderRegisteredFill(
+            Symbol symbol, AwtSymbolRenderContext context) {
         PolygonGeometry geometry = (PolygonGeometry) context.renderGeometry();
         ScreenPolygon polygon = screenPolygon(geometry, context.viewport());
         if (symbol instanceof SolidFillSymbol fill) {
             double opacity = context.inheritedOpacity() * fill.opacity();
+            AwtLogicalPaintPresence presence =
+                    opacity > 0.0 && fill.fill().alpha() > 0
+                            ? AwtLogicalPaintPresence.PRESENT
+                            : AwtLogicalPaintPresence.EMPTY;
             if (opacity > 0.0 && fill.fill().alpha() > 0) {
                 Graphics2D child = context.createGraphics();
                 try {
@@ -1404,28 +1696,40 @@ public final class MapView extends JComponent {
                     child.dispose();
                 }
             }
-            fill.outline()
-                    .ifPresent(
-                            outline ->
-                                    renderRegisteredOutline(outline, geometry, context, opacity));
+            if (fill.outline().isPresent()) {
+                presence =
+                        unionPresence(
+                                presence,
+                                renderRegisteredOutline(
+                                        fill.outline().orElseThrow(), geometry, context, opacity));
+            }
+            return presence;
         } else if (symbol instanceof HatchFillSymbol hatch) {
             double opacity = context.inheritedOpacity() * hatch.opacity();
-            paintHatch(
-                    context.parentGraphics(),
-                    hatch,
-                    polygon,
-                    context.mapScreenBasis(),
-                    context.viewport(),
-                    context.featureId(),
-                    opacity);
-            hatch.outline()
-                    .ifPresent(
-                            outline ->
-                                    renderRegisteredOutline(outline, geometry, context, opacity));
+            AwtLogicalPaintPresence presence =
+                    paintHatch(
+                                    context.parentGraphics(),
+                                    hatch,
+                                    polygon,
+                                    context.mapScreenBasis(),
+                                    context.viewport(),
+                                    context.featureId(),
+                                    opacity)
+                            ? AwtLogicalPaintPresence.PRESENT
+                            : AwtLogicalPaintPresence.EMPTY;
+            if (hatch.outline().isPresent()) {
+                presence =
+                        unionPresence(
+                                presence,
+                                renderRegisteredOutline(
+                                        hatch.outline().orElseThrow(), geometry, context, opacity));
+            }
+            return presence;
         }
+        throw new IllegalArgumentException("Unsupported built-in fill symbol");
     }
 
-    private void renderRegisteredOutline(
+    private AwtLogicalPaintPresence renderRegisteredOutline(
             Symbol outline,
             PolygonGeometry polygon,
             AwtSymbolRenderContext owner,
@@ -1433,25 +1737,31 @@ public final class MapView extends JComponent {
         List<CoordinateSequence> rings = new ArrayList<>();
         rings.add(polygon.exterior());
         rings.addAll(polygon.holes());
+        AwtLogicalPaintPresence presence = AwtLogicalPaintPresence.EMPTY;
         for (CoordinateSequence ring : rings) {
-            dispatch(
-                    outline,
-                    context(
-                            owner.parentGraphics(),
-                            SymbolRole.LINE,
-                            owner.featureId(),
-                            owner.featureGeometry(),
-                            new LineStringGeometry(ring),
-                            inheritedOpacity,
-                            true,
-                            OptionalDouble.empty(),
-                            Optional.empty(),
-                            owner.viewport(),
-                            owner.mapScreenBasis()));
+            presence =
+                    unionPresence(
+                            presence,
+                            dispatch(
+                                            outline,
+                                            context(
+                                                    owner.parentGraphics(),
+                                                    SymbolRole.LINE,
+                                                    owner.featureId(),
+                                                    owner.featureGeometry(),
+                                                    new LineStringGeometry(ring),
+                                                    inheritedOpacity,
+                                                    true,
+                                                    OptionalDouble.empty(),
+                                                    Optional.empty(),
+                                                    owner.viewport(),
+                                                    owner.mapScreenBasis()))
+                                    .paintPresence());
         }
+        return presence;
     }
 
-    private void paintHatch(
+    private boolean paintHatch(
             Graphics2D graphics,
             HatchFillSymbol hatch,
             ScreenPolygon polygon,
@@ -1460,7 +1770,7 @@ public final class MapView extends JComponent {
             String featureId,
             double opacity) {
         if (opacity == 0.0 || hatch.stroke().color().alpha() == 0) {
-            return;
+            return false;
         }
         Rectangle2D work =
                 polygon.path()
@@ -1471,7 +1781,7 @@ public final class MapView extends JComponent {
             work = work.createIntersection(graphics.getClip().getBounds2D());
         }
         if (work.isEmpty()) {
-            return;
+            return false;
         }
         Envelope bounds =
                 new Envelope(work.getMinX(), work.getMinY(), work.getMaxX(), work.getMaxY());
@@ -1508,6 +1818,18 @@ public final class MapView extends JComponent {
         } finally {
             child.dispose();
         }
+        return segments.segmentCount() > 0;
+    }
+
+    private static AwtLogicalPaintPresence unionPresence(
+            AwtLogicalPaintPresence first, AwtLogicalPaintPresence second) {
+        if (first == AwtLogicalPaintPresence.PRESENT || second == AwtLogicalPaintPresence.PRESENT) {
+            return AwtLogicalPaintPresence.PRESENT;
+        }
+        if (first == AwtLogicalPaintPresence.UNKNOWN || second == AwtLogicalPaintPresence.UNKNOWN) {
+            return AwtLogicalPaintPresence.UNKNOWN;
+        }
+        return AwtLogicalPaintPresence.EMPTY;
     }
 
     private static void renderPointLabel(
@@ -1697,53 +2019,59 @@ public final class MapView extends JComponent {
                     @Override
                     public void mousePressed(MouseEvent event) {
                         requestFocusInWindow();
-                        RoutedMouse routed = routeMouse(event, MapToolEvent.Type.PRESS);
-                        if (!routed.outcome().suppressDefault()
-                                && button(event.getButton()).equals(MapPointerButton.PRIMARY)
-                                && buttonsDown(event, MapToolEvent.Type.PRESS)
-                                        .equals(Set.of(MapPointerButton.PRIMARY))) {
-                            dragAnchor = event.getPoint();
-                        } else {
-                            dragAnchor = null;
-                        }
+                        runThenClearHover(
+                                () -> {
+                                    RoutedMouse routed = routeMouse(event, MapToolEvent.Type.PRESS);
+                                    if (!routed.outcome().suppressDefault()
+                                            && button(event.getButton())
+                                                    .equals(MapPointerButton.PRIMARY)
+                                            && buttonsDown(event, MapToolEvent.Type.PRESS)
+                                                    .equals(Set.of(MapPointerButton.PRIMARY))) {
+                                        dragAnchor = event.getPoint();
+                                    } else {
+                                        dragAnchor = null;
+                                    }
+                                });
                     }
 
                     @Override
                     public void mouseReleased(MouseEvent event) {
-                        try {
-                            routeMouse(event, MapToolEvent.Type.RELEASE);
-                        } finally {
-                            if (button(event.getButton()).equals(MapPointerButton.PRIMARY)) {
-                                dragAnchor = null;
-                            }
-                        }
+                        runThenClearHover(
+                                () -> {
+                                    try {
+                                        routeMouse(event, MapToolEvent.Type.RELEASE);
+                                    } finally {
+                                        if (button(event.getButton())
+                                                .equals(MapPointerButton.PRIMARY)) {
+                                            dragAnchor = null;
+                                        }
+                                    }
+                                });
                     }
 
                     @Override
                     public void mouseClicked(MouseEvent event) {
-                        RoutedMouse routed = routeMouse(event, MapToolEvent.Type.CLICK);
-                        if (!routed.outcome().suppressDefault()) {
-                            if (button(event.getButton()).equals(MapPointerButton.PRIMARY)
-                                    && event.getClickCount() == 1
-                                    && !event.isPopupTrigger()
-                                    && modifiers(event).isEmpty()) {
-                                Optional<MapHit> topmost =
-                                        hitTest(
-                                                        event.getX(),
-                                                        event.getY(),
-                                                        DEFAULT_SELECTION_TOLERANCE_PIXELS)
-                                                .topmost();
-                                updateSelection(
-                                        topmost.map(
-                                                hit ->
-                                                        new FeatureSelection(
-                                                                hit.layerId(), hit.featureId())));
-                            }
+                        RoutedMouse routed;
+                        try {
+                            routed = routeMouse(event, MapToolEvent.Type.CLICK);
+                        } catch (RuntimeException | Error failure) {
+                            clearHoverSuppressing(failure);
+                            throw failure;
+                        }
+                        if (routed.outcome().suppressDefault()) {
+                            clearHover();
+                            return;
+                        }
+                        try {
+                            updateClickInteraction(event);
                             firePointer(
                                     MapPointerEvent.Type.CLICKED,
                                     event.getX(),
                                     event.getY(),
                                     routed.event().mapCoordinate());
+                        } catch (RuntimeException | Error failure) {
+                            clearHoverSuppressing(failure);
+                            throw failure;
                         }
                     }
 
@@ -1759,42 +2087,53 @@ public final class MapView extends JComponent {
                     public void mouseExited(MouseEvent event) {
                         Set<MapPointerButton> down = buttonsDown(event, null);
                         rememberPointer(event, down);
-                        if (!toolRouter.captured()) {
-                            try {
-                                cancelInteraction(MapToolCancelReason.POINTER_EXITED, down);
-                            } finally {
-                                dragAnchor = null;
-                            }
-                        }
+                        runThenClearHover(
+                                () -> {
+                                    try {
+                                        if (!toolRouter.captured()) {
+                                            cancelInteraction(
+                                                    MapToolCancelReason.POINTER_EXITED, down);
+                                        }
+                                    } finally {
+                                        dragAnchor = null;
+                                    }
+                                });
                     }
                 });
         addMouseMotionListener(
                 new MouseMotionAdapter() {
                     @Override
                     public void mouseDragged(MouseEvent event) {
-                        Set<MapPointerButton> down = buttonsDown(event, MapToolEvent.Type.DRAG);
-                        if (down.isEmpty()) {
-                            rememberPointer(event, down);
-                            try {
-                                cancelInteraction(MapToolCancelReason.POINTER_STATE_LOST, down);
-                            } finally {
-                                dragAnchor = null;
-                            }
-                            return;
-                        }
-                        RouteOutcome outcome = routeMouse(event, MapToolEvent.Type.DRAG).outcome();
-                        boolean solePrimary = down.equals(Set.of(MapPointerButton.PRIMARY));
-                        if (dragAnchor != null && solePrimary) {
-                            double deltaX = event.getX() - dragAnchor.x;
-                            double deltaY = event.getY() - dragAnchor.y;
-                            dragAnchor = event.getPoint();
-                            if (!outcome.suppressDefault()) {
-                                viewport = viewport().panByPixels(deltaX, deltaY);
-                                repaint();
-                            }
-                        } else if (!solePrimary) {
-                            dragAnchor = null;
-                        }
+                        runThenClearHover(
+                                () -> {
+                                    Set<MapPointerButton> down =
+                                            buttonsDown(event, MapToolEvent.Type.DRAG);
+                                    if (down.isEmpty()) {
+                                        rememberPointer(event, down);
+                                        try {
+                                            cancelInteraction(
+                                                    MapToolCancelReason.POINTER_STATE_LOST, down);
+                                        } finally {
+                                            dragAnchor = null;
+                                        }
+                                        return;
+                                    }
+                                    RouteOutcome outcome =
+                                            routeMouse(event, MapToolEvent.Type.DRAG).outcome();
+                                    boolean solePrimary =
+                                            down.equals(Set.of(MapPointerButton.PRIMARY));
+                                    if (dragAnchor != null && solePrimary) {
+                                        double deltaX = event.getX() - dragAnchor.x;
+                                        double deltaY = event.getY() - dragAnchor.y;
+                                        dragAnchor = event.getPoint();
+                                        if (!outcome.suppressDefault()) {
+                                            viewport = viewport().panByPixels(deltaX, deltaY);
+                                            repaint();
+                                        }
+                                    } else if (!solePrimary) {
+                                        dragAnchor = null;
+                                    }
+                                });
                     }
 
                     @Override
@@ -1802,30 +2141,45 @@ public final class MapView extends JComponent {
                         Set<MapPointerButton> down = buttonsDown(event, MapToolEvent.Type.MOVE);
                         if (!down.isEmpty()) {
                             rememberPointer(event, down);
-                            try {
-                                cancelInteraction(MapToolCancelReason.POINTER_STATE_LOST, down);
-                            } finally {
-                                dragAnchor = null;
-                            }
+                            runThenClearHover(
+                                    () -> {
+                                        try {
+                                            cancelInteraction(
+                                                    MapToolCancelReason.POINTER_STATE_LOST, down);
+                                        } finally {
+                                            dragAnchor = null;
+                                        }
+                                    });
                             return;
                         }
-                        RoutedMouse routed = routeMouse(event, MapToolEvent.Type.MOVE);
+                        RoutedMouse routed;
+                        try {
+                            routed = routeMouse(event, MapToolEvent.Type.MOVE);
+                        } catch (RuntimeException | Error failure) {
+                            clearHoverSuppressing(failure);
+                            throw failure;
+                        }
                         if (!routed.outcome().suppressDefault()) {
+                            updateHoverFromMove(event);
                             firePointer(
                                     MapPointerEvent.Type.MOVED,
                                     event.getX(),
                                     event.getY(),
                                     routed.event().mapCoordinate());
+                        } else {
+                            clearHover();
                         }
                     }
                 });
         addMouseWheelListener(
-                event -> {
-                    RouteOutcome outcome = routeWheel(event);
-                    if (!outcome.suppressDefault()) {
-                        zoom(event);
-                    }
-                });
+                event ->
+                        runThenClearHover(
+                                () -> {
+                                    RouteOutcome outcome = routeWheel(event);
+                                    if (!outcome.suppressDefault()) {
+                                        zoom(event);
+                                    }
+                                }));
         addFocusListener(
                 new FocusAdapter() {
                     @Override
@@ -1863,6 +2217,59 @@ public final class MapView extends JComponent {
         double factor = Math.pow(ZOOM_STEP, -event.getPreciseWheelRotation());
         viewport = viewport().zoomAt(event.getX(), event.getY(), factor);
         repaint();
+    }
+
+    private void updateHoverFromMove(MouseEvent event) {
+        synchronizeViewportSize();
+        Dimension size = effectiveSize();
+        ViewContentSnapshot content = captureContent(layers);
+        MapViewport viewportSnapshot = viewport;
+        Optional<FeatureSelection> reconciledSelection = reconcile(selection, content);
+        Optional<MapHit> nextHover = Optional.empty();
+        if (event.getX() >= 0
+                && event.getX() < size.width
+                && event.getY() >= 0
+                && event.getY() < size.height) {
+            nextHover =
+                    hitTestSnapshot(
+                                    content,
+                                    viewportSnapshot,
+                                    size,
+                                    event.getX(),
+                                    event.getY(),
+                                    DEFAULT_HOVER_TOLERANCE_PIXELS)
+                            .topmost();
+        }
+        hoverProbe = Optional.of(new HoverProbe(event.getX(), event.getY()));
+        transitionInteraction(reconciledSelection, nextHover, true);
+    }
+
+    private void updateClickInteraction(MouseEvent event) {
+        synchronizeViewportSize();
+        Dimension size = effectiveSize();
+        ViewContentSnapshot content = captureContent(layers);
+        Optional<FeatureSelection> nextSelection = reconcile(selection, content);
+        if (button(event.getButton()).equals(MapPointerButton.PRIMARY)
+                && event.getClickCount() == 1
+                && !event.isPopupTrigger()
+                && modifiers(event).isEmpty()
+                && event.getX() >= 0
+                && event.getX() < size.width
+                && event.getY() >= 0
+                && event.getY() < size.height) {
+            nextSelection =
+                    hitTestSnapshot(
+                                    content,
+                                    viewport,
+                                    size,
+                                    event.getX(),
+                                    event.getY(),
+                                    DEFAULT_SELECTION_TOLERANCE_PIXELS)
+                            .topmost()
+                            .map(hit -> new FeatureSelection(hit.layerId(), hit.featureId()));
+        }
+        hoverProbe = Optional.empty();
+        transitionInteraction(nextSelection, Optional.empty(), true);
     }
 
     private RoutedMouse routeMouse(MouseEvent event, MapToolEvent.Type type) {
@@ -2144,20 +2551,226 @@ public final class MapView extends JComponent {
         return false;
     }
 
-    private void reconcileSelection(ViewContentSnapshot snapshot, boolean repaintOnChange) {
-        Optional<FeatureSelection> reconciled = reconcile(selection, snapshot);
-        if (!reconciled.equals(selection)) {
-            selection = reconciled;
-            if (repaintOnChange) {
-                repaint();
+    private static boolean contains(ViewContentSnapshot snapshot, MapHit requested) {
+        return contains(snapshot, new FeatureSelection(requested.layerId(), requested.featureId()));
+    }
+
+    private boolean reconcileInteraction(
+            ViewContentSnapshot snapshot, boolean repaintOnChange, boolean drainNotifications) {
+        Optional<FeatureSelection> reconciledSelection = reconcile(selection, snapshot);
+        Optional<MapHit> reconciledHover = hover.filter(hit -> contains(snapshot, hit));
+        if (hoverProbe.isPresent()) {
+            HoverProbe probe = hoverProbe.orElseThrow();
+            Dimension size = effectiveSize();
+            if (probe.screenX() >= 0.0
+                    && probe.screenX() < size.width
+                    && probe.screenY() >= 0.0
+                    && probe.screenY() < size.height) {
+                reconciledHover =
+                        hitTestSnapshot(
+                                        snapshot,
+                                        viewport,
+                                        size,
+                                        probe.screenX(),
+                                        probe.screenY(),
+                                        DEFAULT_HOVER_TOLERANCE_PIXELS)
+                                .topmost();
+            } else {
+                reconciledHover = Optional.empty();
             }
+        }
+        return transitionInteraction(
+                reconciledSelection, reconciledHover, repaintOnChange, drainNotifications);
+    }
+
+    private boolean transitionInteraction(
+            Optional<FeatureSelection> nextSelection,
+            Optional<MapHit> nextHover,
+            boolean repaintOnChange) {
+        return transitionInteraction(nextSelection, nextHover, repaintOnChange, true);
+    }
+
+    private boolean transitionInteraction(
+            Optional<FeatureSelection> nextSelection,
+            Optional<MapHit> nextHover,
+            boolean repaintOnChange,
+            boolean drainNotifications) {
+        Objects.requireNonNull(nextSelection, "nextSelection");
+        Objects.requireNonNull(nextHover, "nextHover");
+        Optional<FeatureSelection> previousSelection = selection;
+        Optional<MapHit> previousHover = hover;
+        boolean selectionChanged = !previousSelection.equals(nextSelection);
+        boolean hoverChanged = !previousHover.equals(nextHover);
+        if (!selectionChanged && !hoverChanged) {
+            return false;
+        }
+        selection = nextSelection;
+        hover = nextHover;
+        if (!sameSelectionIdentity(previousSelection, nextSelection)) {
+            selectionPaintState = Optional.empty();
+        }
+        if (!sameHoverIdentity(previousHover, nextHover)) {
+            hoverPaintState = Optional.empty();
+        }
+        if (nextHover.isEmpty()) {
+            hoverProbe = Optional.empty();
+        }
+        if (repaintOnChange) {
+            repaint();
+        }
+        if (selectionChanged) {
+            interactionNotifications.addLast(
+                    InteractionNotification.selection(
+                            new MapSelectionEvent(previousSelection, nextSelection)));
+        }
+        if (hoverChanged) {
+            interactionNotifications.addLast(
+                    InteractionNotification.hover(new MapHoverEvent(previousHover, nextHover)));
+        }
+        if (drainNotifications) {
+            drainInteractionNotifications();
+        }
+        return true;
+    }
+
+    private boolean clearHover() {
+        hoverProbe = Optional.empty();
+        return transitionInteraction(selection, Optional.empty(), true);
+    }
+
+    private boolean retainInteractionPaintState(
+            Optional<?> interaction, OverlayCandidate candidate, boolean hoverState) {
+        Optional<AwtLogicalPaintPresence> previous =
+                hoverState ? hoverPaintState : selectionPaintState;
+        Optional<AwtLogicalPaintPresence> next =
+                interaction.isPresent() && candidate != null
+                        ? Optional.of(candidate.presence())
+                        : Optional.empty();
+        if (hoverState) {
+            hoverPaintState = next;
+        } else {
+            selectionPaintState = next;
+        }
+        return previous.isPresent() && !previous.equals(next);
+    }
+
+    private static boolean sameSelectionIdentity(
+            Optional<FeatureSelection> first, Optional<FeatureSelection> second) {
+        return first.equals(second);
+    }
+
+    private static boolean sameHoverIdentity(Optional<MapHit> first, Optional<MapHit> second) {
+        if (first.isEmpty() || second.isEmpty()) {
+            return first.isEmpty() && second.isEmpty();
+        }
+        MapHit firstHit = first.orElseThrow();
+        MapHit secondHit = second.orElseThrow();
+        return firstHit.layerId().equals(secondHit.layerId())
+                && firstHit.featureId().equals(secondHit.featureId());
+    }
+
+    private void runThenClearHover(Runnable action) {
+        Throwable primary = null;
+        try {
+            action.run();
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
+        }
+        if (primary == null) {
+            clearHover();
+            return;
+        }
+        clearHoverSuppressing(primary);
+        throwUnchecked(primary);
+    }
+
+    private void clearHoverSuppressing(Throwable primary) {
+        try {
+            clearHover();
+        } catch (RuntimeException | Error clearFailure) {
+            suppressDistinct(primary, clearFailure);
         }
     }
 
-    private void updateSelection(Optional<FeatureSelection> next) {
-        if (!selection.equals(next)) {
-            selection = next;
-            repaint();
+    private static void throwUnchecked(Throwable failure) {
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        throw (RuntimeException) failure;
+    }
+
+    private void drainInteractionNotifications() {
+        if (drainingInteractionNotifications) {
+            return;
+        }
+        drainingInteractionNotifications = true;
+        RuntimeException firstFailure = null;
+        List<RuntimeException> distinctFailures = new ArrayList<>();
+        try {
+            while (!interactionNotifications.isEmpty()) {
+                InteractionNotification notification = interactionNotifications.removeFirst();
+                if (notification.selectionEvent() != null) {
+                    for (MapSelectionListener listener : List.copyOf(selectionListeners)) {
+                        try {
+                            listener.onMapSelectionChanged(notification.selectionEvent());
+                        } catch (RuntimeException failure) {
+                            if (!containsIdentity(distinctFailures, failure)) {
+                                distinctFailures.add(failure);
+                                if (firstFailure == null) {
+                                    firstFailure = failure;
+                                } else {
+                                    firstFailure.addSuppressed(failure);
+                                }
+                            }
+                        } catch (Error failure) {
+                            interactionNotifications.clear();
+                            throw failure;
+                        }
+                    }
+                } else {
+                    for (MapHoverListener listener : List.copyOf(hoverListeners)) {
+                        try {
+                            listener.onMapHoverChanged(notification.hoverEvent());
+                        } catch (RuntimeException failure) {
+                            if (!containsIdentity(distinctFailures, failure)) {
+                                distinctFailures.add(failure);
+                                if (firstFailure == null) {
+                                    firstFailure = failure;
+                                } else {
+                                    firstFailure.addSuppressed(failure);
+                                }
+                            }
+                        } catch (Error failure) {
+                            interactionNotifications.clear();
+                            throw failure;
+                        }
+                    }
+                }
+            }
+        } finally {
+            drainingInteractionNotifications = false;
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
+    }
+
+    private static boolean containsIdentity(
+            List<RuntimeException> failures, RuntimeException candidate) {
+        for (RuntimeException failure : failures) {
+            if (failure == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static <T> void removeIdentical(List<T> listeners, T requested) {
+        for (int index = 0; index < listeners.size(); index++) {
+            if (listeners.get(index) == requested) {
+                listeners.remove(index);
+                return;
+            }
         }
     }
 
@@ -2165,6 +2778,7 @@ public final class MapView extends JComponent {
         Dimension size = effectiveSize();
         if (viewport.width() != size.width || viewport.height() != size.height) {
             viewport = viewport.resized(size.width, size.height);
+            clearHover();
         }
     }
 
@@ -2238,6 +2852,21 @@ public final class MapView extends JComponent {
     }
 
     private record RoutedMouse(RouteOutcome outcome, MapToolEvent event) {}
+
+    private record HoverProbe(double screenX, double screenY) {}
+
+    private record OverlayCandidate(Feature feature, AwtLogicalPaintPresence presence) {}
+
+    private record InteractionNotification(
+            MapSelectionEvent selectionEvent, MapHoverEvent hoverEvent) {
+        private static InteractionNotification selection(MapSelectionEvent event) {
+            return new InteractionNotification(Objects.requireNonNull(event, "event"), null);
+        }
+
+        private static InteractionNotification hover(MapHoverEvent event) {
+            return new InteractionNotification(null, Objects.requireNonNull(event, "event"));
+        }
+    }
 
     private record LayerSnapshot(String id, List<Feature> features) {}
 
