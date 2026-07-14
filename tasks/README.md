@@ -153,7 +153,7 @@ Level 1 is complete only when G8-004 is complete.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G5-001 — Shapefile supported-profile decision](G5-001-shapefile-supported-profile-decision.md) | Complete | HITL | G4-002, G4-003 | Lock the supported 2D shape, sidecar, encoding, mismatch, and limits profile. |
-| [G5-002 — SHP point/multipoint sequential slice](G5-002-shp-point-multipoint-sequential-slice.md) | Proposed | AFK | G5-001 | Read and render null, point, and multipoint records from a new working adapter. |
+| [G5-002 — SHP point/multipoint sequential slice](G5-002-shp-point-multipoint-sequential-slice.md) | Complete | AFK | G5-001 | Read and render null, point, and multipoint records from a new working adapter. |
 | [G5-003 — SHX indexed access](G5-003-shx-indexed-access.md) | Proposed | AFK | G5-002 | Add validated indexed access and deterministic fallback behavior. |
 | [G5-004 — Polyline multipart slice](G5-004-polyline-multipart-slice.md) | Proposed | AFK | G5-002 | Read and render bounded single- and multipart polylines. |
 | [G5-005 — Polygon holes and multipart slice](G5-005-polygon-holes-multipart-slice.md) | Proposed | AFK | G5-004 | Read and render multipart polygons and holes predictably. |

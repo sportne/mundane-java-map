@@ -374,6 +374,63 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void shapefileModuleIsJdkOnlyAwtFreeNativeSafeAndItsViewerIsSupportOnly() {
+        ModuleDescriptor shapefile = moduleEndingWith("mundane-map-io-shapefile");
+        JavaClasses formatClasses = classesByModule.get(shapefile);
+        List<String> toolkitDependencies =
+                formatClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicFormatTypes =
+                formatClasses.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.shapefile"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        Set<String> supportProjects =
+                java.util.Arrays.stream(
+                                System.getProperty("map.architecture.supportProjects").split(","))
+                        .filter(Predicate.not(String::isBlank))
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals("JDK_RUNTIME", shapefile.category());
+        assertEquals(1, shapefile.releaseLevel());
+        assertTrue(shapefile.nativeTarget());
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                shapefile.allowedRuntimeProjects());
+        assertFalse(formatClasses.isEmpty(), "Expected the working shapefile format module");
+        assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
+        assertTrue(
+                ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty(),
+                "Shapefile production must remain compatible with the native-targeted boundary");
+        assertEquals(
+                Set.of("Shapefiles", "ShapefileOpenOptions", "ShapefileLimits"), publicFormatTypes);
+        assertTrue(supportProjects.contains(":examples:shapefile-viewer"));
+        assertTrue(
+                modules.stream()
+                        .noneMatch(module -> module.path().equals(":examples:shapefile-viewer")),
+                "The viewer must remain outside the production architecture graph");
+    }
+
+    @Test
     void nativeSmokeSupportAvoidsProhibitedMechanisms() {
         List<String> violations =
                 ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);

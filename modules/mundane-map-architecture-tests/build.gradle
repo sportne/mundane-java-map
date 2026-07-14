@@ -207,6 +207,11 @@ tasks.named('test') {
     inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/resources'))
     inputs.dir(nativeSmokeProject.layout.buildDirectory.dir('resources/main'))
     systemProperty 'map.architecture.modules', moduleDescriptors
+    systemProperty 'map.architecture.supportProjects',
+            inventory.findAll { it.category == 'SUPPORT' }
+            .collect { it.path }
+            .sort()
+            .join(',')
     systemProperty 'map.architecture.fixtureClasses',
             layout.buildDirectory.dir('classes/java/architectureFixtures').get().asFile.absolutePath
     systemProperty 'map.architecture.fixtureResources',

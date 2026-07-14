@@ -1,6 +1,6 @@
 # G5-002 — SHP point/multipoint sequential slice
 
-Status: Proposed
+Status: Complete
 Depends on: G5-001
 Gate: G5
 Type: AFK
@@ -90,3 +90,11 @@ git diff --check
 Use explicit byte-order reads and checked arithmetic. Do not memory-map by default or allocate from
 untrusted counts. SHX and DBF absence must not be simulated by placeholder abstractions. The viewer
 requires a sidecar-free SHP and explicit EPSG:4326/EPSG:3857 argument until PRJ behavior lands.
+
+Completed on 2026-07-14 with the first working `mundane-map-io-shapefile` module and viewer. The
+bounded positional reader exposes null, Point, and MultiPoint records through `FeatureSource`, keeps
+all parser and channel types package-private, stages discovered sidecars, and preserves the approved
+diagnostic, cancellation, allocation, lifecycle, and JDK-only boundaries. Hand-built fixtures cover
+the supported slice, malformed framing and coordinates, sidecar identity/case behavior, cursor reuse,
+size mutation, and relevant limit boundaries; SHX, DBF/CPG, PRJ, multipart lines/polygons, corpus,
+fuzz, and Native Image behavior remain owned by their later tasks.
