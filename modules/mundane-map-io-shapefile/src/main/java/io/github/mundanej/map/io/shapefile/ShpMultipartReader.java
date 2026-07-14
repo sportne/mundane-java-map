@@ -49,6 +49,28 @@ final class ShpMultipartReader {
             String aggregateReason,
             String spanCode,
             String spanReason) {
+        return preflight(
+                record,
+                recordStart,
+                contentBytes,
+                minimumCoordinatesPerPart,
+                0,
+                aggregateCode,
+                aggregateReason,
+                spanCode,
+                spanReason);
+    }
+
+    ShpMultipartPlan preflight(
+            long record,
+            long recordStart,
+            long contentBytes,
+            int minimumCoordinatesPerPart,
+            int additionalPackedElementsPerPart,
+            String aggregateCode,
+            String aggregateReason,
+            String spanCode,
+            String spanReason) {
         if (contentBytes < PREFIX_BYTES) {
             throw failure(
                     "SHAPEFILE_RECORD_LENGTH_INVALID",
@@ -91,6 +113,10 @@ final class ShpMultipartReader {
         }
         if ((long) pointCount * 2 > Integer.MAX_VALUE) {
             throw invalidCapacity(record, recordStart + 48);
+        }
+        if (Math.multiplyExact((long) additionalPackedElementsPerPart, partCount)
+                > Integer.MAX_VALUE) {
+            throw invalidCapacity(record, recordStart + 44);
         }
         long minimumPoints = Math.multiplyExact((long) minimumCoordinatesPerPart, partCount);
         if (pointCount < minimumPoints) {

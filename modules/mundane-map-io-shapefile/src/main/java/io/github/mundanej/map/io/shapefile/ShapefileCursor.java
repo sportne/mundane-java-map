@@ -44,6 +44,7 @@ final class ShapefileCursor implements FeatureCursor {
     private final ByteBuffer prefix;
     private final ByteBuffer coordinate;
     private final PolylineDecoder polylineDecoder;
+    private final PolygonDecoder polygonDecoder;
     private long nextOffset = 100;
     private long ordinal = 1;
     private int indexEntry;
@@ -82,6 +83,16 @@ final class ShapefileCursor implements FeatureCursor {
                         channel,
                         cancellation,
                         format,
+                        header.extent(),
+                        prefix,
+                        coordinate);
+        polygonDecoder =
+                new PolygonDecoder(
+                        source.metadata().identity(),
+                        channel,
+                        cancellation,
+                        format,
+                        formatLimits.maximumTopologyComparisons(),
                         header.extent(),
                         prefix,
                         coordinate);
@@ -215,6 +226,7 @@ final class ShapefileCursor implements FeatureCursor {
                         switch (type) {
                             case 1 -> decodePointRecord(recordOrdinal, start, contentBytes);
                             case 3 -> polylineDecoder.decode(recordOrdinal, start, contentBytes);
+                            case 5 -> polygonDecoder.decode(recordOrdinal, start, contentBytes);
                             case 8 -> decodeMultiPoint(recordOrdinal, start, contentBytes);
                             default -> throw new IllegalStateException("Validated shape type");
                         };

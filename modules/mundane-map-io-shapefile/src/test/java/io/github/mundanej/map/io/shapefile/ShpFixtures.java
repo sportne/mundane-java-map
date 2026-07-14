@@ -70,6 +70,14 @@ final class ShpFixtures {
     }
 
     static byte[] polyline(int[] partStarts, double... xy) {
+        return multipart(3, partStarts, xy);
+    }
+
+    static byte[] polygon(int[] partStarts, double... xy) {
+        return multipart(5, partStarts, xy);
+    }
+
+    private static byte[] multipart(int type, int[] partStarts, double... xy) {
         int pointCount = xy.length / 2;
         double minX = Double.POSITIVE_INFINITY,
                 minY = Double.POSITIVE_INFINITY,
@@ -84,7 +92,7 @@ final class ShpFixtures {
         ByteBuffer buffer =
                 ByteBuffer.allocate(44 + partStarts.length * 4 + pointCount * 16)
                         .order(ByteOrder.LITTLE_ENDIAN);
-        buffer.putInt(3)
+        buffer.putInt(type)
                 .putDouble(minX)
                 .putDouble(minY)
                 .putDouble(maxX)

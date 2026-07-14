@@ -93,6 +93,11 @@ G5-004 is complete: bounded type-3 PolyLine records map to immutable singular or
 line geometry after exact prefix, count, size, allocation, part-table, coordinate, and bounds
 validation. Sequential and SHX-backed paths share the decoder, filtered records remain fully
 validated, and the viewer renders every part without introducing a bridge.
+G5-005 is complete: bounded type-5 Polygon records use fixed packed exact-binary predicates to retain
+source-stable shells, assign holes to the smallest strict containing shell, and reject ambiguous
+topology without repair. Singular and packed multipart output preserves component-local even-odd
+rendering for holes, disjoint shells, and nested islands under cumulative allocation and topology
+limits.
 
 ## Level 1
 

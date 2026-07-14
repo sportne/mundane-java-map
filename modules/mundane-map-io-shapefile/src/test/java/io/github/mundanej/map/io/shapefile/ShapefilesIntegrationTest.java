@@ -152,7 +152,7 @@ class ShapefilesIntegrationTest {
     }
 
     @Test
-    void acceptsPolylineStagesPolygonAndRejectsZHeaders() throws Exception {
+    void acceptsPolylineAndPolygonAndRejectsZHeaders() throws Exception {
         Path polyline = write("line.shp", ShpFixtures.file(3, 0, 0, 1, 1));
         try (FeatureSource source = open(polyline);
                 FeatureCursor cursor =
@@ -161,9 +161,11 @@ class ShapefilesIntegrationTest {
         }
 
         Path polygon = write("area.shp", ShpFixtures.file(5, 0, 0, 1, 1));
-        SourceException areaFailure = assertThrows(SourceException.class, () -> open(polygon));
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", areaFailure.terminal().code());
-        assertEquals("polygon", areaFailure.terminal().context().get("profile"));
+        try (FeatureSource source = open(polygon);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            assertFalse(cursor.advance());
+        }
 
         Path pointZ = write("point-z.shp", ShpFixtures.file(11, 0, 0, 1, 1));
         SourceException zFailure = assertThrows(SourceException.class, () -> open(pointZ));

@@ -370,14 +370,16 @@ class PolylineIntegrationTest {
     }
 
     @Test
-    void polygonHeaderRemainsStagedAndPolygonRecordRemainsAMismatch() throws Exception {
+    void polygonHeaderIsCurrentAndPolygonRecordInPolylineFileRemainsAMismatch() throws Exception {
         Path polygon = dataset("polygon", 0, 0, 1, 1);
         byte[] bytes = Files.readAllBytes(polygon);
         ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).putInt(32, 5);
         Files.write(polygon, bytes);
-        SourceException staged = assertThrows(SourceException.class, () -> open(polygon));
-        assertEquals("SHAPEFILE_PROFILE_NOT_IMPLEMENTED", staged.terminal().code());
-        assertEquals("polygon", staged.terminal().context().get("profile"));
+        try (FeatureSource source = open(polygon);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            assertFalse(cursor.advance());
+        }
 
         Path mismatch = dataset("polygon-record", 0, 0, 1, 1, ShpFixtures.typed(5, 44));
         assertEquals("SHAPEFILE_RECORD_TYPE_MISMATCH", firstFailure(mismatch).terminal().code());

@@ -138,6 +138,33 @@ class ShapefileFileAccessTest {
     }
 
     @Test
+    void reportsPolygonPartTableAndCoordinateShortReadsAtFirstMissingByte() {
+        byte[] content = ShpFixtures.polygon(new int[] {0}, 0, 0, 0, 2, 2, 2, 2, 0, 0, 0);
+
+        FakeAccess table = new FakeAccess(ShpFixtures.file(5, 0, 0, 2, 2, content));
+        try (FeatureSource source = openSource(table);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            table.channel.readLimit = 154;
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertTruncatedMultipart(result, 128, 46, 154);
+        }
+
+        FakeAccess coordinates = new FakeAccess(ShpFixtures.file(5, 0, 0, 2, 2, content));
+        try (FeatureSource source = openSource(coordinates);
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            coordinates.channel.readLimit = 178;
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertTruncatedMultipart(result, 128, 70, 178);
+        }
+    }
+
+    @Test
     void cursorReadFailureIsStructuredAndReleasesTheCursorSlot() {
         FakeAccess access =
                 new FakeAccess(ShpFixtures.file(1, 0, 0, 1, 1, ShpFixtures.point(1, 1)));
@@ -278,6 +305,79 @@ class ShapefileFileAccessTest {
         }
     }
 
+    @Test
+    void polygonCancellationInsideExactAreaWorkReleasesTheCursorSlot() {
+        double[] ring = new double[50];
+        ring[3] = 10;
+        for (int point = 2; point < 22; point++) {
+            ring[point * 2] = 1;
+            ring[point * 2 + 1] = 10;
+        }
+        ring[44] = 10;
+        ring[45] = 10;
+        ring[46] = 10;
+        byte[] content = ShpFixtures.polygon(new int[] {0}, ring);
+        FakeAccess access = new FakeAccess(ShpFixtures.file(5, 0, 0, 10, 10, content));
+        try (FeatureSource source = openSource(access)) {
+            int[] postPayloadChecks = {0};
+            CancellationToken cancellation =
+                    () -> access.channel.lastReadPosition >= 540 && ++postPayloadChecks[0] == 12;
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), cancellation);
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertEquals("SOURCE_CANCELLED", result.terminal().code());
+            assertEquals(12, postPayloadChecks[0]);
+            try (FeatureCursor replacement =
+                    source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+                assertTrue(replacement.advance());
+            }
+        }
+    }
+
+    @Test
+    void polygonCancellationDuringExactTopologyPredicateReleasesTheCursorSlot() {
+        byte[] content =
+                ShpFixtures.polygon(
+                        new int[] {0, 5},
+                        0,
+                        0,
+                        0,
+                        10,
+                        10,
+                        10,
+                        10,
+                        0,
+                        0,
+                        0,
+                        2,
+                        2,
+                        4,
+                        2,
+                        4,
+                        4,
+                        2,
+                        4,
+                        2,
+                        2);
+        FakeAccess access = new FakeAccess(ShpFixtures.file(5, 0, 0, 10, 10, content));
+        try (FeatureSource source = openSource(access)) {
+            int[] postPayloadChecks = {0};
+            CancellationToken cancellation =
+                    () -> access.channel.lastReadPosition >= 304 && ++postPayloadChecks[0] == 18;
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), cancellation);
+
+            SourceException result = assertThrows(SourceException.class, cursor::advance);
+
+            assertEquals("SOURCE_CANCELLED", result.terminal().code());
+            assertEquals(18, postPayloadChecks[0]);
+            try (FeatureCursor replacement =
+                    source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+                assertTrue(replacement.advance());
+            }
+        }
+    }
+
     private static void assertMultipointCancellationAtCheckpoint(int cancellationCheck) {
         FakeAccess access =
                 new FakeAccess(ShpFixtures.file(8, 0, 0, 1, 1, ShpFixtures.multipoint(0, 0)));
@@ -314,9 +414,15 @@ class ShapefileFileAccessTest {
 
     private static void assertTruncatedPolyline(
             SourceException failure, long actualBytes, long offset) {
+        assertTruncatedMultipart(failure, 80, actualBytes, offset);
+    }
+
+    private static void assertTruncatedMultipart(
+            SourceException failure, long expectedBytes, long actualBytes, long offset) {
         assertEquals("SHAPEFILE_RECORD_LENGTH_INVALID", failure.terminal().code());
         assertEquals("truncatedPayload", failure.terminal().context().get("reason"));
-        assertEquals("80", failure.terminal().context().get("expectedBytes"));
+        assertEquals(
+                Long.toString(expectedBytes), failure.terminal().context().get("expectedBytes"));
         assertEquals(Long.toString(actualBytes), failure.terminal().context().get("actualBytes"));
         assertEquals(
                 offset, failure.terminal().location().orElseThrow().byteOffset().orElseThrow());

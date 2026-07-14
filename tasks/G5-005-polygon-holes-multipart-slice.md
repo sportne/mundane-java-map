@@ -1,6 +1,6 @@
 # G5-005 — Polygon holes and multipart slice
 
-Status: Proposed
+Status: Complete
 Depends on: G5-004
 Gate: G5
 Type: AFK
@@ -102,3 +102,10 @@ Do not add a general-purpose topology engine. If the bounded algorithm cannot cl
 under the approved profile, terminate that cursor with the stable diagnostic rather than guessing,
 repairing, or skipping it. Corpus, render-regression, fuzz, native, and performance lanes remain with
 their later owning tasks.
+
+Completed on 2026-07-14 with a package-private polygon decoder that reuses the bounded multipart
+reader, fixed packed exact-binary arithmetic, and cumulative topology accounting. Type-5 records now
+map source-stable clockwise shells and counterclockwise holes to singular or packed multipart API
+geometry; ambiguous associations fail rather than being repaired. Byte-authored, fault-injected, and
+offscreen evidence covers exact ring diagnostics, hostile limits and cancellation, SHX equivalence,
+accepted structural non-goals, transparent holes, disjoint shells, and nested islands.

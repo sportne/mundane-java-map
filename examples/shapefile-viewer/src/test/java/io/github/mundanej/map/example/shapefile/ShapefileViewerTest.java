@@ -10,6 +10,7 @@ import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
@@ -133,6 +134,26 @@ class ShapefileViewerTest {
         assertFalse(Files.exists(fixture));
     }
 
+    @Test
+    void rendersPolygonHolesDisjointShellsAndNestedIslands() throws Exception {
+        Path fixture = temporaryDirectory.resolve("polygons.shp");
+        Files.write(fixture, polygonFixture());
+
+        RenderedView rendered = render(fixture);
+        CrsOperation projection =
+                CrsRegistry.level1().operation(CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_3857);
+
+        assertTrue(hasColoredPixel(rendered, projection, new Coordinate(-3.5, 0), 2));
+        assertFalse(hasColoredPixel(rendered, projection, new Coordinate(2, 0), 2));
+        assertTrue(hasColoredPixel(rendered, projection, new Coordinate(0, 0), 2));
+        assertTrue(hasColoredPixel(rendered, projection, new Coordinate(7, 0), 2));
+        assertFalse(hasColoredPixel(rendered, projection, new Coordinate(5, 0), 2));
+
+        SwingUtilities.invokeAndWait(rendered.map()::close);
+        Files.delete(fixture);
+        assertFalse(Files.exists(fixture));
+    }
+
     private static RenderedView render(Path fixture) throws Exception {
         AtomicReference<MapView> mapReference = new AtomicReference<>();
         AtomicReference<BufferedImage> imageReference = new AtomicReference<>();
@@ -202,6 +223,12 @@ class ShapefileViewerTest {
             }
         }
         return false;
+    }
+
+    private static boolean hasColoredPixel(
+            RenderedView rendered, CrsOperation projection, Coordinate source, int radius) {
+        Coordinate screen = rendered.viewport().worldToScreen(projection.transform(source));
+        return hasColoredPixel(rendered.image(), screen, radius);
     }
 
     private static RenderSignature signature(BufferedImage image) {
@@ -296,7 +323,71 @@ class ShapefileViewerTest {
         return bytes.array();
     }
 
+    private static byte[] polygonFixture() {
+        byte[] polygon =
+                multipartShape(
+                        5,
+                        new int[] {0, 5, 10, 15},
+                        -4,
+                        -4,
+                        -4,
+                        4,
+                        4,
+                        4,
+                        4,
+                        -4,
+                        -4,
+                        -4,
+                        -3,
+                        -3,
+                        3,
+                        -3,
+                        3,
+                        3,
+                        -3,
+                        3,
+                        -3,
+                        -3,
+                        -1,
+                        -1,
+                        -1,
+                        1,
+                        1,
+                        1,
+                        1,
+                        -1,
+                        -1,
+                        -1,
+                        6,
+                        -2,
+                        6,
+                        2,
+                        9,
+                        2,
+                        9,
+                        -2,
+                        6,
+                        -2);
+        int size = 100 + 8 + polygon.length;
+        ByteBuffer bytes = ByteBuffer.allocate(size).order(ByteOrder.BIG_ENDIAN);
+        bytes.putInt(9994);
+        for (int index = 0; index < 5; index++) {
+            bytes.putInt(0);
+        }
+        bytes.putInt(size / 2);
+        bytes.order(ByteOrder.LITTLE_ENDIAN).putInt(1000).putInt(5);
+        putBounds(bytes, -4, -4, 9, 4);
+        bytes.putDouble(0).putDouble(0).putDouble(0).putDouble(0);
+        putRecord(bytes, 1, polygon);
+        assertEquals(size, bytes.position());
+        return bytes.array();
+    }
+
     private static byte[] polyline(int[] starts, double... coordinates) {
+        return multipartShape(3, starts, coordinates);
+    }
+
+    private static byte[] multipartShape(int type, int[] starts, double... coordinates) {
         int points = coordinates.length / 2;
         double minX = Double.POSITIVE_INFINITY;
         double minY = Double.POSITIVE_INFINITY;
@@ -311,7 +402,7 @@ class ShapefileViewerTest {
         ByteBuffer bytes =
                 ByteBuffer.allocate(44 + starts.length * 4 + coordinates.length * 8)
                         .order(ByteOrder.LITTLE_ENDIAN);
-        bytes.putInt(3);
+        bytes.putInt(type);
         putBounds(bytes, minX, minY, maxX, maxY);
         bytes.putInt(starts.length).putInt(points);
         for (int start : starts) {
