@@ -1,0 +1,20 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-image')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.raster.RasterViewer'
+}
+
+tasks.named('run') {
+    workingDir rootProject.projectDir
+}
+
+description = 'Runnable bounded PNG/JPEG raster viewer example.'

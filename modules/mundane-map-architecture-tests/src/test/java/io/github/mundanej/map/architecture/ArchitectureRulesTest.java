@@ -311,10 +311,7 @@ class ArchitectureRulesTest {
                                                 .getTargetClass()
                                                 .getBaseComponentType()
                                                 .getName())
-                        .filter(
-                                target ->
-                                        target.startsWith("javax.imageio.")
-                                                || target.equals("java.util.ServiceLoader"))
+                        .filter(target -> target.equals("java.util.ServiceLoader"))
                         .distinct()
                         .sorted()
                         .toList();
@@ -323,9 +320,7 @@ class ArchitectureRulesTest {
                         .map(JavaClass::getSimpleName)
                         .filter(
                                 name ->
-                                        name.contains("RasterDecoder")
-                                                || name.contains("ImageDecoder")
-                                                || name.contains("RasterCache")
+                                        name.contains("RasterCache")
                                                 || name.contains("RasterWorker")
                                                 || name.contains("RasterLoader")
                                                 || name.contains("RasterWarp")
@@ -385,6 +380,81 @@ class ArchitectureRulesTest {
                         && converterDependencies.contains("java.awt.image.BufferedImage")
                         && converterDependencies.contains("java.awt.image.DataBufferInt"),
                 "The direct converter must bridge the toolkit-neutral buffer to owned AWT pixels");
+    }
+
+    @Test
+    void imageModuleIsAwtFreeAndUsesOnlyTheExplicitFixedAwtDecoderBridge() {
+        ModuleDescriptor image = moduleEndingWith("mundane-map-io-image");
+        ModuleDescriptor awt = moduleEndingWith("mundane-map-awt");
+        JavaClasses formatClasses = classesByModule.get(image);
+        JavaClasses awtClasses = classesByModule.get(awt);
+        List<String> toolkitDependencies =
+                formatClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicFormatTypes =
+                formatClasses.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.image"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        Set<String> imageIoOwners =
+                awtClasses.stream()
+                        .filter(
+                                type ->
+                                        type.getDirectDependenciesFromSelf().stream()
+                                                .anyMatch(
+                                                        dependency ->
+                                                                dependency
+                                                                        .getTargetClass()
+                                                                        .getBaseComponentType()
+                                                                        .getPackageName()
+                                                                        .startsWith(
+                                                                                "javax.imageio")))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        Set<String> supportProjects =
+                java.util.Arrays.stream(
+                                System.getProperty("map.architecture.supportProjects").split(","))
+                        .filter(Predicate.not(String::isBlank))
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals("JDK_RUNTIME", image.category());
+        assertEquals(1, image.releaseLevel());
+        assertTrue(image.nativeTarget());
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                image.allowedRuntimeProjects());
+        assertFalse(formatClasses.isEmpty(), "Expected the working image format module");
+        assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
+        assertEquals(
+                Set.of("RasterImages", "ImageOpenOptions", "ImagePlacement", "ImageSourceLimits"),
+                publicFormatTypes);
+        assertEquals(
+                Set.of("AwtRasterDecoders", "ImageInputFactory", "ImageIoRasterDecoder"),
+                imageIoOwners);
+        assertTrue(supportProjects.contains(":examples:raster-viewer"));
+        assertTrue(
+                modules.stream()
+                        .noneMatch(module -> module.path().equals(":examples:raster-viewer")),
+                "The viewer must remain outside the production architecture graph");
     }
 
     @Test

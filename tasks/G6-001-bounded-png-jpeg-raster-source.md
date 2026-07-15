@@ -1,6 +1,6 @@
 # G6-001 — Bounded PNG/JPEG raster source
 
-Status: Proposed
+Status: Complete
 Depends on: G4-002, G4-004
 Gate: G6
 Type: AFK
@@ -73,16 +73,19 @@ render behavior rather than an empty format module.
 
 ## Required tests
 
-- Exact PNG/JPEG header-profile, suffix/signature agreement, limit-minus/equal/plus-one and overflow,
-  corrupt/truncated, unsupported-profile, exact retained header-snapshot mutation, changed length,
-  close/reuse, and cancellation tests.
+- Exact tests for every accepted PNG depth/color pair and grayscale/RGB SOF0/SOF2 JPEG, plus
+  suffix/signature agreement, limit-minus/equal/plus-one and overflow, corrupt/truncated and
+  unsupported-profile distinctions, exact retained header-snapshot mutation, changed length,
+  close/reuse, and cancellation.
 - Decoder-registry/context tests for declaration order, duplicates, missing entries, accounting,
   source-owned reservation/decoder claims, non-null/exact result shape, hard input fence, cleanup,
   and before/after opaque-stage cancellation.
-- PNG/JPEG strict-window/nearest source and offscreen integration tests using tiny checksummed BSD
-  fixtures; PNG colors/alpha are exact and JPEG/render colors use bounded tolerance.
-- Large ordinary/compressed ancillary metadata fixtures prove the ignore-metadata reader setup stays
-  within the fixed reservation; concatenated/trailing JPEG bytes are recorded as a non-claim.
+- PNG/JPEG strict-window/nearest source and offscreen `MapView` integration tests using tiny
+  checksummed BSD fixtures; PNG colors/alpha are exact and JPEG/render colors use bounded tolerance,
+  explicit transformed bounds, outside-background checks, and bounded paint extent.
+- Large ordinary/compressed PNG ancillary metadata and JPEG APP/COM fixtures prove the
+  ignore-metadata reader setup stays within the fixed reservation; concatenated/trailing JPEG bytes
+  are recorded separately as a non-claim.
 - Architecture tests proving `mundane-map-io-image` is AWT-free and AWT types remain confined.
 - Viewer argument/loading tests.
 
@@ -102,3 +105,13 @@ may use the JDK ImageIO reader registry only to retain one reader implemented by
 must ignore every classpath/module-path provider. This is the exact G0 opaque-JDK qualification, not
 permission for a project `ServiceLoader`, provider scan/mutation, or fallback. Do not run native,
 rendering-regression, corpus, or performance lanes in this task.
+
+Implementation evidence (2026-07-15): `mundane-map-io-image` now owns bounded fixed-profile probing,
+one retained channel, exact header/length mutation checks, prospective G4 accounting, and stable
+diagnostics without `java.desktop`. The API decoder context/registry is immutable and explicit; AWT
+selects only the fixed `java.desktop` PNG/JPEG reader SPIs and converts exact strict-window nearest
+output. The runnable viewer uses normalized EPSG:3857 demonstration placement and labels it as not
+georeferenced. Checked-in Base64 fixtures retain exact length/SHA-256 and BSD provenance beside the
+tests. The focused command and `publicationDryRun` passed; the final `qualityGate` and whitespace
+result are recorded in the task handoff. No native, corpus, rendering-regression, or performance lane
+was run or claimed.

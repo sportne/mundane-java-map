@@ -1,0 +1,11 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+}
+
+description = 'Bounded toolkit-neutral PNG and JPEG raster sources.'

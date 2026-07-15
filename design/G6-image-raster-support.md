@@ -369,6 +369,22 @@ implementation is intentionally simple and bounded; G6-003 may optimize through 
 request context, and G6-004 may add evidence-backed caches without changing the format-neutral source
 contract.
 
+### G6-001 implementation closeout
+
+The implemented slice matches this boundary without adding a parallel raster model. The format
+module exposes only `RasterImages`, `ImageOpenOptions`, `ImagePlacement`, and `ImageSourceLimits`;
+all channels, probes, snapshots, and accounting contexts remain private. The unavoidable API seam is
+the fixed PNG/JPEG enum, operation context, decoder, and immutable explicit registry. AWT owns the
+only ImageIO reader selection and pixel conversion, while architecture tests enforce the exact
+`java.desktop` qualification and keep the format module AWT-free.
+
+Two checksummed repository-authored Base64 fixtures exercise exact PNG alpha and tolerant JPEG color
+through the production decoder. The viewer consumes the same `RasterSource` path with an explicit
+normalized EPSG:3857 placement labelled not georeferenced. Publication staging includes the new
+module and excludes the viewer/test fixtures. This preserves the intended extension points for
+G6-002 through G6-004: placement, request controls, and caching can grow around a working bounded
+source rather than replacing speculative scaffolding.
+
 ## World-file affine georeferencing (G6-002)
 
 ### Placement model and invariants

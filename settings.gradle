@@ -71,6 +71,10 @@ def projectInventory = [
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [
             ':modules:mundane-map-api', ':modules:mundane-map-core']],
+    [path: ':modules:mundane-map-io-image', category: 'JDK_RUNTIME', releaseLevel: 1,
+        published: true, nativeTarget: true,
+        allowedRuntimeProjects: [
+            ':modules:mundane-map-api', ':modules:mundane-map-core']],
     [path: ':modules:mundane-map-awt', category: 'JDK_RUNTIME', releaseLevel: 1,
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [
@@ -86,6 +90,8 @@ def projectInventory = [
     [path: ':examples:measurement-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:shapefile-viewer', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false, allowedRuntimeProjects: []],
+    [path: ':examples:raster-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
 ]
 

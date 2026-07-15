@@ -146,7 +146,8 @@ final class ArchitecturePolicy {
                 JavaClass targetOwner = access.getTargetOwner();
                 String owner = targetOwner.getName();
                 String name = access.getName();
-                if (isProhibitedAccess(targetOwner, name)) {
+                if (isProhibitedAccess(targetOwner, name)
+                        && !isFixedImageIoQualification(javaClass, owner, name)) {
                     violations.add(
                             diagnostic(
                                     "prohibited runtime access",
@@ -402,6 +403,13 @@ final class ArchitecturePolicy {
                 || typeName.equals("sun.misc.Unsafe")
                 || typeName.startsWith("jdk.internal.")
                 || typeName.startsWith("sun.");
+    }
+
+    private static boolean isFixedImageIoQualification(
+            JavaClass caller, String owner, String name) {
+        return caller.getName().equals("io.github.mundanej.map.awt.AwtRasterDecoders")
+                && owner.equals("java.lang.Class")
+                && name.equals("getModule");
     }
 
     private static boolean isProhibitedAccess(JavaClass ownerType, String name) {

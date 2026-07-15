@@ -179,6 +179,12 @@ architectural requirement. Level 1 is complete only when
 
 - Add an AWT-free `mundane-map-io-image` source with an explicitly registered `ImageIO` decoder
   confined to `mundane-map-awt`.
+- G6-001 is implemented and verified: fixed-profile PNG/JPEG probing, explicit axis-aligned or
+  unplaced metadata, bounded owned-channel reads, immutable decoder registration, strict-window
+  nearest conversion, fixture evidence, the normalized non-georeferenced viewer, architecture
+  enforcement, and publication staging all use the real G4 raster path. World files, affine
+  transforms, controls/caches/hardening, and Native Image remain the proposed G6-002 through G6-005
+  slices.
 - Support explicit bounds, world files, affine georeferencing, window requests, opacity,
   interpolation, bounded caches, lifecycle/cancellation, hostile inputs, a runnable viewer, and a
   real Native Image decode/render path.
