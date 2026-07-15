@@ -1,0 +1,10 @@
+package io.github.mundanej.map.nativeimage;
+
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
+final class NativeShapefileWorkspace {
+    static byte[] digest(String algorithm, byte[] bytes) throws NoSuchAlgorithmException {
+        return MessageDigest.getInstance(algorithm).digest(bytes);
+    }
+}

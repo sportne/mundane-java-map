@@ -10,6 +10,10 @@ import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
@@ -159,6 +163,20 @@ public final class MechanismFixtures {
     public static final class ExplicitResourceUse {
         public URL resource() {
             return ExplicitResourceUse.class.getResource("/known-resource.txt");
+        }
+    }
+
+    public static final class ResourceWalkingUse {
+        public long count(Path directory) throws IOException {
+            try (var paths = Files.walk(directory)) {
+                return paths.count();
+            }
+        }
+    }
+
+    public static final class ArbitraryDigestUse {
+        public byte[] digest(String algorithm, byte[] value) throws NoSuchAlgorithmException {
+            return MessageDigest.getInstance(algorithm).digest(value);
         }
     }
 }

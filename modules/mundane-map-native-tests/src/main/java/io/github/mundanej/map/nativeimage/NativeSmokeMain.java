@@ -23,7 +23,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.RepaintManager;
 import javax.swing.SwingUtilities;
 
-/** Native Image entrypoint that exercises symbols and an explicit resource through MapView. */
+/**
+ * Native Image entrypoint that exercises symbols and a Shapefile through offscreen MapView paths.
+ */
 public final class NativeSmokeMain {
     static final int IMAGE_WIDTH = 256;
     static final int IMAGE_HEIGHT = 128;
@@ -43,9 +45,10 @@ public final class NativeSmokeMain {
         System.out.println("mundane-map native smoke: OK");
     }
 
-    /** Runs the exact symbol and resource scenario used by the native executable. */
+    /** Runs the exact symbol, resource, and Shapefile scenarios used by the native executable. */
     public static void runSmoke() {
         runScenario(NativeSymbolSmokeScenario.standard(loadRasterPixels()));
+        NativeShapefileSmokeScenario.run();
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {

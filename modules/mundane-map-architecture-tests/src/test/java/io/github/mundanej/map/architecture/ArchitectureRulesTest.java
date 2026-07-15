@@ -11,6 +11,7 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.mundanej.map.architecture.ArchitecturePolicy.ModuleDescriptor;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,11 +25,23 @@ import org.junit.jupiter.api.Test;
 
 class ArchitectureRulesTest {
     private static final String FIXTURE_PACKAGE = "io.github.mundanej.map.architecture.fixture.";
+    private static final String NATIVE_METADATA_DIRECTORY =
+            "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/";
+    private static final String NATIVE_RESOURCE_DIRECTORY = "io/github/mundanej/map/nativeimage/";
+    private static final Set<String> NATIVE_SHAPEFILE_RESOURCES =
+            Set.of(
+                    NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.shp",
+                    NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.shx",
+                    NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.dbf",
+                    NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.cpg",
+                    NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.prj",
+                    NATIVE_RESOURCE_DIRECTORY + "shapefile/malformed-record.shp");
 
     private static List<ModuleDescriptor> modules;
     private static Map<ModuleDescriptor, JavaClasses> classesByModule;
     private static JavaClasses fixtureClasses;
     private static JavaClasses nativeSupportClasses;
+    private static Path nativeSupportSources;
     private static List<Path> nativeSupportResources;
 
     @BeforeAll
@@ -48,6 +61,7 @@ class ArchitectureRulesTest {
                                 Path.of(
                                         System.getProperty(
                                                 "map.architecture.nativeSupportClasses")));
+        nativeSupportSources = Path.of(System.getProperty("map.architecture.nativeSupportSources"));
         nativeSupportResources =
                 List.of(
                                 System.getProperty("map.architecture.nativeSupportResources")
@@ -449,6 +463,25 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void nativeShapefileSupportUsesOnlyFixedPathsAndItsOneDigestWorkspace() throws IOException {
+        JavaClasses shapefileClasses =
+                classesByModule.get(moduleEndingWith("mundane-map-io-shapefile"));
+        List<String> bytecodeViolations =
+                ArchitecturePolicy.nativeShapefileSupportViolations(
+                        nativeSupportClasses, shapefileClasses);
+
+        assertTrue(bytecodeViolations.isEmpty(), () -> String.join("\n", bytecodeViolations));
+
+        Path workspaceSource =
+                nativeSupportSources.resolve(
+                        "io/github/mundanej/map/nativeimage/NativeShapefileWorkspace.java");
+        List<String> sourceViolations =
+                ArchitecturePolicy.fixedSha256WorkspaceSourceViolations(
+                        Files.readString(workspaceSource), workspaceSource.toString());
+        assertTrue(sourceViolations.isEmpty(), () -> String.join("\n", sourceViolations));
+    }
+
+    @Test
     void actualProductionResourcesAvoidImplicitDiscoveryMetadata() throws IOException {
         List<String> violations = new ArrayList<>();
         for (ModuleDescriptor module : modules) {
@@ -477,33 +510,62 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeResourceInventoryIsExplicit() throws IOException {
+    void nativeSmokeSourceAndProcessedResourceInventoriesAreExact() throws IOException {
         Path sourceResources =
                 nativeSupportResources.stream()
                         .filter(path -> path.endsWith(Path.of("src", "main", "resources")))
                         .findFirst()
                         .orElseThrow();
-        Set<String> actual;
-        try (var paths = java.nio.file.Files.walk(sourceResources)) {
-            actual =
-                    paths.filter(java.nio.file.Files::isRegularFile)
-                            .map(sourceResources::relativize)
-                            .map(path -> path.toString().replace('\\', '/'))
-                            .collect(Collectors.toUnmodifiableSet());
-        }
-
-        assertEquals(
+        Path processedResources =
+                nativeSupportResources.stream()
+                        .filter(Predicate.not(sourceResources::equals))
+                        .findFirst()
+                        .orElseThrow();
+        Set<String> metadata =
                 Set.of(
-                        "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/"
-                                + "jni-config.json",
-                        "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/"
-                                + "reflect-config.json",
-                        "META-INF/native-image/io.github.mundanej/mundane-map-native-tests/"
-                                + "resource-config.json",
-                        "io/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba",
-                        "io/github/mundanej/map/nativeimage/"
-                                + "symbol-smoke-4x2.rgba.provenance.txt"),
-                actual);
+                        NATIVE_METADATA_DIRECTORY + "jni-config.json",
+                        NATIVE_METADATA_DIRECTORY + "reflect-config.json",
+                        NATIVE_METADATA_DIRECTORY + "resource-config.json");
+        Set<String> checkedIn =
+                java.util.stream.Stream.of(
+                                metadata,
+                                Set.of(
+                                        NATIVE_RESOURCE_DIRECTORY + "symbol-smoke-4x2.rgba",
+                                        NATIVE_RESOURCE_DIRECTORY
+                                                + "symbol-smoke-4x2.rgba.provenance.txt",
+                                        NATIVE_RESOURCE_DIRECTORY
+                                                + "shapefile/malformed-record.shp"))
+                        .flatMap(Set::stream)
+                        .collect(Collectors.toUnmodifiableSet());
+        Set<String> processed =
+                java.util.stream.Stream.concat(
+                                checkedIn.stream(), NATIVE_SHAPEFILE_RESOURCES.stream())
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals(checkedIn, resourceInventory(sourceResources));
+        assertEquals(processed, resourceInventory(processedResources));
+    }
+
+    @Test
+    void nativeSmokeResourceConfigurationNamesOnlyLiteralRuntimeResources() throws IOException {
+        Path sourceResources =
+                nativeSupportResources.stream()
+                        .filter(path -> path.endsWith(Path.of("src", "main", "resources")))
+                        .findFirst()
+                        .orElseThrow();
+        Path resourceConfig =
+                sourceResources.resolve(NATIVE_METADATA_DIRECTORY + "resource-config.json");
+        Set<String> expected =
+                java.util.stream.Stream.concat(
+                                Set.of(NATIVE_RESOURCE_DIRECTORY + "symbol-smoke-4x2.rgba")
+                                        .stream(),
+                                NATIVE_SHAPEFILE_RESOURCES.stream())
+                        .collect(Collectors.toUnmodifiableSet());
+        List<String> violations =
+                ArchitecturePolicy.explicitResourceConfigViolations(
+                        Files.readString(resourceConfig), expected);
+
+        assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
     }
 
     @Test
@@ -589,6 +651,56 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void nativeShapefilePolicyRejectsResourceWalkingAndArbitraryDigestSelection()
+            throws IOException {
+        List<JavaClass> fixtures =
+                List.of(
+                        fixture("MechanismFixtures$ResourceWalkingUse"),
+                        fixture("MechanismFixtures$ArbitraryDigestUse"));
+        List<String> violations =
+                ArchitecturePolicy.nativeShapefileSupportViolations(fixtures, List.of());
+
+        assertTrue(
+                violations.stream().anyMatch(value -> value.contains("ResourceWalkingUse")),
+                () -> String.join("\n", violations));
+        assertTrue(
+                violations.stream().anyMatch(value -> value.contains("ArbitraryDigestUse")),
+                () -> String.join("\n", violations));
+
+        Path fixtureResources = Path.of(System.getProperty("map.architecture.fixtureResources"));
+        for (String fixtureName :
+                List.of("CallerSelectedWorkspace.java.txt", "PropertySelectedWorkspace.java.txt")) {
+            Path fixture = fixtureResources.resolve("native-digest").resolve(fixtureName);
+            List<String> sourceViolations =
+                    ArchitecturePolicy.fixedSha256WorkspaceSourceViolations(
+                            Files.readString(fixture), fixtureName);
+            assertFalse(sourceViolations.isEmpty(), fixtureName);
+            assertTrue(
+                    sourceViolations.stream()
+                            .allMatch(value -> value.contains("must use the literal \"SHA-256\"")),
+                    () -> String.join("\n", sourceViolations));
+        }
+    }
+
+    @Test
+    void nativeResourcePolicyRejectsWildcardAndBundleMetadata() {
+        String unsafe =
+                """
+                {
+                  "resources": {
+                    "includes": [{"pattern": ".*"}],
+                    "bundles": [{"name": "example.Messages"}]
+                  }
+                }
+                """;
+
+        assertFalse(
+                ArchitecturePolicy.explicitResourceConfigViolations(
+                                unsafe, Set.of("known/resource.bin"))
+                        .isEmpty());
+    }
+
+    @Test
     void serviceDescriptorFixtureIsRejected() throws IOException {
         Path resources = Path.of(System.getProperty("map.architecture.fixtureResources"));
         List<String> violations =
@@ -630,6 +742,15 @@ class ArchitectureRulesTest {
                 .filter(module -> module.path().endsWith(suffix))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static Set<String> resourceInventory(Path resourceRoot) throws IOException {
+        try (var paths = Files.walk(resourceRoot)) {
+            return paths.filter(Files::isRegularFile)
+                    .map(resourceRoot::relativize)
+                    .map(path -> path.toString().replace('\\', '/'))
+                    .collect(Collectors.toUnmodifiableSet());
+        }
     }
 
     private static Map<String, String> owningModules(

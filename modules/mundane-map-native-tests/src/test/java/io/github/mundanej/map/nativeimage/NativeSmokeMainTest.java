@@ -30,7 +30,11 @@ class NativeSmokeMainTest {
 
     @Test
     void rendersWhenAlreadyOnTheEventDispatchThread() throws Exception {
-        SwingUtilities.invokeAndWait(NativeSmokeMain::runSmoke);
+        SwingUtilities.invokeAndWait(
+                () ->
+                        NativeSmokeMain.runScenario(
+                                NativeSymbolSmokeScenario.standard(
+                                        NativeSmokeMain.loadRasterPixels())));
     }
 
     @Test
@@ -64,7 +68,7 @@ class NativeSmokeMainTest {
     }
 
     @Test
-    void exactResourceMetadataDeclaresOnlyTheIcon() throws IOException {
+    void exactResourceMetadataDeclaresOnlyTheFixedInventory() throws IOException {
         String expected =
                 """
                 {
@@ -75,6 +79,42 @@ class NativeSmokeMainTest {
                           "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
                         },
                         "pattern": "\\\\Qio/github/mundanej/map/nativeimage/symbol-smoke-4x2.rgba\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/polygon-smoke.shp\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/polygon-smoke.shx\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/polygon-smoke.dbf\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/polygon-smoke.cpg\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/polygon-smoke.prj\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/malformed-record.shp\\\\E"
                       }
                     ]
                   }

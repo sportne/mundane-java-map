@@ -7,6 +7,52 @@ dependencies {
     implementation project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
     implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-shapefile')
+}
+
+def shapefileCorpusRoot = project(':modules:mundane-map-io-shapefile').layout.projectDirectory.dir(
+        'src/shapefileCorpusTest/resources/shapefile-corpus')
+def shapefileDatasetId = 'generated-polygon-hole-windows1252-3857'
+def shapefileDatasetDirectory = shapefileCorpusRoot.dir("data/${shapefileDatasetId}")
+def shapefileComponents = [
+    'shp',
+    'shx',
+    'dbf',
+    'cpg',
+    'prj'
+]
+def shapefileSourceFiles = shapefileComponents.collect { extension ->
+    shapefileDatasetDirectory.file("${shapefileDatasetId}.${extension}")
+}
+def shapefileManifest = shapefileCorpusRoot.file('manifest.tsv')
+def shapefileLicense = shapefileCorpusRoot.file('licenses/BSD-3-Clause.txt')
+def rootLicense = rootProject.layout.projectDirectory.file('LICENSE')
+
+tasks.named('processResources') {
+    shapefileComponents.eachWithIndex { extension, index ->
+        from(shapefileSourceFiles[index]) {
+            into 'io/github/mundanej/map/nativeimage/shapefile'
+            rename { "polygon-smoke.${extension}" }
+        }
+    }
+    inputs.files(shapefileSourceFiles)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+tasks.named('test') {
+    workingDir rootProject.projectDir
+    inputs.files(shapefileSourceFiles)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(shapefileManifest)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(shapefileLicense)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(rootLicense)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty 'mundane.map.shapefile.native.corpus.root',
+            rootProject.relativePath(shapefileCorpusRoot.asFile)
+    systemProperty 'mundane.map.shapefile.native.root.license',
+            rootProject.relativePath(rootLicense.asFile)
 }
 
 application {
@@ -14,4 +60,3 @@ application {
 }
 
 description = 'Offscreen GraalVM Native Image compatibility smoke application.'
-

@@ -17,10 +17,20 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 final class ArchitecturePolicy {
     private static final Map<String, String> JDK_MODULE_BY_PACKAGE = jdkModulesByPackage();
+    private static final String NATIVE_SHAPEFILE_WORKSPACE =
+            "io.github.mundanej.map.nativeimage.NativeShapefileWorkspace";
+    private static final Pattern RESOURCE_PATTERN =
+            Pattern.compile("\\\"pattern\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+    private static final Pattern MESSAGE_DIGEST_FACTORY_CALL =
+            Pattern.compile(
+                    "(?:java\\.security\\.)?MessageDigest\\s*\\.\\s*getInstance\\s*\\(([^)]*)\\)",
+                    Pattern.DOTALL);
 
     private ArchitecturePolicy() {}
 
@@ -177,6 +187,154 @@ final class ArchitecturePolicy {
                                                     + path));
         }
         return violations;
+    }
+
+    static List<String> nativeShapefileSupportViolations(
+            Collection<JavaClass> nativeSupportClasses, Collection<JavaClass> shapefileClasses) {
+        List<String> violations = new ArrayList<>();
+        for (JavaClass javaClass : shapefileClasses) {
+            for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
+                if (access.getTargetOwner().getPackageName().startsWith("java.security")) {
+                    violations.add(
+                            diagnostic(
+                                    "native Shapefile cryptography",
+                                    "mundane-map-io-shapefile",
+                                    javaClass,
+                                    access.getTarget().getFullName()));
+                }
+            }
+        }
+        for (JavaClass javaClass : nativeSupportClasses) {
+            int digestFactoryCalls = 0;
+            for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
+                String owner = access.getTargetOwner().getName();
+                String name = access.getName();
+                if (javaClass.getName().equals(NATIVE_SHAPEFILE_WORKSPACE)
+                        && owner.equals("java.security.MessageDigest")
+                        && name.equals("getInstance")) {
+                    digestFactoryCalls++;
+                }
+                if (owner.startsWith("java.security.")
+                        && !allowedWorkspaceDigestAccess(javaClass, owner, name, access)) {
+                    violations.add(
+                            diagnostic(
+                                    "native Shapefile cryptography",
+                                    "mundane-map-native-tests",
+                                    javaClass,
+                                    access.getTarget().getFullName()));
+                }
+                if (isResourceEnumerationOrWalking(owner, name)) {
+                    violations.add(
+                            diagnostic(
+                                    "fixed native resource",
+                                    "mundane-map-native-tests",
+                                    javaClass,
+                                    access.getTarget().getFullName()));
+                }
+            }
+            if (javaClass.getName().equals(NATIVE_SHAPEFILE_WORKSPACE) && digestFactoryCalls != 1) {
+                violations.add(
+                        "native Shapefile digest factory boundary violated by "
+                                + NATIVE_SHAPEFILE_WORKSPACE
+                                + ": expected exactly one MessageDigest.getInstance call, found "
+                                + digestFactoryCalls);
+            }
+        }
+        return violations;
+    }
+
+    static List<String> fixedSha256WorkspaceSourceViolations(String source, String sourceName) {
+        Matcher matcher = MESSAGE_DIGEST_FACTORY_CALL.matcher(source);
+        List<String> violations = new ArrayList<>();
+        int callCount = 0;
+        while (matcher.find()) {
+            callCount++;
+            if (!matcher.group(1).trim().equals("\"SHA-256\"")) {
+                violations.add(
+                        "native Shapefile digest algorithm boundary violated by "
+                                + sourceName
+                                + ": MessageDigest.getInstance must use the literal \"SHA-256\"");
+            }
+        }
+        if (callCount != 1) {
+            violations.add(
+                    "native Shapefile digest algorithm boundary violated by "
+                            + sourceName
+                            + ": expected exactly one source-level MessageDigest.getInstance call, found "
+                            + callCount);
+        }
+        return List.copyOf(violations);
+    }
+
+    static List<String> explicitResourceConfigViolations(
+            String resourceConfig, Set<String> expectedResourcePaths) {
+        List<String> violations = new ArrayList<>();
+        Matcher matcher = RESOURCE_PATTERN.matcher(resourceConfig);
+        Set<String> actualPatterns = new HashSet<>();
+        int patternCount = 0;
+        while (matcher.find()) {
+            patternCount++;
+            actualPatterns.add(matcher.group(1));
+        }
+        Set<String> expectedPatterns = new HashSet<>();
+        for (String path : expectedResourcePaths) {
+            expectedPatterns.add("\\\\Q" + path + "\\\\E");
+        }
+        if (patternCount != expectedPatterns.size() || !actualPatterns.equals(expectedPatterns)) {
+            violations.add(
+                    "explicit native resource inventory violated: expected "
+                            + expectedPatterns.stream().sorted().toList()
+                            + ", actual "
+                            + actualPatterns.stream().sorted().toList());
+        }
+        String reachability =
+                "\"typeReachable\": \"io.github.mundanej.map.nativeimage.NativeSmokeMain\"";
+        if (countOccurrences(resourceConfig, reachability) != expectedPatterns.size()) {
+            violations.add(
+                    "explicit native resource reachability violated: every resource must use "
+                            + "NativeSmokeMain");
+        }
+        if (resourceConfig.contains("\"bundles\"") || resourceConfig.contains("\"excludes\"")) {
+            violations.add("explicit native resource metadata contains discovery-oriented entries");
+        }
+        return List.copyOf(violations);
+    }
+
+    private static boolean allowedWorkspaceDigestAccess(
+            JavaClass origin, String owner, String name, JavaAccess<?> access) {
+        if (!origin.getName().equals(NATIVE_SHAPEFILE_WORKSPACE)
+                || !owner.equals("java.security.MessageDigest")) {
+            return false;
+        }
+        if (name.equals("digest")) {
+            return true;
+        }
+        return name.equals("getInstance")
+                && access.getTarget()
+                        .getFullName()
+                        .equals("java.security.MessageDigest.getInstance(java.lang.String)");
+    }
+
+    private static boolean isResourceEnumerationOrWalking(String owner, String name) {
+        if (owner.equals("java.nio.file.Files")) {
+            return name.equals("walk")
+                    || name.equals("walkFileTree")
+                    || name.equals("list")
+                    || name.equals("find")
+                    || name.equals("newDirectoryStream");
+        }
+        return owner.equals("java.io.File")
+                && (name.equals("list") || name.equals("listFiles") || name.equals("listRoots"));
+    }
+
+    private static int countOccurrences(String value, String expected) {
+        int count = 0;
+        int offset = 0;
+        while ((offset = value.indexOf(expected, offset)) >= 0) {
+            count++;
+            offset += expected.length();
+        }
+        return count;
     }
 
     private static Set<String> allowedJdkModules(ModuleDescriptor module) {

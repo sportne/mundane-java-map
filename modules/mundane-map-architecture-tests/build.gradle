@@ -204,6 +204,7 @@ tasks.named('test') {
     inputs.files(sourceSets.architectureFixtures.output.classesDirs)
     inputs.dir(file('src/architectureFixtures/resources'))
     inputs.files(nativeSmokeProject.layout.buildDirectory.dir('classes/java/main'))
+    inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/java'))
     inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/resources'))
     inputs.dir(nativeSmokeProject.layout.buildDirectory.dir('resources/main'))
     systemProperty 'map.architecture.modules', moduleDescriptors
@@ -218,6 +219,8 @@ tasks.named('test') {
             file('src/architectureFixtures/resources').absolutePath
     systemProperty 'map.architecture.nativeSupportClasses',
             nativeSmokeProject.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
+    systemProperty 'map.architecture.nativeSupportSources',
+            new File(nativeSmokeProject.projectDir, 'src/main/java').absolutePath
     systemProperty 'map.architecture.nativeSupportResources',
             [
                 new File(nativeSmokeProject.projectDir, 'src/main/resources').absolutePath,
