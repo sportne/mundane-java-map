@@ -1,6 +1,6 @@
 # G6-002 — World-file affine georeferencing
 
-Status: Proposed
+Status: Complete
 Depends on: G6-001
 Gate: G6
 Type: AFK
@@ -94,3 +94,14 @@ git diff --check
 Parse with explicit ASCII and locale-independent numbers. Preserve the transform as an immutable
 pixel-center value; do not reduce rotated/sheared input to an axis-aligned approximation. Do not run
 publication, native, rendering-regression, corpus, or performance lanes in this task.
+
+Implementation evidence (2026-07-15): the API now exposes one immutable affine transform and tagged
+grid placement, while compatible metadata construction retains exact axis-aligned bounds and the new
+factory derives half-pixel-expanded affine envelopes. Core preserves the G4 axis path and adds fixed-
+purpose normalized inverse clipping. The image adapter explicitly snapshots one direct-sibling world
+file under byte/line limits, parses strict physical `A,D,B,E,C,F` order, retains caller-declared CRS
+without guessing, and publishes immutable coefficients only after transactional cleanup. MapView
+draws the selected source window as its transformed parallelogram, and the viewer offers only the
+explicit `--world-file EPSG:4326|EPSG:3857` mode beside its labelled normalized demonstration mode.
+Focused checks passed; the final quality and whitespace results are recorded in the task handoff. No
+publication, native, rendering-regression, corpus, or performance lane was run or claimed.

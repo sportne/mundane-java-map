@@ -11,7 +11,6 @@ import io.github.mundanej.map.api.RasterSourceLimits;
 import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceException;
-import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.RasterRequestAccounting;
 import java.io.IOException;
 import java.util.Arrays;
@@ -29,18 +28,12 @@ final class ImageRasterSource implements RasterSource {
     ImageRasterSource(
             ImageChannel channel,
             ImageHeader header,
-            SourceIdentity identity,
+            RasterSourceMetadata metadata,
             ImageOpenOptions options,
             EncodedRasterDecoder decoder) {
         this.channel = Objects.requireNonNull(channel, "channel");
         this.header = Objects.requireNonNull(header, "header");
-        metadata =
-                new RasterSourceMetadata(
-                        identity,
-                        header.width(),
-                        header.height(),
-                        options.placement().mapBounds(),
-                        options.placement().crs());
+        this.metadata = Objects.requireNonNull(metadata, "metadata");
         limits = options.requestLimits();
         this.decoder = Objects.requireNonNull(decoder, "decoder");
     }

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterAffineTransform;
+import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.SourceIdentity;
@@ -127,12 +129,180 @@ class RasterGridWindowsTest {
         assertEquals(fullBounds, RasterGridWindows.mapBounds(metadata, first));
     }
 
+    @Test
+    void affineFullPartialAndDisjointViewsAreConservative() {
+        RasterSourceMetadata metadata =
+                affineMetadata(4, 4, RasterAffineTransform.of(1, 0, 0, 1, 0, 0));
+        Envelope fullBounds = new Envelope(-0.5, -0.5, 3.5, 3.5);
+        assertEquals(fullBounds, metadata.mapBounds().orElseThrow());
+        assertEquals(
+                new RasterWindow(0, 0, 4, 4),
+                RasterGridWindows.visibleWindow(metadata, fullBounds).orElseThrow());
+        assertEquals(
+                new RasterWindow(0, 0, 4, 4),
+                RasterGridWindows.visibleWindow(metadata, new Envelope(.5, .5, 2.5, 2.5))
+                        .orElseThrow());
+        assertTrue(
+                RasterGridWindows.visibleWindow(metadata, new Envelope(3.5, 0, 4.5, 1)).isEmpty());
+        assertEquals(
+                new Envelope(.5, .5, 2.5, 2.5),
+                RasterGridWindows.mapBounds(metadata, new RasterWindow(1, 1, 2, 2)));
+    }
+
+    @Test
+    void affineRotationAndShearClipEnvelopeCornersOutsideFootprint() {
+        RasterAffineTransform rotation = RasterAffineTransform.of(1, 1, -1, 1, 0, 0);
+        RasterSourceMetadata metadata = affineMetadata(4, 4, rotation);
+        Envelope envelope = metadata.mapBounds().orElseThrow();
+        assertTrue(
+                RasterGridWindows.visibleWindow(
+                                metadata,
+                                new Envelope(
+                                        envelope.minX(),
+                                        envelope.maxY() - .25,
+                                        envelope.minX() + .25,
+                                        envelope.maxY()))
+                        .isEmpty());
+        RasterWindow center =
+                RasterGridWindows.visibleWindow(metadata, new Envelope(-.25, 2.75, .25, 3.25))
+                        .orElseThrow();
+        assertTrue(center.width() <= 3);
+        assertTrue(center.height() <= 3);
+
+        RasterSourceMetadata sheared =
+                affineMetadata(3, 2, RasterAffineTransform.of(2, .25, .75, -1, 10, 20));
+        assertEquals(
+                new RasterWindow(0, 0, 3, 2),
+                RasterGridWindows.visibleWindow(sheared, sheared.mapBounds().orElseThrow())
+                        .orElseThrow());
+    }
+
+    @Test
+    void affineTouchingAndCornerOnlyContactAreEmpty() {
+        RasterSourceMetadata metadata =
+                affineMetadata(1, 1, RasterAffineTransform.of(1, 1, -1, 1, 0, 0));
+        assertTrue(
+                RasterGridWindows.visibleWindow(metadata, new Envelope(0, 1, .25, 1.25)).isEmpty());
+        assertTrue(RasterGridWindows.visibleWindow(metadata, new Envelope(.5, .5, 1, 1)).isEmpty());
+        assertEquals(
+                new RasterWindow(0, 0, 1, 1),
+                RasterGridWindows.visibleWindow(metadata, new Envelope(-.1, -.1, .1, .1))
+                        .orElseThrow());
+    }
+
+    @Test
+    void affineNegativeDeterminantAndOneCellRasterRetainEitherWinding() {
+        RasterSourceMetadata metadata =
+                affineMetadata(1, 1, RasterAffineTransform.of(-2, 0, 0, 3, 10, 20));
+        assertEquals(
+                new RasterWindow(0, 0, 1, 1),
+                RasterGridWindows.visibleWindow(metadata, metadata.mapBounds().orElseThrow())
+                        .orElseThrow());
+        assertEquals(
+                new Envelope(9, 18.5, 11, 21.5),
+                RasterGridWindows.mapBounds(metadata, new RasterWindow(0, 0, 1, 1)));
+    }
+
+    @Test
+    void affineHugeDimensionsAndThinPositiveAreasRemainRepresentable() {
+        RasterSourceMetadata huge =
+                affineMetadata(Integer.MAX_VALUE, 1, RasterAffineTransform.of(1, 0, 0, 1, 0, 0));
+        assertEquals(
+                new RasterWindow(0, 0, Integer.MAX_VALUE, 1),
+                RasterGridWindows.visibleWindow(huge, huge.mapBounds().orElseThrow())
+                        .orElseThrow());
+
+        RasterSourceMetadata thin =
+                affineMetadata(2, 2, RasterAffineTransform.of(1, 0, .5, 1, 0, 0));
+        RasterWindow thinWindow =
+                RasterGridWindows.visibleWindow(
+                                thin, new Envelope(.749999999999, .499999999999, .75, .5))
+                        .orElseThrow();
+        assertTrue(thinWindow.width() > 0);
+        assertTrue(thinWindow.height() > 0);
+    }
+
+    @Test
+    void affineMapBoundsRejectsUncontainedWindows() {
+        RasterSourceMetadata metadata =
+                affineMetadata(2, 2, RasterAffineTransform.of(1, 0, 0, 1, 0, 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> RasterGridWindows.mapBounds(metadata, new RasterWindow(1, 1, 2, 1)));
+    }
+
+    @Test
+    void affineEdgeCrossingWithoutContainedViewCornersRemainsVisible() {
+        RasterSourceMetadata metadata =
+                affineMetadata(4, 4, RasterAffineTransform.of(1, 1, -1, 1, 0, 0));
+        Envelope narrowCrossingBand = new Envelope(-4, 2.9, 4, 3.1);
+        assertEquals(
+                new RasterWindow(0, 0, 4, 4),
+                RasterGridWindows.visibleWindow(metadata, narrowCrossingBand).orElseThrow());
+    }
+
+    @Test
+    void affineNegativeCoefficientsProduceConservativeWindowAndExactEnvelope() {
+        RasterAffineTransform transform = RasterAffineTransform.of(-2, -.5, -.25, 3, 10, 20);
+        RasterSourceMetadata metadata = affineMetadata(3, 2, transform);
+        assertEquals(
+                metadata.mapBounds().orElseThrow(),
+                RasterGridWindows.mapBounds(metadata, new RasterWindow(0, 0, 3, 2)));
+        assertEquals(
+                new RasterWindow(0, 0, 3, 2),
+                RasterGridWindows.visibleWindow(metadata, metadata.mapBounds().orElseThrow())
+                        .orElseThrow());
+    }
+
+    @Test
+    void affineOutwardRoundingAddsNoMoreThanOneFringeCellPerEdge() {
+        RasterSourceMetadata metadata =
+                affineMetadata(6, 6, RasterAffineTransform.of(1, 0, 0, 1, 0, 0));
+        RasterWindow conservative =
+                RasterGridWindows.visibleWindow(metadata, new Envelope(1.5, 1.5, 3.5, 3.5))
+                        .orElseThrow();
+        assertEquals(new RasterWindow(1, 1, 4, 4), conservative);
+    }
+
+    @Test
+    void affinePowerOfTwoNormalizationHandlesLargeInverseVertices() {
+        double tiny = 1.0e-100;
+        RasterAffineTransform transform = RasterAffineTransform.of(tiny, 2 * tiny, 1, 1, .5, .5);
+        RasterSourceMetadata metadata = affineMetadata(4, 4, transform);
+        assertEquals(
+                new RasterWindow(0, 0, 4, 4),
+                RasterGridWindows.visibleWindow(metadata, metadata.mapBounds().orElseThrow())
+                        .orElseThrow());
+    }
+
+    @Test
+    void affineInverseArithmeticFailureIsNotReportedAsEmpty() {
+        double tiny = 1.0e-308;
+        RasterAffineTransform transform = RasterAffineTransform.of(tiny, 2 * tiny, 1, 1, .5, .5);
+        RasterSourceMetadata metadata = affineMetadata(4, 4, transform);
+        assertThrows(
+                ArithmeticException.class,
+                () ->
+                        RasterGridWindows.visibleWindow(
+                                metadata, metadata.mapBounds().orElseThrow()));
+    }
+
     private static RasterSourceMetadata metadata(int width, int height, Envelope bounds) {
         return new RasterSourceMetadata(
                 new SourceIdentity("raster", "Raster"),
                 width,
                 height,
                 Optional.of(bounds),
+                Optional.empty());
+    }
+
+    private static RasterSourceMetadata affineMetadata(
+            int width, int height, RasterAffineTransform transform) {
+        return RasterSourceMetadata.withPlacement(
+                new SourceIdentity("raster", "Raster"),
+                width,
+                height,
+                RasterGridPlacement.affine(transform),
                 Optional.empty());
     }
 }

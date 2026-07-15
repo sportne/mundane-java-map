@@ -182,9 +182,13 @@ architectural requirement. Level 1 is complete only when
 - G6-001 is implemented and verified: fixed-profile PNG/JPEG probing, explicit axis-aligned or
   unplaced metadata, bounded owned-channel reads, immutable decoder registration, strict-window
   nearest conversion, fixture evidence, the normalized non-georeferenced viewer, architecture
-  enforcement, and publication staging all use the real G4 raster path. World files, affine
-  transforms, controls/caches/hardening, and Native Image remain the proposed G6-002 through G6-005
-  slices.
+  enforcement, and publication staging all use the real G4 raster path.
+- G6-002 is implemented and verified: strict bounded world-file snapshots, immutable pixel-center
+  affine transforms, placement-derived half-pixel envelopes, conservative inverse viewport windows,
+  caller-declared CRS retention, and true-parallelogram Java2D painting extend that same raster path.
+  Sidecars are explicit and finite; no directory scanning, priority fallback, CRS guessing, or raster
+  reprojection is introduced. Request controls/caches/hardening and Native Image remain the proposed
+  G6-003 through G6-005 slices.
 - Support explicit bounds, world files, affine georeferencing, window requests, opacity,
   interpolation, bounded caches, lifecycle/cancellation, hostile inputs, a runnable viewer, and a
   real Native Image decode/render path.

@@ -323,8 +323,7 @@ class ArchitectureRulesTest {
                                         name.contains("RasterCache")
                                                 || name.contains("RasterWorker")
                                                 || name.contains("RasterLoader")
-                                                || name.contains("RasterWarp")
-                                                || name.contains("RasterAffine"))
+                                                || name.contains("RasterWarp"))
                         .sorted()
                         .toList();
         JavaClass mapView = classesByModule.get(awt).get("io.github.mundanej.map.awt.MapView");

@@ -29,10 +29,15 @@ import javax.swing.WindowConstants;
 /** Runnable bounded PNG/JPEG viewer with explicit normalized demonstration placement. */
 public final class RasterViewer {
     static final String PLACEMENT_LABEL = "Normalized demonstration placement — not georeferenced";
+    static final String WORLD_FILE_LABEL = "Explicit world-file affine placement";
 
     private RasterViewer() {}
 
-    /** Validates one image argument, opens it off EDT, and launches the Swing viewer. */
+    /**
+     * Validates image arguments, opens off EDT, and launches the Swing viewer.
+     *
+     * @param arguments image path and optional explicit world-file CRS
+     */
     public static void main(String[] arguments) {
         runMain(arguments, System.err::println);
     }
@@ -60,15 +65,39 @@ public final class RasterViewer {
         }
     }
 
-    static Path parseArguments(String[] arguments) {
+    static Arguments parseArguments(String[] arguments) {
         Objects.requireNonNull(arguments, "arguments");
-        if (arguments.length != 1) {
-            throw new IllegalArgumentException("Usage: raster-viewer <image.png-or-jpeg>");
+        if (arguments.length == 1) {
+            return new Arguments(
+                    Path.of(Objects.requireNonNull(arguments[0], "arguments[0]")),
+                    Optional.empty());
         }
-        return Path.of(Objects.requireNonNull(arguments[0], "arguments[0]"));
+        if (arguments.length == 3 && arguments[1].equals("--world-file")) {
+            String identifier = Objects.requireNonNull(arguments[2], "arguments[2]");
+            var definition =
+                    switch (identifier) {
+                        case "EPSG:4326" -> CrsDefinitions.EPSG_4326;
+                        case "EPSG:3857" -> CrsDefinitions.EPSG_3857;
+                        default ->
+                                throw new IllegalArgumentException(
+                                        "World-file CRS must be EPSG:4326 or EPSG:3857");
+                    };
+            return new Arguments(
+                    Path.of(Objects.requireNonNull(arguments[0], "arguments[0]")),
+                    Optional.of(
+                            CrsMetadata.recognized(
+                                    definition, Optional.of(identifier), Optional.empty())));
+        }
+        throw new IllegalArgumentException(
+                "Usage: raster-viewer <image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857]");
     }
 
     static RasterSource load(Path path) {
+        return load(new Arguments(path, Optional.empty()));
+    }
+
+    static RasterSource load(Arguments arguments) {
+        Path path = Objects.requireNonNull(arguments, "arguments").path();
         Objects.requireNonNull(path, "path");
         if (EventQueue.isDispatchThread()) {
             throw new IllegalStateException(
@@ -77,9 +106,11 @@ public final class RasterViewer {
         CrsMetadata crs =
                 CrsMetadata.recognized(
                         CrsDefinitions.EPSG_3857, Optional.of("EPSG:3857"), Optional.empty());
-        ImageOpenOptions options =
-                ImageOpenOptions.defaults()
-                        .withPlacement(ImagePlacement.axisAligned(new Envelope(0, 0, 1, 1), crs));
+        ImagePlacement placement =
+                arguments.worldFileCrs().isPresent()
+                        ? ImagePlacement.worldFile(arguments.worldFileCrs())
+                        : ImagePlacement.axisAligned(new Envelope(0, 0, 1, 1), crs);
+        ImageOpenOptions options = ImageOpenOptions.defaults().withPlacement(placement);
         return RasterImages.open(
                 path,
                 new SourceIdentity("raster-viewer-source", "Raster image"),
@@ -93,12 +124,21 @@ public final class RasterViewer {
             throw new IllegalStateException(
                     "Raster view creation must run on the event dispatch thread");
         }
-        MapView view =
-                new MapView(
-                        CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+        var rasterCrs =
+                source.metadata()
+                        .crs()
+                        .flatMap(CrsMetadata::definition)
+                        .orElse(CrsDefinitions.EPSG_3857);
+        MapView view = new MapView(CrsRegistry.level1(), rasterCrs, rasterCrs);
         MapLayerBinding binding = null;
         try {
             view.setSize(800, 600);
+            view.putClientProperty(
+                    "raster-placement-label",
+                    source.metadata().gridPlacement().orElseThrow().kind()
+                                    == io.github.mundanej.map.api.RasterGridPlacement.Kind.AFFINE
+                            ? WORLD_FILE_LABEL
+                            : PLACEMENT_LABEL);
             binding = MapLayerBinding.ownedRaster("image", "Raster image", source);
             view.setLayerBindings(List.of(binding));
             binding = null;
@@ -139,7 +179,9 @@ public final class RasterViewer {
         JFrame frame = new JFrame("Mundane raster viewer");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         frame.add(view, BorderLayout.CENTER);
-        frame.add(new JLabel(PLACEMENT_LABEL), BorderLayout.SOUTH);
+        frame.add(
+                new JLabel((String) view.getClientProperty("raster-placement-label")),
+                BorderLayout.SOUTH);
         frame.addWindowListener(
                 new WindowAdapter() {
                     @Override
@@ -166,6 +208,13 @@ public final class RasterViewer {
             closeable.close();
         } catch (Exception failure) {
             primary.addSuppressed(failure);
+        }
+    }
+
+    record Arguments(Path path, Optional<CrsMetadata> worldFileCrs) {
+        Arguments {
+            Objects.requireNonNull(path, "path");
+            Objects.requireNonNull(worldFileCrs, "worldFileCrs");
         }
     }
 }

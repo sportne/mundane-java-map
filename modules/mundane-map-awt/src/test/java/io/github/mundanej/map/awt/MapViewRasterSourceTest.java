@@ -18,6 +18,8 @@ import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.RasterAffineTransform;
+import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
@@ -101,6 +103,47 @@ class MapViewRasterSourceTest {
                     assertEquals(0xff01_0100, image.getRGB(75, 75));
                     view.close();
                     assertFalse(source.isClosed());
+                });
+    }
+
+    @Test
+    void affineRasterPaintsItsParallelogramAndLeavesEnvelopeExteriorUnpainted() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    RasterGridPlacement placement =
+                            RasterGridPlacement.affine(
+                                    RasterAffineTransform.of(20, 0, 10, -20, -10, 10));
+                    RasterSourceMetadata metadata =
+                            RasterSourceMetadata.withPlacement(
+                                    new SourceIdentity("affine", "affine"),
+                                    2,
+                                    2,
+                                    placement,
+                                    recognized(CrsDefinitions.EPSG_3857));
+                    TestRasterSource source =
+                            new TestRasterSource(metadata, RasterSourceLimits.LEVEL_1);
+                    source.solidRgba = 0xff00_00ff;
+                    MapView view = configuredProjectedView();
+                    view.setViewport(new MapViewport(SIZE, SIZE, 5, 0, 0.6));
+                    view.setLayerBindings(
+                            List.of(MapLayerBinding.borrowedRaster("affine", "affine", source)));
+
+                    view.fitToData(0);
+                    assertEquals(0, source.readCount);
+                    BufferedImage image = paint(view);
+
+                    Coordinate center = view.viewport().worldToScreen(new Coordinate(5, 0));
+                    assertColorNear(
+                            Color.RED,
+                            new Color(image.getRGB((int) center.x(), (int) center.y())),
+                            1);
+                    Coordinate envelopeOnly = view.viewport().worldToScreen(new Coordinate(30, 15));
+                    assertColorNear(
+                            Color.WHITE,
+                            new Color(image.getRGB((int) envelopeOnly.x(), (int) envelopeOnly.y())),
+                            1);
+                    assertEquals(1, source.readCount);
+                    view.close();
                 });
     }
 

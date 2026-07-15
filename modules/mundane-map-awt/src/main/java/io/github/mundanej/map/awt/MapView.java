@@ -49,6 +49,7 @@ import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
+import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
@@ -1897,6 +1898,10 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private static void renderRasterLayer(
             Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
+        if (raster.placement().kind() == RasterGridPlacement.Kind.AFFINE) {
+            renderAffineRasterLayer(graphics, raster, viewportSnapshot);
+            return;
+        }
         Envelope bounds = raster.mapBounds();
         Coordinate topLeft =
                 viewportSnapshot.worldToScreen(new Coordinate(bounds.minX(), bounds.maxY()));
@@ -1921,6 +1926,46 @@ public final class MapView extends JComponent implements AutoCloseable {
             child.drawImage(
                     raster.image(),
                     new AffineTransform(scaleX, 0.0, 0.0, scaleY, topLeft.x(), topLeft.y()),
+                    null);
+        } finally {
+            child.dispose();
+        }
+    }
+
+    private static void renderAffineRasterLayer(
+            Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
+        var transform = raster.placement().affineTransform().orElseThrow();
+        RasterWindow window = raster.window();
+        double left = window.column() - 0.5;
+        double top = window.row() - 0.5;
+        Coordinate origin = viewportSnapshot.worldToScreen(transform.gridToMap(left, top));
+        Coordinate right =
+                viewportSnapshot.worldToScreen(
+                        transform.gridToMap(window.column() + window.width() - 0.5, top));
+        Coordinate bottom =
+                viewportSnapshot.worldToScreen(
+                        transform.gridToMap(left, window.row() + window.height() - 0.5));
+        double m00 = (right.x() - origin.x()) / raster.image().getWidth();
+        double m10 = (right.y() - origin.y()) / raster.image().getWidth();
+        double m01 = (bottom.x() - origin.x()) / raster.image().getHeight();
+        double m11 = (bottom.y() - origin.y()) / raster.image().getHeight();
+        if (!Double.isFinite(m00)
+                || !Double.isFinite(m10)
+                || !Double.isFinite(m01)
+                || !Double.isFinite(m11)
+                || !Double.isFinite(origin.x())
+                || !Double.isFinite(origin.y())) {
+            throw new IllegalStateException("Affine raster screen transform must be finite");
+        }
+        Graphics2D child = (Graphics2D) graphics.create();
+        try {
+            child.setComposite(AlphaComposite.SrcOver);
+            child.setRenderingHint(
+                    RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            child.drawImage(
+                    raster.image(),
+                    new AffineTransform(m00, m10, m01, m11, origin.x(), origin.y()),
                     null);
         } finally {
             child.dispose();
@@ -3304,7 +3349,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                     List.of(),
                     Optional.of(
                             new RasterSnapshot(
-                                    image, RasterGridWindows.mapBounds(metadata, window))),
+                                    image,
+                                    RasterGridWindows.mapBounds(metadata, window),
+                                    metadata.gridPlacement().orElseThrow(),
+                                    window)),
                     false,
                     true);
         } catch (SourceException failure) {
@@ -4158,7 +4206,11 @@ public final class MapView extends JComponent implements AutoCloseable {
             boolean sourceBacked,
             boolean sourceAvailable) {}
 
-    private record RasterSnapshot(BufferedImage image, Envelope mapBounds) {}
+    private record RasterSnapshot(
+            BufferedImage image,
+            Envelope mapBounds,
+            RasterGridPlacement placement,
+            RasterWindow window) {}
 
     private record ViewContentSnapshot(List<LayerSnapshot> layers) {
         private boolean allSourcesAvailable() {

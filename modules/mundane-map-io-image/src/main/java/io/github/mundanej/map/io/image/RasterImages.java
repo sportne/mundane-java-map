@@ -3,7 +3,10 @@ package io.github.mundanej.map.io.image;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.EncodedRasterDecoder;
 import io.github.mundanej.map.api.EncodedRasterDecoderRegistry;
+import io.github.mundanej.map.api.RasterGridPlacement;
+import io.github.mundanej.map.api.RasterPlacementException;
 import io.github.mundanej.map.api.RasterSource;
+import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.io.IOException;
@@ -60,12 +63,31 @@ public final class RasterImages {
             EncodedRasterDecoderRegistry decoders,
             CancellationToken cancellation,
             ImageChannel.Opener opener) {
+        return open(
+                path,
+                identity,
+                options,
+                decoders,
+                cancellation,
+                opener,
+                WorldFileSupport.fileSystemAccess(opener));
+    }
+
+    static RasterSource open(
+            Path path,
+            SourceIdentity identity,
+            ImageOpenOptions options,
+            EncodedRasterDecoderRegistry decoders,
+            CancellationToken cancellation,
+            ImageChannel.Opener opener,
+            WorldFileSupport.Access worldFiles) {
         Objects.requireNonNull(path, "path");
         Objects.requireNonNull(identity, "identity");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(decoders, "decoders");
         Objects.requireNonNull(cancellation, "cancellation");
         Objects.requireNonNull(opener, "opener");
+        Objects.requireNonNull(worldFiles, "worldFiles");
         String extension = extension(path);
         ImageChannel channel = null;
         Throwable primary = null;
@@ -75,6 +97,9 @@ public final class RasterImages {
             ImageHeader header =
                     ImageHeaderProbe.probe(
                             channel, extension, identity.id(), options.imageLimits(), cancellation);
+            RasterSourceMetadata metadata =
+                    resolveMetadata(
+                            path, extension, identity, header, options, cancellation, worldFiles);
             EncodedRasterDecoder decoder =
                     decoders.find(header.format())
                             .orElseThrow(
@@ -98,7 +123,7 @@ public final class RasterImages {
             }
             checkpoint(identity.id(), cancellation, "image-open");
             ImageRasterSource source =
-                    new ImageRasterSource(channel, header, identity, options, decoder);
+                    new ImageRasterSource(channel, header, metadata, options, decoder);
             channel = null;
             return source;
         } catch (RuntimeException | Error failure) {
@@ -122,6 +147,55 @@ public final class RasterImages {
                     primary.addSuppressed(closeFailure);
                 }
             }
+        }
+    }
+
+    private static RasterSourceMetadata resolveMetadata(
+            Path path,
+            String extension,
+            SourceIdentity identity,
+            ImageHeader header,
+            ImageOpenOptions options,
+            CancellationToken cancellation,
+            WorldFileSupport.Access worldFiles) {
+        ImagePlacement instruction = options.placement();
+        if (instruction.kind() == ImagePlacement.Kind.UNPLACED) {
+            return new RasterSourceMetadata(
+                    identity,
+                    header.width(),
+                    header.height(),
+                    java.util.Optional.empty(),
+                    java.util.Optional.empty());
+        }
+        RasterGridPlacement placement;
+        if (instruction.kind() == ImagePlacement.Kind.AXIS_ALIGNED) {
+            placement = RasterGridPlacement.axisAligned(instruction.mapBounds().orElseThrow());
+        } else {
+            placement =
+                    WorldFileSupport.read(
+                            path,
+                            extension,
+                            identity.id(),
+                            options.imageLimits(),
+                            cancellation,
+                            worldFiles);
+        }
+        try {
+            checkpoint(identity.id(), cancellation, "image-open");
+            RasterSourceMetadata metadata =
+                    RasterSourceMetadata.withPlacement(
+                            identity,
+                            header.width(),
+                            header.height(),
+                            placement,
+                            instruction.crs());
+            checkpoint(identity.id(), cancellation, "image-open");
+            return metadata;
+        } catch (RasterPlacementException failure) {
+            if (instruction.kind() != ImagePlacement.Kind.WORLD_FILE) {
+                throw failure;
+            }
+            throw ImageDiagnostics.worldFileTransform(identity.id(), failure);
         }
     }
 

@@ -682,6 +682,31 @@ four-corner clip, and true affine draw are sufficient. Bounds cannot contradict 
 envelope is never mistaken for the parallelogram; CRS is never guessed; and no request, decoder,
 polygon, warp, or persistence framework is introduced.
 
+### G6-002 implementation closeout
+
+The implemented slice retains the design's single placement authority. `RasterGridPlacement` carries
+either the exact G4 envelope or one immutable six-coefficient transform, and
+`RasterSourceMetadata.withPlacement` alone derives the redundant affine envelope from pixel outer
+corners. Existing metadata construction still creates the exact axis payload, while unplaced sources
+remain unplaced. Core dispatches on that tag without changing the established axis-edge search or
+repairing direct requests.
+
+The format module adds no public parser or sidecar abstraction. Its existing opener transaction takes
+one finite direct-sibling snapshot, collapses same-file aliases, rejects ambiguity, reads one bounded
+temporary channel, parses strict ASCII while that channel remains cleanup-owned, and publishes only
+immutable coefficients. This ordering preserves operation failures as primary and cleanup failures as
+suppressed. Caller CRS metadata is retained literally; filesystem names and numeric contents never
+enter diagnostics, and no fallback, `.prj`, directory listing, provider discovery, or retained
+sidecar handle exists.
+
+MapView continues to own one raster snapshot and one draw. Axis placement uses its exact rectangle;
+affine placement composes source-window edges, the public pixel-center transform, and the existing
+world-to-screen viewport into one disposable Java2D transform. The fixed component clip leaves the
+conservative window fringe unpainted. Real PNG and JPEG tests, the explicit viewer mode, architecture
+checks, and tolerant offscreen evidence all consume this path. G6-003 can evolve request output and
+interpolation without replacing placement, and no cache, warp, reprojection, polygon API, or alternate
+raster layer was introduced.
+
 ## Raster requests and rendering controls (G6-003)
 
 ### Dependency and request evolution
