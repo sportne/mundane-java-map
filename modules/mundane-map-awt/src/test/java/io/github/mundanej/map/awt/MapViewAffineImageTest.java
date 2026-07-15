@@ -1,5 +1,6 @@
 package io.github.mundanej.map.awt;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -21,6 +22,7 @@ import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.io.image.ImageCachePolicy;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.ImagePlacement;
 import io.github.mundanej.map.io.image.RasterImages;
@@ -36,6 +38,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -85,6 +88,30 @@ class MapViewAffineImageTest {
                     view.close();
                 });
         assertTrue(source.isClosed());
+    }
+
+    @Test
+    void cachedAndDisabledAffineRenderingRemainEquivalentForAllLevel1Controls() throws Exception {
+        Path imagePath =
+                copyPngFixture(
+                        "cache-equivalence",
+                        "affine-rgba.pgw",
+                        15,
+                        "c79fc38d5bf1062a272505e645fb2cba5c8a59ddefbc38ede7c4e1fb9b81e2d8");
+        for (RasterInterpolation interpolation :
+                List.of(RasterInterpolation.NEAREST, RasterInterpolation.BILINEAR)) {
+            AtomicInteger cachedDecodes = new AtomicInteger();
+            AtomicInteger disabledDecodes = new AtomicInteger();
+            RasterSource cached = open(imagePath, ImageCachePolicy.defaults(), cachedDecodes);
+            RasterSource disabled = open(imagePath, ImageCachePolicy.disabled(), disabledDecodes);
+            BufferedImage[] cachedPaint = renderTwice(cached, interpolation, 0.55);
+            BufferedImage[] disabledPaint = renderTwice(disabled, interpolation, 0.55);
+
+            assertArrayEquals(pixels(cachedPaint[0]), pixels(disabledPaint[0]));
+            assertArrayEquals(pixels(cachedPaint[1]), pixels(disabledPaint[1]));
+            assertEquals(1, cachedDecodes.get());
+            assertEquals(2, disabledDecodes.get());
+        }
     }
 
     @Test
@@ -360,6 +387,62 @@ class MapViewAffineImageTest {
                 new SourceIdentity("affine-" + imagePath.getFileName(), "affine"),
                 ImageOpenOptions.defaults().withPlacement(placement),
                 AwtRasterDecoders.level1());
+    }
+
+    private RasterSource open(
+            Path imagePath, ImageCachePolicy cachePolicy, AtomicInteger decodeCount) {
+        EncodedRasterDecoder delegate =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.PNG).orElseThrow();
+        EncodedRasterDecoder recording =
+                new EncodedRasterDecoder() {
+                    @Override
+                    public boolean supportsInterpolation(RasterInterpolation interpolation) {
+                        return delegate.supportsInterpolation(interpolation);
+                    }
+
+                    @Override
+                    public RgbaPixelBuffer decode(
+                            InputStream input, EncodedRasterDecodeContext context) {
+                        decodeCount.incrementAndGet();
+                        return delegate.decode(input, context);
+                    }
+                };
+        return RasterImages.open(
+                imagePath,
+                new SourceIdentity("cache-" + cachePolicy.enabled(), "cache"),
+                ImageOpenOptions.defaults()
+                        .withPlacement(ImagePlacement.worldFile(projectedCrs()))
+                        .withCachePolicy(cachePolicy),
+                EncodedRasterDecoderRegistry.builder()
+                        .register(EncodedRasterFormat.PNG, recording)
+                        .build());
+    }
+
+    private static BufferedImage[] renderTwice(
+            RasterSource source, RasterInterpolation interpolation, double opacity)
+            throws Exception {
+        AtomicReference<BufferedImage[]> result = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try (source;
+                            MapView view = TestMapViews.identity()) {
+                        view.setSize(200, 200);
+                        view.setViewport(new MapViewport(200, 200, 7, -3.5, 0.2));
+                        view.setLayerBindings(
+                                List.of(MapLayerBinding.borrowedRaster("cache", "cache", source)));
+                        view.setRasterRenderOptions(
+                                "cache", new RasterRenderOptions(interpolation, opacity));
+                        BufferedImage first = paint(view, 200);
+                        view.setRasterRenderOptions(
+                                "cache", new RasterRenderOptions(interpolation, opacity / 2));
+                        result.set(new BufferedImage[] {first, paint(view, 200)});
+                    }
+                });
+        return result.get();
+    }
+
+    private static int[] pixels(BufferedImage image) {
+        return image.getRGB(0, 0, image.getWidth(), image.getHeight(), null, 0, image.getWidth());
     }
 
     private void assertAttachmentFailure(

@@ -11,6 +11,8 @@ package io.github.mundanej.map.io.image;
  * @param maximumLogicalChannels encoded channel/component ceiling
  * @param maximumWorldFileBytes world-file byte ceiling
  * @param maximumWorldFileLineBytes world-file content-byte ceiling per line
+ * @param maximumContainerElements PNG chunks and JPEG markers ceiling
+ * @param maximumInflatedRasterBytes decoded PNG filtered-byte ceiling
  */
 public record ImageSourceLimits(
         long maximumEncodedBytes,
@@ -20,7 +22,9 @@ public record ImageSourceLimits(
         long maximumPixels,
         int maximumLogicalChannels,
         long maximumWorldFileBytes,
-        int maximumWorldFileLineBytes) {
+        int maximumWorldFileLineBytes,
+        long maximumContainerElements,
+        long maximumInflatedRasterBytes) {
     private static final long DEFAULT_ENCODED_BYTES = 33_554_432;
     private static final long DEFAULT_HEADER_BYTES = 1_048_576;
     private static final int DEFAULT_DIMENSION = 16_384;
@@ -28,6 +32,8 @@ public record ImageSourceLimits(
     private static final int DEFAULT_CHANNELS = 4;
     private static final long DEFAULT_WORLD_FILE_BYTES = 4_096;
     private static final int DEFAULT_WORLD_FILE_LINE_BYTES = 256;
+    private static final long DEFAULT_CONTAINER_ELEMENTS = 65_536;
+    private static final long DEFAULT_INFLATED_RASTER_BYTES = 67_141_632;
 
     /**
      * Creates limits using the Level 1 world-file defaults.
@@ -54,7 +60,43 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 DEFAULT_WORLD_FILE_BYTES,
-                DEFAULT_WORLD_FILE_LINE_BYTES);
+                DEFAULT_WORLD_FILE_LINE_BYTES,
+                DEFAULT_CONTAINER_ELEMENTS,
+                DEFAULT_INFLATED_RASTER_BYTES);
+    }
+
+    /**
+     * Creates limits using the Level 1 container defaults.
+     *
+     * @param maximumEncodedBytes encoded file ceiling
+     * @param maximumHeaderBytes JPEG pre-frame header ceiling
+     * @param maximumWidth source width ceiling
+     * @param maximumHeight source height ceiling
+     * @param maximumPixels source pixel ceiling
+     * @param maximumLogicalChannels encoded channel/component ceiling
+     * @param maximumWorldFileBytes world-file byte ceiling
+     * @param maximumWorldFileLineBytes world-file content-byte ceiling per line
+     */
+    public ImageSourceLimits(
+            long maximumEncodedBytes,
+            long maximumHeaderBytes,
+            int maximumWidth,
+            int maximumHeight,
+            long maximumPixels,
+            int maximumLogicalChannels,
+            long maximumWorldFileBytes,
+            int maximumWorldFileLineBytes) {
+        this(
+                maximumEncodedBytes,
+                maximumHeaderBytes,
+                maximumWidth,
+                maximumHeight,
+                maximumPixels,
+                maximumLogicalChannels,
+                maximumWorldFileBytes,
+                maximumWorldFileLineBytes,
+                DEFAULT_CONTAINER_ELEMENTS,
+                DEFAULT_INFLATED_RASTER_BYTES);
     }
 
     /** Validates positive ceilings. */
@@ -66,7 +108,9 @@ public record ImageSourceLimits(
                 || maximumPixels <= 0
                 || maximumLogicalChannels <= 0
                 || maximumWorldFileBytes <= 0
-                || maximumWorldFileLineBytes <= 0) {
+                || maximumWorldFileLineBytes <= 0
+                || maximumContainerElements <= 0
+                || maximumInflatedRasterBytes <= 0) {
             throw new IllegalArgumentException("Image source limits must be positive");
         }
     }
@@ -85,7 +129,9 @@ public record ImageSourceLimits(
                 DEFAULT_PIXELS,
                 DEFAULT_CHANNELS,
                 DEFAULT_WORLD_FILE_BYTES,
-                DEFAULT_WORLD_FILE_LINE_BYTES);
+                DEFAULT_WORLD_FILE_LINE_BYTES,
+                DEFAULT_CONTAINER_ELEMENTS,
+                DEFAULT_INFLATED_RASTER_BYTES);
     }
 
     /**
@@ -103,7 +149,9 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 maximumWorldFileBytes,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -121,7 +169,9 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 maximumWorldFileBytes,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -139,7 +189,9 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 maximumWorldFileBytes,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -157,7 +209,9 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 maximumWorldFileBytes,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -175,7 +229,9 @@ public record ImageSourceLimits(
                 value,
                 maximumLogicalChannels,
                 maximumWorldFileBytes,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -193,7 +249,9 @@ public record ImageSourceLimits(
                 maximumPixels,
                 value,
                 maximumWorldFileBytes,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -211,7 +269,9 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 value,
-                maximumWorldFileLineBytes);
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
     }
 
     /**
@@ -229,6 +289,48 @@ public record ImageSourceLimits(
                 maximumPixels,
                 maximumLogicalChannels,
                 maximumWorldFileBytes,
+                value,
+                maximumContainerElements,
+                maximumInflatedRasterBytes);
+    }
+
+    /**
+     * Replaces the PNG-chunk/JPEG-marker ceiling.
+     *
+     * @param value replacement positive ceiling
+     * @return a copy with the supplied container-element ceiling
+     */
+    public ImageSourceLimits withMaximumContainerElements(long value) {
+        return new ImageSourceLimits(
+                maximumEncodedBytes,
+                maximumHeaderBytes,
+                maximumWidth,
+                maximumHeight,
+                maximumPixels,
+                maximumLogicalChannels,
+                maximumWorldFileBytes,
+                maximumWorldFileLineBytes,
+                value,
+                maximumInflatedRasterBytes);
+    }
+
+    /**
+     * Replaces the PNG filtered-raster byte ceiling.
+     *
+     * @param value replacement positive ceiling
+     * @return a copy with the supplied inflated-raster ceiling
+     */
+    public ImageSourceLimits withMaximumInflatedRasterBytes(long value) {
+        return new ImageSourceLimits(
+                maximumEncodedBytes,
+                maximumHeaderBytes,
+                maximumWidth,
+                maximumHeight,
+                maximumPixels,
+                maximumLogicalChannels,
+                maximumWorldFileBytes,
+                maximumWorldFileLineBytes,
+                maximumContainerElements,
                 value);
     }
 }

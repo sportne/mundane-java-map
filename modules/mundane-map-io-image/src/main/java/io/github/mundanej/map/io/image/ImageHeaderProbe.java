@@ -155,7 +155,11 @@ final class ImageHeaderProbe {
             if (marker == 0x00) {
                 throw invalid(sourceId, "JPEG", "marker", "stuffedBeforeSof", position - 1);
             }
-            if (marker == 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker == 0x01) {
+            if (marker == 0x01) {
+                throw unsupported(
+                        sourceId, "JPEG", "marker", ImageContainerValidator.markerName(marker));
+            }
+            if (marker == 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) {
                 throw invalid(sourceId, "JPEG", "marker", "standaloneBeforeSof", position - 1);
             }
             if (marker == 0xd9 || marker == 0xda) {
@@ -222,7 +226,8 @@ final class ImageHeaderProbe {
                     && marker != 0xc4
                     && marker != 0xc8
                     && marker != 0xcc) {
-                throw unsupported(sourceId, "JPEG", "SOF", Integer.toHexString(marker));
+                throw unsupported(
+                        sourceId, "JPEG", "marker", ImageContainerValidator.markerName(marker));
             }
             position = end;
         }

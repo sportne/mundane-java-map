@@ -1,6 +1,7 @@
 package io.github.mundanej.map.awt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.CancellationToken;
@@ -430,21 +431,9 @@ class ImageIoRasterDecoderTest {
         assertEquals(
                 "08b25bac4382e59884b14bb010d5ebcb697309bb0d1b6e422fc577bdf5acd9e7",
                 sha256(concatenated));
-        try (RasterSource source = open(path)) {
-            assertEquals(32, source.metadata().width());
-            assertColorNear(
-                    0xff0000ff,
-                    source.read(
-                                    new RasterRequest(
-                                            new RasterWindow(0, 0, 32, 16),
-                                            32,
-                                            16,
-                                            Optional.empty()),
-                                    CancellationToken.none())
-                            .pixels()
-                            .rgbaAt(4, 8),
-                    20);
-        }
+        SourceException trailingFailure = assertThrows(SourceException.class, () -> open(path));
+        assertEquals("IMAGE_CONTAINER_INVALID", trailingFailure.terminal().code());
+        assertEquals("trailingData", trailingFailure.terminal().context().get("reason"));
     }
 
     @Test
@@ -462,7 +451,7 @@ class ImageIoRasterDecoderTest {
         Path path = temporaryDirectory.resolve("large-app-comment.jpeg");
         Files.write(path, metadata);
         long outputBytes = 4L * 32 * 16;
-        long exactIntermediate = metadata.length + 8L * 32 * 16 + outputBytes;
+        long exactIntermediate = 4096 + 2L * metadata.length + 8L * 32 * 16 + outputBytes;
         RasterRequestLimits exact =
                 new RasterRequestLimits(32L * 16, 32, 32L * 16, exactIntermediate, outputBytes, 1);
         ImageOpenOptions options =

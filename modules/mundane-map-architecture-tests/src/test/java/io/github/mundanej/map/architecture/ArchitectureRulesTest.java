@@ -387,6 +387,30 @@ class ArchitectureRulesTest {
         ModuleDescriptor awt = moduleEndingWith("mundane-map-awt");
         JavaClasses formatClasses = classesByModule.get(image);
         JavaClasses awtClasses = classesByModule.get(awt);
+        Set<String> imageSecurityOwners =
+                formatClasses.stream()
+                        .filter(
+                                type ->
+                                        type.getDirectDependenciesFromSelf().stream()
+                                                .anyMatch(
+                                                        dependency ->
+                                                                dependency
+                                                                        .getTargetClass()
+                                                                        .getPackageName()
+                                                                        .startsWith(
+                                                                                "java.security")))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        long imageDigestFactories =
+                formatClasses.stream()
+                        .flatMap(type -> type.getAccessesFromSelf().stream())
+                        .filter(
+                                access ->
+                                        access.getTargetOwner()
+                                                        .getName()
+                                                        .equals("java.security.MessageDigest")
+                                                && access.getName().equals("getInstance"))
+                        .count();
         List<String> toolkitDependencies =
                 formatClasses.stream()
                         .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
@@ -434,22 +458,105 @@ class ArchitectureRulesTest {
                                 System.getProperty("map.architecture.supportProjects").split(","))
                         .filter(Predicate.not(String::isBlank))
                         .collect(Collectors.toUnmodifiableSet());
+        List<String> unsafeImageCacheMechanisms = imageCacheMechanismViolations(formatClasses);
+        List<String> imageCacheStructure =
+                imageRasterSourceCacheStructureViolations(
+                        formatClasses.get("io.github.mundanej.map.io.image.ImageRasterSource"));
+        List<String> imageModuleCacheOwnership =
+                imageModuleCacheOwnershipViolations(
+                        formatClasses, "io.github.mundanej.map.io.image.ImageRasterSource");
+        JavaClass cacheKey =
+                formatClasses.get("io.github.mundanej.map.io.image.ImageRasterSource$CacheKey");
+        JavaClass cacheEntry =
+                formatClasses.get("io.github.mundanej.map.io.image.ImageRasterSource$CacheEntry");
 
         assertEquals("JDK_RUNTIME", image.category());
         assertEquals(1, image.releaseLevel());
         assertTrue(image.nativeTarget());
+        assertEquals(Set.of("ImageSnapshots"), imageSecurityOwners);
+        assertEquals(1, imageDigestFactories, "Image snapshots must select SHA-256 exactly once");
+        Path imageSnapshotsSource =
+                Path.of(System.getProperty("map.architecture.imageSources"))
+                        .resolve("io/github/mundanej/map/io/image/ImageSnapshots.java");
+        try {
+            assertTrue(
+                    ArchitecturePolicy.fixedSha256WorkspaceSourceViolations(
+                                    Files.readString(imageSnapshotsSource), "ImageSnapshots.java")
+                            .isEmpty());
+        } catch (IOException failure) {
+            throw new AssertionError("Could not inspect the image snapshot source", failure);
+        }
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 image.allowedRuntimeProjects());
         assertFalse(formatClasses.isEmpty(), "Expected the working image format module");
         assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
+        assertTrue(
+                unsafeImageCacheMechanisms.isEmpty(),
+                () -> String.join("\n", unsafeImageCacheMechanisms));
+        assertTrue(imageCacheStructure.isEmpty(), () -> String.join("\n", imageCacheStructure));
+        assertTrue(
+                imageModuleCacheOwnership.isEmpty(),
+                () -> String.join("\n", imageModuleCacheOwnership));
         assertEquals(
-                Set.of("RasterImages", "ImageOpenOptions", "ImagePlacement", "ImageSourceLimits"),
+                Map.of(
+                        "version", "io.github.mundanej.map.io.image.ImageContentVersion",
+                        "window", "io.github.mundanej.map.api.RasterWindow",
+                        "outputWidth", "int",
+                        "outputHeight", "int",
+                        "interpolation", "io.github.mundanej.map.api.RasterInterpolation"),
+                fieldShape(cacheKey));
+        assertEquals(
+                Map.of(
+                        "pixels", "io.github.mundanej.map.api.RgbaPixelBuffer",
+                        "bytes", "long"),
+                fieldShape(cacheEntry));
+        assertEquals(
+                Set.of(
+                        "RasterImages",
+                        "ImageOpenOptions",
+                        "ImagePlacement",
+                        "ImageSourceLimits",
+                        "ImageCachePolicy"),
                 publicFormatTypes);
         assertEquals(
                 Set.of("AwtRasterDecoders", "ImageInputFactory", "ImageIoRasterDecoder"),
                 imageIoOwners);
         assertTrue(supportProjects.contains(":examples:raster-viewer"));
+
+        List<String> rejectedFixtures =
+                imageCacheMechanismViolations(
+                        List.of(
+                                fixture("MechanismFixtures$SharedEncodedCacheUse"),
+                                fixture("MechanismFixtures$SoftCacheUse"),
+                                fixture("MechanismFixtures$CacheWorkerUse"),
+                                fixture("MechanismFixtures$PublicCacheMetrics")));
+        assertEquals(4, rejectedFixtures.size(), () -> String.join("\n", rejectedFixtures));
+        for (String fixtureName :
+                List.of(
+                        "MechanismFixtures$StaticStoreUse",
+                        "MechanismFixtures$SecondInstanceMapsUse",
+                        "MechanismFixtures$EncodedStorageUse",
+                        "MechanismFixtures$ArgbStorageUse",
+                        "MechanismFixtures$AwtStorageUse")) {
+            List<String> violations =
+                    imageRasterSourceCacheStructureViolations(fixture(fixtureName));
+            assertFalse(violations.isEmpty(), fixtureName);
+        }
+        JavaClass fixtureOwner = fixture("MechanismFixtures$SoleCacheOwnerUse");
+        assertTrue(
+                imageModuleCacheOwnershipViolations(List.of(fixtureOwner), fixtureOwner.getName())
+                        .isEmpty());
+        for (String helper :
+                List.of(
+                        "MechanismFixtures$ExtraHelperMapUse",
+                        "MechanismFixtures$EvasiveHelperStorageUse")) {
+            assertFalse(
+                    imageModuleCacheOwnershipViolations(
+                                    List.of(fixtureOwner, fixture(helper)), fixtureOwner.getName())
+                            .isEmpty(),
+                    helper);
+        }
         assertTrue(
                 modules.stream()
                         .noneMatch(module -> module.path().equals(":examples:raster-viewer")),
@@ -789,6 +896,107 @@ class ArchitectureRulesTest {
         assertTrue(
                 violations.stream().anyMatch(value -> value.contains(fixture.getName())),
                 () -> String.join("\n", violations));
+    }
+
+    private static List<String> imageCacheMechanismViolations(Iterable<JavaClass> classes) {
+        List<String> violations = new ArrayList<>();
+        for (JavaClass javaClass : classes) {
+            boolean forbiddenDependency =
+                    javaClass.getDirectDependenciesFromSelf().stream()
+                            .map(
+                                    dependency ->
+                                            dependency
+                                                    .getTargetClass()
+                                                    .getBaseComponentType()
+                                                    .getName())
+                            .anyMatch(
+                                    name ->
+                                            name.equals("java.lang.ref.SoftReference")
+                                                    || name.equals("java.lang.ref.WeakReference")
+                                                    || name.startsWith(
+                                                            "java.util.concurrent.Executor")
+                                                    || name.startsWith(
+                                                            "java.util.concurrent.Executors")
+                                                    || name.startsWith(
+                                                            "java.util.concurrent.Future")
+                                                    || name.equals("java.lang.Thread"));
+            boolean sharedCache =
+                    javaClass.getFields().stream()
+                            .anyMatch(
+                                    field ->
+                                            field.getModifiers().contains(JavaModifier.STATIC)
+                                                    && field.getName()
+                                                            .toUpperCase(java.util.Locale.ROOT)
+                                                            .contains("CACHE"));
+            boolean publicImplementation =
+                    javaClass.getModifiers().contains(JavaModifier.PUBLIC)
+                            && javaClass.getName().indexOf('$') >= 0
+                            && (javaClass.getSimpleName().contains("CacheMetrics")
+                                    || javaClass.getSimpleName().contains("CacheEntry")
+                                    || javaClass.getSimpleName().contains("ContentVersion"));
+            if (forbiddenDependency || sharedCache || publicImplementation) {
+                violations.add(javaClass.getName());
+            }
+        }
+        return List.copyOf(violations);
+    }
+
+    private static List<String> imageRasterSourceCacheStructureViolations(JavaClass javaClass) {
+        List<String> violations = new ArrayList<>();
+        var maps =
+                javaClass.getFields().stream()
+                        .filter(field -> field.getRawType().isAssignableTo(java.util.Map.class))
+                        .toList();
+        if (maps.size() != 1) {
+            violations.add(javaClass.getName() + " must own exactly one map");
+        } else {
+            var map = maps.get(0);
+            if (map.getModifiers().contains(JavaModifier.STATIC)) {
+                violations.add(javaClass.getName() + " map must be per-instance");
+            }
+            if (!map.getRawType().getName().equals("java.util.LinkedHashMap")) {
+                violations.add(javaClass.getName() + " map must be a LinkedHashMap");
+            }
+        }
+        boolean pixelOrEncodedArray =
+                javaClass.getFields().stream()
+                        .map(field -> field.getRawType().getBaseComponentType().getName())
+                        .anyMatch(name -> name.equals("byte") || name.equals("int"));
+        if (pixelOrEncodedArray) {
+            violations.add(javaClass.getName() + " must not retain encoded or ARGB arrays");
+        }
+        boolean awtStorage =
+                javaClass.getFields().stream()
+                        .map(field -> field.getRawType().getBaseComponentType().getPackageName())
+                        .anyMatch(
+                                name ->
+                                        name.startsWith("java.awt")
+                                                || name.startsWith("javax.imageio"));
+        if (awtStorage) {
+            violations.add(javaClass.getName() + " must not retain AWT storage");
+        }
+        return List.copyOf(violations);
+    }
+
+    private static List<String> imageModuleCacheOwnershipViolations(
+            Iterable<JavaClass> classes, String expectedOwner) {
+        List<String> mapOwners = new ArrayList<>();
+        for (JavaClass javaClass : classes) {
+            javaClass.getFields().stream()
+                    .filter(field -> field.getRawType().isAssignableTo(java.util.Map.class))
+                    .forEach(field -> mapOwners.add(javaClass.getName() + '#' + field.getName()));
+        }
+        if (mapOwners.size() != 1 || !mapOwners.get(0).startsWith(expectedOwner + '#')) {
+            return List.of("Only " + expectedOwner + " may own cache map storage: " + mapOwners);
+        }
+        return List.of();
+    }
+
+    private static Map<String, String> fieldShape(JavaClass javaClass) {
+        return javaClass.getFields().stream()
+                .collect(
+                        Collectors.toUnmodifiableMap(
+                                field -> field.getName(), field -> field.getRawType().getName()));
     }
 
     private static JavaClass fixture(String simpleName) {

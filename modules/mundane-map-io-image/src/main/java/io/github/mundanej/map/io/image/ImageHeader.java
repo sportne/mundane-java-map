@@ -53,6 +53,29 @@ final class ImageHeader {
         return snapshot.clone();
     }
 
+    int snapshotLength() {
+        return snapshot.length;
+    }
+
+    boolean matchesSnapshotRange(
+            byte[] observed, int observedOffset, long absoluteOffset, int length) {
+        if (absoluteOffset >= snapshot.length) {
+            return true;
+        }
+        int compared = (int) Math.min(length, snapshot.length - absoluteOffset);
+        for (int index = 0; index < compared; index++) {
+            if (snapshot[(int) absoluteOffset + index] != observed[observedOffset + index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    boolean matchesSnapshotPrefix(byte[] observed) {
+        return observed.length >= snapshot.length
+                && matchesSnapshotRange(observed, 0, 0, snapshot.length);
+    }
+
     long encodedLength() {
         return encodedLength;
     }

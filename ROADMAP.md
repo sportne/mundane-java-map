@@ -191,8 +191,12 @@ architectural requirement. Level 1 is complete only when
 - G6-003 is implemented and verified: source-compatible nearest/bilinear requests, exact integer
   resampling, strict ImageIO region/subsampling hints, screen-density output planning, immutable
   view-owned interpolation/opacity, affine presentation, viewer controls, and tolerant rendering
-  evidence use one bounded request/draw path. Caches/hardening and Native Image remain the proposed
-  G6-004 and G6-005 slices.
+  evidence use one bounded request/draw path.
+- G6-004 is implemented and verified: complete AWT-free PNG/JPEG physical validation, exact
+  SHA-256 source versions and operation snapshots, serialized read/close lifecycle, and one private
+  source-owned successful-LRU RGBA cache enforce deterministic limits, invalidation, cancellation,
+  fresh ownership, and hostile-input diagnostics. Native Image remains the proposed G6-005 slice;
+  no performance claim follows before G7 evidence.
 - Support explicit bounds, world files, affine georeferencing, window requests, opacity,
   interpolation, bounded caches, lifecycle/cancellation, hostile inputs, a runnable viewer, and a
   real Native Image decode/render path.

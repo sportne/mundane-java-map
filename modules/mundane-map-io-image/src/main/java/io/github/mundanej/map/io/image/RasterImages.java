@@ -15,7 +15,19 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-/** Static bounded PNG/JPEG raster-source facade. */
+/**
+ * Static bounded PNG/JPEG raster-source facade.
+ *
+ * <p>Opening owns one exact local-file snapshot and publishes a source only after a second SHA-256
+ * observation matches. A published source never adopts changed bytes: ordinary length, header, or
+ * body mutation invalidates retained results; exact restoration may be read again, while accepting
+ * a new version requires reopen. The observational guarantee assumes non-adversarial local files
+ * and excludes same-length ABA rewrites deliberately racing one pass.
+ *
+ * <p>The returned source owns its channel. Its complete reads and close operation are serialized;
+ * whichever acquires the source first completes first. Close clears retained decoded results and is
+ * not a cancellation request for an in-progress opaque codec call.
+ */
 public final class RasterImages {
     private RasterImages() {}
 
@@ -97,6 +109,26 @@ public final class RasterImages {
             ImageHeader header =
                     ImageHeaderProbe.probe(
                             channel, extension, identity.id(), options.imageLimits(), cancellation);
+            byte[] openSnapshot =
+                    ImageSnapshots.exact(
+                            channel,
+                            header.encodedLength(),
+                            identity.id(),
+                            "openSnapshot",
+                            cancellation);
+            ImageSnapshots.requireHeader(openSnapshot, header, identity.id(), "openSnapshot");
+            ImageContainerValidator.validate(
+                    openSnapshot, header, options.imageLimits(), cancellation, identity.id());
+            ImageContentVersion version = ImageSnapshots.version(openSnapshot);
+            ImageContentVersion observed =
+                    ImageSnapshots.fingerprint(
+                            channel,
+                            header.encodedLength(),
+                            header,
+                            identity.id(),
+                            "openSnapshot",
+                            cancellation);
+            ImageSnapshots.requireVersion(version, observed, identity.id(), "openSnapshot");
             RasterSourceMetadata metadata =
                     resolveMetadata(
                             path, extension, identity, header, options, cancellation, worldFiles);
@@ -110,7 +142,8 @@ public final class RasterImages {
                                                     "decoder",
                                                     "No decoder is registered for the image format",
                                                     Map.of("format", header.format().name())));
-            if (channel.size() != header.encodedLength()) {
+            long finalLength = channel.size();
+            if (finalLength != header.encodedLength()) {
                 throw ImageDiagnostics.failure(
                         identity.id(),
                         "IMAGE_FILE_LENGTH_MISMATCH",
@@ -118,12 +151,12 @@ public final class RasterImages {
                         "Encoded image length changed during open",
                         Map.of(
                                 "capturedBytes", Long.toString(header.encodedLength()),
-                                "actualBytes", Long.toString(channel.size()),
-                                "reason", "sizeChanged"));
+                                "actualBytes", Long.toString(finalLength),
+                                "reason", "openSnapshot"));
             }
             checkpoint(identity.id(), cancellation, "image-open");
             ImageRasterSource source =
-                    new ImageRasterSource(channel, header, metadata, options, decoder);
+                    new ImageRasterSource(channel, header, metadata, options, decoder, version);
             channel = null;
             return source;
         } catch (RuntimeException | Error failure) {

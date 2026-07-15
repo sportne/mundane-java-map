@@ -205,6 +205,7 @@ tasks.named('test') {
     inputs.dir(file('src/architectureFixtures/resources'))
     inputs.files(nativeSmokeProject.layout.buildDirectory.dir('classes/java/main'))
     inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/java'))
+    inputs.dir(new File(project(':modules:mundane-map-io-image').projectDir, 'src/main/java'))
     inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/resources'))
     inputs.dir(nativeSmokeProject.layout.buildDirectory.dir('resources/main'))
     systemProperty 'map.architecture.modules', moduleDescriptors
@@ -221,6 +222,8 @@ tasks.named('test') {
             nativeSmokeProject.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath
     systemProperty 'map.architecture.nativeSupportSources',
             new File(nativeSmokeProject.projectDir, 'src/main/java').absolutePath
+    systemProperty 'map.architecture.imageSources',
+            new File(project(':modules:mundane-map-io-image').projectDir, 'src/main/java').absolutePath
     systemProperty 'map.architecture.nativeSupportResources',
             [
                 new File(nativeSmokeProject.projectDir, 'src/main/resources').absolutePath,

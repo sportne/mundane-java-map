@@ -6,17 +6,40 @@ import java.util.Objects;
 /**
  * Immutable image-source opening options.
  *
+ * <p>The cache policy is captured by each opened source. It retains only source-owned successful
+ * decoded/resampled RGBA values; callers always receive independent buffers. Changing options after
+ * construction is impossible, and reopening is required to accept changed encoded content.
+ *
  * @param imageLimits encoded input ceilings
  * @param requestLimits raster request ceilings
  * @param placement explicit map placement
+ * @param cachePolicy source-owned decoded-result cache policy
  */
 public record ImageOpenOptions(
-        ImageSourceLimits imageLimits, RasterSourceLimits requestLimits, ImagePlacement placement) {
+        ImageSourceLimits imageLimits,
+        RasterSourceLimits requestLimits,
+        ImagePlacement placement,
+        ImageCachePolicy cachePolicy) {
+    /**
+     * Creates options with the Level 1 default cache policy.
+     *
+     * @param imageLimits encoded input ceilings
+     * @param requestLimits raster request ceilings
+     * @param placement explicit map placement
+     */
+    public ImageOpenOptions(
+            ImageSourceLimits imageLimits,
+            RasterSourceLimits requestLimits,
+            ImagePlacement placement) {
+        this(imageLimits, requestLimits, placement, ImageCachePolicy.defaults());
+    }
+
     /** Validates all options. */
     public ImageOpenOptions {
         Objects.requireNonNull(imageLimits, "imageLimits");
         Objects.requireNonNull(requestLimits, "requestLimits");
         Objects.requireNonNull(placement, "placement");
+        Objects.requireNonNull(cachePolicy, "cachePolicy");
     }
 
     /**
@@ -28,7 +51,8 @@ public record ImageOpenOptions(
         return new ImageOpenOptions(
                 ImageSourceLimits.defaults(),
                 RasterSourceLimits.LEVEL_1,
-                ImagePlacement.unplaced());
+                ImagePlacement.unplaced(),
+                ImageCachePolicy.defaults());
     }
 
     /**
@@ -38,7 +62,7 @@ public record ImageOpenOptions(
      * @return the updated immutable options
      */
     public ImageOpenOptions withImageLimits(ImageSourceLimits limits) {
-        return new ImageOpenOptions(limits, requestLimits, placement);
+        return new ImageOpenOptions(limits, requestLimits, placement, cachePolicy);
     }
 
     /**
@@ -48,7 +72,7 @@ public record ImageOpenOptions(
      * @return the updated immutable options
      */
     public ImageOpenOptions withRequestLimits(RasterSourceLimits limits) {
-        return new ImageOpenOptions(imageLimits, limits, placement);
+        return new ImageOpenOptions(imageLimits, limits, placement, cachePolicy);
     }
 
     /**
@@ -58,6 +82,16 @@ public record ImageOpenOptions(
      * @return the updated immutable options
      */
     public ImageOpenOptions withPlacement(ImagePlacement value) {
-        return new ImageOpenOptions(imageLimits, requestLimits, value);
+        return new ImageOpenOptions(imageLimits, requestLimits, value, cachePolicy);
+    }
+
+    /**
+     * Replaces the source-owned decoded-result cache policy.
+     *
+     * @param value replacement cache policy
+     * @return the updated immutable options
+     */
+    public ImageOpenOptions withCachePolicy(ImageCachePolicy value) {
+        return new ImageOpenOptions(imageLimits, requestLimits, placement, value);
     }
 }

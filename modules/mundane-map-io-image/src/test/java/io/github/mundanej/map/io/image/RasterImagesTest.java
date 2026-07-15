@@ -343,12 +343,13 @@ class RasterImagesTest {
     void enforcesEveryJpegHeaderBoundaryAndClassifiesTruncationAndStandaloneMarkers()
             throws Exception {
         byte[] jpeg = jpegHeader(0xc0, 3, 2, 3);
+        int sofEnd = 4 + 8 + 3 * 3;
         Path exact = temporaryDirectory.resolve("exact.jpeg");
         Files.write(exact, jpeg);
         ImageOpenOptions exactOptions =
                 ImageOpenOptions.defaults()
                         .withImageLimits(
-                                ImageSourceLimits.defaults().withMaximumHeaderBytes(jpeg.length));
+                                ImageSourceLimits.defaults().withMaximumHeaderBytes(sofEnd));
         RasterImages.open(
                         exact,
                         identity(),
@@ -365,12 +366,11 @@ class RasterImagesTest {
                                         exactOptions.withImageLimits(
                                                 exactOptions
                                                         .imageLimits()
-                                                        .withMaximumHeaderBytes(jpeg.length - 1)),
+                                                        .withMaximumHeaderBytes(sofEnd - 1)),
                                         registry(EncodedRasterFormat.JPEG, solidDecoder())));
         assertEquals("SOURCE_LIMIT_EXCEEDED", shortLimit.terminal().code());
         assertEquals("headerBytes", shortLimit.terminal().context().get("limit"));
-        assertEquals(
-                Integer.toString(jpeg.length), shortLimit.terminal().context().get("requested"));
+        assertEquals(Integer.toString(sofEnd), shortLimit.terminal().context().get("requested"));
 
         Path fill = temporaryDirectory.resolve("fill.jpeg");
         Files.write(fill, insertAfterSoi(jpeg, new byte[] {(byte) 0xff}));
@@ -417,7 +417,7 @@ class RasterImagesTest {
         assertEquals(
                 4, segmentFailure.terminal().location().orElseThrow().byteOffset().orElseThrow());
 
-        for (int marker : new int[] {0xd8, 0xd0, 0x01}) {
+        for (int marker : new int[] {0xd8, 0xd0}) {
             Path standalone = temporaryDirectory.resolve("standalone-" + marker + ".jpeg");
             Files.write(
                     standalone, new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, (byte) marker});
@@ -426,6 +426,40 @@ class RasterImagesTest {
             assertEquals("marker", failure.terminal().context().get("field"));
             assertEquals("standaloneBeforeSof", failure.terminal().context().get("reason"));
         }
+
+        for (int marker : new int[] {0x01, 0xc1, 0xcf}) {
+            Path unsupported = temporaryDirectory.resolve("unsupported-marker-" + marker + ".jpeg");
+            byte[] markerBytes =
+                    marker == 0x01
+                            ? new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0x01}
+                            : jpegHeader(marker, 1, 1, 3);
+            Files.write(unsupported, markerBytes);
+            SourceException failure = openFailure(unsupported, EncodedRasterFormat.JPEG);
+            assertEquals("IMAGE_PROFILE_UNSUPPORTED", failure.terminal().code());
+            assertEquals("marker", failure.terminal().context().get("field"));
+            assertTrue(
+                    failure.terminal().context().get("actual").matches("[A-Z0-9]+/0x[0-9A-F]{2}"));
+        }
+    }
+
+    @Test
+    void finalOpenIdentityUsesOneSizeObservationAndTheOpenSnapshotReason() {
+        byte[] bytes = pngHeader(1, 1, 8, 6);
+        FinalSizeChangeChannel channel = new FinalSizeChangeChannel(bytes);
+        SourceException failure =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                RasterImages.open(
+                                        temporaryDirectory.resolve("final-size.png"),
+                                        identity(),
+                                        ImageOpenOptions.defaults(),
+                                        registry(EncodedRasterFormat.PNG, solidDecoder()),
+                                        CancellationToken.none(),
+                                        ignored -> channel));
+        assertEquals("IMAGE_FILE_LENGTH_MISMATCH", failure.terminal().code());
+        assertEquals("openSnapshot", failure.terminal().context().get("reason"));
+        assertEquals(6, channel.sizeCalls);
     }
 
     @Test
@@ -452,53 +486,49 @@ class RasterImagesTest {
         ImageOpenOptions hugeOptions =
                 new ImageOpenOptions(
                         new ImageSourceLimits(
-                                33, 1, Integer.MAX_VALUE, Integer.MAX_VALUE, Long.MAX_VALUE, 4),
+                                Files.size(huge),
+                                1,
+                                Integer.MAX_VALUE,
+                                Integer.MAX_VALUE,
+                                Long.MAX_VALUE,
+                                4),
                         new RasterSourceLimits(
                                 new RasterRequestLimits(
                                         Long.MAX_VALUE, 1, 1, Long.MAX_VALUE, Long.MAX_VALUE, 1)),
                         ImagePlacement.unplaced());
-        try (RasterSource source =
-                RasterImages.open(
-                        huge,
-                        identity(),
-                        hugeOptions,
-                        registry(EncodedRasterFormat.PNG, solidDecoder()))) {
-            SourceException overflow =
-                    assertThrows(
-                            SourceException.class,
-                            () ->
-                                    source.read(
-                                            new RasterRequest(
-                                                    new RasterWindow(
-                                                            0,
-                                                            0,
-                                                            Integer.MAX_VALUE,
-                                                            Integer.MAX_VALUE),
-                                                    1,
-                                                    1,
-                                                    Optional.empty()),
-                                            CancellationToken.none()));
-            assertEquals("SOURCE_LIMIT_EXCEEDED", overflow.terminal().code());
-            assertEquals("decodedIntermediateBytes", overflow.terminal().context().get("limit"));
-            assertEquals(
-                    Long.toString(Long.MAX_VALUE), overflow.terminal().context().get("requested"));
-        }
+        SourceException overflow =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                RasterImages.open(
+                                        huge,
+                                        identity(),
+                                        hugeOptions,
+                                        registry(EncodedRasterFormat.PNG, solidDecoder())));
+        assertEquals("SOURCE_LIMIT_EXCEEDED", overflow.terminal().code());
+        assertEquals("inflatedRasterBytes", overflow.terminal().context().get("limit"));
+        assertEquals(Long.toString(Long.MAX_VALUE), overflow.terminal().context().get("requested"));
     }
 
     @Test
     void accountsFullDecodeReservationsAtEqualityAndRejectsEachCeilingAtPlusOne() throws Exception {
         Path path = temporaryDirectory.resolve("accounting.png");
         Files.write(path, pngHeader(2, 2, 8, 6));
-        RasterRequestLimits exact = new RasterRequestLimits(4, 1, 1, 69, 4, 1);
+        long intermediate = 4096 + 2 * Files.size(path) + 32 + 4;
+        RasterRequestLimits exact = new RasterRequestLimits(4, 1, 1, intermediate, 4, 1);
         try (RasterSource source = openWithRequestLimits(path, exact)) {
             assertEquals(
                     0, source.read(request(1, 1), CancellationToken.none()).pixels().rgbaAt(0, 0));
         }
 
-        assertRequestLimit(path, new RasterRequestLimits(3, 1, 1, 69, 4, 1), "sourceWindowPixels");
         assertRequestLimit(
-                path, new RasterRequestLimits(4, 1, 1, 68, 4, 1), "decodedIntermediateBytes");
-        assertRequestLimit(path, new RasterRequestLimits(4, 1, 1, 69, 3, 1), "ownedPayloadBytes");
+                path, new RasterRequestLimits(3, 1, 1, intermediate, 4, 1), "sourceWindowPixels");
+        assertRequestLimit(
+                path,
+                new RasterRequestLimits(4, 1, 1, intermediate - 1, 4, 1),
+                "decodedIntermediateBytes");
+        assertRequestLimit(
+                path, new RasterRequestLimits(4, 1, 1, intermediate, 3, 1), "ownedPayloadBytes");
 
         assertRequestLimit(
                 path,
@@ -601,6 +631,8 @@ class RasterImagesTest {
                         ImageOpenOptions.defaults(),
                         registry(EncodedRasterFormat.PNG, fenced))) {
             assertEquals(
+                    0, source.read(request(1, 1), CancellationToken.none()).pixels().rgbaAt(0, 0));
+            assertEquals(
                     "IMAGE_FILE_LENGTH_MISMATCH",
                     assertThrows(
                                     SourceException.class,
@@ -686,15 +718,47 @@ class RasterImagesTest {
     }
 
     private static byte[] pngHeader(int width, int height, int depth, int color) {
-        ByteBuffer bytes = ByteBuffer.allocate(33).order(ByteOrder.BIG_ENDIAN);
-        bytes.put(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
-        bytes.putInt(13).put(new byte[] {'I', 'H', 'D', 'R'});
-        bytes.putInt(width).putInt(height).put((byte) depth).put((byte) color);
-        bytes.put((byte) 0).put((byte) 0).put((byte) 0);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        bytes.writeBytes(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+        ByteBuffer ihdr = ByteBuffer.allocate(13).order(ByteOrder.BIG_ENDIAN);
+        ihdr.putInt(width).putInt(height).put((byte) depth).put((byte) color);
+        ihdr.put((byte) 0).put((byte) 0).put((byte) 0);
+        writePngChunk(bytes, "IHDR", ihdr.array());
+        if (color == 3) {
+            writePngChunk(bytes, "PLTE", new byte[] {0, 0, 0});
+        }
+        if (width > 0 && height > 0 && width <= 1024 && height <= 1024) {
+            int channels =
+                    switch (color) {
+                        case 0, 3 -> 1;
+                        case 2 -> 3;
+                        case 4 -> 2;
+                        default -> 4;
+                    };
+            int rowBytes = (width * channels * depth + 7) / 8;
+            byte[] filtered = new byte[(rowBytes + 1) * height];
+            java.util.zip.Deflater deflater = new java.util.zip.Deflater();
+            deflater.setInput(filtered);
+            deflater.finish();
+            byte[] compressed = new byte[filtered.length + 64];
+            int count = deflater.deflate(compressed);
+            deflater.end();
+            writePngChunk(bytes, "IDAT", java.util.Arrays.copyOf(compressed, count));
+            writePngChunk(bytes, "IEND", new byte[0]);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static void writePngChunk(ByteArrayOutputStream target, String type, byte[] payload) {
+        ByteBuffer chunk = ByteBuffer.allocate(12 + payload.length).order(ByteOrder.BIG_ENDIAN);
+        chunk.putInt(payload.length);
+        byte[] typeBytes = type.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        chunk.put(typeBytes).put(payload);
         CRC32 crc = new CRC32();
-        crc.update(bytes.array(), 12, 17);
-        bytes.putInt((int) crc.getValue());
-        return bytes.array();
+        crc.update(typeBytes);
+        crc.update(payload);
+        chunk.putInt((int) crc.getValue());
+        target.writeBytes(chunk.array());
     }
 
     private static byte[] jpegHeader(int marker, int width, int height, int components) {
@@ -713,6 +777,21 @@ class RasterImagesTest {
             bytes.write(0x11);
             bytes.write(index);
         }
+        bytes.writeBytes(
+                new byte[] {
+                    (byte) 0xff, (byte) 0xda, 0, (byte) (6 + 2 * components), (byte) components
+                });
+        for (int index = 0; index < components; index++) {
+            bytes.write(index + 1);
+            bytes.write(0);
+        }
+        bytes.write(0);
+        bytes.write(marker == 0xc0 ? 63 : 0);
+        bytes.write(0);
+        bytes.write(1);
+        bytes.write(2);
+        bytes.write((byte) 0xff);
+        bytes.write((byte) 0xd9);
         return bytes.toByteArray();
     }
 
@@ -796,5 +875,34 @@ class RasterImagesTest {
                 throw new IOException("close failed");
             }
         }
+    }
+
+    private static final class FinalSizeChangeChannel implements ImageChannel {
+        private final byte[] bytes;
+        private int sizeCalls;
+
+        private FinalSizeChangeChannel(byte[] bytes) {
+            this.bytes = bytes.clone();
+        }
+
+        @Override
+        public long size() {
+            sizeCalls++;
+            return sizeCalls < 6 ? bytes.length : bytes.length + 1L;
+        }
+
+        @Override
+        public int read(ByteBuffer target, long position) {
+            if (position >= bytes.length) {
+                return -1;
+            }
+            int offset = Math.toIntExact(position);
+            int count = Math.min(target.remaining(), bytes.length - offset);
+            target.put(bytes, offset, count);
+            return count;
+        }
+
+        @Override
+        public void close() {}
     }
 }

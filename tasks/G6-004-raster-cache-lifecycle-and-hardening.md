@@ -1,6 +1,6 @@
 # G6-004 — Raster cache, lifecycle, and hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G6-003
 Gate: G6
 Type: AFK
@@ -92,3 +92,13 @@ Keep the fixed task reviewable through three internal milestones: (A) physical/s
 hostile fixtures, (B) exact version/snapshot plus serialized lifecycle and races with caching disabled,
 then (C) cache/accounting/render integration. Run each milestone's narrow image checks, but do not mark
 this task Complete or unblock G6-005 until all milestones and the final validation pass together.
+
+Implementation completed all three milestones together. The image module now validates the complete
+accepted PNG/JPEG physical container before publication, fixes one SHA-256 content version for each
+source, decodes misses from independently verified snapshots, serializes reads and close, and retains
+only bounded canonical successful RGBA results behind the immutable cache policy. Package-private
+metrics and deterministic fixtures cover success-only LRU, bypass, invalidation, restoration,
+cancellation, ownership, and read/close races. The AWT integration evidence closes the earlier
+trailing-JPEG non-claim and includes the second encoded snapshot plus digest scratch in exact request
+accounting. The focused task command, `qualityGate`, and `git diff --check` passed on 2026-07-15; the
+separate native, rendering-regression, performance, publication, and corpus lanes were not run.

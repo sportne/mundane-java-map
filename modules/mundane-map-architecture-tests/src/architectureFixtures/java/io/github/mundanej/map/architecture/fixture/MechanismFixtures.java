@@ -1,10 +1,12 @@
 package io.github.mundanej.map.architecture.fixture;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.lang.invoke.MethodHandle;
+import java.lang.ref.SoftReference;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
@@ -16,8 +18,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import sun.misc.Unsafe;
 
 public final class MechanismFixtures {
@@ -177,6 +183,104 @@ public final class MechanismFixtures {
     public static final class ArbitraryDigestUse {
         public byte[] digest(String algorithm, byte[] value) throws NoSuchAlgorithmException {
             return MessageDigest.getInstance(algorithm).digest(value);
+        }
+    }
+
+    public static final class SharedEncodedCacheUse {
+        private static final byte[] ENCODED_CACHE = new byte[1];
+
+        public byte first() {
+            return ENCODED_CACHE[0];
+        }
+    }
+
+    public static final class SoftCacheUse {
+        private final SoftReference<byte[]> cached = new SoftReference<>(new byte[1]);
+
+        public byte[] value() {
+            return cached.get();
+        }
+    }
+
+    public static final class CacheWorkerUse {
+        private final ExecutorService worker = Executors.newSingleThreadExecutor();
+
+        public ExecutorService worker() {
+            return worker;
+        }
+    }
+
+    public static final class PublicCacheMetrics {
+        public long hits() {
+            return 0;
+        }
+    }
+
+    public static final class StaticStoreUse {
+        private static final Map<Object, Object> STORE = new LinkedHashMap<>();
+
+        public int size() {
+            return STORE.size();
+        }
+    }
+
+    public static final class SecondInstanceMapsUse {
+        private final Map<Object, Object> first = new LinkedHashMap<>();
+        private final Map<Object, Object> second = new LinkedHashMap<>();
+
+        public int size() {
+            return first.size() + second.size();
+        }
+    }
+
+    public static final class EncodedStorageUse {
+        private final Map<Object, Object> retained = new LinkedHashMap<>();
+        private final byte[] payload = new byte[1];
+
+        public int size() {
+            return retained.size() + payload.length;
+        }
+    }
+
+    public static final class ArgbStorageUse {
+        private final Map<Object, Object> retained = new LinkedHashMap<>();
+        private final int[] pixels = new int[1];
+
+        public int size() {
+            return retained.size() + pixels.length;
+        }
+    }
+
+    public static final class AwtStorageUse {
+        private final Map<Object, Object> retained = new LinkedHashMap<>();
+        private final BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+
+        public int size() {
+            return retained.size() + image.getWidth();
+        }
+    }
+
+    public static final class SoleCacheOwnerUse {
+        private final Map<Object, Object> cache = new LinkedHashMap<>();
+
+        public int size() {
+            return cache.size();
+        }
+    }
+
+    public static final class ExtraHelperMapUse {
+        private final Map<Object, Object> storage = new HashMap<>();
+
+        public int size() {
+            return storage.size();
+        }
+    }
+
+    public static final class EvasiveHelperStorageUse {
+        private final Map<Object, Object> values = new ConcurrentHashMap<>();
+
+        public int size() {
+            return values.size();
         }
     }
 }

@@ -1286,6 +1286,22 @@ metadata tree, writer, or concurrency framework. If implementation effort must b
 task, validators/versioning land before cache admission, but the task is complete only when the one
 observable cached hardened source works end to end.
 
+### G6-004 implementation evidence
+
+The implemented slice retains the designed five public image-module types: `RasterImages`,
+`ImageSourceLimits`, `ImageOpenOptions`, `ImagePlacement`, and `ImageCachePolicy`. Complete-container
+validation and content-version/cache/lifecycle machinery remain package-private and AWT-free. Exact
+fixtures exercise PNG chunk/CRC/order/inflate and JPEG marker/entropy/EOI behavior, stable mutation
+reasons, limit boundaries, successful-LRU and bypass accounting, fresh result ownership, exact
+restoration, and serialized read/close winners. The AWT decoder integration proves the new snapshot
+reservation and rejects concatenated/trailing JPEG input before decode. Architecture evidence pins
+the sole image-module `MessageDigest.getInstance` owner and literal production algorithm.
+
+The focused image/AWT/architecture/viewer checks, normal `qualityGate`, and whitespace validation
+passed on 2026-07-15. Native Image, rendering regression, performance, publication, and corpus lanes
+remain separate and were not run for this task. G6-005 is therefore unblocked without adding another
+cache, worker, parser SPI, or performance claim.
+
 ## Native Image raster smoke and G6 closeout (G6-005)
 
 ### One existing executable and explicit codec path

@@ -11,6 +11,7 @@ import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -871,15 +872,34 @@ class WorldFileSupportTest {
     }
 
     private static byte[] pngHeader(int width, int height) {
-        ByteBuffer bytes = ByteBuffer.allocate(33).order(ByteOrder.BIG_ENDIAN);
-        bytes.put(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
-        bytes.putInt(13).put(new byte[] {'I', 'H', 'D', 'R'});
-        bytes.putInt(width).putInt(height).put((byte) 8).put((byte) 6);
-        bytes.put((byte) 0).put((byte) 0).put((byte) 0);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        bytes.writeBytes(new byte[] {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a});
+        ByteBuffer ihdr = ByteBuffer.allocate(13).order(ByteOrder.BIG_ENDIAN);
+        ihdr.putInt(width).putInt(height).put((byte) 8).put((byte) 6);
+        ihdr.put((byte) 0).put((byte) 0).put((byte) 0);
+        writePngChunk(bytes, "IHDR", ihdr.array());
+        byte[] filtered = new byte[(width * 4 + 1) * height];
+        java.util.zip.Deflater deflater = new java.util.zip.Deflater();
+        deflater.setInput(filtered);
+        deflater.finish();
+        byte[] compressed = new byte[filtered.length + 64];
+        int count = deflater.deflate(compressed);
+        deflater.end();
+        writePngChunk(bytes, "IDAT", java.util.Arrays.copyOf(compressed, count));
+        writePngChunk(bytes, "IEND", new byte[0]);
+        return bytes.toByteArray();
+    }
+
+    private static void writePngChunk(ByteArrayOutputStream target, String type, byte[] payload) {
+        ByteBuffer chunk = ByteBuffer.allocate(12 + payload.length).order(ByteOrder.BIG_ENDIAN);
+        chunk.putInt(payload.length);
+        byte[] typeBytes = type.getBytes(StandardCharsets.US_ASCII);
+        chunk.put(typeBytes).put(payload);
         CRC32 crc = new CRC32();
-        crc.update(bytes.array(), 12, 17);
-        bytes.putInt((int) crc.getValue());
-        return bytes.array();
+        crc.update(typeBytes);
+        crc.update(payload);
+        chunk.putInt((int) crc.getValue());
+        target.writeBytes(chunk.array());
     }
 
     private static byte[] jpegHeader(int width, int height) {
@@ -898,7 +918,21 @@ class WorldFileSupportTest {
             1,
             1,
             0x11,
-            0
+            0,
+            (byte) 0xff,
+            (byte) 0xda,
+            0,
+            8,
+            1,
+            1,
+            0,
+            0,
+            63,
+            0,
+            1,
+            2,
+            (byte) 0xff,
+            (byte) 0xd9
         };
     }
 
