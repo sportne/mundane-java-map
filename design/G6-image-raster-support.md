@@ -1541,6 +1541,32 @@ ownership, or native parity. G6 is therefore simple enough and no simpler while 
 consumers supply one explicit registry and receive the same format-neutral raster source used by every
 other layer.
 
+### G6-005 implementation evidence
+
+The implemented slice keeps the designed single executable and scenario order. One package-private
+fixed-workspace engine now materializes either the six G5 resources or the five G6 resources into
+separate directories and exposes only immutable typed path records. The raster scenario builds one
+fresh explicit AWT registry in `PNG`, `JPEG` order, uses exact recognized EPSG:3857 identity views,
+and shares its direct reads, repeated-result ownership, cancellation/reuse, affine rendering,
+diagnostic, lifecycle, and cleanup assertions unchanged between JVM and native execution. Resource
+configuration and processed-tree tests pin the complete 12-literal inventory.
+
+GraalVM CE Java 21.0.2+13.1 on Linux x86-64 built the 47,402,296-byte no-fallback executable
+(SHA-256 `cd2830a83d48a7ec0101bdea2a1cbaf2de6d23ae825e6490909850b03ab4c424`) in 27.7 seconds.
+It completed in the same root `nativeSmoke` lane with `mundane-map native smoke: OK`. The standard
+JDK PNG and JPEG readers required narrowly enumerated GraalVM JNI compatibility metadata: five
+`ByteComponentRaster` fields, ten OpenJDK 21 `JPEGImageReader` callback methods, and the three JPEG
+table fields those callbacks access. Architecture tests pin those exact additions. This is JDK
+AWT/ImageIO reachability owned by the native support application, not JNI use in application or
+production code, and it adds no reflection, scanning, service/provider metadata, tracing agent, or
+broad reachability flag.
+
+The five checked BSD fixtures retain literal length/SHA/provenance evidence, including the 70-byte
+IDAT-CRC failure at byte 54. Focused JVM/architecture checks, the actual native executable, the normal
+quality gate, and whitespace passed on 2026-07-15. Corpus, rendering-regression, performance,
+publication, and consumer lanes remained separate and did not run. The maintainer's advance HITL
+approval accepts this Linux-only evidence and closes G6 without adding another production abstraction.
+
 ## Approved Level 2 embedded-byte extension
 
 G10-004 and G10-006 establish GeoPackage, MBTiles, and HTTP XYZ as demonstrated consumers of encoded

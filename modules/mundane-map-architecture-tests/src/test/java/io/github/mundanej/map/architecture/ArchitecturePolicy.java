@@ -24,7 +24,7 @@ import java.util.stream.Stream;
 final class ArchitecturePolicy {
     private static final Map<String, String> JDK_MODULE_BY_PACKAGE = jdkModulesByPackage();
     private static final String NATIVE_SHAPEFILE_WORKSPACE =
-            "io.github.mundanej.map.nativeimage.NativeShapefileWorkspace";
+            "io.github.mundanej.map.nativeimage.NativeFixtureWorkspace";
     private static final Pattern RESOURCE_PATTERN =
             Pattern.compile("\\\"pattern\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
     private static final Pattern MESSAGE_DIGEST_FACTORY_CALL =

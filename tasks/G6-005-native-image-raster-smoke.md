@@ -1,6 +1,6 @@
 # G6-005 — Native Image raster smoke
 
-Status: Proposed
+Status: Complete
 Depends on: G2-007, G5-010, G6-004
 Gate: G6
 Type: HITL
@@ -80,3 +80,32 @@ Reuse the single native executable and exact resource configuration. Do not run 
 render-regression, performance, publication, or consumer lanes. This task also performs the G6
 holistic simplicity closeout; it adds no production capability beyond a narrowly necessary Native
 Image compatibility fix.
+
+Completed on 2026-07-15. The one existing native executable now runs the G2 symbol, G5 Shapefile,
+and G6 raster scenarios sequentially with separate hash-verified workspaces. Its resource metadata
+contains exactly 12 literal includes: the G2 icon, six G5 files, and five G6 files. JVM and
+architecture checks pin the explicit `PNG`, `JPEG` decoder order, off-EDT direct reads, EDT paint,
+world-file transforms, repeated independent cache-path results, cancellation/reuse, ownership,
+cleanup, diagnostics, provenance, and negative semantic controls.
+
+The successful Linux x86-64 lane used GraalVM CE Java 21.0.2+13.1 and `native-image 21.0.2` on
+Ubuntu 24.04.1 LTS under Linux 5.15.167.4 WSL2. The no-fallback image was 47,402,296 bytes
+(SHA-256 `cd2830a83d48a7ec0101bdea2a1cbaf2de6d23ae825e6490909850b03ab4c424`), built in 27.7
+seconds, executed the production PNG/JPEG decode, affine, cache, cancellation, render, diagnostic,
+and cleanup paths, and ended with `mundane-map native smoke: OK`; the root lane completed in 33
+seconds. An initial ambient OpenJDK 21.0.11 invocation failed before compilation because no Native
+Image launcher was available. The first two GraalVM executions exposed only missing JDK AWT/ImageIO
+JNI reachability: the final metadata adds the five fixed `ByteComponentRaster` fields and the exact
+ten OpenJDK 21 JPEG-reader callbacks plus three JPEG table fields. Architecture tests pin that narrow
+set; application and production code still use no JNI, reflection, scanning, internal JDK API, or
+provider discovery.
+
+The BSD-3-Clause repository-authored fixtures are `png-affine-smoke.png` (93 bytes,
+`8a000426…f0749`), `.pgw` (21, `22957d91…d6ff`), `jpeg-affine-smoke.jpg` (368,
+`ec45fd82…cb9`), `.jgw` (22, `a161caf5…4561`), and the 70-byte malformed PNG
+(`ab60a5ad…c7c6`). Both EPSG:3857 paths retained their exact affine envelopes, samples, fit,
+background, and bounded paint behavior; malformed open ended at byte 54 with
+`IMAGE_CONTAINER_INVALID`, component `image`, and `format=PNG, reason=chunkCrc`. Every source/view
+and both workspaces closed and deleted their known paths. The maintainer's advance approval of all
+G6-G9 HITL checkpoints accepts this evidence as the named **G6 native raster approval**. This is
+Linux evidence only and makes no Windows, macOS, all-Linux, or cross-platform claim.

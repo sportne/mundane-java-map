@@ -1,7 +1,6 @@
 package io.github.mundanej.map.nativeimage;
 
 import java.util.List;
-import java.util.Objects;
 
 /** Fixed, checksummed resource inventory for the native Shapefile smoke. */
 final class NativeShapefileResources {
@@ -46,18 +45,11 @@ final class NativeShapefileResources {
         return new Entry(RESOURCE_DIRECTORY + localName, localName, length, sha256);
     }
 
-    record Entry(String resourceName, String localName, int length, String sha256) {
+    record Entry(String resourceName, String localName, int length, String sha256)
+            implements NativeFixtureResource {
         Entry {
-            Objects.requireNonNull(resourceName, "resourceName");
-            Objects.requireNonNull(localName, "localName");
-            Objects.requireNonNull(sha256, "sha256");
-            if (!resourceName.equals(RESOURCE_DIRECTORY + localName)
-                    || localName.contains("/")
-                    || localName.contains("\\")
-                    || length <= 0
-                    || !sha256.matches("[0-9a-f]{64}")) {
-                throw new IllegalArgumentException("Invalid native Shapefile resource entry");
-            }
+            NativeFixtureResource.validate(
+                    resourceName, RESOURCE_DIRECTORY, localName, length, sha256, "Shapefile");
         }
     }
 }

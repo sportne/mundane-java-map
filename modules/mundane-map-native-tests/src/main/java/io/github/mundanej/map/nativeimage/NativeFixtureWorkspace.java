@@ -10,35 +10,43 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** Bounded, hash-verified filesystem workspace for the fixed native resources. */
-final class NativeShapefileWorkspace implements AutoCloseable {
+/** Bounded, hash-verified filesystem workspace for one fixed native fixture inventory. */
+final class NativeFixtureWorkspace implements AutoCloseable {
     private final WorkspaceFiles files;
     private final Path directory;
     private final List<Path> ownedPaths = new ArrayList<>();
     private final Map<String, Path> paths = new HashMap<>();
     private boolean closed;
 
-    private NativeShapefileWorkspace(WorkspaceFiles files, Path directory) {
+    private NativeFixtureWorkspace(WorkspaceFiles files, Path directory) {
         this.files = files;
         this.directory = directory;
     }
 
-    static NativeShapefileWorkspace open() {
+    static NativeFixtureWorkspace openShapefile() {
         return open(
                 NativeShapefileResources.INVENTORY,
                 NativeSmokeMain.class::getResourceAsStream,
-                new JdkWorkspaceFiles());
+                new JdkWorkspaceFiles("mundane-map-shapefile-native-"));
     }
 
-    static NativeShapefileWorkspace open(
-            List<NativeShapefileResources.Entry> inventory,
+    static NativeFixtureWorkspace openRaster() {
+        return open(
+                NativeRasterResources.INVENTORY,
+                NativeSmokeMain.class::getResourceAsStream,
+                new JdkWorkspaceFiles("mundane-map-raster-native-"));
+    }
+
+    static NativeFixtureWorkspace open(
+            List<? extends NativeFixtureResource> inventory,
             ResourceReader resources,
             WorkspaceFiles files) {
-        List<NativeShapefileResources.Entry> entries =
+        List<? extends NativeFixtureResource> entries =
                 List.copyOf(Objects.requireNonNull(inventory, "inventory"));
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(files, "files");
@@ -49,9 +57,9 @@ final class NativeShapefileWorkspace implements AutoCloseable {
         } catch (IOException failure) {
             throw workspaceFailure("unable to create temporary directory", failure);
         }
-        NativeShapefileWorkspace workspace = new NativeShapefileWorkspace(files, directory);
+        NativeFixtureWorkspace workspace = new NativeFixtureWorkspace(files, directory);
         try {
-            for (NativeShapefileResources.Entry entry : entries) {
+            for (NativeFixtureResource entry : entries) {
                 workspace.copy(entry, resources);
             }
             return workspace;
@@ -65,16 +73,25 @@ final class NativeShapefileWorkspace implements AutoCloseable {
         }
     }
 
-    Path path(NativeShapefileResources.Entry entry) {
-        Objects.requireNonNull(entry, "entry");
-        if (closed) {
-            throw new IllegalStateException("shapefile-workspace: workspace is closed");
-        }
-        Path path = paths.get(entry.localName());
-        if (path == null) {
-            throw new IllegalArgumentException("Resource is not in this workspace");
-        }
-        return path;
+    NativeShapefilePaths shapefilePaths() {
+        requireOpen();
+        return new NativeShapefilePaths(
+                required(NativeShapefileResources.SHP),
+                required(NativeShapefileResources.SHX),
+                required(NativeShapefileResources.DBF),
+                required(NativeShapefileResources.CPG),
+                required(NativeShapefileResources.PRJ),
+                required(NativeShapefileResources.MALFORMED));
+    }
+
+    NativeRasterPaths rasterPaths() {
+        requireOpen();
+        return new NativeRasterPaths(
+                required(NativeRasterResources.PNG),
+                required(NativeRasterResources.PNG_WORLD),
+                required(NativeRasterResources.JPEG),
+                required(NativeRasterResources.JPEG_WORLD),
+                required(NativeRasterResources.MALFORMED));
     }
 
     @Override
@@ -95,7 +112,21 @@ final class NativeShapefileWorkspace implements AutoCloseable {
         }
     }
 
-    private void copy(NativeShapefileResources.Entry entry, ResourceReader resources) {
+    private Path required(NativeFixtureResource entry) {
+        Path path = paths.get(entry.localName());
+        if (path == null) {
+            throw new IllegalStateException("fixture-workspace: wrong fixed inventory requested");
+        }
+        return path;
+    }
+
+    private void requireOpen() {
+        if (closed) {
+            throw new IllegalStateException("fixture-workspace: workspace is closed");
+        }
+    }
+
+    private void copy(NativeFixtureResource entry, ResourceReader resources) {
         byte[] bytes = read(entry, resources);
         Path target = directory.resolve(entry.localName());
         OutputStream output;
@@ -118,7 +149,7 @@ final class NativeShapefileWorkspace implements AutoCloseable {
         paths.put(entry.localName(), target);
     }
 
-    private static byte[] read(NativeShapefileResources.Entry entry, ResourceReader resources) {
+    private static byte[] read(NativeFixtureResource entry, ResourceReader resources) {
         try (InputStream input = resources.open(entry.resourceName())) {
             if (input == null) {
                 throw workspaceFailure("missing resource " + entry.localName(), null);
@@ -149,11 +180,11 @@ final class NativeShapefileWorkspace implements AutoCloseable {
         }
     }
 
-    private static void requireUniqueNames(List<NativeShapefileResources.Entry> entries) {
-        java.util.HashSet<String> names = new java.util.HashSet<>();
-        for (NativeShapefileResources.Entry entry : entries) {
+    private static void requireUniqueNames(List<? extends NativeFixtureResource> entries) {
+        HashSet<String> names = new HashSet<>();
+        for (NativeFixtureResource entry : entries) {
             if (!names.add(Objects.requireNonNull(entry, "entry").localName())) {
-                throw new IllegalArgumentException("Duplicate native Shapefile local name");
+                throw new IllegalArgumentException("Duplicate native fixture local name");
             }
         }
     }
@@ -176,7 +207,7 @@ final class NativeShapefileWorkspace implements AutoCloseable {
     }
 
     private static IllegalStateException workspaceFailure(String message, Throwable cause) {
-        return new IllegalStateException("shapefile-workspace: " + message, cause);
+        return new IllegalStateException("fixture-workspace: " + message, cause);
     }
 
     @FunctionalInterface
@@ -192,10 +223,14 @@ final class NativeShapefileWorkspace implements AutoCloseable {
         boolean deleteIfExists(Path path) throws IOException;
     }
 
-    private static final class JdkWorkspaceFiles implements WorkspaceFiles {
+    private record JdkWorkspaceFiles(String prefix) implements WorkspaceFiles {
+        private JdkWorkspaceFiles {
+            Objects.requireNonNull(prefix, "prefix");
+        }
+
         @Override
         public Path createTemporaryDirectory() throws IOException {
-            return Files.createTempDirectory("mundane-map-shapefile-native-");
+            return Files.createTempDirectory(prefix);
         }
 
         @Override

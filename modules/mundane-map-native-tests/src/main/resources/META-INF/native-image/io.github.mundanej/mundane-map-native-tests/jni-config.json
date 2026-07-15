@@ -1,5 +1,9 @@
 [
 {
+  "name":"com.sun.imageio.plugins.jpeg.JPEGImageReader",
+  "methods":[{"name":"readInputData","parameterTypes":["byte[]","int","int"] }, {"name":"skipInputBytes","parameterTypes":["long"] }, {"name":"warningOccurred","parameterTypes":["int"] }, {"name":"warningWithMessage","parameterTypes":["java.lang.String"] }, {"name":"setImageData","parameterTypes":["int","int","int","int","int","byte[]"] }, {"name":"acceptPixels","parameterTypes":["int","boolean"] }, {"name":"passStarted","parameterTypes":["int"] }, {"name":"passComplete","parameterTypes":[] }, {"name":"pushBack","parameterTypes":["int"] }, {"name":"skipPastImage","parameterTypes":["int"] }]
+},
+{
   "name":"[Lsun.java2d.loops.GraphicsPrimitive;"
 },
 {
@@ -54,6 +58,14 @@
   "fields":[{"name":"bitMasks"}, {"name":"bitOffsets"}, {"name":"bitSizes"}, {"name":"maxBitSize"}]
 },
 {
+  "name":"javax.imageio.plugins.jpeg.JPEGHuffmanTable",
+  "fields":[{"name":"lengths"}, {"name":"values"}]
+},
+{
+  "name":"javax.imageio.plugins.jpeg.JPEGQTable",
+  "fields":[{"name":"qTable"}]
+},
+{
   "name":"java.lang.System",
   "methods":[{"name":"load","parameterTypes":["java.lang.String"] }]
 },
@@ -65,6 +77,10 @@
   "name":"sun.awt.image.BufImgSurfaceData$ICMColorData",
   "fields":[{"name":"pData"}],
   "methods":[{"name":"<init>","parameterTypes":["long"] }]
+},
+{
+  "name":"sun.awt.image.ByteComponentRaster",
+  "fields":[{"name":"data"}, {"name":"dataOffsets"}, {"name":"pixelStride"}, {"name":"scanlineStride"}, {"name":"type"}]
 },
 {
   "name":"sun.awt.image.IntegerComponentRaster",

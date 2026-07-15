@@ -36,6 +36,13 @@ class ArchitectureRulesTest {
                     NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.cpg",
                     NATIVE_RESOURCE_DIRECTORY + "shapefile/polygon-smoke.prj",
                     NATIVE_RESOURCE_DIRECTORY + "shapefile/malformed-record.shp");
+    private static final Set<String> NATIVE_RASTER_RESOURCES =
+            Set.of(
+                    NATIVE_RESOURCE_DIRECTORY + "raster/png-affine-smoke.png",
+                    NATIVE_RESOURCE_DIRECTORY + "raster/png-affine-smoke.pgw",
+                    NATIVE_RESOURCE_DIRECTORY + "raster/jpeg-affine-smoke.jpg",
+                    NATIVE_RESOURCE_DIRECTORY + "raster/jpeg-affine-smoke.jgw",
+                    NATIVE_RESOURCE_DIRECTORY + "raster/malformed-idat-crc.png");
 
     private static List<ModuleDescriptor> modules;
     private static Map<ModuleDescriptor, JavaClasses> classesByModule;
@@ -639,7 +646,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeShapefileSupportUsesOnlyFixedPathsAndItsOneDigestWorkspace() throws IOException {
+    void nativeFormatSupportUsesOnlyFixedPathsAndItsOneDigestWorkspace() throws IOException {
         JavaClasses shapefileClasses =
                 classesByModule.get(moduleEndingWith("mundane-map-io-shapefile"));
         List<String> bytecodeViolations =
@@ -650,7 +657,7 @@ class ArchitectureRulesTest {
 
         Path workspaceSource =
                 nativeSupportSources.resolve(
-                        "io/github/mundanej/map/nativeimage/NativeShapefileWorkspace.java");
+                        "io/github/mundanej/map/nativeimage/NativeFixtureWorkspace.java");
         List<String> sourceViolations =
                 ArchitecturePolicy.fixedSha256WorkspaceSourceViolations(
                         Files.readString(workspaceSource), workspaceSource.toString());
@@ -710,7 +717,8 @@ class ArchitectureRulesTest {
                                         NATIVE_RESOURCE_DIRECTORY
                                                 + "symbol-smoke-4x2.rgba.provenance.txt",
                                         NATIVE_RESOURCE_DIRECTORY
-                                                + "shapefile/malformed-record.shp"))
+                                                + "shapefile/malformed-record.shp"),
+                                NATIVE_RASTER_RESOURCES)
                         .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
         Set<String> processed =
@@ -735,13 +743,73 @@ class ArchitectureRulesTest {
                 java.util.stream.Stream.concat(
                                 Set.of(NATIVE_RESOURCE_DIRECTORY + "symbol-smoke-4x2.rgba")
                                         .stream(),
-                                NATIVE_SHAPEFILE_RESOURCES.stream())
+                                java.util.stream.Stream.concat(
+                                        NATIVE_SHAPEFILE_RESOURCES.stream(),
+                                        NATIVE_RASTER_RESOURCES.stream()))
                         .collect(Collectors.toUnmodifiableSet());
         List<String> violations =
                 ArchitecturePolicy.explicitResourceConfigViolations(
                         Files.readString(resourceConfig), expected);
 
         assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void nativeRasterJniCompatibilityMetadataIsNarrowAndExact() throws IOException {
+        String metadata = nativeJniMetadata();
+
+        List<String> violations = NativeJniMetadataPolicy.rasterCompatibilityViolations(metadata);
+
+        assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void nativeRasterJniCompatibilityMetadataRejectsBroadAndDuplicateRegistration()
+            throws IOException {
+        assertJniMetadataRejected(
+                "[{\"name\":\"duplicate\"},{\"name\":\"duplicate\"}]", "Duplicate JNI class");
+        assertJniMetadataRejected(
+                "[{\"name\":\"duplicate-field\",\"fields\":[{\"name\":\"value\"},{\"name\":\"value\"}]}]",
+                "Duplicate JNI field");
+        assertJniMetadataRejected(
+                "[{\"name\":\"duplicate-method\",\"methods\":["
+                        + "{\"name\":\"read\",\"parameterTypes\":[\"int\"]},"
+                        + "{\"name\":\"read\",\"parameterTypes\":[\"int\"]}]}]",
+                "Duplicate JNI method overload");
+        for (String flag :
+                List.of(
+                        "allDeclaredMethods",
+                        "allQueriedFields",
+                        "allPublicConstructors",
+                        "queryAllDeclaredClasses")) {
+            assertJniMetadataRejected(
+                    "[{\"name\":\"broad\",\"" + flag + "\":true}]",
+                    "Broad JNI registration flag " + flag);
+        }
+        assertJniMetadataRejected(
+                "[{\"name\":\"com.sun.imageio.plugins.jpeg.JPEGImageReader\",\"methods\":["
+                        + "{\"name\":\"readInputData\","
+                        + "\"parameterTypes\":[\"byte[]\",\"long\",\"int\"]}]}]",
+                "Unexpected raster JNI method signatures");
+
+        String actual = nativeJniMetadata();
+        assertJniMetadataRejected(
+                appendJniClass(actual, "{\"name\":\"example.UnapprovedJniClass\"}"),
+                "Unexpected complete JNI metadata snapshot");
+        String extraExistingMember =
+                actual.replace(
+                        "\"methods\":[{\"name\":\"getRGB\",\"parameterTypes\":[] }]",
+                        "\"methods\":[{\"name\":\"getRGB\",\"parameterTypes\":[] },"
+                                + "{\"name\":\"getRed\",\"parameterTypes\":[] }]");
+        assertFalse(actual.equals(extraExistingMember), "Expected the java.awt.Color mutation");
+        assertJniMetadataRejected(extraExistingMember, "Unexpected complete JNI metadata snapshot");
+        assertJniMetadataRejected(
+                appendJniClass(
+                        actual,
+                        "{\"name\":\"com.sun.imageio.plugins.png.PNGImageReader\","
+                                + "\"methods\":[{\"name\":\"readHeader\","
+                                + "\"parameterTypes\":[]}]}"),
+                "Unexpected complete JNI metadata snapshot");
     }
 
     @Test
@@ -997,6 +1065,29 @@ class ArchitectureRulesTest {
                 .collect(
                         Collectors.toUnmodifiableMap(
                                 field -> field.getName(), field -> field.getRawType().getName()));
+    }
+
+    private static void assertJniMetadataRejected(String metadata, String expectedViolation) {
+        List<String> violations = NativeJniMetadataPolicy.rasterCompatibilityViolations(metadata);
+        assertTrue(
+                violations.stream().anyMatch(value -> value.contains(expectedViolation)),
+                () -> "Expected " + expectedViolation + " in " + violations);
+    }
+
+    private static String nativeJniMetadata() throws IOException {
+        Path sourceResources =
+                nativeSupportResources.stream()
+                        .filter(path -> path.endsWith(Path.of("src", "main", "resources")))
+                        .findFirst()
+                        .orElseThrow();
+        return Files.readString(
+                sourceResources.resolve(NATIVE_METADATA_DIRECTORY + "jni-config.json"));
+    }
+
+    private static String appendJniClass(String metadata, String classBlock) {
+        int end = metadata.lastIndexOf(']');
+        assertTrue(end >= 0, "Expected JNI metadata array");
+        return metadata.substring(0, end) + ",\n" + classBlock + "\n]";
     }
 
     private static JavaClass fixture(String simpleName) {

@@ -195,8 +195,13 @@ architectural requirement. Level 1 is complete only when
 - G6-004 is implemented and verified: complete AWT-free PNG/JPEG physical validation, exact
   SHA-256 source versions and operation snapshots, serialized read/close lifecycle, and one private
   source-owned successful-LRU RGBA cache enforce deterministic limits, invalidation, cancellation,
-  fresh ownership, and hostile-input diagnostics. Native Image remains the proposed G6-005 slice;
-  no performance claim follows before G7 evidence.
+  fresh ownership, and hostile-input diagnostics.
+- G6-005 is implemented and verified: the existing no-fallback Linux Java 21 Native Image
+  executable uses one explicit PNG/JPEG decoder registry, five literal checked raster resources,
+  separate fixed workspaces, exact affine/cache/cancellation/diagnostic assertions, and tolerant
+  offscreen rendering while preserving the G2/G5 scenarios. Narrow JDK AWT/ImageIO JNI metadata is
+  pinned by architecture tests; application and production code use no JNI or discovery. G6 is
+  complete, with no Windows/macOS claim and no performance claim before G7 evidence.
 - Support explicit bounds, world files, affine georeferencing, window requests, opacity,
   interpolation, bounded caches, lifecycle/cancellation, hostile inputs, a runnable viewer, and a
   real Native Image decode/render path.

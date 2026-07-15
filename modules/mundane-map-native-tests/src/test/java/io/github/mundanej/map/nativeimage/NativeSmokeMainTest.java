@@ -115,6 +115,36 @@ class NativeSmokeMainTest {
                           "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
                         },
                         "pattern": "\\\\Qio/github/mundanej/map/nativeimage/shapefile/malformed-record.shp\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/raster/png-affine-smoke.png\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/raster/png-affine-smoke.pgw\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/raster/jpeg-affine-smoke.jpg\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/raster/jpeg-affine-smoke.jgw\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/raster/malformed-idat-crc.png\\\\E"
                       }
                     ]
                   }

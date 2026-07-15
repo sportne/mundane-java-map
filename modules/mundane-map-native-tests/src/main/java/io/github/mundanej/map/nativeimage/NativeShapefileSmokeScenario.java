@@ -75,18 +75,25 @@ final class NativeShapefileSmokeScenario {
         if (SwingUtilities.isEventDispatchThread()) {
             throw new IllegalStateException("shapefile-smoke: source work must run off the EDT");
         }
-        try (NativeShapefileWorkspace workspace = NativeShapefileWorkspace.open()) {
-            Result valid = runValid(workspace);
-            assertMalformed(workspace);
-            return valid;
+        try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openShapefile()) {
+            return run(workspace.shapefilePaths());
         }
     }
 
-    private static Result runValid(NativeShapefileWorkspace workspace) {
+    static Result run(NativeShapefilePaths paths) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            throw new IllegalStateException("shapefile-smoke: source work must run off the EDT");
+        }
+        Result valid = runValid(paths);
+        assertMalformed(paths);
+        return valid;
+    }
+
+    private static Result runValid(NativeShapefilePaths paths) {
         FeatureSource source =
                 Shapefiles.open(
                         new SourceIdentity(VALID_SOURCE_ID, "Native Shapefile valid fixture"),
-                        workspace.path(NativeShapefileResources.SHP),
+                        paths.shp(),
                         ShapefileOpenOptions.defaults());
         ValidRun valid =
                 withCleanup(
@@ -358,14 +365,14 @@ final class NativeShapefileSmokeScenario {
         return primary;
     }
 
-    private static void assertMalformed(NativeShapefileWorkspace workspace) {
+    private static void assertMalformed(NativeShapefilePaths paths) {
         ShapefileOpenOptions options =
                 ShapefileOpenOptions.defaults()
                         .withCrsOverride(CrsRegistry.level1().resolve("EPSG:3857"));
         try (FeatureSource source =
                 Shapefiles.open(
                         new SourceIdentity(MALFORMED_SOURCE_ID, "Native malformed fixture"),
-                        workspace.path(NativeShapefileResources.MALFORMED),
+                        paths.malformed(),
                         options)) {
             List<SourceDiagnostic> warnings = source.openingDiagnostics().entries();
             require(warnings.size() == 2, "malformed opening warning count changed");

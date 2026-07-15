@@ -27,15 +27,42 @@ class NativeShapefileWorkspaceTest {
 
     @Test
     void actualWorkspaceVerifiesResourcesAndDeletesEveryKnownPath() {
-        NativeShapefileWorkspace workspace = NativeShapefileWorkspace.open();
-        Path directory = workspace.path(NativeShapefileResources.SHP).getParent();
-        assertTrue(Files.isRegularFile(workspace.path(NativeShapefileResources.PRJ)));
+        NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openShapefile();
+        NativeShapefilePaths paths = workspace.shapefilePaths();
+        Path directory = paths.shp().getParent();
+        assertTrue(Files.isRegularFile(paths.prj()));
         workspace.close();
 
         assertFalse(Files.exists(directory));
         workspace.close();
+        assertThrows(IllegalStateException.class, workspace::shapefilePaths);
+    }
+
+    @Test
+    void shapefileAndRasterInventoriesUseIndependentTypedWorkspaces() {
+        Path shapefileDirectory;
+        Path rasterDirectory;
+        try (NativeFixtureWorkspace shapefile = NativeFixtureWorkspace.openShapefile();
+                NativeFixtureWorkspace raster = NativeFixtureWorkspace.openRaster()) {
+            shapefileDirectory = shapefile.shapefilePaths().shp().getParent();
+            rasterDirectory = raster.rasterPaths().png().getParent();
+            assertFalse(shapefileDirectory.equals(rasterDirectory));
+            assertThrows(IllegalStateException.class, shapefile::rasterPaths);
+            assertThrows(IllegalStateException.class, raster::shapefilePaths);
+        }
+        assertFalse(Files.exists(shapefileDirectory));
+        assertFalse(Files.exists(rasterDirectory));
+
         assertThrows(
-                IllegalStateException.class, () -> workspace.path(NativeShapefileResources.SHP));
+                IllegalStateException.class,
+                () ->
+                        NativeFixtureWorkspace.open(
+                                NativeRasterResources.INVENTORY,
+                                ignored -> null,
+                                new CapturingFiles(temporaryDirectory.resolve("missing-raster"))));
+        try (NativeFixtureWorkspace shapefile = NativeFixtureWorkspace.openShapefile()) {
+            assertTrue(Files.isRegularFile(shapefile.shapefilePaths().shp()));
+        }
     }
 
     @Test
@@ -51,7 +78,7 @@ class NativeShapefileWorkspaceTest {
         CapturingFiles files = new CapturingFiles(temporaryDirectory.resolve("duplicate"));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> NativeShapefileWorkspace.open(List.of(ABC, ABC), bytes("abc"), files));
+                () -> NativeFixtureWorkspace.open(List.of(ABC, ABC), bytes("abc"), files));
         assertFalse(Files.exists(files.directory));
     }
 
@@ -61,47 +88,64 @@ class NativeShapefileWorkspaceTest {
         openFailure.failOpenAfterCreate = true;
         assertThrows(
                 IllegalStateException.class,
-                () -> NativeShapefileWorkspace.open(List.of(ABC), bytes("abc"), openFailure));
+                () -> NativeFixtureWorkspace.open(List.of(ABC), bytes("abc"), openFailure));
         assertFalse(Files.exists(openFailure.directory));
 
         CapturingFiles writeFailure = new CapturingFiles(temporaryDirectory.resolve("write"));
         writeFailure.failWriteAfterFirstByte = true;
         assertThrows(
                 IllegalStateException.class,
-                () -> NativeShapefileWorkspace.open(List.of(ABC), bytes("abc"), writeFailure));
+                () -> NativeFixtureWorkspace.open(List.of(ABC), bytes("abc"), writeFailure));
         assertFalse(Files.exists(writeFailure.directory));
+    }
+
+    @Test
+    void operationFailureRemainsPrimaryAndCleanupFailureIsSuppressed() {
+        CapturingFiles files = new CapturingFiles(temporaryDirectory.resolve("suppressed"));
+        files.failWriteAfterFirstByte = true;
+        files.reportOneDeleteFailureAfterDeleting = true;
+
+        IllegalStateException failure =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> NativeFixtureWorkspace.open(List.of(ABC), bytes("abc"), files));
+
+        assertTrue(failure.getCause().getMessage().contains("partial write"));
+        assertTrue(failure.getSuppressed().length == 1);
+        assertTrue(failure.getSuppressed()[0].getMessage().startsWith("fixture-workspace:"));
+        assertFalse(Files.exists(files.directory));
     }
 
     @Test
     void cleanCloseReportsDeletionFailureAfterCompletingKnownPathCleanup() {
         CapturingFiles files = new CapturingFiles(temporaryDirectory.resolve("delete"));
         files.reportOneDeleteFailureAfterDeleting = true;
-        NativeShapefileWorkspace workspace =
-                NativeShapefileWorkspace.open(List.of(ABC), bytes("abc"), files);
+        NativeFixtureWorkspace workspace =
+                NativeFixtureWorkspace.open(List.of(ABC), bytes("abc"), files);
 
         IllegalStateException failure = assertThrows(IllegalStateException.class, workspace::close);
-        assertTrue(failure.getMessage().startsWith("shapefile-workspace:"));
+        assertTrue(failure.getMessage().startsWith("fixture-workspace:"));
         assertFalse(Files.exists(files.directory));
         workspace.close();
     }
 
-    private void assertCopyFailure(NativeShapefileWorkspace.ResourceReader reader) {
+    private void assertCopyFailure(NativeFixtureWorkspace.ResourceReader reader) {
         Path directory = temporaryDirectory.resolve("copy-" + System.nanoTime());
         CapturingFiles files = new CapturingFiles(directory);
         IllegalStateException failure =
                 assertThrows(
                         IllegalStateException.class,
-                        () -> NativeShapefileWorkspace.open(List.of(ABC), reader, files));
-        assertTrue(failure.getMessage().startsWith("shapefile-workspace:"));
+                        () -> NativeFixtureWorkspace.open(List.of(ABC), reader, files));
+        assertTrue(failure.getMessage().startsWith("fixture-workspace:"));
         assertFalse(Files.exists(directory));
     }
 
-    private static NativeShapefileWorkspace.ResourceReader bytes(String value) {
+    private static NativeFixtureWorkspace.ResourceReader bytes(String value) {
         byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
         return ignored -> new ByteArrayInputStream(bytes);
     }
 
-    private static final class CapturingFiles implements NativeShapefileWorkspace.WorkspaceFiles {
+    private static final class CapturingFiles implements NativeFixtureWorkspace.WorkspaceFiles {
         private final Path directory;
         private boolean failOpenAfterCreate;
         private boolean failWriteAfterFirstByte;
