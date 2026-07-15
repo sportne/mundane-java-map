@@ -80,6 +80,7 @@ class BuildConfigurationTest {
                                 "qualityGate",
                                 "--console=plain",
                                 "--no-daemon",
+                                "--no-build-cache",
                                 "-Pmap.testJavaVersion=" + TEST_JAVA_VERSION)
                         .directory(project.toFile())
                         .redirectErrorStream(true);

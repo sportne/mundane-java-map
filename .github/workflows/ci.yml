@@ -46,7 +46,7 @@ jobs:
   shapefile-corpus:
     runs-on: ubuntu-24.04
     env:
-      GRADLE_USER_HOME: ${{ runner.temp }}/shapefile-corpus-gradle-home
+      GRADLE_USER_HOME: /tmp/shapefile-corpus-gradle-home
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
