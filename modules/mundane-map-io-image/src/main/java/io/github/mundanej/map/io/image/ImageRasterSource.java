@@ -12,6 +12,7 @@ import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.core.RasterRequestAccounting;
+import io.github.mundanej.map.core.RasterResampling;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Map;
@@ -70,6 +71,12 @@ final class ImageRasterSource implements RasterSource {
         accounting.chargeSourcePixels(fullPixels);
         long outputPixels =
                 accounting.validateOutput(request.outputWidth(), request.outputHeight());
+        RasterResampling.validatePlan(
+                request.sourceWindow().width(),
+                request.sourceWindow().height(),
+                request.outputWidth(),
+                request.outputHeight(),
+                request.interpolation());
         long outputBytes = Math.multiplyExact(outputPixels, 4);
         long reservation;
         try {
@@ -83,6 +90,22 @@ final class ImageRasterSource implements RasterSource {
         }
         accounting.chargeIntermediateBytes(reservation);
         accounting.chargePublishedBytes(outputBytes);
+        boolean firstSupport = decoder.supportsInterpolation(request.interpolation());
+        boolean secondSupport = decoder.supportsInterpolation(request.interpolation());
+        if (firstSupport != secondSupport) {
+            throw new IllegalStateException(
+                    "Decoder interpolation capability must be deterministic");
+        }
+        if (!firstSupport) {
+            throw ImageDiagnostics.failure(
+                    metadata.identity().id(),
+                    "IMAGE_DECODER_INTERPOLATION_UNSUPPORTED",
+                    "decoder",
+                    "Image decoder does not support the requested interpolation",
+                    Map.of(
+                            "format", header.format().name(),
+                            "interpolation", request.interpolation().name()));
+        }
         verifySnapshot(accounting, cancellation);
         ImageDecodeContext context =
                 new ImageDecodeContext(
@@ -91,6 +114,7 @@ final class ImageRasterSource implements RasterSource {
                         request.sourceWindow(),
                         request.outputWidth(),
                         request.outputHeight(),
+                        request.interpolation(),
                         accounting,
                         reservation);
         RgbaPixelBuffer result;

@@ -81,6 +81,98 @@ public final class RasterGridWindows {
                 rowEdge(metadata, window.row()));
     }
 
+    /**
+     * Plans a contained visible window's output density without inventing source detail.
+     *
+     * @param metadata placed raster metadata
+     * @param window wholly contained source window
+     * @param viewport current display viewport in the raster CRS
+     * @return positive output dimensions capped to the source-window dimensions
+     */
+    public static OutputSize outputSize(
+            RasterSourceMetadata metadata, RasterWindow window, MapViewport viewport) {
+        Objects.requireNonNull(metadata, "metadata");
+        Objects.requireNonNull(window, "window");
+        Objects.requireNonNull(viewport, "viewport");
+        if (window.endColumn() > metadata.width() || window.endRow() > metadata.height()) {
+            throw new IllegalArgumentException(
+                    "window must be wholly contained by metadata dimensions");
+        }
+        RasterGridPlacement placement = requirePlacement(metadata);
+        int width;
+        int height;
+        if (placement.kind() == RasterGridPlacement.Kind.AFFINE) {
+            RasterAffineTransform transform = placement.affineTransform().orElseThrow();
+            width =
+                    capVectorOutput(
+                            window.width(),
+                            transform.a(),
+                            transform.d(),
+                            viewport.worldUnitsPerPixel());
+            height =
+                    capVectorOutput(
+                            window.height(),
+                            transform.b(),
+                            transform.e(),
+                            viewport.worldUnitsPerPixel());
+        } else {
+            Envelope bounds = requireBounds(metadata);
+            width =
+                    capMapOutput(
+                            window.width(),
+                            bounds.width() / metadata.width(),
+                            viewport.worldUnitsPerPixel());
+            height =
+                    capMapOutput(
+                            window.height(),
+                            bounds.height() / metadata.height(),
+                            viewport.worldUnitsPerPixel());
+        }
+        return new OutputSize(width, height);
+    }
+
+    private static int capVectorOutput(
+            int sourceSize, double first, double second, double worldUnitsPerPixel) {
+        double absoluteFirst = Math.abs(first);
+        double absoluteSecond = Math.abs(second);
+        if (absoluteFirst >= worldUnitsPerPixel || absoluteSecond >= worldUnitsPerPixel) {
+            return sourceSize;
+        }
+        return capMapOutput(
+                sourceSize, Math.hypot(absoluteFirst, absoluteSecond), worldUnitsPerPixel);
+    }
+
+    private static int capMapOutput(
+            int sourceSize, double mapBasisLength, double worldUnitsPerPixel) {
+        if (!Double.isFinite(mapBasisLength) || mapBasisLength < 0.0) {
+            throw new ArithmeticException("Raster map basis must be finite and non-negative");
+        }
+        if (mapBasisLength >= worldUnitsPerPixel) {
+            return sourceSize;
+        }
+        double basisLength = mapBasisLength / worldUnitsPerPixel;
+        double scaled = sourceSize * basisLength;
+        if (!Double.isFinite(scaled)) {
+            throw new ArithmeticException("Raster output density must be finite");
+        }
+        return Math.max(1, (int) Math.ceil(scaled));
+    }
+
+    /**
+     * Positive output dimensions selected by screen-density planning.
+     *
+     * @param width positive output width
+     * @param height positive output height
+     */
+    public record OutputSize(int width, int height) {
+        /** Validates positive output dimensions. */
+        public OutputSize {
+            if (width <= 0 || height <= 0) {
+                throw new IllegalArgumentException("Raster output dimensions must be positive");
+            }
+        }
+    }
+
     private static Envelope requireBounds(RasterSourceMetadata metadata) {
         return metadata.mapBounds()
                 .orElseThrow(

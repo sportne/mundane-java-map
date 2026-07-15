@@ -91,6 +91,7 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.EventQueue;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
@@ -165,6 +166,8 @@ public final class MapView extends JComponent implements AutoCloseable {
             Collections.newSetFromMap(new IdentityHashMap<>());
     private List<MapLayerBinding> bindings = List.of();
     private Map<MapLayerBinding, ResolvedFeatureBinding> resolvedFeatureBindings = Map.of();
+    private final IdentityHashMap<MapLayerBinding, RasterRenderOptions> rasterRenderOptions =
+            new IdentityHashMap<>();
     private final LinkedHashMap<String, DiagnosticReport> sourceReports = new LinkedHashMap<>();
     private final Map<String, Boolean> sourceAvailability = new LinkedHashMap<>();
     private Optional<FeatureSelection> selection = Optional.empty();
@@ -341,6 +344,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                 reconcileAfterBindingReplacement(selection, previous, candidate);
         bindings = candidate;
         resolvedFeatureBindings = validated.resolved();
+        reconcileRasterRenderOptions(candidate);
         hoverProbe = Optional.empty();
         hoverPaintState = Optional.empty();
         selectionPaintState = Optional.empty();
@@ -370,6 +374,31 @@ public final class MapView extends JComponent implements AutoCloseable {
     /** Returns the complete immutable ordered binding stack. */
     public List<MapLayerBinding> layerBindings() {
         return bindings;
+    }
+
+    /**
+     * Replaces one installed raster layer's view-owned presentation options and repaints.
+     *
+     * <p>This method follows Swing's event-dispatch-thread mutation contract. It neither replaces
+     * nor closes the binding or source.
+     *
+     * @param layerId installed raster layer identifier
+     * @param options immutable options snapshot
+     */
+    public void setRasterRenderOptions(String layerId, RasterRenderOptions options) {
+        requireOpen();
+        if (!EventQueue.isDispatchThread()) {
+            throw new IllegalStateException(
+                    "Raster render options must be changed on the event dispatch thread");
+        }
+        Objects.requireNonNull(layerId, "layerId");
+        Objects.requireNonNull(options, "options");
+        MapLayerBinding binding = bindingById(bindings, layerId);
+        if (binding == null || binding.kind() != MapLayerBinding.Kind.RASTER) {
+            throw new IllegalArgumentException("layerId must identify an installed raster binding");
+        }
+        rasterRenderOptions.put(binding, options);
+        repaint();
     }
 
     /** Returns non-empty source reports in installed layer order. */
@@ -683,6 +712,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         closed = true;
         bindings = List.of();
         resolvedFeatureBindings = Map.of();
+        rasterRenderOptions.clear();
         selection = Optional.empty();
         hover = Optional.empty();
         hoverProbe = Optional.empty();
@@ -1919,7 +1949,9 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         Graphics2D child = (Graphics2D) graphics.create();
         try {
-            child.setComposite(AlphaComposite.SrcOver);
+            child.setComposite(
+                    AlphaComposite.getInstance(
+                            AlphaComposite.SRC_OVER, (float) raster.options().opacity()));
             child.setRenderingHint(
                     RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -1959,7 +1991,9 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         Graphics2D child = (Graphics2D) graphics.create();
         try {
-            child.setComposite(AlphaComposite.SrcOver);
+            child.setComposite(
+                    AlphaComposite.getInstance(
+                            AlphaComposite.SRC_OVER, (float) raster.options().opacity()));
             child.setRenderingHint(
                     RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -3144,7 +3178,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                         case FEATURE -> captureFeatureSource(binding, viewportSnapshot);
                         case RASTER ->
                                 readRasters
-                                        ? captureRasterSource(binding, viewportSnapshot)
+                                        ? captureRasterSource(
+                                                binding,
+                                                viewportSnapshot,
+                                                rasterRenderOptions.get(binding))
                                         : emptyRasterSnapshot(binding.id());
                     });
         }
@@ -3297,7 +3334,11 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private LayerSnapshot captureRasterSource(
-            MapLayerBinding binding, MapViewport viewportSnapshot) {
+            MapLayerBinding binding, MapViewport viewportSnapshot, RasterRenderOptions options) {
+        Objects.requireNonNull(options, "options");
+        if (options.opacity() == 0.0) {
+            return emptyRasterSnapshot(binding.id());
+        }
         RasterSource source = binding.rasterSource();
         RasterSourceMetadata metadata = source.metadata();
         MapLayerBinding.Operation operation = binding.beginOperation();
@@ -3316,8 +3357,15 @@ public final class MapView extends JComponent implements AutoCloseable {
                 return emptyRasterSnapshot(binding.id());
             }
             RasterWindow window = visible.orElseThrow();
+            RasterGridWindows.OutputSize output =
+                    RasterGridWindows.outputSize(metadata, window, viewportSnapshot);
             RasterRequest request =
-                    new RasterRequest(window, window.width(), window.height(), Optional.empty());
+                    new RasterRequest(
+                            window,
+                            output.width(),
+                            output.height(),
+                            options.interpolation(),
+                            Optional.empty());
             RasterRequestAccounting accounting =
                     new RasterRequestAccounting(
                             metadata.identity().id(),
@@ -3352,7 +3400,8 @@ public final class MapView extends JComponent implements AutoCloseable {
                                     image,
                                     RasterGridWindows.mapBounds(metadata, window),
                                     metadata.gridPlacement().orElseThrow(),
-                                    window)),
+                                    window,
+                                    options)),
                     false,
                     true);
         } catch (SourceException failure) {
@@ -3622,6 +3671,16 @@ public final class MapView extends JComponent implements AutoCloseable {
             }
         }
         return null;
+    }
+
+    private void reconcileRasterRenderOptions(List<MapLayerBinding> candidate) {
+        Set<MapLayerBinding> retained = identitySet(candidate);
+        rasterRenderOptions.keySet().removeIf(binding -> !retained.contains(binding));
+        for (MapLayerBinding binding : candidate) {
+            if (binding.kind() == MapLayerBinding.Kind.RASTER) {
+                rasterRenderOptions.putIfAbsent(binding, binding.initialRasterOptions());
+            }
+        }
     }
 
     private void reconcileReportsAfterReplacement(
@@ -4210,7 +4269,8 @@ public final class MapView extends JComponent implements AutoCloseable {
             BufferedImage image,
             Envelope mapBounds,
             RasterGridPlacement placement,
-            RasterWindow window) {}
+            RasterWindow window,
+            RasterRenderOptions options) {}
 
     private record ViewContentSnapshot(List<LayerSnapshot> layers) {
         private boolean allSourcesAvailable() {

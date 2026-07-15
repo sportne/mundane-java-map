@@ -20,6 +20,7 @@ import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.RasterAffineTransform;
 import io.github.mundanej.map.api.RasterGridPlacement;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
@@ -48,6 +49,8 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.JComponent;
+import javax.swing.RepaintManager;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
@@ -74,6 +77,78 @@ class MapViewRasterSourceTest {
                     assertColorNear(Color.BLUE, new Color(image.getRGB(25, 75)), 1);
                     assertColorNear(Color.WHITE, new Color(image.getRGB(75, 75)), 1);
                     assertEquals(1, source.readCount);
+                    view.close();
+                    assertFalse(source.isClosed());
+                });
+    }
+
+    @Test
+    void immutableOptionsUpdatePresentationWithoutReplacingOrClosingTheSource() throws Exception {
+        assertEquals(
+                RasterRenderOptions.defaults(),
+                new RasterRenderOptions(RasterInterpolation.NEAREST, 1));
+        assertEquals(
+                new RasterRenderOptions(RasterInterpolation.NEAREST, 0.0),
+                new RasterRenderOptions(RasterInterpolation.NEAREST, -0.0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new RasterRenderOptions(RasterInterpolation.NEAREST, Double.NaN));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new RasterRenderOptions(RasterInterpolation.NEAREST, 1.01));
+
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    TestRasterSource source = projectedSource("options", 1, 1, PROJECTED_BOUNDS);
+                    source.solidRgba = 0xff00_00ff;
+                    source.warning = true;
+                    MapLayerBinding binding =
+                            MapLayerBinding.borrowedRaster("raster", "raster", source);
+                    MapView view = configuredProjectedView();
+                    view.setLayerBindings(List.of(binding));
+
+                    BufferedImage full = paint(view);
+                    assertColorNear(Color.RED, new Color(full.getRGB(50, 50)), 1);
+                    assertEquals(1, source.readCount);
+                    assertTrue(view.sourceReports().containsKey("raster"));
+
+                    source.solidRgba = 0xff00_0080;
+                    RepaintManager previous = RepaintManager.currentManager(view);
+                    RecordingRepaintManager repaintManager = new RecordingRepaintManager();
+                    RepaintManager.setCurrentManager(repaintManager);
+                    try {
+                        view.setRasterRenderOptions(
+                                "raster",
+                                new RasterRenderOptions(RasterInterpolation.BILINEAR, 0.5));
+                    } finally {
+                        RepaintManager.setCurrentManager(previous);
+                    }
+                    assertTrue(repaintManager.dirtyRegions > 0);
+                    BufferedImage half = paint(view);
+                    assertColorNear(new Color(255, 191, 191), new Color(half.getRGB(50, 50)), 2);
+                    assertEquals(RasterInterpolation.BILINEAR, source.lastRequest.interpolation());
+                    assertEquals(2, source.readCount);
+
+                    view.setRasterRenderOptions(
+                            "raster", new RasterRenderOptions(RasterInterpolation.NEAREST, 1.0));
+                    BufferedImage translucentFull = paint(view);
+                    assertColorNear(
+                            new Color(255, 127, 127), new Color(translucentFull.getRGB(50, 50)), 2);
+                    assertEquals(3, source.readCount);
+
+                    view.setRasterRenderOptions(
+                            "raster", new RasterRenderOptions(RasterInterpolation.NEAREST, 0.0));
+                    BufferedImage zero = paint(view);
+                    assertEquals(Color.WHITE, new Color(zero.getRGB(50, 50)));
+                    assertEquals(3, source.readCount);
+                    assertTrue(view.sourceReports().containsKey("raster"));
+                    assertEquals(List.of(binding), view.layerBindings());
+                    assertFalse(source.isClosed());
+                    assertThrows(
+                            IllegalArgumentException.class,
+                            () ->
+                                    view.setRasterRenderOptions(
+                                            "missing", RasterRenderOptions.defaults()));
                     view.close();
                     assertFalse(source.isClosed());
                 });
@@ -143,6 +218,64 @@ class MapViewRasterSourceTest {
                             new Color(image.getRGB((int) envelopeOnly.x(), (int) envelopeOnly.y())),
                             1);
                     assertEquals(1, source.readCount);
+                    view.close();
+                });
+    }
+
+    @Test
+    void partiallyVisibleShearedRasterSelectsDensityOutputAndFinalNearestColors() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    RasterGridPlacement placement =
+                            RasterGridPlacement.affine(
+                                    RasterAffineTransform.of(2, 0.5, 1, -2, 0, 0));
+                    RasterSourceMetadata metadata =
+                            RasterSourceMetadata.withPlacement(
+                                    new SourceIdentity("partial-affine", "partial-affine"),
+                                    100,
+                                    80,
+                                    placement,
+                                    recognized(CrsDefinitions.EPSG_3857));
+                    TestRasterSource source =
+                            new TestRasterSource(metadata, RasterSourceLimits.LEVEL_1);
+                    source.splitOutput = true;
+                    MapView view = TestMapViews.identity();
+                    view.setSize(40, 30);
+                    var transform = placement.affineTransform().orElseThrow();
+                    Coordinate center = transform.gridToMap(50, 40);
+                    view.setViewport(new MapViewport(40, 30, center.x(), center.y(), 3));
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.borrowedRaster(
+                                            "partial",
+                                            "partial",
+                                            source,
+                                            new RasterRenderOptions(
+                                                    RasterInterpolation.BILINEAR, 1))));
+
+                    BufferedImage image = paint(view, 40, 30);
+
+                    assertTrue(source.lastRequest.sourceWindow().width() < 100);
+                    assertTrue(source.lastRequest.sourceWindow().height() < 80);
+                    assertTrue(
+                            source.lastRequest.outputWidth()
+                                    < source.lastRequest.sourceWindow().width());
+                    assertTrue(
+                            source.lastRequest.outputHeight()
+                                    < source.lastRequest.sourceWindow().height());
+                    assertEquals(RasterInterpolation.BILINEAR, source.lastRequest.interpolation());
+                    for (int row = 0; row < image.getHeight(); row++) {
+                        for (int column = 0; column < image.getWidth(); column++) {
+                            int argb = image.getRGB(column, row);
+                            assertTrue(
+                                    argb == Color.WHITE.getRGB()
+                                            || argb == Color.RED.getRGB()
+                                            || argb == Color.BLUE.getRGB(),
+                                    () ->
+                                            "unexpected double-filtered pixel "
+                                                    + Integer.toHexString(argb));
+                        }
+                    }
                     view.close();
                 });
     }
@@ -580,7 +713,11 @@ class MapViewRasterSourceTest {
     }
 
     private static BufferedImage paint(MapView view) {
-        BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
+        return paint(view, SIZE, SIZE);
+    }
+
+    private static BufferedImage paint(MapView view, int width, int height) {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
         try {
             view.paint(graphics);
@@ -665,6 +802,7 @@ class MapViewRasterSourceTest {
         private boolean warning;
         private String failureCode;
         private Integer solidRgba;
+        private boolean splitOutput;
         private boolean closed;
         private List<String> closeOrder;
 
@@ -707,7 +845,13 @@ class MapViewRasterSourceTest {
                     pixels.setRgba(
                             column,
                             row,
-                            solidRgba != null ? solidRgba : testPixel(absoluteColumn, absoluteRow));
+                            solidRgba != null
+                                    ? solidRgba
+                                    : splitOutput
+                                            ? column < request.outputWidth() / 2
+                                                    ? 0xff00_00ff
+                                                    : 0x0000_ffff
+                                            : testPixel(absoluteColumn, absoluteRow));
                 }
             }
             return new RasterRead(
@@ -744,6 +888,16 @@ class MapViewRasterSourceTest {
                 return 0x0000_ffff;
             }
             return 0xffff_ffff;
+        }
+    }
+
+    private static final class RecordingRepaintManager extends RepaintManager {
+        private int dirtyRegions;
+
+        @Override
+        public void addDirtyRegion(JComponent component, int x, int y, int width, int height) {
+            dirtyRegions++;
+            super.addDirtyRegion(component, x, y, width, height);
         }
     }
 

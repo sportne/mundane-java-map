@@ -72,6 +72,18 @@ public interface EncodedRasterDecodeContext {
      */
     int outputHeight();
 
+    /**
+     * Returns the requested sampling mode.
+     *
+     * <p>The default preserves source compatibility for decoders compiled against the original
+     * nearest-only contract.
+     *
+     * @return the requested sampling mode
+     */
+    default RasterInterpolation interpolation() {
+        return RasterInterpolation.NEAREST;
+    }
+
     /** Fails with the source cancellation diagnostic if cancellation was requested. */
     void checkpoint();
 

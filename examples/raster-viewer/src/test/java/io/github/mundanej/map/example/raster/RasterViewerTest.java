@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterGridPlacement;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.awt.MapView;
 import java.awt.EventQueue;
@@ -18,8 +19,13 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JSlider;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -125,6 +131,36 @@ class RasterViewerTest {
         SwingUtilities.invokeAndWait(() -> view.set(RasterViewer.createView(source)));
         assertEquals(1, view.get().layerBindings().size());
         SwingUtilities.invokeAndWait(view.get()::close);
+        assertTrue(source.isClosed());
+    }
+
+    @Test
+    void controlsReplaceOnlyViewOwnedInterpolationOpacityAndStatus() throws Exception {
+        Path image = temporaryDirectory.resolve("controls.png");
+        assertTrue(
+                ImageIO.write(
+                        new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB),
+                        "png",
+                        image.toFile()));
+        RasterSource source = RasterViewer.load(image);
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = RasterViewer.createView(source);
+                    var binding = view.layerBindings().getFirst();
+                    JLabel status = new JLabel();
+                    JPanel controls = RasterViewer.createControls(view, status);
+                    @SuppressWarnings("unchecked")
+                    JComboBox<RasterInterpolation> interpolation =
+                            (JComboBox<RasterInterpolation>) controls.getComponent(1);
+                    JSlider opacity = (JSlider) controls.getComponent(3);
+                    interpolation.setSelectedItem(RasterInterpolation.BILINEAR);
+                    opacity.setValue(40);
+                    assertEquals(List.of(binding), view.layerBindings());
+                    assertTrue(status.getText().contains("BILINEAR"));
+                    assertTrue(status.getText().contains("40%"));
+                    assertFalse(source.isClosed());
+                    view.close();
+                });
         assertTrue(source.isClosed());
     }
 

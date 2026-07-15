@@ -287,6 +287,32 @@ class RasterGridWindowsTest {
                                 metadata, metadata.mapBounds().orElseThrow()));
     }
 
+    @Test
+    void outputDensityDownsamplesAxisAndAffineBasesButCapsHugeZoomIn() {
+        RasterSourceMetadata axis = metadata(100, 80, new Envelope(0, 0, 100, 80));
+        assertEquals(
+                new RasterGridWindows.OutputSize(50, 40),
+                RasterGridWindows.outputSize(
+                        axis,
+                        new RasterWindow(0, 0, 100, 80),
+                        new MapViewport(100, 80, 50, 40, 2)));
+        assertEquals(
+                new RasterGridWindows.OutputSize(100, 80),
+                RasterGridWindows.outputSize(
+                        axis,
+                        new RasterWindow(0, 0, 100, 80),
+                        new MapViewport(100, 80, 50, 40, Double.MIN_VALUE)));
+
+        RasterSourceMetadata affine =
+                affineMetadata(10, 10, RasterAffineTransform.of(3, 4, 0, 2, 0, 0));
+        assertEquals(
+                new RasterGridWindows.OutputSize(5, 2),
+                RasterGridWindows.outputSize(
+                        affine,
+                        new RasterWindow(0, 0, 10, 10),
+                        new MapViewport(100, 100, 0, 0, 10)));
+    }
+
     private static RasterSourceMetadata metadata(int width, int height, Envelope bounds) {
         return new RasterSourceMetadata(
                 new SourceIdentity("raster", "Raster"),

@@ -6,10 +6,13 @@ import io.github.mundanej.map.api.DiagnosticSeverity;
 import io.github.mundanej.map.api.EncodedRasterDecodeContext;
 import io.github.mundanej.map.api.EncodedRasterDecoder;
 import io.github.mundanej.map.api.EncodedRasterFormat;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
+import io.github.mundanej.map.core.RasterResampling;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBuffer;
 import java.io.IOException;
@@ -40,6 +43,13 @@ final class ImageIoRasterDecoder implements EncodedRasterDecoder {
     }
 
     @Override
+    public boolean supportsInterpolation(RasterInterpolation interpolation) {
+        Objects.requireNonNull(interpolation, "interpolation");
+        return interpolation == RasterInterpolation.NEAREST
+                || interpolation == RasterInterpolation.BILINEAR;
+    }
+
+    @Override
     @SuppressWarnings("Finally")
     public RgbaPixelBuffer decode(InputStream borrowedInput, EncodedRasterDecodeContext context) {
         Objects.requireNonNull(borrowedInput, "borrowedInput");
@@ -51,6 +61,12 @@ final class ImageIoRasterDecoder implements EncodedRasterDecoder {
         long fullPixels = Math.multiplyExact((long) context.width(), context.height());
         long outputPixels =
                 Math.multiplyExact((long) context.outputWidth(), context.outputHeight());
+        RasterResampling.validatePlan(
+                context.sourceWindow().width(),
+                context.sourceWindow().height(),
+                context.outputWidth(),
+                context.outputHeight(),
+                context.interpolation());
         context.checkpoint();
         context.claimReservedIntermediateBytes(context.encodedByteLength());
         ImageInputStream input = null;
@@ -70,15 +86,24 @@ final class ImageIoRasterDecoder implements EncodedRasterDecoder {
             context.checkpoint();
             context.claimReservedIntermediateBytes(Math.multiplyExact(fullPixels, 8));
             ImageReadParam parameters = reader.getDefaultReadParam();
+            RasterWindow window = context.sourceWindow();
+            parameters.setSourceRegion(
+                    new Rectangle(window.column(), window.row(), window.width(), window.height()));
+            Subsampling subsampling = Subsampling.forContext(context);
+            parameters.setSourceSubsampling(
+                    subsampling.xFactor(),
+                    subsampling.yFactor(),
+                    subsampling.xOffset(),
+                    subsampling.yOffset());
             BufferedImage image = reader.read(0, parameters);
             context.checkpoint();
             if (image == null
-                    || image.getWidth() != context.width()
-                    || image.getHeight() != context.height()) {
+                    || image.getWidth() != subsampling.decodedWidth()
+                    || image.getHeight() != subsampling.decodedHeight()) {
                 throw mismatch(
                         context,
                         "decodedDimensions",
-                        context.width() + "x" + context.height(),
+                        subsampling.decodedWidth() + "x" + subsampling.decodedHeight(),
                         image == null ? "null" : image.getWidth() + "x" + image.getHeight());
             }
             DataBuffer data = image.getRaster().getDataBuffer();
@@ -98,21 +123,53 @@ final class ImageIoRasterDecoder implements EncodedRasterDecoder {
             context.claimReservedIntermediateBytes(Math.multiplyExact(outputPixels, 4));
             RgbaPixelBuffer.Builder output =
                     RgbaPixelBuffer.builder(context.outputWidth(), context.outputHeight());
-            RasterWindow window = context.sourceWindow();
             long converted = 0;
             for (int row = 0; row < context.outputHeight(); row++) {
                 context.checkpoint();
-                int sourceRow =
-                        window.row() + nearest(row, window.height(), context.outputHeight());
+                RasterResampling.AxisWeights yWeights =
+                        context.interpolation() == RasterInterpolation.BILINEAR
+                                ? RasterResampling.bilinearAxis(
+                                        row, image.getHeight(), context.outputHeight())
+                                : null;
                 for (int column = 0; column < context.outputWidth(); column++) {
                     if ((converted++ & 4095) == 0) {
                         context.checkpoint();
                     }
-                    int sourceColumn =
-                            window.column()
-                                    + nearest(column, window.width(), context.outputWidth());
-                    int argb = image.getRGB(sourceColumn, sourceRow);
-                    output.setRgba(column, row, (argb << 8) | (argb >>> 24));
+                    int rgba;
+                    if (context.interpolation() == RasterInterpolation.NEAREST) {
+                        int sourceRow =
+                                RasterResampling.nearestIndex(
+                                        row, image.getHeight(), context.outputHeight());
+                        int sourceColumn =
+                                RasterResampling.nearestIndex(
+                                        column, image.getWidth(), context.outputWidth());
+                        rgba = toRgba(image.getRGB(sourceColumn, sourceRow));
+                    } else {
+                        RasterResampling.AxisWeights xWeights =
+                                RasterResampling.bilinearAxis(
+                                        column, image.getWidth(), context.outputWidth());
+                        rgba =
+                                RasterResampling.bilinearRgba(
+                                        toRgba(
+                                                image.getRGB(
+                                                        xWeights.lowerIndex(),
+                                                        yWeights.lowerIndex())),
+                                        toRgba(
+                                                image.getRGB(
+                                                        xWeights.upperIndex(),
+                                                        yWeights.lowerIndex())),
+                                        toRgba(
+                                                image.getRGB(
+                                                        xWeights.lowerIndex(),
+                                                        yWeights.upperIndex())),
+                                        toRgba(
+                                                image.getRGB(
+                                                        xWeights.upperIndex(),
+                                                        yWeights.upperIndex())),
+                                        xWeights,
+                                        yWeights);
+                    }
+                    output.setRgba(column, row, rgba);
                 }
             }
             context.checkpoint();
@@ -138,11 +195,8 @@ final class ImageIoRasterDecoder implements EncodedRasterDecoder {
         }
     }
 
-    private static int nearest(int outputIndex, int sourceSize, int outputSize) {
-        long numerator =
-                Math.multiplyExact(
-                        Math.addExact(Math.multiplyExact(2L, outputIndex), 1L), sourceSize);
-        return Math.toIntExact(numerator / Math.multiplyExact(2L, outputSize));
+    private static int toRgba(int argb) {
+        return (argb << 8) | (argb >>> 24);
     }
 
     private static int elementBytes(int dataType) {
@@ -243,5 +297,43 @@ final class ImageIoRasterDecoder implements EncodedRasterDecoder {
     @FunctionalInterface
     interface ImageInputFactory {
         ImageInputStream create(InputStream input) throws IOException;
+    }
+
+    record Subsampling(
+            int xFactor,
+            int yFactor,
+            int xOffset,
+            int yOffset,
+            int decodedWidth,
+            int decodedHeight) {
+        static Subsampling forContext(EncodedRasterDecodeContext context) {
+            RasterWindow window = context.sourceWindow();
+            boolean nearest = context.interpolation() == RasterInterpolation.NEAREST;
+            int xFactor =
+                    nearest && window.width() % context.outputWidth() == 0
+                            ? window.width() / context.outputWidth()
+                            : 1;
+            int yFactor =
+                    nearest && window.height() % context.outputHeight() == 0
+                            ? window.height() / context.outputHeight()
+                            : 1;
+            int xOffset = xFactor / 2;
+            int yOffset = yFactor / 2;
+            return new Subsampling(
+                    xFactor,
+                    yFactor,
+                    xOffset,
+                    yOffset,
+                    sampledSize(window.width(), xFactor, xOffset),
+                    sampledSize(window.height(), yFactor, yOffset));
+        }
+
+        private static int sampledSize(int sourceSize, int factor, int offset) {
+            return Math.toIntExact(
+                    Math.floorDiv(
+                            Math.addExact(
+                                    Math.subtractExact((long) sourceSize, offset), factor - 1L),
+                            factor));
+        }
     }
 }

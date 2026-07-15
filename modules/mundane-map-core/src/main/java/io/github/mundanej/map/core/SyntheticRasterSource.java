@@ -4,6 +4,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
@@ -99,22 +100,56 @@ public final class SyntheticRasterSource implements RasterSource {
         long packedBytes = Math.multiplyExact(outputPixels, 4);
         accounting.chargeIntermediateBytes(packedBytes);
         accounting.chargePublishedBytes(packedBytes);
+        RasterResampling.validatePlan(
+                window.width(),
+                window.height(),
+                request.outputWidth(),
+                request.outputHeight(),
+                request.interpolation());
         accounting.checkpoint();
         RgbaPixelBuffer.Builder builder =
                 RgbaPixelBuffer.builder(request.outputWidth(), request.outputHeight());
         long generated = 0;
         for (int outputRow = 0; outputRow < request.outputHeight(); outputRow++) {
             accounting.checkpoint();
-            int sourceRow =
-                    window.row() + nearest(outputRow, window.height(), request.outputHeight());
+            RasterResampling.AxisWeights yWeights =
+                    request.interpolation() == RasterInterpolation.BILINEAR
+                            ? RasterResampling.bilinearAxis(
+                                    outputRow, window.height(), request.outputHeight())
+                            : null;
             for (int outputColumn = 0; outputColumn < request.outputWidth(); outputColumn++) {
                 if ((generated++ & 4095) == 0) {
                     accounting.checkpoint();
                 }
-                int sourceColumn =
-                        window.column()
-                                + nearest(outputColumn, window.width(), request.outputWidth());
-                builder.setRgba(outputColumn, outputRow, proceduralPixel(sourceColumn, sourceRow));
+                int rgba;
+                if (request.interpolation() == RasterInterpolation.NEAREST) {
+                    int sourceRow =
+                            window.row()
+                                    + RasterResampling.nearestIndex(
+                                            outputRow, window.height(), request.outputHeight());
+                    int sourceColumn =
+                            window.column()
+                                    + RasterResampling.nearestIndex(
+                                            outputColumn, window.width(), request.outputWidth());
+                    rgba = proceduralPixel(sourceColumn, sourceRow);
+                } else {
+                    RasterResampling.AxisWeights xWeights =
+                            RasterResampling.bilinearAxis(
+                                    outputColumn, window.width(), request.outputWidth());
+                    int west = window.column() + xWeights.lowerIndex();
+                    int east = window.column() + xWeights.upperIndex();
+                    int north = window.row() + yWeights.lowerIndex();
+                    int south = window.row() + yWeights.upperIndex();
+                    rgba =
+                            RasterResampling.bilinearRgba(
+                                    proceduralPixel(west, north),
+                                    proceduralPixel(east, north),
+                                    proceduralPixel(west, south),
+                                    proceduralPixel(east, south),
+                                    xWeights,
+                                    yWeights);
+                }
+                builder.setRgba(outputColumn, outputRow, rgba);
             }
         }
         accounting.checkpoint();
@@ -129,14 +164,6 @@ public final class SyntheticRasterSource implements RasterSource {
     @Override
     public void close() {
         closed = true;
-    }
-
-    private static int nearest(int outputIndex, int sourceSize, int outputSize) {
-        long numerator =
-                Math.multiplyExact(
-                        Math.addExact(Math.multiplyExact(2L, outputIndex), 1L), sourceSize);
-        long denominator = Math.multiplyExact(2L, outputSize);
-        return Math.toIntExact(numerator / denominator);
     }
 
     private static int proceduralPixel(int column, int row) {

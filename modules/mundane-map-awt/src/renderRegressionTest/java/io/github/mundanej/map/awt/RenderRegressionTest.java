@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.BuiltInMarker;
+import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.HatchFillSymbol;
 import io.github.mundanej.map.api.HatchPattern;
@@ -15,11 +18,20 @@ import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.RasterAffineTransform;
+import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.RasterInterpolation;
+import io.github.mundanej.map.api.RasterRead;
+import io.github.mundanej.map.api.RasterRequest;
+import io.github.mundanej.map.api.RasterSource;
+import io.github.mundanej.map.api.RasterSourceLimits;
+import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolLength;
@@ -122,6 +134,7 @@ class RenderRegressionTest {
                         placementScenarios(),
                         compositionAndUnitScenarios(),
                         rasterScenarios(),
+                        rasterLayerScenarios(),
                         lineScenarios(),
                         polygonAndHatchScenarios())
                 .flatMap(stream -> stream);
@@ -442,6 +455,95 @@ class RenderRegressionTest {
                                     }
                                 }));
         return Stream.of(nearestScenario, bilinearScenario);
+    }
+
+    private static Stream<RenderScenario> rasterLayerScenarios() {
+        RenderScenario opacity =
+                new RenderScenario(
+                        "raster-layer-bilinear-opacity",
+                        WIDTH,
+                        HEIGHT,
+                        () -> {
+                            MapView view = view(List.of());
+                            RasterSource source = new SolidRegressionRasterSource();
+                            view.setLayerBindings(
+                                    List.of(
+                                            MapLayerBinding.borrowedRaster(
+                                                    "raster",
+                                                    "raster",
+                                                    source,
+                                                    new RasterRenderOptions(
+                                                            RasterInterpolation.BILINEAR, 0.5))));
+                            return view;
+                        },
+                        view -> view.setViewport(viewport(1)),
+                        Optional.empty(),
+                        List.of(
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "single-src-over",
+                                                image,
+                                                new Region(65, 45, 30, 30),
+                                                Rgba.rgb(255, 127, 127)),
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "outside-bounds",
+                                                image,
+                                                new Region(10, 10, 15, 15),
+                                                BACKGROUND)));
+        RasterAffineTransform transform = RasterAffineTransform.of(2, 0.5, 1, -2, 0, 0);
+        Coordinate affineCenter = transform.gridToMap(20, 20);
+        RenderScenario affine =
+                new RenderScenario(
+                        "raster-layer-affine-density-final-nearest",
+                        80,
+                        60,
+                        () -> {
+                            MapView view = view(List.of());
+                            view.setLayerBindings(
+                                    List.of(
+                                            MapLayerBinding.borrowedRaster(
+                                                    "affine",
+                                                    "affine",
+                                                    new AffineRegressionRasterSource(transform),
+                                                    new RasterRenderOptions(
+                                                            RasterInterpolation.BILINEAR, 1))));
+                            return view;
+                        },
+                        view ->
+                                view.setViewport(
+                                        new MapViewport(
+                                                80, 60, affineCenter.x(), affineCenter.y(), 3)),
+                        Optional.empty(),
+                        List.of(
+                                (id, image) -> {
+                                    int red = 0;
+                                    int blue = 0;
+                                    int white = 0;
+                                    for (int row = 0; row < image.getHeight(); row++) {
+                                        for (int column = 0; column < image.getWidth(); column++) {
+                                            int argb = image.getRGB(column, row);
+                                            if (argb == Color.RED.getRGB()) {
+                                                red++;
+                                            } else if (argb == Color.BLUE.getRGB()) {
+                                                blue++;
+                                            } else if (argb == Color.WHITE.getRGB()) {
+                                                white++;
+                                            } else {
+                                                throw new AssertionError(
+                                                        id
+                                                                + ": final draw filtered pixel="
+                                                                + Integer.toHexString(argb));
+                                            }
+                                        }
+                                    }
+                                    requireBetween(id, "red", red, 300, 3_000);
+                                    requireBetween(id, "blue", blue, 300, 3_000);
+                                    requireBetween(id, "background", white, 100, 4_000);
+                                }));
+        return Stream.of(opacity, affine);
     }
 
     private static Stream<RenderScenario> lineScenarios() {
@@ -884,6 +986,125 @@ class RenderRegressionTest {
                 Optional.empty(),
                 placement,
                 1);
+    }
+
+    private static final class SolidRegressionRasterSource implements RasterSource {
+        private final RasterSourceMetadata metadata =
+                new RasterSourceMetadata(
+                        new SourceIdentity("render-raster", "render-raster"),
+                        2,
+                        2,
+                        Optional.of(new io.github.mundanej.map.api.Envelope(-40, -20, 40, 20)),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.of("EPSG:3857"),
+                                        Optional.empty())));
+
+        @Override
+        public RasterSourceMetadata metadata() {
+            return metadata;
+        }
+
+        @Override
+        public RasterSourceLimits limits() {
+            return RasterSourceLimits.LEVEL_1;
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return DiagnosticReport.empty();
+        }
+
+        @Override
+        public RasterRead read(RasterRequest request, CancellationToken cancellation) {
+            if (request.interpolation() != RasterInterpolation.BILINEAR) {
+                throw new AssertionError("raster regression expected bilinear request");
+            }
+            if (cancellation.isCancellationRequested()) {
+                throw new AssertionError("raster regression was unexpectedly cancelled");
+            }
+            RgbaPixelBuffer.Builder pixels =
+                    RgbaPixelBuffer.builder(request.outputWidth(), request.outputHeight());
+            for (int row = 0; row < request.outputHeight(); row++) {
+                for (int column = 0; column < request.outputWidth(); column++) {
+                    pixels.setRgba(column, row, 0xff0000ff);
+                }
+            }
+            return new RasterRead(request.sourceWindow(), pixels.build(), DiagnosticReport.empty());
+        }
+
+        @Override
+        public boolean isClosed() {
+            return false;
+        }
+
+        @Override
+        public void close() {}
+    }
+
+    private static final class AffineRegressionRasterSource implements RasterSource {
+        private final RasterSourceMetadata metadata;
+
+        private AffineRegressionRasterSource(RasterAffineTransform transform) {
+            metadata =
+                    RasterSourceMetadata.withPlacement(
+                            new SourceIdentity("render-affine", "render-affine"),
+                            200,
+                            160,
+                            RasterGridPlacement.affine(transform),
+                            Optional.of(
+                                    CrsMetadata.recognized(
+                                            CrsDefinitions.EPSG_3857,
+                                            Optional.of("EPSG:3857"),
+                                            Optional.empty())));
+        }
+
+        @Override
+        public RasterSourceMetadata metadata() {
+            return metadata;
+        }
+
+        @Override
+        public RasterSourceLimits limits() {
+            return RasterSourceLimits.LEVEL_1;
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return DiagnosticReport.empty();
+        }
+
+        @Override
+        public RasterRead read(RasterRequest request, CancellationToken cancellation) {
+            if (request.interpolation() != RasterInterpolation.BILINEAR
+                    || request.sourceWindow().width() >= metadata.width()
+                    || request.sourceWindow().height() >= metadata.height()
+                    || request.outputWidth() >= request.sourceWindow().width()
+                    || request.outputHeight() >= request.sourceWindow().height()) {
+                throw new AssertionError(
+                        "affine density request did not remain partial and bounded");
+            }
+            RgbaPixelBuffer.Builder pixels =
+                    RgbaPixelBuffer.builder(request.outputWidth(), request.outputHeight());
+            for (int row = 0; row < request.outputHeight(); row++) {
+                for (int column = 0; column < request.outputWidth(); column++) {
+                    pixels.setRgba(
+                            column,
+                            row,
+                            column < request.outputWidth() / 2 ? 0xff0000ff : 0x0000ffff);
+                }
+            }
+            return new RasterRead(request.sourceWindow(), pixels.build(), DiagnosticReport.empty());
+        }
+
+        @Override
+        public boolean isClosed() {
+            return false;
+        }
+
+        @Override
+        public void close() {}
     }
 
     private static SymbolStroke stroke(Rgba color, double width) {

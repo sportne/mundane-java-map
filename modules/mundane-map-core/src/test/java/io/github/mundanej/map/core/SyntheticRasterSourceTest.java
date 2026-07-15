@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.mundanej.map.api.CancellationSource;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
@@ -49,6 +50,77 @@ class SyntheticRasterSourceTest {
         assertEquals(pixel(1, 1), up.pixels().rgbaAt(0, 0));
         assertEquals(pixel(2, 1), up.pixels().rgbaAt(2, 0));
         assertEquals(pixel(2, 2), up.pixels().rgbaAt(3, 3));
+    }
+
+    @Test
+    void bilinearSamplingUsesTheSameWindowLocalCoreOracle() {
+        SyntheticRasterSource source = source(4, 4);
+        RasterWindow window = new RasterWindow(1, 1, 2, 2);
+        RasterRead read =
+                source.read(
+                        new RasterRequest(
+                                window, 4, 4, RasterInterpolation.BILINEAR, Optional.empty()),
+                        CancellationToken.none());
+        var x = RasterResampling.bilinearAxis(1, 2, 4);
+        var y = RasterResampling.bilinearAxis(1, 2, 4);
+        assertEquals(
+                RasterResampling.bilinearRgba(
+                        pixel(1, 1), pixel(2, 1), pixel(1, 2), pixel(2, 2), x, y),
+                read.pixels().rgbaAt(1, 1));
+        assertEquals(pixel(1, 1), read.pixels().rgbaAt(0, 0));
+        assertEquals(pixel(2, 2), read.pixels().rgbaAt(3, 3));
+    }
+
+    @Test
+    void bothModesMatchSharedMathForOneDimensionalWindows() {
+        SyntheticRasterSource source = source(6, 6);
+        for (RasterInterpolation interpolation : RasterInterpolation.values()) {
+            RasterWindow horizontal = new RasterWindow(1, 3, 4, 1);
+            RasterRead horizontalRead =
+                    source.read(
+                            new RasterRequest(horizontal, 7, 1, interpolation, Optional.empty()),
+                            CancellationToken.none());
+            assertEquals(pixel(1, 3), horizontalRead.pixels().rgbaAt(0, 0));
+            assertEquals(pixel(4, 3), horizontalRead.pixels().rgbaAt(6, 0));
+
+            RasterWindow vertical = new RasterWindow(2, 1, 1, 4);
+            RasterRead verticalRead =
+                    source.read(
+                            new RasterRequest(vertical, 1, 7, interpolation, Optional.empty()),
+                            CancellationToken.none());
+            assertEquals(pixel(2, 1), verticalRead.pixels().rgbaAt(0, 0));
+            assertEquals(pixel(2, 4), verticalRead.pixels().rgbaAt(0, 6));
+        }
+    }
+
+    @Test
+    void bothModesCancelAtEveryGenerationCheckpointAndRemainReusable() {
+        for (RasterInterpolation interpolation : RasterInterpolation.values()) {
+            for (int poll = 1; poll <= 8; poll++) {
+                int cancellationCheckpoint = poll;
+                SyntheticRasterSource source = source(4, 4);
+                SourceException failure =
+                        assertThrows(
+                                SourceException.class,
+                                () ->
+                                        source.read(
+                                                new RasterRequest(
+                                                        new RasterWindow(0, 0, 4, 4),
+                                                        4,
+                                                        4,
+                                                        interpolation,
+                                                        Optional.empty()),
+                                                new CountingToken(cancellationCheckpoint)));
+                assertEquals("SOURCE_CANCELLED", failure.terminal().code());
+                assertEquals(
+                        pixel(0, 0),
+                        source.read(
+                                        request(new RasterWindow(0, 0, 1, 1), 1, 1),
+                                        CancellationToken.none())
+                                .pixels()
+                                .rgbaAt(0, 0));
+            }
+        }
     }
 
     @Test

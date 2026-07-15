@@ -916,6 +916,28 @@ runs separately after focused checks because this task changes rendering and G2-
 the lane. `qualityGate` and whitespace then run; native, publication, corpus, and performance lanes do
 not.
 
+### G6-003 implementation closeout
+
+The completed slice follows the approved boundary without a second image or interpolation model.
+`RasterRequest` retains its nearest-only constructor and adds the existing G2 interpolation enum;
+decoder capability defaults remain nearest-only, while the explicit AWT decoder alone declares both
+modes. The image source rejects an unsupported mode before decode with the stable decoder diagnostic
+and passes the exact request mode through its operation-local context.
+
+Core owns the checked pixel-center formulas, window-local bilinear weights, premultiplied-alpha
+integer accumulation, and screen-density cap. The synthetic source and ImageIO adapter consume the
+same math. ImageIO always receives the strict source region, uses exact divisible-axis nearest
+subsampling only, and leaves bilinear requests unsubsampled; project code performs the one semantic
+resample before Java2D's final nearest placement. Conservative full-decode accounting remains honest
+about opaque codec work.
+
+`RasterRenderOptions` is the sole AWT presentation value. MapView snapshots it per binding and paint,
+keeps opacity out of requests and source identity, skips zero-opacity reads without altering the
+previous source report, and composes nonzero opacity once with `SrcOver`. Updating options preserves
+the installed binding and source. The viewer exposes only these options, and focused real-codec,
+affine, cancellation, ownership, offscreen, and render-regression evidence exercises the production
+path. No cache, worker, warp, filter SPI, or native metadata was introduced.
+
 ### G6-003 simplicity check
 
 One existing two-value interpolation enum, one core integer math utility, one source-compatible

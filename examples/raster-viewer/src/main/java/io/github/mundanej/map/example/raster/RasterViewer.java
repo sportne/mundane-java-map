@@ -2,12 +2,14 @@ package io.github.mundanej.map.example.raster;
 
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.awt.RasterRenderOptions;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
@@ -15,6 +17,7 @@ import io.github.mundanej.map.io.image.ImagePlacement;
 import io.github.mundanej.map.io.image.RasterImages;
 import java.awt.BorderLayout;
 import java.awt.EventQueue;
+import java.awt.FlowLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
@@ -22,8 +25,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
+import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JSlider;
 import javax.swing.WindowConstants;
 
 /** Runnable bounded PNG/JPEG viewer with explicit normalized demonstration placement. */
@@ -179,9 +185,9 @@ public final class RasterViewer {
         JFrame frame = new JFrame("Mundane raster viewer");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         frame.add(view, BorderLayout.CENTER);
-        frame.add(
-                new JLabel((String) view.getClientProperty("raster-placement-label")),
-                BorderLayout.SOUTH);
+        JLabel status = new JLabel();
+        frame.add(createControls(view, status), BorderLayout.NORTH);
+        frame.add(status, BorderLayout.SOUTH);
         frame.addWindowListener(
                 new WindowAdapter() {
                     @Override
@@ -192,6 +198,44 @@ public final class RasterViewer {
         frame.setSize(900, 650);
         frame.setLocationByPlatform(true);
         frame.setVisible(true);
+    }
+
+    static JPanel createControls(MapView view, JLabel status) {
+        Objects.requireNonNull(view, "view");
+        Objects.requireNonNull(status, "status");
+        if (!EventQueue.isDispatchThread()) {
+            throw new IllegalStateException(
+                    "Raster controls must be created on the event dispatch thread");
+        }
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        JComboBox<RasterInterpolation> interpolation =
+                new JComboBox<>(RasterInterpolation.values());
+        JSlider opacity = new JSlider(0, 100, 100);
+        Runnable update =
+                () -> {
+                    RasterInterpolation selected =
+                            Objects.requireNonNull(
+                                    (RasterInterpolation) interpolation.getSelectedItem(),
+                                    "selected interpolation");
+                    RasterRenderOptions options =
+                            new RasterRenderOptions(selected, opacity.getValue() / 100.0);
+                    view.setRasterRenderOptions("image", options);
+                    status.setText(
+                            view.getClientProperty("raster-placement-label")
+                                    + " — "
+                                    + selected
+                                    + " — opacity "
+                                    + opacity.getValue()
+                                    + "%");
+                };
+        interpolation.addActionListener(event -> update.run());
+        opacity.addChangeListener(event -> update.run());
+        controls.add(new JLabel("Interpolation"));
+        controls.add(interpolation);
+        controls.add(new JLabel("Opacity"));
+        controls.add(opacity);
+        update.run();
+        return controls;
     }
 
     private static String summary(RuntimeException failure) {

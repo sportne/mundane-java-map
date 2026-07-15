@@ -8,8 +8,15 @@ import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.EncodedRasterDecodeContext;
+import io.github.mundanej.map.api.EncodedRasterDecoder;
+import io.github.mundanej.map.api.EncodedRasterDecoderRegistry;
+import io.github.mundanej.map.api.EncodedRasterFormat;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterSource;
+import io.github.mundanej.map.api.RasterWindow;
+import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
@@ -29,6 +36,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -141,6 +149,72 @@ class MapViewAffineImageTest {
                     assertColorNear(Color.WHITE, new Color(painted.getRGB(10, 10)), 1);
                     view.close();
                 });
+        assertTrue(source.isClosed());
+    }
+
+    @Test
+    void affineMapViewDensityPlanReachesMixedAxisImageIoSubsampling() throws Exception {
+        Path imagePath =
+                copyJpegFixture(
+                        "mixed-axis",
+                        "projected-regions.jgw",
+                        21,
+                        "ce0a9158c4e080cd655ff57d7a4e0bb19888cd77651f640321cbd00d6f4be064");
+        EncodedRasterDecoder delegate =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.JPEG).orElseThrow();
+        AtomicReference<DecodeFacts> observed = new AtomicReference<>();
+        EncodedRasterDecoder recording =
+                new EncodedRasterDecoder() {
+                    @Override
+                    public boolean supportsInterpolation(RasterInterpolation interpolation) {
+                        return delegate.supportsInterpolation(interpolation);
+                    }
+
+                    @Override
+                    public RgbaPixelBuffer decode(
+                            InputStream input, EncodedRasterDecodeContext context) {
+                        observed.set(
+                                new DecodeFacts(
+                                        context.sourceWindow(),
+                                        context.outputWidth(),
+                                        context.outputHeight(),
+                                        context.interpolation(),
+                                        ImageIoRasterDecoder.Subsampling.forContext(context)));
+                        return delegate.decode(input, context);
+                    }
+                };
+        EncodedRasterDecoderRegistry registry =
+                EncodedRasterDecoderRegistry.builder()
+                        .register(EncodedRasterFormat.JPEG, recording)
+                        .build();
+        RasterSource source =
+                RasterImages.open(
+                        imagePath,
+                        new SourceIdentity("mixed-axis", "mixed-axis"),
+                        ImageOpenOptions.defaults()
+                                .withPlacement(ImagePlacement.worldFile(projectedCrs())),
+                        registry);
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = TestMapViews.identity();
+                    view.setSize(160, 160);
+                    Envelope bounds = source.metadata().mapBounds().orElseThrow();
+                    view.setViewport(
+                            new MapViewport(
+                                    160, 160, bounds.center().x(), bounds.center().y(), 8.1));
+                    view.setLayerBindings(
+                            List.of(MapLayerBinding.ownedRaster("jpeg", "jpeg", source)));
+                    paint(view, 160);
+                    view.close();
+                });
+        assertEquals(
+                new DecodeFacts(
+                        new RasterWindow(0, 0, 32, 16),
+                        8,
+                        5,
+                        RasterInterpolation.NEAREST,
+                        new ImageIoRasterDecoder.Subsampling(4, 1, 2, 0, 8, 16)),
+                observed.get());
         assertTrue(source.isClosed());
     }
 
@@ -366,4 +440,11 @@ class MapViewAffineImageTest {
         assertTrue(Math.abs(expected.getGreen() - actual.getGreen()) <= tolerance);
         assertTrue(Math.abs(expected.getBlue() - actual.getBlue()) <= tolerance);
     }
+
+    private record DecodeFacts(
+            RasterWindow window,
+            int outputWidth,
+            int outputHeight,
+            RasterInterpolation interpolation,
+            ImageIoRasterDecoder.Subsampling subsampling) {}
 }

@@ -34,6 +34,7 @@ public final class MapLayerBinding implements AutoCloseable {
     private final MarkerSymbol marker;
     private final LineSymbol line;
     private final FillSymbol fill;
+    private final RasterRenderOptions rasterOptions;
     private final boolean owned;
     private final AtomicReference<Operation> operation = new AtomicReference<>();
     private Object owner;
@@ -49,6 +50,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = null;
         this.line = null;
         this.fill = null;
+        this.rasterOptions = null;
         this.owned = false;
     }
 
@@ -70,12 +72,18 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = requireRole(marker, SymbolRole.MARKER, "marker");
         this.line = requireRole(line, SymbolRole.LINE, "line");
         this.fill = requireRole(fill, SymbolRole.FILL, "fill");
+        this.rasterOptions = null;
         this.layer = null;
         this.rasterSource = null;
         this.owned = owned;
     }
 
-    private MapLayerBinding(String id, String name, RasterSource source, boolean owned) {
+    private MapLayerBinding(
+            String id,
+            String name,
+            RasterSource source,
+            RasterRenderOptions rasterOptions,
+            boolean owned) {
         this.kind = Kind.RASTER;
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
@@ -88,6 +96,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = null;
         this.line = null;
         this.fill = null;
+        this.rasterOptions = Objects.requireNonNull(rasterOptions, "rasterOptions");
         this.owned = owned;
     }
 
@@ -120,12 +129,40 @@ public final class MapLayerBinding implements AutoCloseable {
 
     /** Creates a raster binding whose source remains caller-owned. */
     public static MapLayerBinding borrowedRaster(String id, String name, RasterSource source) {
-        return new MapLayerBinding(id, name, source, false);
+        return borrowedRaster(id, name, source, RasterRenderOptions.defaults());
+    }
+
+    /**
+     * Creates a caller-owned raster binding with initial immutable presentation options.
+     *
+     * @param id stable layer identifier
+     * @param name display name
+     * @param source caller-owned raster source
+     * @param options initial immutable presentation options
+     * @return unattached borrowed raster binding
+     */
+    public static MapLayerBinding borrowedRaster(
+            String id, String name, RasterSource source, RasterRenderOptions options) {
+        return new MapLayerBinding(id, name, source, options, false);
     }
 
     /** Creates a raster binding that assumes exclusive responsibility for closing its source. */
     public static MapLayerBinding ownedRaster(String id, String name, RasterSource source) {
-        return new MapLayerBinding(id, name, source, true);
+        return ownedRaster(id, name, source, RasterRenderOptions.defaults());
+    }
+
+    /**
+     * Creates an exclusively owned raster binding with initial presentation options.
+     *
+     * @param id stable layer identifier
+     * @param name display name
+     * @param source raster source transferred to the binding
+     * @param options initial immutable presentation options
+     * @return unattached owned raster binding
+     */
+    public static MapLayerBinding ownedRaster(
+            String id, String name, RasterSource source, RasterRenderOptions options) {
+        return new MapLayerBinding(id, name, source, options, true);
     }
 
     /** Returns the stable layer identifier. */
@@ -200,6 +237,10 @@ public final class MapLayerBinding implements AutoCloseable {
 
     FillSymbol fill() {
         return fill;
+    }
+
+    RasterRenderOptions initialRasterOptions() {
+        return rasterOptions;
     }
 
     boolean owned() {

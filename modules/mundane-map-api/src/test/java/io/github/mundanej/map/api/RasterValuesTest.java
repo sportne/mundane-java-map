@@ -46,6 +46,20 @@ class RasterValuesTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new RasterRequest(new RasterWindow(0, 0, 1, 1), 0, 1, Optional.empty()));
+        RasterRequest compatible =
+                new RasterRequest(new RasterWindow(0, 0, 1, 1), 1, 1, Optional.empty());
+        assertEquals(RasterInterpolation.NEAREST, compatible.interpolation());
+        RasterRequest bilinear =
+                new RasterRequest(
+                        compatible.sourceWindow(),
+                        1,
+                        1,
+                        RasterInterpolation.BILINEAR,
+                        Optional.empty());
+        assertEquals(RasterInterpolation.BILINEAR, bilinear.interpolation());
+        assertThrows(
+                NullPointerException.class,
+                () -> new RasterRequest(compatible.sourceWindow(), 1, 1, null, Optional.empty()));
 
         RasterRequestLimits tight = new RasterRequestLimits(1, 2, 3, 4, 5, 6);
         assertTrue(tight.tightens(new RasterRequestLimits(2, 3, 4, 5, 6, 7)));

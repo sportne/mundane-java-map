@@ -1,6 +1,6 @@
 # G6-003 — Raster requests and rendering controls
 
-Status: Proposed
+Status: Complete
 Depends on: G6-002, G2-006
 Gate: G6
 Type: AFK

@@ -11,21 +11,25 @@ import io.github.mundanej.map.api.EncodedRasterDecodeContext;
 import io.github.mundanej.map.api.EncodedRasterDecoder;
 import io.github.mundanej.map.api.EncodedRasterFormat;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterSourceLimits;
 import io.github.mundanej.map.api.RasterWindow;
+import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.RasterResampling;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.ImagePlacement;
 import io.github.mundanej.map.io.image.RasterImages;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -40,6 +44,7 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.CRC32;
 import java.util.zip.DeflaterOutputStream;
 import javax.imageio.ImageReader;
@@ -98,6 +103,174 @@ class ImageIoRasterDecoderTest {
                             .pixels();
             assertColorNear(0xff0000ff, pixels.rgbaAt(4, 8), 20);
             assertColorNear(0x0000ffff, pixels.rgbaAt(27, 8), 20);
+        }
+    }
+
+    @Test
+    void appliesStrictRegionsExactNearestSubsamplingAndProjectBilinearMath() throws Exception {
+        Path png =
+                fixture(
+                        "rgba-2x2.png.b64",
+                        "sampling.png",
+                        79,
+                        "b24037705a1852832821c1a3419df9eee1cc7e9c9bff877be6a37f6eb32368fe");
+        EncodedRasterDecoder decoder =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.PNG).orElseThrow();
+        assertTrue(decoder.supportsInterpolation(RasterInterpolation.NEAREST));
+        assertTrue(decoder.supportsInterpolation(RasterInterpolation.BILINEAR));
+        try (RasterSource source = open(png)) {
+            var nearest =
+                    source.read(
+                                    new RasterRequest(
+                                            new RasterWindow(0, 0, 2, 2),
+                                            1,
+                                            1,
+                                            RasterInterpolation.NEAREST,
+                                            Optional.empty()),
+                                    CancellationToken.none())
+                            .pixels();
+            assertEquals(0, nearest.rgbaAt(0, 0));
+
+            var bilinear =
+                    source.read(
+                                    new RasterRequest(
+                                            new RasterWindow(0, 0, 2, 2),
+                                            1,
+                                            1,
+                                            RasterInterpolation.BILINEAR,
+                                            Optional.empty()),
+                                    CancellationToken.none())
+                            .pixels();
+            var weights = RasterResampling.bilinearAxis(0, 2, 1);
+            assertEquals(
+                    RasterResampling.bilinearRgba(
+                            0xff0000ff, 0x00ff0080, 0x0000ffff, 0x00000000, weights, weights),
+                    bilinear.rgbaAt(0, 0));
+
+            var strictRegion =
+                    source.read(
+                                    new RasterRequest(
+                                            new RasterWindow(1, 0, 1, 2),
+                                            1,
+                                            1,
+                                            RasterInterpolation.NEAREST,
+                                            Optional.empty()),
+                                    CancellationToken.none())
+                            .pixels();
+            assertEquals(0, strictRegion.rgbaAt(0, 0));
+        }
+    }
+
+    @Test
+    void plansIndependentNearestFactorsAndNeverSubsamplesBilinear() {
+        var divisible =
+                ImageIoRasterDecoder.Subsampling.forContext(
+                        new PlanDecodeContext(
+                                new RasterWindow(3, 4, 8, 9), 2, 3, RasterInterpolation.NEAREST));
+        assertEquals(new ImageIoRasterDecoder.Subsampling(4, 3, 2, 1, 2, 3), divisible);
+
+        var independent =
+                ImageIoRasterDecoder.Subsampling.forContext(
+                        new PlanDecodeContext(
+                                new RasterWindow(3, 4, 7, 9), 2, 3, RasterInterpolation.NEAREST));
+        assertEquals(new ImageIoRasterDecoder.Subsampling(1, 3, 0, 1, 7, 3), independent);
+
+        var bilinear =
+                ImageIoRasterDecoder.Subsampling.forContext(
+                        new PlanDecodeContext(
+                                new RasterWindow(3, 4, 8, 9), 2, 3, RasterInterpolation.BILINEAR));
+        assertEquals(new ImageIoRasterDecoder.Subsampling(1, 1, 0, 0, 8, 9), bilinear);
+    }
+
+    @Test
+    void controlledReaderReceivesStrictRegionAndRejectsReturnedShapeMismatch() {
+        AtomicReference<ReadHints> observed = new AtomicReference<>();
+        ImageIoRasterDecoder decoder =
+                new ImageIoRasterDecoder(
+                        Map.of(
+                                EncodedRasterFormat.PNG,
+                                new RecordingReaderProvider(observed, 2, 3)));
+        PlanDecodeContext context =
+                new PlanDecodeContext(
+                        new RasterWindow(3, 4, 8, 9), 2, 3, RasterInterpolation.NEAREST);
+        decoder.decode(new ByteArrayInputStream(new byte[] {1}), context);
+        assertEquals(new ReadHints(new Rectangle(3, 4, 8, 9), 4, 3, 2, 1), observed.get());
+
+        ImageIoRasterDecoder wrongShape =
+                new ImageIoRasterDecoder(
+                        Map.of(
+                                EncodedRasterFormat.PNG,
+                                new RecordingReaderProvider(new AtomicReference<>(), 1, 1)));
+        SourceException failure =
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        SourceException.class,
+                        () -> wrongShape.decode(new ByteArrayInputStream(new byte[] {1}), context));
+        assertEquals("IMAGE_DECODE_MISMATCH", failure.terminal().code());
+        assertEquals("decodedDimensions", failure.terminal().context().get("field"));
+    }
+
+    @Test
+    void realPngAndJpegWindowsMatchIndependentExtractedMatrixOracles() throws Exception {
+        Path png =
+                fixture(
+                        "rgba-2x2.png.b64",
+                        "matrix.png",
+                        79,
+                        "b24037705a1852832821c1a3419df9eee1cc7e9c9bff877be6a37f6eb32368fe");
+        try (RasterSource source = open(png)) {
+            RgbaPixelBuffer matrix =
+                    read(source, new RasterWindow(0, 0, 2, 2), 2, 2, RasterInterpolation.NEAREST);
+            for (RasterInterpolation interpolation : RasterInterpolation.values()) {
+                RasterWindow partial = new RasterWindow(1, 0, 1, 2);
+                assertEquals(
+                        oracle(matrix, partial, 3, 5, interpolation),
+                        read(source, partial, 3, 5, interpolation));
+            }
+            assertEquals(
+                    oracle(
+                            matrix,
+                            new RasterWindow(0, 0, 2, 2),
+                            3,
+                            3,
+                            RasterInterpolation.BILINEAR),
+                    read(source, new RasterWindow(0, 0, 2, 2), 3, 3, RasterInterpolation.BILINEAR));
+        }
+
+        Path jpeg =
+                fixture(
+                        "rgb-regions-32x16.jpeg.b64",
+                        "matrix.jpeg",
+                        642,
+                        "c24dac6ae511de2680b0b66a83b003058dc3b0e150cb1fc46873243854752990");
+        try (RasterSource source = open(jpeg)) {
+            RgbaPixelBuffer matrix =
+                    read(
+                            source,
+                            new RasterWindow(0, 0, 32, 16),
+                            32,
+                            16,
+                            RasterInterpolation.NEAREST);
+            RasterWindow mixedAxis = new RasterWindow(0, 1, 32, 15);
+            assertEquals(
+                    oracle(matrix, mixedAxis, 8, 4, RasterInterpolation.NEAREST),
+                    read(source, mixedAxis, 8, 4, RasterInterpolation.NEAREST));
+            RasterWindow partial = new RasterWindow(3, 2, 25, 11);
+            assertEquals(
+                    oracle(matrix, partial, 7, 5, RasterInterpolation.BILINEAR),
+                    read(source, partial, 7, 5, RasterInterpolation.BILINEAR));
+        }
+    }
+
+    @Test
+    void bothModesRetainConservativeOpaqueStageAccounting() throws Exception {
+        byte[] png = fixtureBytes("rgba-2x2.png.b64");
+        EncodedRasterDecoder decoder =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.PNG).orElseThrow();
+        for (RasterInterpolation interpolation : RasterInterpolation.values()) {
+            AccountingDecodeContext context =
+                    new AccountingDecodeContext(png.length, interpolation);
+            decoder.decode(new ByteArrayInputStream(png), context);
+            assertEquals(png.length + 8L * 4 + 4L, context.claimedBytes());
         }
     }
 
@@ -334,6 +507,39 @@ class ImageIoRasterDecoderTest {
     }
 
     @Test
+    void bothModesCancelAtEveryControlledImageIoAndResamplingStage() throws Exception {
+        byte[] png = fixtureBytes("rgba-2x2.png.b64");
+        EncodedRasterDecoder decoder =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.PNG).orElseThrow();
+        for (RasterInterpolation interpolation : RasterInterpolation.values()) {
+            for (int checkpoint = 1; checkpoint <= 7; checkpoint++) {
+                assertCancelled(
+                        decoder,
+                        png,
+                        new PhaseDecodeContext(checkpoint, png.length, interpolation));
+            }
+            AccountingDecodeContext successfulContext =
+                    new AccountingDecodeContext(png.length, interpolation);
+            RgbaPixelBuffer successful =
+                    decoder.decode(new ByteArrayInputStream(png), successfulContext);
+            assertEquals(1, successful.width());
+            assertEquals(1, successful.height());
+            int expected =
+                    interpolation == RasterInterpolation.NEAREST
+                            ? 0
+                            : RasterResampling.bilinearRgba(
+                                    0xff0000ff,
+                                    0x00ff0080,
+                                    0x0000ffff,
+                                    0x00000000,
+                                    RasterResampling.bilinearAxis(0, 2, 1),
+                                    RasterResampling.bilinearAxis(0, 2, 1));
+            assertEquals(expected, successful.rgbaAt(0, 0));
+            assertEquals(png.length + 32 + 4, successfulContext.claimedBytes());
+        }
+    }
+
+    @Test
     void preservesDecodePrimaryAndAlwaysRunsReverseReaderAndInputCleanup() {
         AtomicBoolean disposed = new AtomicBoolean();
         AtomicBoolean inputClosed = new AtomicBoolean();
@@ -495,15 +701,131 @@ class ImageIoRasterDecoderTest {
         }
     }
 
+    private static RgbaPixelBuffer read(
+            RasterSource source,
+            RasterWindow window,
+            int outputWidth,
+            int outputHeight,
+            RasterInterpolation interpolation) {
+        return source.read(
+                        new RasterRequest(
+                                window, outputWidth, outputHeight, interpolation, Optional.empty()),
+                        CancellationToken.none())
+                .pixels();
+    }
+
+    private static RgbaPixelBuffer oracle(
+            RgbaPixelBuffer matrix,
+            RasterWindow window,
+            int outputWidth,
+            int outputHeight,
+            RasterInterpolation interpolation) {
+        RgbaPixelBuffer.Builder output = RgbaPixelBuffer.builder(outputWidth, outputHeight);
+        for (int row = 0; row < outputHeight; row++) {
+            TestWeights y = testWeights(row, window.height(), outputHeight);
+            for (int column = 0; column < outputWidth; column++) {
+                TestWeights x = testWeights(column, window.width(), outputWidth);
+                int rgba;
+                if (interpolation == RasterInterpolation.NEAREST) {
+                    rgba =
+                            matrix.rgbaAt(
+                                    window.column()
+                                            + nearestOracle(column, window.width(), outputWidth),
+                                    window.row()
+                                            + nearestOracle(row, window.height(), outputHeight));
+                } else {
+                    rgba =
+                            blendOracle(
+                                    matrix.rgbaAt(
+                                            window.column() + x.lower(), window.row() + y.lower()),
+                                    matrix.rgbaAt(
+                                            window.column() + x.upper(), window.row() + y.lower()),
+                                    matrix.rgbaAt(
+                                            window.column() + x.lower(), window.row() + y.upper()),
+                                    matrix.rgbaAt(
+                                            window.column() + x.upper(), window.row() + y.upper()),
+                                    x,
+                                    y);
+                }
+                output.setRgba(column, row, rgba);
+            }
+        }
+        return output.build();
+    }
+
+    private static int nearestOracle(int outputIndex, int sourceSize, int outputSize) {
+        return (int) (((2L * outputIndex + 1L) * sourceSize) / (2L * outputSize));
+    }
+
+    private static TestWeights testWeights(int outputIndex, int sourceSize, int outputSize) {
+        long denominator = 2L * outputSize;
+        long numerator = (2L * outputIndex + 1L) * sourceSize - outputSize;
+        if (sourceSize == 1 || numerator <= 0) {
+            return new TestWeights(0, 0, denominator, 0, denominator);
+        }
+        if (numerator >= (sourceSize - 1L) * denominator) {
+            return new TestWeights(sourceSize - 1, sourceSize - 1, denominator, 0, denominator);
+        }
+        int lower = (int) Math.floorDiv(numerator, denominator);
+        long upper = Math.floorMod(numerator, denominator);
+        return new TestWeights(lower, lower + 1, denominator - upper, upper, denominator);
+    }
+
+    private static int blendOracle(
+            int northWest,
+            int northEast,
+            int southWest,
+            int southEast,
+            TestWeights x,
+            TestWeights y) {
+        int[] samples = {northWest, northEast, southWest, southEast};
+        long[] weights = {
+            x.lowerWeight() * y.lowerWeight(),
+            x.upperWeight() * y.lowerWeight(),
+            x.lowerWeight() * y.upperWeight(),
+            x.upperWeight() * y.upperWeight()
+        };
+        long total = x.denominator() * y.denominator();
+        long alpha = 0;
+        long red = 0;
+        long green = 0;
+        long blue = 0;
+        for (int index = 0; index < samples.length; index++) {
+            int sampleAlpha = samples[index] & 0xff;
+            alpha += weights[index] * sampleAlpha;
+            red += weights[index] * sampleAlpha * ((samples[index] >>> 24) & 0xff);
+            green += weights[index] * sampleAlpha * ((samples[index] >>> 16) & 0xff);
+            blue += weights[index] * sampleAlpha * ((samples[index] >>> 8) & 0xff);
+        }
+        int outputAlpha = (int) ((alpha + total / 2) / total);
+        if (outputAlpha == 0) {
+            return 0;
+        }
+        return ((int) ((red + alpha / 2) / alpha) << 24)
+                | ((int) ((green + alpha / 2) / alpha) << 16)
+                | ((int) ((blue + alpha / 2) / alpha) << 8)
+                | outputAlpha;
+    }
+
+    private record TestWeights(
+            int lower, int upper, long lowerWeight, long upperWeight, long denominator) {}
+
     private static final class PhaseDecodeContext implements EncodedRasterDecodeContext {
         private final int cancelAtCheckpoint;
         private final long encodedLength;
+        private final RasterInterpolation interpolation;
         private int checkpoints;
         private long claimedBytes;
 
         private PhaseDecodeContext(int cancelAtCheckpoint, long encodedLength) {
+            this(cancelAtCheckpoint, encodedLength, RasterInterpolation.NEAREST);
+        }
+
+        private PhaseDecodeContext(
+                int cancelAtCheckpoint, long encodedLength, RasterInterpolation interpolation) {
             this.cancelAtCheckpoint = cancelAtCheckpoint;
             this.encodedLength = encodedLength;
+            this.interpolation = interpolation;
         }
 
         @Override
@@ -557,6 +879,11 @@ class ImageIoRasterDecoderTest {
         }
 
         @Override
+        public RasterInterpolation interpolation() {
+            return interpolation;
+        }
+
+        @Override
         public void checkpoint() {
             if (++checkpoints == cancelAtCheckpoint) {
                 SourceDiagnostic diagnostic =
@@ -579,6 +906,84 @@ class ImageIoRasterDecoderTest {
 
         private long claimedBytes() {
             return claimedBytes;
+        }
+    }
+
+    private static final class AccountingDecodeContext implements EncodedRasterDecodeContext {
+        private final long encodedLength;
+        private final RasterInterpolation interpolation;
+        private long claimed;
+
+        private AccountingDecodeContext(long encodedLength, RasterInterpolation interpolation) {
+            this.encodedLength = encodedLength;
+            this.interpolation = interpolation;
+        }
+
+        @Override
+        public SourceIdentity sourceIdentity() {
+            return new SourceIdentity("accounting", "accounting");
+        }
+
+        @Override
+        public EncodedRasterFormat format() {
+            return EncodedRasterFormat.PNG;
+        }
+
+        @Override
+        public long encodedByteLength() {
+            return encodedLength;
+        }
+
+        @Override
+        public int width() {
+            return 2;
+        }
+
+        @Override
+        public int height() {
+            return 2;
+        }
+
+        @Override
+        public int channelCount() {
+            return 4;
+        }
+
+        @Override
+        public int bitsPerSample() {
+            return 8;
+        }
+
+        @Override
+        public RasterWindow sourceWindow() {
+            return new RasterWindow(0, 0, 2, 2);
+        }
+
+        @Override
+        public int outputWidth() {
+            return 1;
+        }
+
+        @Override
+        public int outputHeight() {
+            return 1;
+        }
+
+        @Override
+        public RasterInterpolation interpolation() {
+            return interpolation;
+        }
+
+        @Override
+        public void checkpoint() {}
+
+        @Override
+        public void claimReservedIntermediateBytes(long bytes) {
+            claimed = Math.addExact(claimed, bytes);
+        }
+
+        private long claimedBytes() {
+            return claimed;
         }
     }
 
@@ -676,7 +1081,102 @@ class ImageIoRasterDecoderTest {
         }
     }
 
-    private static final class FixedDecodeContext implements EncodedRasterDecodeContext {
+    private static final class RecordingReaderProvider extends ImageReaderSpi {
+        private final AtomicReference<ReadHints> observed;
+        private final int returnedWidth;
+        private final int returnedHeight;
+
+        private RecordingReaderProvider(
+                AtomicReference<ReadHints> observed, int returnedWidth, int returnedHeight) {
+            this.observed = observed;
+            this.returnedWidth = returnedWidth;
+            this.returnedHeight = returnedHeight;
+        }
+
+        @Override
+        public Class<?>[] getInputTypes() {
+            return new Class<?>[] {javax.imageio.stream.ImageInputStream.class};
+        }
+
+        @Override
+        public boolean canDecodeInput(Object source) {
+            return true;
+        }
+
+        @Override
+        public ImageReader createReaderInstance(Object extension) {
+            return new RecordingReader(this, observed, returnedWidth, returnedHeight);
+        }
+
+        @Override
+        public String getDescription(java.util.Locale locale) {
+            return "recording test reader";
+        }
+    }
+
+    private static final class RecordingReader extends ImageReader {
+        private final AtomicReference<ReadHints> observed;
+        private final int returnedWidth;
+        private final int returnedHeight;
+
+        private RecordingReader(
+                ImageReaderSpi provider,
+                AtomicReference<ReadHints> observed,
+                int returnedWidth,
+                int returnedHeight) {
+            super(provider);
+            this.observed = observed;
+            this.returnedWidth = returnedWidth;
+            this.returnedHeight = returnedHeight;
+        }
+
+        @Override
+        public int getNumImages(boolean allowSearch) {
+            return 1;
+        }
+
+        @Override
+        public int getWidth(int imageIndex) {
+            return 11;
+        }
+
+        @Override
+        public int getHeight(int imageIndex) {
+            return 13;
+        }
+
+        @Override
+        public Iterator<ImageTypeSpecifier> getImageTypes(int imageIndex) {
+            return java.util.List.<ImageTypeSpecifier>of().iterator();
+        }
+
+        @Override
+        public IIOMetadata getStreamMetadata() {
+            return null;
+        }
+
+        @Override
+        public IIOMetadata getImageMetadata(int imageIndex) {
+            return null;
+        }
+
+        @Override
+        public BufferedImage read(int imageIndex, javax.imageio.ImageReadParam param) {
+            observed.set(
+                    new ReadHints(
+                            param.getSourceRegion(),
+                            param.getSourceXSubsampling(),
+                            param.getSourceYSubsampling(),
+                            param.getSubsamplingXOffset(),
+                            param.getSubsamplingYOffset()));
+            return new BufferedImage(returnedWidth, returnedHeight, BufferedImage.TYPE_INT_ARGB);
+        }
+    }
+
+    private record ReadHints(
+            Rectangle region, int xFactor, int yFactor, int xOffset, int yOffset) {}
+
+    private static class FixedDecodeContext implements EncodedRasterDecodeContext {
         @Override
         public SourceIdentity sourceIdentity() {
             return new SourceIdentity("cleanup", "cleanup");
@@ -732,5 +1232,53 @@ class ImageIoRasterDecoderTest {
 
         @Override
         public void claimReservedIntermediateBytes(long bytes) {}
+    }
+
+    private static final class PlanDecodeContext extends FixedDecodeContext {
+        private final RasterWindow window;
+        private final int outputWidth;
+        private final int outputHeight;
+        private final RasterInterpolation interpolation;
+
+        private PlanDecodeContext(
+                RasterWindow window,
+                int outputWidth,
+                int outputHeight,
+                RasterInterpolation interpolation) {
+            this.window = window;
+            this.outputWidth = outputWidth;
+            this.outputHeight = outputHeight;
+            this.interpolation = interpolation;
+        }
+
+        @Override
+        public RasterWindow sourceWindow() {
+            return window;
+        }
+
+        @Override
+        public int outputWidth() {
+            return outputWidth;
+        }
+
+        @Override
+        public int outputHeight() {
+            return outputHeight;
+        }
+
+        @Override
+        public RasterInterpolation interpolation() {
+            return interpolation;
+        }
+
+        @Override
+        public int width() {
+            return 11;
+        }
+
+        @Override
+        public int height() {
+            return 13;
+        }
     }
 }

@@ -10,6 +10,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.EncodedRasterDecoder;
 import io.github.mundanej.map.api.EncodedRasterDecoderRegistry;
 import io.github.mundanej.map.api.EncodedRasterFormat;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
@@ -84,6 +85,65 @@ class RasterImagesTest {
                                 new RasterRequest(
                                         new RasterWindow(0, 0, 1, 1), 1, 1, Optional.empty()),
                                 CancellationToken.none()));
+    }
+
+    @Test
+    void rejectsInheritedNearestOnlyCapabilityAndPassesExplicitBilinearMode() throws Exception {
+        Path path = temporaryDirectory.resolve("interpolation.png");
+        Files.write(path, pngHeader(2, 2, 8, 6));
+        try (RasterSource source =
+                RasterImages.open(
+                        path,
+                        identity(),
+                        ImageOpenOptions.defaults(),
+                        registry(EncodedRasterFormat.PNG, solidDecoder()))) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    source.read(
+                                            new RasterRequest(
+                                                    new RasterWindow(0, 0, 2, 2),
+                                                    1,
+                                                    1,
+                                                    RasterInterpolation.BILINEAR,
+                                                    Optional.empty()),
+                                            CancellationToken.none()));
+            assertEquals("IMAGE_DECODER_INTERPOLATION_UNSUPPORTED", failure.terminal().code());
+            assertEquals("PNG", failure.terminal().context().get("format"));
+            assertEquals("BILINEAR", failure.terminal().context().get("interpolation"));
+        }
+
+        EncodedRasterDecoder dualMode =
+                new EncodedRasterDecoder() {
+                    @Override
+                    public boolean supportsInterpolation(RasterInterpolation interpolation) {
+                        return true;
+                    }
+
+                    @Override
+                    public RgbaPixelBuffer decode(
+                            java.io.InputStream input,
+                            io.github.mundanej.map.api.EncodedRasterDecodeContext context) {
+                        assertEquals(RasterInterpolation.BILINEAR, context.interpolation());
+                        return claimedSolid(context);
+                    }
+                };
+        try (RasterSource source =
+                RasterImages.open(
+                        path,
+                        identity(),
+                        ImageOpenOptions.defaults(),
+                        registry(EncodedRasterFormat.PNG, dualMode))) {
+            source.read(
+                    new RasterRequest(
+                            new RasterWindow(0, 0, 2, 2),
+                            1,
+                            1,
+                            RasterInterpolation.BILINEAR,
+                            Optional.empty()),
+                    CancellationToken.none());
+        }
     }
 
     @Test

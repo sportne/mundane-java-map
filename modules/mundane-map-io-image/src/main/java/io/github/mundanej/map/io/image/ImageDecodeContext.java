@@ -2,6 +2,7 @@ package io.github.mundanej.map.io.image;
 
 import io.github.mundanej.map.api.EncodedRasterDecodeContext;
 import io.github.mundanej.map.api.EncodedRasterFormat;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.RasterRequestAccounting;
@@ -13,6 +14,7 @@ final class ImageDecodeContext implements EncodedRasterDecodeContext {
     private final RasterWindow window;
     private final int outputWidth;
     private final int outputHeight;
+    private final RasterInterpolation interpolation;
     private final RasterRequestAccounting accounting;
     private final long reservation;
     private long claimed;
@@ -23,6 +25,7 @@ final class ImageDecodeContext implements EncodedRasterDecodeContext {
             RasterWindow window,
             int outputWidth,
             int outputHeight,
+            RasterInterpolation interpolation,
             RasterRequestAccounting accounting,
             long reservation) {
         this.identity = Objects.requireNonNull(identity, "identity");
@@ -30,6 +33,7 @@ final class ImageDecodeContext implements EncodedRasterDecodeContext {
         this.window = Objects.requireNonNull(window, "window");
         this.outputWidth = outputWidth;
         this.outputHeight = outputHeight;
+        this.interpolation = Objects.requireNonNull(interpolation, "interpolation");
         this.accounting = Objects.requireNonNull(accounting, "accounting");
         this.reservation = reservation;
     }
@@ -82,6 +86,11 @@ final class ImageDecodeContext implements EncodedRasterDecodeContext {
     @Override
     public int outputHeight() {
         return outputHeight;
+    }
+
+    @Override
+    public RasterInterpolation interpolation() {
+        return interpolation;
     }
 
     @Override
