@@ -209,6 +209,13 @@ architectural requirement. Level 1 is complete only when
 
 ### G7 — Performance evidence and optimization
 
+- G7-001 is implemented and verified: one support-only module owns six deterministic fixture
+  families, twelve real-stack scenarios, independently derived SMOKE and BASELINE semantic oracles,
+  canonical typed digests, structured JSON/Markdown evidence, and an optional same-toolchain JFR
+  workflow. Ordinary tests execute SMOKE only; the full BASELINE derivation and timing run remain in
+  the separate `performanceEvidence` lane. The checked interpretation identifies in-memory query,
+  render, hit-test, and shapefile stages for the next evidence-driven tasks without defining portable
+  timing thresholds.
 - Establish repeatable large-data and JFR evidence before optimization.
 - Add a packed spatial index, viewport queries, clipping, and scale-aware simplification, then retain
   only private bounded render-cache candidates that pass predeclared evidence rules.

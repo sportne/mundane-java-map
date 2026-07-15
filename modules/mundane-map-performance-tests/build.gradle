@@ -1,0 +1,327 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+}
+
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
+
+@DisableCachingByDefault(because = 'Verifies the configured task graph')
+abstract class VerifyPerformanceLaneIsolation extends DefaultTask {
+    @Input
+    abstract ListProperty<String> getViolations()
+
+    @TaskAction
+    void verifyIsolation() {
+        if (!violations.get().isEmpty()) {
+            throw new GradleException(violations.get().join(System.lineSeparator()))
+        }
+    }
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-shapefile')
+    implementation project(':modules:mundane-map-io-image')
+}
+
+description = 'Non-published deterministic performance-evidence support.'
+
+def java21Launcher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(21)
+}
+def evidenceDirectory = rootProject.layout.buildDirectory.dir('performance-evidence')
+def evidenceScenarioIds = [
+    'memory-query-full',
+    'memory-query-window',
+    'dense-vector-render',
+    'symbol-heavy-render',
+    'hit-test-sweep',
+    'shapefile-query-window',
+    'shapefile-render-window',
+    'png-window-bilinear-disabled',
+    'jpeg-window-bilinear-preseeded',
+    'affine-raster-pan',
+    'vector-pan-sequence',
+    'vector-zoom-sequence'
+].asImmutable()
+
+def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
+    group = 'verification'
+    description = 'Independently verifies the frozen BASELINE semantic observations.'
+    dependsOn tasks.named('testClasses')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching(
+                'io.github.mundanej.map.performance.IndependentProfileOracleTest.baselineDigestsComeFromIndependentProfileFixturesAndPublicPaths')
+    }
+    systemProperty 'performanceBaselineOracle', 'true'
+    systemProperty 'performanceProfile', 'BASELINE'
+    minHeapSize = '512m'
+    maxHeapSize = '512m'
+    jvmArgs '-XX:+UseG1GC', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
+            '-Duser.language=en', '-Duser.country=US', '-Duser.timezone=UTC'
+    reports.html.outputLocation = layout.buildDirectory.dir('reports/tests/baselineOracle')
+    reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/baselineOracle')
+    binaryResultsDirectory = layout.buildDirectory.dir('test-results/baselineOracle/binary')
+}
+
+tasks.register('runPerformanceEvidence', JavaExec) {
+    group = 'verification'
+    description = 'Runs the full deterministic performance-evidence profile.'
+    dependsOn tasks.named('classes'), verifyBaselineOracle
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.performance.PerformanceEvidenceMain'
+    javaLauncher = java21Launcher
+    minHeapSize = '512m'
+    maxHeapSize = '512m'
+    jvmArgs '-XX:+UseG1GC', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
+            '-Duser.language=en', '-Duser.country=US', '-Duser.timezone=UTC'
+    systemProperty 'performanceProfile', 'BASELINE'
+    systemProperty 'performanceOutput', evidenceDirectory.get().asFile.absolutePath
+    if (providers.gradleProperty('performanceScenario').isPresent()) {
+        systemProperty 'performanceScenario',
+                providers.gradleProperty('performanceScenario').get()
+    }
+    if (providers.gradleProperty('performanceWarmups').isPresent()) {
+        systemProperty 'performanceWarmups', providers.gradleProperty('performanceWarmups').get()
+    }
+    if (providers.gradleProperty('performanceMeasurements').isPresent()) {
+        systemProperty 'performanceMeasurements',
+                providers.gradleProperty('performanceMeasurements').get()
+    }
+    if (providers.gradleProperty('performanceRevision').isPresent()) {
+        systemProperty 'performanceRevision', providers.gradleProperty('performanceRevision').get()
+    } else if (providers.environmentVariable('GITHUB_SHA').isPresent()) {
+        systemProperty 'GITHUB_SHA', providers.environmentVariable('GITHUB_SHA').get()
+    }
+    outputs.files(
+            evidenceDirectory.map { it.file('evidence-v1.json') },
+            evidenceDirectory.map { it.file('evidence-v1.md') })
+}
+
+def performanceJfr = tasks.register('performanceJfr', JavaExec) {
+    group = 'verification'
+    description = 'Records one selected evidence scenario with the matching Java 21 JFR.'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.performance.PerformanceEvidenceMain'
+    javaLauncher = java21Launcher
+    minHeapSize = '512m'
+    maxHeapSize = '512m'
+    notCompatibleWithConfigurationCache('Invokes the matching toolchain jfr executable after recording')
+    doFirst {
+        String scenario = providers.gradleProperty('performanceScenario').orNull
+        if (scenario == null || !evidenceScenarioIds.contains(scenario)) {
+            throw new GradleException('performanceScenario must name one exact scenario')
+        }
+        File output = evidenceDirectory.get().dir("jfr/${scenario}").asFile
+        delete output
+        output.mkdirs()
+        systemProperty 'performanceScenario', scenario
+        systemProperty 'performanceOutput', output.absolutePath
+        jvmArgs '-XX:+UseG1GC', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
+                '-Duser.language=en', '-Duser.country=US', '-Duser.timezone=UTC',
+                "-XX:StartFlightRecording=filename=${new File(output, scenario + '.jfr')},settings=profile,dumponexit=true,disk=true,maxsize=512m,jdk.ObjectAllocationSample#enabled=true"
+    }
+    systemProperty 'performanceProfile', 'BASELINE'
+    systemProperty 'performanceWarmups', '1'
+    systemProperty 'performanceMeasurements', '2'
+}
+
+def performanceJfrSummary = tasks.register('performanceJfrSummary', Exec) {
+    group = 'verification'
+    description = 'Writes the selected performance recording summary.'
+    notCompatibleWithConfigurationCache('Holds the summary output stream for the exec action')
+    doFirst {
+        String scenario = providers.gradleProperty('performanceScenario').get()
+        File output = evidenceDirectory.get().dir("jfr/${scenario}").asFile
+        File recording = new File(output, scenario + '.jfr')
+        File jfr = java21Launcher.get().metadata.installationPath.file(
+                System.getProperty('os.name').startsWith('Windows') ? 'bin/jfr.exe' : 'bin/jfr').asFile
+        ext.outputStream = new FileOutputStream(new File(output, 'summary.txt'))
+        commandLine jfr, 'summary', recording
+        standardOutput = ext.outputStream
+    }
+    doLast {
+        ext.outputStream.close()
+    }
+}
+
+def performanceJfrEvents = tasks.register('performanceJfrEvents', Exec) {
+    group = 'verification'
+    description = 'Writes selected event families from the performance recording.'
+    notCompatibleWithConfigurationCache('Holds the event output stream for the exec action')
+    doFirst {
+        String scenario = providers.gradleProperty('performanceScenario').get()
+        File output = evidenceDirectory.get().dir("jfr/${scenario}").asFile
+        File recording = new File(output, scenario + '.jfr')
+        File jfr = java21Launcher.get().metadata.installationPath.file(
+                System.getProperty('os.name').startsWith('Windows') ? 'bin/jfr.exe' : 'bin/jfr').asFile
+        ext.outputStream = new FileOutputStream(new File(output, 'events.txt'))
+        commandLine jfr, 'print', '--events',
+                'jdk.ExecutionSample,jdk.ObjectAllocationSample,jdk.ObjectAllocationInNewTLAB,jdk.ObjectAllocationOutsideTLAB,jdk.FileRead,jdk.FileWrite',
+                recording
+        standardOutput = ext.outputStream
+    }
+    doLast {
+        ext.outputStream.close()
+    }
+}
+
+performanceJfr.configure {
+    finalizedBy performanceJfrSummary
+}
+performanceJfrSummary.configure {
+    finalizedBy performanceJfrEvents
+}
+
+tasks.named('test') {
+    systemProperty 'performanceProfile', 'SMOKE'
+    minHeapSize = '512m'
+    maxHeapSize = '512m'
+    jvmArgs '-XX:+UseG1GC', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
+            '-Duser.language=en', '-Duser.country=US', '-Duser.timezone=UTC'
+}
+
+tasks.register('authorRasterEvidenceResources', JavaExec) {
+    group = 'help'
+    description = 'Maintainer-only authoring helper for the checked performance raster resources.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.performance.AuthorRasterResources'
+    javaLauncher = java21Launcher
+    args layout.projectDirectory.dir(
+            'src/main/resources/io/github/mundanej/map/performance/fixture/raster-1024x768-v1')
+            .asFile.absolutePath
+}
+
+def verifyPerformanceLaneIsolation = tasks.register(
+        'verifyPerformanceLaneIsolation', VerifyPerformanceLaneIsolation) {
+            group = 'verification'
+            description = 'Proves the full evidence and JFR tasks stay outside ordinary/specialized lanes.'
+            violations.convention([])
+        }
+
+gradle.projectsEvaluated {
+    def violations = []
+    Task full = tasks.named('runPerformanceEvidence').get()
+    Task jfr = tasks.named('performanceJfr').get()
+    Set<Task> owned =
+            [
+                full,
+                verifyBaselineOracle.get(),
+                jfr,
+                performanceJfrSummary.get(),
+                performanceJfrEvents.get()
+            ] as Set
+    def resolveDependencyNotation
+    resolveDependencyNotation = { owner, notation, resolved ->
+        if (notation == null) {
+            return
+        }
+        if (notation instanceof Task) {
+            resolved.add(notation)
+            return
+        }
+        if (notation instanceof org.gradle.api.tasks.TaskReference) {
+            resolved.add(owner.project.tasks.getByPath(notation.name))
+            return
+        }
+        if (notation instanceof Buildable) {
+            notation.buildDependencies.getDependencies(owner).each { resolved.add(it) }
+            return
+        }
+        if (notation instanceof Provider) {
+            resolveDependencyNotation(owner, notation.get(), resolved)
+            return
+        }
+        if (notation instanceof CharSequence) {
+            resolved.add(owner.project.tasks.getByPath(notation.toString()))
+            return
+        }
+        if (notation instanceof Map) {
+            notation.values().each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation instanceof Iterable) {
+            notation.each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation.getClass().isArray()) {
+            notation.each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation instanceof Closure) {
+            def value = notation.maximumNumberOfParameters == 0
+                    ? notation.call()
+                    : notation.call(owner)
+            resolveDependencyNotation(owner, value, resolved)
+            return
+        }
+        if (notation instanceof java.util.concurrent.Callable) {
+            resolveDependencyNotation(owner, notation.call(), resolved)
+            return
+        }
+        throw new GradleException(
+        "Unsupported task dependency notation on ${owner.path}: ${notation.getClass().name}")
+    }
+    def declaredDependencies = { owner ->
+        Set<Task> resolved = [] as Set
+        owner.getDependsOn().each { notation ->
+            resolveDependencyNotation(owner, notation, resolved)
+        }
+        resolved
+    }
+    def dependencyClosure = { Task root ->
+        Set<Task> visited = [] as Set
+        List<Task> pending = [root]
+        while (!pending.isEmpty()) {
+            Task current = pending.remove(pending.size() - 1)
+            declaredDependencies(current).each { dependency ->
+                if (visited.add(dependency)) {
+                    pending.add(dependency)
+                }
+            }
+        }
+        visited
+    }
+    [
+        'checkAll',
+        'qualityGate',
+        'nativeSmoke',
+        'shapefileCorpus',
+        'renderRegression',
+        'publicationDryRun',
+        'consumerSmoke'
+    ].each { taskName ->
+        Task lane = rootProject.tasks.findByName(taskName)
+        if (lane != null) {
+            Set<String> leaks = dependencyClosure(lane)
+                    .findAll { owned.contains(it) }
+                    .collect { it.path } as Set
+            if (!leaks.isEmpty()) {
+                violations.add(
+                        "Performance evidence tasks leaked into ${lane.path}: ${leaks.sort()}")
+            }
+        }
+    }
+    Task rootEvidence = rootProject.tasks.named('performanceEvidence').get()
+    Set<String> direct = declaredDependencies(rootEvidence)
+            .collect { it.path } as Set
+    if (direct != ([full.path] as Set)) {
+        violations.add(
+                "performanceEvidence must depend only on ${full.path}; found ${direct.sort()}")
+    }
+    verifyPerformanceLaneIsolation.configure {
+        it.violations.set(violations.unique().sort())
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyPerformanceLaneIsolation
+}

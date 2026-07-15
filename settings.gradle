@@ -83,6 +83,8 @@ def projectInventory = [
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':modules:mundane-map-native-tests', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
+    [path: ':modules:mundane-map-performance-tests', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:basic-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:symbol-gallery', category: 'SUPPORT', releaseLevel: 0,

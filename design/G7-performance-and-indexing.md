@@ -31,7 +31,7 @@ G9-007 later makes `runPerformanceEvidence` depend on one fresh-JVM DTED memory 
 has this sole direct dependency and the canonical output remains these two reports.
 
 A separate Ubuntu 24.04/Java 21 performance-evidence CI job first runs
-`:modules:mundane-map-performance-tests:classes` with ordinary dependency resolution, then runs
+`:modules:mundane-map-performance-tests:testClasses` with ordinary dependency resolution, then runs
 `./gradlew --offline performanceEvidence --rerun-tasks --console=plain` and uploads the two reports.
 G9-007's bounded intermediate probe output is deliberately not uploaded; its reviewed interpretation
 and hash enter the G9 decision record instead.
@@ -102,9 +102,13 @@ that value with exactly three decimal places. Overflow, zero operations, or zero
 than saturating or switching to floating arithmetic.
 
 Rendering oracles reuse G2's portable region, transformed-bounds, and per-channel-tolerance rules.
-They do not compare whole images or cross-platform pixel counts. Toolkit-neutral records, queries,
-viewports, and PNG samples use exact ordered digests; JPEG probes use the established tolerance away
-from block edges. Reports separate source cache state
+They validate six named portable invariants before digesting and never mix raw viewport doubles,
+whole rendered images, or cross-platform pixel counts. Toolkit-neutral records and queries use exact
+ordered digests. PNG reads hash dimensions plus every ordered packed-RGBA output pixel. JPEG reads
+validate eight distinct safe tile-interior probes against the repository-authored source formula with
+a per-channel tolerance of 20, then hash only probe coordinates, expected RGBA, and the stable
+classification. Repeated raster reads must return distinct result and pixel-buffer identities, but
+identity is validated rather than hashed. Reports separate source cache state
 `NOT_APPLICABLE|DISABLED|ENABLED_PRESEEDED|ENABLED_MIXED_KEYS` from view cache state
 `NONE|DEFAULT_WARM_AFTER_WARMUP`. `prepareSample` preserves the declared warmth; no label describes an
 OS filesystem cache as cold.
@@ -229,12 +233,18 @@ two's-complement bytes; long `0x03` plus eight; finite double `0x04` plus the ei
 `Double.doubleToLongBits` after canonicalizing `-0.0` to `+0.0`; boolean `0x05` plus `0|1`; enum
 `0x06` plus four-byte length and UTF-8 `Enum.name()`; packed RGBA `0x07` plus big-endian
 `R,G,B,A` bytes. NaN/infinity is an oracle failure, never canonical data.
+Attributes are key-sorted and encoded by the immutable public value kind: string, boolean, long,
+finite double, `BigDecimal.toPlainString()`, `LocalDate.toEpochDay()`, `AttributeNull`, or each signed
+byte of `AttributeBytes`. Runtime class names and `Object.toString()` are never attribute encodings.
 
 Rendering mixes ordered `(invariantName, classification)` pairs, never raw pixels. Exact classes are
 `BACKGROUND_MAJORITY`, `EXPECTED_COLOR_MAJORITY`, `EXPECTED_ALPHA_MAJORITY`,
 `PAINT_BOUNDS_CONTAINED`, `PAINT_COUNT_IN_RANGE`, and `VIEWPORT_MATCH`; failed color/tolerance or bounds
-checks terminate before digesting. A color majority requires more than half of the fixed region's
-pixels to have every declared RGBA channel within the scenario's integer tolerance. Implementation
+checks terminate before digesting. More than half of the eight-pixel border must match the declared
+corner background within eight per channel. More than half of painted pixels must differ from that
+background in RGB while retaining alpha within eight of it. Paint bounds remain inside the surface,
+paint count is between 16 and one less than the surface size, and the final viewport matches the
+declared trace within four ULP. Implementation
 freezes one 16-lowercase-hex expected observation digest for every `(BASELINE|SMOKE, scenario)` pair in
 `ScenarioOracleV1` before this task can complete. Those 24 constants are independently recomputed by
 profile-specific fixture tests and cannot be updated by a baseline/optimization run. The checked-in
@@ -296,6 +306,41 @@ dominant package/stage or `not established`, and the next experiment G7-002, G7-
 change. It records actual counter/JFR evidence and a SHA-256 of the source report, not a leaderboard or
 portable threshold. No baseline observation is fabricated during design authoring.
 
+The completed reference run used the G7-001 working tree based on revision
+`5e807f8c595ede96f15924bd283e740fe3013de8`; the report correctly leaves `revision` absent because the
+implementation changes were not yet committed. Its JSON SHA-256 is
+`45a067d31beeb54c4ef755ea6b28a220aefe9bb88643c2a042d4217860766d8e`. The environment was Ubuntu
+OpenJDK 21.0.11 on Linux 5.15 WSL2 amd64 with 32 reported processors, a fixed 512 MiB heap, G1,
+headless AWT, `en-US`, and UTC. It used the canonical seed, all six `v1` fixture families, five
+warmups, twenty measurements, all twelve scenarios, and `investigation=false`. The stable facts below
+are semantic counters and stages, not portable timing claims:
+
+| Scenario | Reviewed semantic evidence | Dominant package/stage | Next experiment |
+| --- | --- | --- | --- |
+| `memory-query-full` | 65,536 records and coordinates; digest `d4da23a839eb2a48` | Not established | No change |
+| `memory-query-window` | 2,048 records and coordinates; digest `5f4d383c501cd46b` | Linear in-memory viewport filtering | G7-002 |
+| `dense-vector-render` | 384 source records and six portable render invariants; digest `ef9c8b51b0161c12` | Source capture, AWT coordinate/path construction, and Java2D rasterization | G7-003 |
+| `symbol-heavy-render` | 4,096 features and six portable invariants; digest `bab603885f61b84a` | Not profiled | G7-004 |
+| `hit-test-sweep` | 256 probes: 128 hits and 128 misses; digest `0e482955bd4df5fe` | Ordered binding/geometry scan | G7-002, then G7-004 |
+| `shapefile-query-window` | 800 records, 800 coordinates, and 1,600 attributes; digest `40f419feca886494` | Sequential SHP/DBF cursor reads; deliberately outside G7-002 | No change in G7 |
+| `shapefile-render-window` | 50,000 records and six portable invariants; digest `b76b1a1b48e14b55` | Source capture followed by AWT paint | G7-003 |
+| `png-window-bilinear-disabled` | 393,216 source and 153,600 output pixels; digest `2125ea9e978a8b2e` | Not established | No change |
+| `jpeg-window-bilinear-preseeded` | 393,216 source and 1,228,800 output pixels over eight reads; digest `040aebf7d620a9b6` | Existing G6 source-cache path | G6 cache oracle; no G7 change |
+| `affine-raster-pan` | Twelve frames and six portable invariants; digest `c9178011eeb45578` | Not established | G7-004 evidence only |
+| `vector-pan-sequence` | Sixteen frames, 384 source records, and six portable invariants; digest `0791a2a96393ed1a` | Repeated source capture, projection, and path construction | G7-002, G7-003, then G7-004 |
+| `vector-zoom-sequence` | Twelve frames, 384 source records, and six portable invariants; digest `0f00fd437fbd4f25` | Repeated source capture, projection, and path construction | G7-003, then G7-004 |
+
+The same-toolchain JFR investigation for `dense-vector-render` used one warmup and two measurements.
+The recording SHA-256 was `20fad2f1bb686afd13714c6321b14289d0192cbac4af588d498f122e18f894b5`;
+its recording contained 436 `jdk.ObjectAllocationSample` and sixteen
+`jdk.ExecutionSample` events. Reviewed AWT samples place rendering in source capture,
+`MapView.toScreen`, multipart coordinate slicing, `Path2D` growth, and Java2D Marlin rasterization.
+This supports G7-003's existing
+screen-coordinate clipping/simplification experiment; it does not establish retained-memory size or
+waive later same-binary evidence rules. The canonical report also makes sequential shapefile window
+querying the clear environment-specific long pole, but G7-002 intentionally indexes only explicit
+in-memory sources and must not claim a shapefile speedup.
+
 ### Optional reproducible JFR workflow
 
 The module adds optional `performanceJfr`, using the identical resolved Java 21 launcher,
@@ -308,7 +353,8 @@ only:
 ```text
 -XX:StartFlightRecording=
   filename=<root-build>/performance-evidence/jfr/<scenario>.jfr,
-  settings=profile,dumponexit=true,disk=true,maxsize=512m
+  settings=profile,dumponexit=true,disk=true,maxsize=512m,
+  jdk.ObjectAllocationSample#enabled=true
 ```
 
 It is never a dependency of `performanceEvidence` or `qualityGate`. The documented workflow is:
@@ -328,8 +374,10 @@ beyond the matching Java 21 `jfr` executable.
 
 ### Verification and simplicity
 
-Harness tests pin seed/fixture reproducibility, scenario ID/order uniqueness, `BASELINE` versus
-`SMOKE`, setup/timing/verification separation, exact iteration counts, warmup exclusion, raw samples,
+Ordinary module tests derive and execute only `SMOKE`; the independently reconstructed `BASELINE`
+oracle runs only as a prerequisite of the dedicated `performanceEvidence` lane. Harness tests pin
+seed/fixture reproducibility, scenario ID/order uniqueness, `BASELINE` versus `SMOKE`,
+setup/timing/verification separation, exact iteration counts, warmup exclusion, raw samples,
 odd/even median, nearest-rank p95, throughput, volatile consumption, semantic mismatch failure, and
 cleanup on every stage. Report tests pin fields/order/escaping/LF, environment and revision fallbacks,
 two-renderer equality, and absence of timestamps/sensitive paths. The smoke profile executes all twelve

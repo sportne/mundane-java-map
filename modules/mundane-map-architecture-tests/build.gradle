@@ -15,6 +15,7 @@ def inventory = gradle.ext.mapProjectInventory
 def productionInventory = inventory.findAll { it.category != 'SUPPORT' }
 def level1Inventory = productionInventory.findAll { it.releaseLevel == 1 }
 def nativeSmokeProject = project(':modules:mundane-map-native-tests')
+def performanceProject = project(':modules:mundane-map-performance-tests')
 
 sourceSets {
     architectureFixtures
@@ -195,6 +196,7 @@ tasks.named('test') {
         project(entry.path).tasks.named('classes')
     }
     dependsOn nativeSmokeProject.tasks.named('classes')
+    dependsOn performanceProject.tasks.named('classes')
     inputs.files(productionInventory.collect { entry ->
         project(entry.path).layout.buildDirectory.dir('classes/java/main')
     })
@@ -208,6 +210,11 @@ tasks.named('test') {
     inputs.dir(new File(project(':modules:mundane-map-io-image').projectDir, 'src/main/java'))
     inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/resources'))
     inputs.dir(nativeSmokeProject.layout.buildDirectory.dir('resources/main'))
+    inputs.dir(new File(performanceProject.projectDir, 'src/main/java'))
+    inputs.dir(new File(performanceProject.projectDir, 'src/main/resources'))
+    inputs.file(performanceProject.file('build.gradle'))
+    inputs.file(rootProject.file('build.gradle'))
+    inputs.file(rootProject.file('settings.gradle'))
     systemProperty 'map.architecture.modules', moduleDescriptors
     systemProperty 'map.architecture.supportProjects',
             inventory.findAll { it.category == 'SUPPORT' }
@@ -229,6 +236,14 @@ tasks.named('test') {
                 new File(nativeSmokeProject.projectDir, 'src/main/resources').absolutePath,
                 nativeSmokeProject.layout.buildDirectory.dir('resources/main').get().asFile.absolutePath,
             ].join(File.pathSeparator)
+    systemProperty 'map.architecture.performanceSources',
+            new File(performanceProject.projectDir, 'src/main/java').absolutePath
+    systemProperty 'map.architecture.performanceResources',
+            new File(performanceProject.projectDir, 'src/main/resources').absolutePath
+    systemProperty 'map.architecture.performanceBuild',
+            performanceProject.file('build.gradle').absolutePath
+    systemProperty 'map.architecture.rootBuild', rootProject.file('build.gradle').absolutePath
+    systemProperty 'map.architecture.settings', rootProject.file('settings.gradle').absolutePath
 }
 
 description = 'Architecture and dependency-boundary tests.'

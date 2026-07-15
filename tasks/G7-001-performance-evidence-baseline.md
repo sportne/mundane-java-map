@@ -1,6 +1,6 @@
 # G7-001 — Performance evidence baseline
 
-Status: Proposed
+Status: Complete
 Depends on: G2-006, G3-003, G5-009, G6-004
 Gate: G7
 Type: AFK
@@ -65,6 +65,8 @@ rather than imposing brittle universal wall-clock assertions.
 - A typed FNV-1a oracle with canonical finite-double/RGBA/string/integer encodings freezes one reviewed
   observation digest per profile/scenario pair; only BASELINE digests enter the interpretation, and
   render digests contain portable tolerance classes rather than pixels.
+- Ordinary module tests independently derive and execute only the SMOKE profile. The full-cardinality
+  independent BASELINE derivation is reachable only from `performanceEvidence` before timed evidence.
 - Duration never fails the lane or creates a portable performance claim.
 - No production dependency or native acceleration is introduced.
 
@@ -73,8 +75,8 @@ rather than imposing brittle universal wall-clock assertions.
 - Harness tests for seed reproducibility, workload counts, warmup/measurement separation, result
   consumption, percentile calculation, environment/revision fields, deterministic dual reports,
   cleanup, and sensitive/time/path exclusion.
-- Smoke-sized execution in the performance-test module; full-sized execution only in the dedicated
-  lane.
+- Smoke-sized execution in the performance-test module; full-sized oracle derivation and execution
+  only in the dedicated lane.
 - Correctness cross-checks that each workload returns the same semantic result as the normal path.
 - Architecture/task-graph tests for support-only publication/dependencies and lane separation.
 

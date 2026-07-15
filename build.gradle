@@ -349,6 +349,12 @@ tasks.register('renderRegression') {
     dependsOn ':modules:mundane-map-awt:renderRegressionTest'
 }
 
+tasks.register('performanceEvidence') {
+    group = 'verification'
+    description = 'Runs the separate deterministic performance-evidence lane.'
+    dependsOn ':modules:mundane-map-performance-tests:runPerformanceEvidence'
+}
+
 def shapefileCorpusProject = project(':modules:mundane-map-io-shapefile')
 def shapefileCorpusOwnedTasks = [
     'compileShapefileCorpusTestJava',

@@ -50,6 +50,11 @@ class ArchitectureRulesTest {
     private static JavaClasses nativeSupportClasses;
     private static Path nativeSupportSources;
     private static List<Path> nativeSupportResources;
+    private static Path performanceSources;
+    private static Path performanceResources;
+    private static Path performanceBuild;
+    private static Path rootBuild;
+    private static Path settings;
 
     @BeforeAll
     static void importClasses() {
@@ -76,6 +81,60 @@ class ArchitectureRulesTest {
                         .stream()
                         .map(Path::of)
                         .toList();
+        performanceSources = Path.of(System.getProperty("map.architecture.performanceSources"));
+        performanceResources = Path.of(System.getProperty("map.architecture.performanceResources"));
+        performanceBuild = Path.of(System.getProperty("map.architecture.performanceBuild"));
+        rootBuild = Path.of(System.getProperty("map.architecture.rootBuild"));
+        settings = Path.of(System.getProperty("map.architecture.settings"));
+    }
+
+    @Test
+    void performanceEvidenceIsSupportOnlyExplicitOfflineAndNonPublished() throws IOException {
+        String supportProjects = System.getProperty("map.architecture.supportProjects");
+        assertTrue(supportProjects.contains(":modules:mundane-map-performance-tests"));
+        String inventory = Files.readString(settings);
+        assertTrue(
+                inventory.contains(
+                        "[path: ':modules:mundane-map-performance-tests', category: 'SUPPORT'"));
+        String moduleBuild = Files.readString(performanceBuild);
+        assertFalse(moduleBuild.contains("mundane-map.publishing-conventions"));
+        assertTrue(moduleBuild.contains("verifyPerformanceLaneIsolation"));
+        assertTrue(moduleBuild.contains("runPerformanceEvidence"));
+        assertTrue(moduleBuild.contains("performanceJfr"));
+        String root = Files.readString(rootBuild);
+        assertTrue(root.contains("tasks.register('performanceEvidence')"));
+        assertTrue(
+                root.contains(
+                        "dependsOn ':modules:mundane-map-performance-tests:runPerformanceEvidence'"));
+
+        List<String> sourceText;
+        try (var paths = Files.walk(performanceSources)) {
+            sourceText =
+                    paths.filter(path -> path.toString().endsWith(".java"))
+                            .map(
+                                    path -> {
+                                        try {
+                                            return Files.readString(path);
+                                        } catch (IOException failure) {
+                                            throw new java.io.UncheckedIOException(failure);
+                                        }
+                                    })
+                            .toList();
+        }
+        String joined = String.join("\n", sourceText);
+        assertFalse(joined.contains("java.net."));
+        assertFalse(joined.contains("ProcessBuilder"));
+        assertFalse(joined.contains("Runtime.getRuntime().exec"));
+        assertFalse(joined.contains("ServiceLoader"));
+        assertFalse(joined.contains("Class.forName"));
+        assertEquals(
+                Set.of(
+                        "io/github/mundanej/map/performance/fixture/raster-1024x768-v1/evidence.png",
+                        "io/github/mundanej/map/performance/fixture/raster-1024x768-v1/evidence.jpg",
+                        "io/github/mundanej/map/performance/fixture/raster-1024x768-v1/evidence.pgw",
+                        "io/github/mundanej/map/performance/fixture/raster-1024x768-v1/evidence.jgw",
+                        "io/github/mundanej/map/performance/fixture/raster-1024x768-v1/PROVENANCE.md"),
+                resourceInventory(performanceResources));
     }
 
     @Test
