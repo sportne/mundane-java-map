@@ -54,4 +54,9 @@ record EvidenceSample(
                 ? sorted[middle]
                 : sorted[middle - 1] + (sorted[middle] - sorted[middle - 1]) / 2;
     }
+
+    EvidenceSample withObservation(EvidenceObservation replacement) {
+        return new EvidenceSample(
+                scenarioId, rawNanos, medianNanos, p95Nanos, operationsPerSecondMilli, replacement);
+    }
 }

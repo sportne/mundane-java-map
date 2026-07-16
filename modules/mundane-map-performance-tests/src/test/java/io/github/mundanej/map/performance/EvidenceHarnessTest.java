@@ -45,7 +45,7 @@ class EvidenceHarnessTest {
     @TempDir Path temporary;
 
     @Test
-    void smokeProfileExecutesAllTwelveScenariosAndRendersEquivalentReports() throws Exception {
+    void smokeProfileExecutesEveryDeclaredScenarioAndRendersEquivalentReports() throws Exception {
         RuntimeSettings settings = RuntimeSettings.install();
         try {
             EvidenceConfiguration configuration =
@@ -62,7 +62,7 @@ class EvidenceHarnessTest {
             EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             String json = new String(report.json(), StandardCharsets.UTF_8);
             String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
-            assertEquals(18, count(json, "\"id\": \""));
+            assertEquals(41, count(json, "\"id\": \""));
             assertTrue(json.startsWith("{\n  \"schemaVersion\""));
             assertTrue(json.endsWith("\n"));
             assertTrue(markdown.contains("Durations are environment-specific evidence"));
@@ -77,6 +77,8 @@ class EvidenceHarnessTest {
                 assertTrue(markdown.contains("`" + id + "`"));
             }
             assertEquivalentScenarioFacts(json, markdown);
+            assertEquals(7, count(json, "\"observedCrossoverRecords\":"));
+            assertEquals(7, count(markdown, "`observedCrossoverRecords="));
             for (String file :
                     List.of(
                             "evidence.png",
@@ -181,7 +183,7 @@ class EvidenceHarnessTest {
         List<EvidenceReport.FixtureFact> second =
                 FixtureCatalog.facts(EvidenceConfiguration.Profile.SMOKE);
         assertEquals(first, second);
-        assertEquals(6, first.size());
+        assertEquals(7, first.size());
         assertEquals(1_024, first.getFirst().count());
         assertEquals(2_080, first.get(1).count());
         assertEquals(
@@ -200,7 +202,7 @@ class EvidenceHarnessTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new EvidenceObservation(1, Map.of("bad", -1L)));
-        assertEquals(24, ScenarioOracleV1.frozenDigests().size());
+        assertEquals(68, ScenarioOracleV1.frozenDigests().size());
         assertEquals(
                 "56d246ef2d1394ce",
                 ScenarioOracleV1.frozenDigests().get("SMOKE/vector-zoom-sequence"));
@@ -229,6 +231,261 @@ class EvidenceHarnessTest {
         assertEquals(30.0, transformedChild.placement().rotationDegrees());
         assertEquals(
                 SymbolRotationMode.SCREEN_RELATIVE, transformedChild.placement().rotationMode());
+    }
+
+    @Test
+    void indexComparisonDefinitionsPinSizesViewportsAndFullQueryCapacity() {
+        assertEquals(
+                List.of(32, 128, 512, 2_048, 8_192, 32_768, 131_072), IndexComparisonFixture.SIZES);
+        for (int size : IndexComparisonFixture.SIZES) {
+            IndexComparisonFixture.Dimensions dimensions = IndexComparisonFixture.dimensions(size);
+            assertEquals(size, dimensions.columns() * dimensions.rows());
+            List<FeatureRecord> records = IndexComparisonFixture.records(size);
+            assertEquals(size, records.size());
+            assertEquals("index:000000", records.getFirst().id());
+            assertEquals(
+                    String.format(Locale.ROOT, "index:%06d", size - 1), records.getLast().id());
+            for (EvidenceConfiguration.Profile profile : EvidenceConfiguration.Profile.values()) {
+                List<io.github.mundanej.map.api.Envelope> viewports =
+                        IndexComparisonFixture.viewports(size, profile);
+                assertEquals(
+                        profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 24,
+                        viewports.size());
+                long selected = 0;
+                for (int ordinal = 0; ordinal < viewports.size(); ordinal++) {
+                    io.github.mundanej.map.api.Envelope viewport = viewports.get(ordinal);
+                    long actual =
+                            records.stream()
+                                    .filter(
+                                            record -> {
+                                                io.github.mundanej.map.api.Envelope envelope =
+                                                        record.geometry().envelope();
+                                                return envelope.maxX() >= viewport.minX()
+                                                        && envelope.minX() <= viewport.maxX()
+                                                        && envelope.maxY() >= viewport.minY()
+                                                        && envelope.minY() <= viewport.maxY();
+                                            })
+                                    .count();
+                    assertEquals(IndexComparisonFixture.expectedRecords(size, ordinal), actual);
+                    selected = Math.addExact(selected, actual);
+                }
+                assertEquals(IndexComparisonFixture.expectedRecords(size, profile), selected);
+            }
+        }
+        assertEquals(131_072, IndexComparisonFixture.SOURCE_LIMITS.queryLimits().recordsExamined());
+        assertEquals(131_072, IndexComparisonFixture.SOURCE_LIMITS.queryLimits().recordsReturned());
+        assertEquals(
+                131_072, IndexComparisonFixture.SOURCE_LIMITS.queryLimits().coordinatesReturned());
+        assertEquals(
+                2_097_152,
+                IndexComparisonFixture.SOURCE_LIMITS.queryLimits().decodedTextCharactersReturned());
+        assertEquals(
+                8_388_608, IndexComparisonFixture.SOURCE_LIMITS.queryLimits().ownedPayloadBytes());
+        assertEquals(1_572_864, 131_072L * "index:000000".length());
+        assertEquals(5_242_880, 131_072L * ("index:000000".length() * 2L + 16L));
+
+        List<FeatureRecord> orderedRecords = IndexComparisonFixture.records(512);
+        int[] expectedOrdinals =
+                IndexComparisonFixture.selectedOrdinals(
+                        512, EvidenceConfiguration.Profile.BASELINE);
+        int selected = 0;
+        for (io.github.mundanej.map.api.Envelope viewport :
+                IndexComparisonFixture.viewports(512, EvidenceConfiguration.Profile.BASELINE)) {
+            for (int ordinal = 0; ordinal < orderedRecords.size(); ordinal++) {
+                io.github.mundanej.map.api.Envelope envelope =
+                        orderedRecords.get(ordinal).geometry().envelope();
+                if (envelope.maxX() >= viewport.minX()
+                        && envelope.minX() <= viewport.maxX()
+                        && envelope.maxY() >= viewport.minY()
+                        && envelope.minY() <= viewport.maxY()) {
+                    assertEquals(expectedOrdinals[selected++], ordinal);
+                }
+            }
+        }
+        assertEquals(expectedOrdinals.length, selected);
+    }
+
+    @Test
+    void filteredIndexInvestigationOmitsAndExplainsCrossover() throws Exception {
+        RuntimeSettings settings = RuntimeSettings.install();
+        try {
+            EvidenceConfiguration configuration =
+                    new EvidenceConfiguration(
+                            EvidenceConfiguration.Profile.SMOKE,
+                            EvidenceConfiguration.SEED,
+                            0,
+                            1,
+                            Optional.of("index-query-str16-32"),
+                            Optional.empty(),
+                            true);
+            List<EvidenceScenario> scenarios =
+                    ScenarioRegistry.create(
+                            configuration.profile(),
+                            temporary.resolve("filtered-index"),
+                            configuration.scenario());
+            EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
+            String json = new String(report.json(), StandardCharsets.UTF_8);
+            String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
+            assertFalse(json.contains("observedCrossoverRecords"));
+            assertTrue(markdown.contains("not evaluated (filtered investigation)"));
+        } finally {
+            settings.restore();
+        }
+    }
+
+    @Test
+    void filteredConstructionIsSelectiveAcrossEveryScenarioCategory() throws Exception {
+        for (String id :
+                List.of(
+                        "memory-query-window",
+                        "dense-vector-render",
+                        "symbol-heavy-render",
+                        "hit-test-sweep",
+                        "shapefile-query-window",
+                        "png-window-bilinear-disabled",
+                        "vector-pan-sequence",
+                        "index-build-128",
+                        "index-query-linear-32",
+                        "index-query-str16-32",
+                        "memory-query-window-indexed")) {
+            Path workspace = temporary.resolve("filter-" + id);
+            List<EvidenceScenario> scenarios =
+                    ScenarioRegistry.create(
+                            EvidenceConfiguration.Profile.SMOKE, workspace, Optional.of(id));
+            assertEquals(List.of(id), scenarios.stream().map(EvidenceScenario::id).toList());
+            ScenarioRegistry.closeScenariosAfterFailure(
+                    scenarios, new IllegalStateException("test cleanup"));
+        }
+    }
+
+    @Test
+    void filteredConstructionDoesNotTouchUnrelatedFactoriesOrFixtures() throws Exception {
+        AtomicInteger sourceAttempts = new AtomicInteger();
+        Path workspace = temporary.resolve("isolated-filter");
+        List<EvidenceScenario> scenarios =
+                ScenarioRegistry.create(
+                        EvidenceConfiguration.Profile.SMOKE,
+                        workspace,
+                        Optional.of("index-build-128"),
+                        (id, records) -> {
+                            sourceAttempts.incrementAndGet();
+                            throw new IllegalStateException("unrelated source factory");
+                        });
+        assertEquals(0, sourceAttempts.get());
+        assertEquals(
+                List.of("index-build-128"), scenarios.stream().map(EvidenceScenario::id).toList());
+        assertFalse(Files.exists(workspace));
+        ScenarioRegistry.closeScenariosAfterFailure(
+                scenarios, new IllegalStateException("test cleanup"));
+    }
+
+    @Test
+    void indexTimedRegionOnlyCapturesAndDefersSemanticValidation() throws Exception {
+        EvidenceScenario scenario =
+                new ScenarioRegistry.IndexQueryScenario(
+                        EvidenceConfiguration.Profile.SMOKE,
+                        32,
+                        false,
+                        (id, records) -> {
+                            List<FeatureRecord> changed = new ArrayList<>(records);
+                            FeatureRecord first = changed.getFirst();
+                            changed.set(
+                                    0,
+                                    new FeatureRecord(
+                                            "changed",
+                                            first.name(),
+                                            first.geometry(),
+                                            first.attributes()));
+                            return InMemoryFeatureSource.open(
+                                    new SourceIdentity(id, id),
+                                    changed,
+                                    Optional.empty(),
+                                    Optional.empty(),
+                                    IndexComparisonFixture.SOURCE_LIMITS);
+                        });
+        try {
+            scenario.setupScenario();
+            scenario.prepareSample();
+            scenario.runTimedBatch();
+            IllegalStateException failure =
+                    assertThrows(IllegalStateException.class, scenario::observeSample);
+            assertEquals("Index query record order or value changed", failure.getMessage());
+        } finally {
+            scenario.finishSample();
+            scenario.close();
+        }
+    }
+
+    @Test
+    void indexedSetupRejectsProductionCandidateWorkThatDiffersFromIndependentOracle() {
+        EvidenceScenario scenario =
+                new ScenarioRegistry.IndexQueryScenario(
+                        EvidenceConfiguration.Profile.SMOKE,
+                        32,
+                        true,
+                        (id, records) ->
+                                InMemoryFeatureSource.open(
+                                        new SourceIdentity(id, id),
+                                        records,
+                                        Optional.empty(),
+                                        Optional.empty(),
+                                        IndexComparisonFixture.SOURCE_LIMITS));
+        try {
+            IllegalStateException failure =
+                    assertThrows(IllegalStateException.class, scenario::setupScenario);
+            assertEquals(
+                    "Production candidate total differs from the independent reference",
+                    failure.getMessage());
+        } finally {
+            scenario.close();
+        }
+    }
+
+    @Test
+    void independentCandidateTotalsAreExactForEveryProfileAndSize() {
+        for (EvidenceConfiguration.Profile profile : EvidenceConfiguration.Profile.values()) {
+            for (int size : IndexComparisonFixture.SIZES) {
+                assertEquals(
+                        ReferenceFixtures.indexCandidateTotal(profile, size),
+                        IndexComparisonFixture.referenceCandidateTotal(size, profile));
+            }
+        }
+        assertEquals(
+                0,
+                IndexComparisonFixture.referenceCandidateCount(
+                        32, new io.github.mundanej.map.api.Envelope(8_000, 4_000, 9_000, 5_000)));
+        assertTrue(
+                IndexComparisonFixture.referenceCandidateCount(
+                                32, new io.github.mundanej.map.api.Envelope(0, 0, 0, 0))
+                        > 1);
+    }
+
+    @Test
+    void comparisonCaptureFitsFixedHeapAndIsReleasedBetweenSamples() throws Exception {
+        long maximumRecords =
+                IndexComparisonFixture.expectedRecords(
+                        131_072, EvidenceConfiguration.Profile.BASELINE);
+        assertEquals(6_242_731, maximumRecords);
+        assertEquals(49_941_848, Math.multiplyExact(maximumRecords, 8L));
+        assertTrue(Math.multiplyExact(maximumRecords, 8L) < 64L * 1_024 * 1_024);
+
+        ScenarioRegistry.IndexQueryScenario scenario =
+                new ScenarioRegistry.IndexQueryScenario(
+                        EvidenceConfiguration.Profile.SMOKE, 32, false);
+        try {
+            scenario.setupScenario();
+            scenario.prepareSample();
+            assertEquals(0, scenario.retainedCaptureCount());
+            scenario.runTimedBatch();
+            assertEquals(
+                    IndexComparisonFixture.expectedRecords(32, EvidenceConfiguration.Profile.SMOKE),
+                    scenario.retainedCaptureCount());
+            scenario.observeSample();
+            scenario.finishSample();
+            assertEquals(0, scenario.retainedCaptureCount());
+        } finally {
+            scenario.close();
+        }
     }
 
     @Test
@@ -266,9 +523,11 @@ class EvidenceHarnessTest {
                             Optional.empty(),
                             true);
             List<EvidenceScenario> scenarios =
-                    ScenarioRegistry.create(configuration.profile(), temporary.resolve("single"));
-            EvidenceReport report =
-                    new EvidenceRunner().run(configuration, List.of(scenarios.getFirst()));
+                    ScenarioRegistry.create(
+                            configuration.profile(),
+                            temporary.resolve("single"),
+                            configuration.scenario());
+            EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             byte[] first = report.json();
             byte[] second = report.json();
             assertArrayEquals(first, second);
@@ -400,15 +659,25 @@ class EvidenceHarnessTest {
     }
 
     @Test
-    void filteredRunUsesSourceFactoryAndClosesEveryDeclaredScenario() throws Exception {
+    void filteredRunUsesSourceFactoryAndClosesTheSelectedScenario() throws Exception {
         RuntimeSettings settings = RuntimeSettings.install();
         Path workspace = temporary.resolve("filtered");
         List<FeatureSource> opened = new ArrayList<>();
         try {
+            EvidenceConfiguration configuration =
+                    new EvidenceConfiguration(
+                            EvidenceConfiguration.Profile.SMOKE,
+                            EvidenceConfiguration.SEED,
+                            0,
+                            1,
+                            Optional.of("dense-vector-render"),
+                            Optional.empty(),
+                            true);
             List<EvidenceScenario> scenarios =
                     ScenarioRegistry.create(
                             EvidenceConfiguration.Profile.SMOKE,
                             workspace,
+                            configuration.scenario(),
                             (id, records) -> {
                                 FeatureSource source =
                                         InMemoryFeatureSource.open(
@@ -424,15 +693,6 @@ class EvidenceHarnessTest {
                                 opened.add(source);
                                 return source;
                             });
-            EvidenceConfiguration configuration =
-                    new EvidenceConfiguration(
-                            EvidenceConfiguration.Profile.SMOKE,
-                            EvidenceConfiguration.SEED,
-                            0,
-                            1,
-                            Optional.of("dense-vector-render"),
-                            Optional.empty(),
-                            true);
             new EvidenceRunner().run(configuration, scenarios);
             assertEquals(1, opened.size());
             assertTrue(opened.getFirst().isClosed());

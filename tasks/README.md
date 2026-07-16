@@ -178,7 +178,7 @@ Level 1 is complete only when G8-004 is complete.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G7-001 — Performance evidence baseline](G7-001-performance-evidence-baseline.md) | Complete | AFK | G2-006, G3-003, G5-009, G6-004 | Create repeatable large-data/JFR evidence before optimization. |
-| [G7-002 — Packed spatial index and viewport query](G7-002-packed-spatial-index-and-viewport-query.md) | Proposed | AFK | G7-001, G4-003 | Replace linear viewport scans with a correctness-proven packed index. |
+| [G7-002 — Packed spatial index and viewport query](G7-002-packed-spatial-index-and-viewport-query.md) | Complete | AFK | G7-001, G4-003 | Replace linear viewport scans with a correctness-proven packed index. |
 | [G7-003 — Clipping and simplification](G7-003-clipping-and-simplification.md) | Proposed | AFK | G7-002 | Clip and simplify at view scale without corrupting geometry. |
 | [G7-004 — Render cache and performance acceptance](G7-004-render-cache-and-performance-acceptance.md) | Proposed | AFK | G7-003, G6-004 | Retain only evidence-qualified private AWT caches and record the Level 1 envelope. |
 

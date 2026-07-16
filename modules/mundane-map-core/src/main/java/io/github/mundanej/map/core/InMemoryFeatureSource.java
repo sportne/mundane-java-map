@@ -27,11 +27,18 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-/** Immutable linear-scan feature source for application and integration use. */
+/**
+ * Immutable explicitly linear or packed-indexed feature source for application use.
+ *
+ * <p>One source permits one live cursor. Callers must externally serialize cursor creation and
+ * traversal; concurrent cursors from the same source are unsupported. Immutable indexed storage may
+ * still be queried concurrently through separate source instances.
+ */
 public final class InMemoryFeatureSource implements FeatureSource {
     private final List<FeatureRecord> records;
     private final FeatureSourceMetadata metadata;
     private final FeatureSourceLimits limits;
+    private final PackedFeatureSpatialIndex spatialIndex;
     private Cursor liveCursor;
     private boolean closed;
 
@@ -40,7 +47,8 @@ public final class InMemoryFeatureSource implements FeatureSource {
             List<FeatureRecord> records,
             Optional<AttributeSchema> schema,
             Optional<CrsMetadata> crs,
-            FeatureSourceLimits limits) {
+            FeatureSourceLimits limits,
+            FeatureIndexLimits indexLimits) {
         this.records = List.copyOf(records);
         this.limits = Objects.requireNonNull(limits, "limits");
         validateRecords(identity.id(), this.records, schema);
@@ -58,6 +66,10 @@ public final class InMemoryFeatureSource implements FeatureSource {
                         OptionalLong.of(this.records.size()),
                         schema,
                         crs);
+        spatialIndex =
+                indexLimits == null
+                        ? null
+                        : PackedFeatureSpatialIndex.build(identity.id(), this.records, indexLimits);
     }
 
     /** Opens a source with Level 1 limits and absent schema/CRS. */
@@ -77,7 +89,76 @@ public final class InMemoryFeatureSource implements FeatureSource {
         Objects.requireNonNull(records, "records");
         Objects.requireNonNull(schema, "schema");
         Objects.requireNonNull(crs, "crs");
-        return new InMemoryFeatureSource(identity, records, schema, crs, limits);
+        return new InMemoryFeatureSource(identity, records, schema, crs, limits, null);
+    }
+
+    /**
+     * Opens an explicitly packed-indexed source with Level 1 source and index limits.
+     *
+     * <p>The source retains the same one-live-cursor lifecycle as {@link #open(SourceIdentity,
+     * List)}. Index selection is explicit and never falls back to a linear source.
+     *
+     * @param identity immutable source identity
+     * @param records ordered immutable record snapshot input
+     * @return the explicitly indexed source
+     * @throws SourceException when a structured index construction limit is exceeded
+     */
+    public static InMemoryFeatureSource openIndexed(
+            SourceIdentity identity, List<FeatureRecord> records) {
+        return openIndexed(
+                identity,
+                records,
+                Optional.empty(),
+                Optional.empty(),
+                FeatureSourceLimits.LEVEL_1,
+                FeatureIndexLimits.LEVEL_1);
+    }
+
+    /**
+     * Opens a fully described explicitly packed-indexed source.
+     *
+     * <p>Index capacity failure is terminal and structured; format adapters are not involved and no
+     * linear fallback is selected.
+     *
+     * @param identity immutable source identity
+     * @param records ordered immutable record snapshot input
+     * @param schema optional attribute schema enforced while opening
+     * @param crs optional source CRS metadata
+     * @param sourceLimits query ceilings retained by the source
+     * @param indexLimits construction and query-plan ceilings for the packed index
+     * @return the explicitly indexed source
+     * @throws SourceException when a structured index construction limit is exceeded
+     */
+    public static InMemoryFeatureSource openIndexed(
+            SourceIdentity identity,
+            List<FeatureRecord> records,
+            Optional<AttributeSchema> schema,
+            Optional<CrsMetadata> crs,
+            FeatureSourceLimits sourceLimits,
+            FeatureIndexLimits indexLimits) {
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(records, "records");
+        Objects.requireNonNull(schema, "schema");
+        Objects.requireNonNull(crs, "crs");
+        Objects.requireNonNull(sourceLimits, "sourceLimits");
+        Objects.requireNonNull(indexLimits, "indexLimits");
+        if (records.size() > indexLimits.maximumRecords()) {
+            throw failure(
+                    identity.id(),
+                    "SOURCE_LIMIT_EXCEEDED",
+                    "Source index limit exceeded",
+                    Map.of(
+                            "scope",
+                            "spatialIndexBuild",
+                            "limit",
+                            "records",
+                            "requested",
+                            Integer.toString(records.size()),
+                            "maximum",
+                            Integer.toString(indexLimits.maximumRecords())));
+        }
+        PackedFeatureSpatialIndex.requireAddressable(identity.id(), records.size());
+        return new InMemoryFeatureSource(identity, records, schema, crs, sourceLimits, indexLimits);
     }
 
     @Override
@@ -130,6 +211,10 @@ public final class InMemoryFeatureSource implements FeatureSource {
         if (liveCursor != null) {
             liveCursor.closeFromSource();
         }
+    }
+
+    PackedFeatureSpatialIndex spatialIndex() {
+        return spatialIndex;
     }
 
     private void checkSelectedFields(AttributeSelection selection, CancellationToken cancellation) {
@@ -228,6 +313,7 @@ public final class InMemoryFeatureSource implements FeatureSource {
         private State state = State.NEW;
         private int nextIndex;
         private FeatureRecord current;
+        private PackedFeatureSpatialIndex.CandidatePlan candidatePlan;
 
         private Cursor(
                 FeatureQuery query, CancellationToken cancellation, FeatureQueryLimits limits) {
@@ -244,6 +330,12 @@ public final class InMemoryFeatureSource implements FeatureSource {
             }
             current = null;
             try {
+                if (spatialIndex != null
+                        && query.sourceBounds().isPresent()
+                        && candidatePlan == null) {
+                    candidatePlan =
+                            spatialIndex.plan(query.sourceBounds().orElseThrow(), cancellation);
+                }
                 while (nextIndex < records.size()) {
                     if (cancellation.isCancellationRequested()) {
                         throw failure(
@@ -251,7 +343,24 @@ public final class InMemoryFeatureSource implements FeatureSource {
                                 "Source query was cancelled",
                                 Map.of("operation", "feature-query"));
                     }
-                    FeatureRecord candidate = records.get(nextIndex++);
+                    int candidateIndex;
+                    if (candidatePlan == null) {
+                        candidateIndex = nextIndex++;
+                    } else {
+                        candidateIndex = candidatePlan.nextCandidate(nextIndex, cancellation);
+                        if (candidateIndex < 0) {
+                            nextIndex = records.size();
+                            break;
+                        }
+                        nextIndex = candidateIndex + 1;
+                        if (cancellation.isCancellationRequested()) {
+                            throw failure(
+                                    "SOURCE_CANCELLED",
+                                    "Source query was cancelled",
+                                    Map.of("operation", "feature-query"));
+                        }
+                    }
+                    FeatureRecord candidate = records.get(candidateIndex);
                     accounting.recordExamined();
                     if (query.sourceBounds().isPresent()
                             && !intersects(
@@ -266,7 +375,7 @@ public final class InMemoryFeatureSource implements FeatureSource {
                     return true;
                 }
                 state = State.EXHAUSTED;
-                release();
+                releaseAfterOperation();
                 return false;
             } catch (RuntimeException | Error failure) {
                 state =
@@ -274,7 +383,7 @@ public final class InMemoryFeatureSource implements FeatureSource {
                                         && exception.terminal().code().equals("SOURCE_CANCELLED")
                                 ? State.CANCELLED
                                 : State.FAILED;
-                release();
+                releaseAfterOperation();
                 throw failure;
             }
         }
@@ -304,14 +413,14 @@ public final class InMemoryFeatureSource implements FeatureSource {
             }
             state = State.CLOSED;
             current = null;
-            release();
+            releaseBeforePlanCleanup();
         }
 
         private void closeFromSource() {
             if (state != State.CLOSED) {
                 state = State.CLOSED;
                 current = null;
-                release();
+                releaseBeforePlanCleanup();
             }
         }
 
@@ -324,7 +433,17 @@ public final class InMemoryFeatureSource implements FeatureSource {
             }
         }
 
-        private void release() {
+        private void releaseAfterOperation() {
+            candidatePlan = null;
+            releaseSlot();
+        }
+
+        private void releaseBeforePlanCleanup() {
+            releaseSlot();
+            candidatePlan = null;
+        }
+
+        private void releaseSlot() {
             if (liveCursor == this) {
                 liveCursor = null;
             }

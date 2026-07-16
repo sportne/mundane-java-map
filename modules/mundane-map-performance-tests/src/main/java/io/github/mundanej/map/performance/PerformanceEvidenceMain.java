@@ -21,7 +21,7 @@ public final class PerformanceEvidenceMain {
             throw new IllegalArgumentException("Performance evidence accepts no command arguments");
         }
         List<String> ids = ScenarioRegistry.ids();
-        if (ids.size() != 12 || new HashSet<>(ids).size() != ids.size()) {
+        if (ids.size() != 34 || new HashSet<>(ids).size() != ids.size()) {
             throw new IllegalStateException("Performance scenario registry is invalid");
         }
         EvidenceConfiguration configuration = EvidenceConfiguration.system(ids);
@@ -30,8 +30,10 @@ public final class PerformanceEvidenceMain {
         Path workspace = output.resolve("fixtures");
         deleteTree(workspace);
         List<EvidenceScenario> scenarios =
-                ScenarioRegistry.create(configuration.profile(), workspace);
-        if (!scenarios.stream().map(EvidenceScenario::id).toList().equals(ids)) {
+                ScenarioRegistry.create(
+                        configuration.profile(), workspace, configuration.scenario());
+        List<String> expectedIds = configuration.scenario().map(List::of).orElse(ids);
+        if (!scenarios.stream().map(EvidenceScenario::id).toList().equals(expectedIds)) {
             IllegalStateException failure =
                     new IllegalStateException("Performance scenario declaration order changed");
             ScenarioRegistry.closeScenariosAfterFailure(scenarios, failure);

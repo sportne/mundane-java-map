@@ -110,6 +110,9 @@ final class EvidenceReport {
                 .append("- Investigation: ")
                 .append(configuration.investigation())
                 .append("\n");
+        if (configuration.scenario().stream().anyMatch(id -> id.startsWith("index-query-"))) {
+            result.append("- Observed crossover: not evaluated (filtered investigation)\n");
+        }
         configuration
                 .revision()
                 .ifPresent(value -> result.append("- Revision: `").append(value).append("`\n"));

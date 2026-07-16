@@ -326,6 +326,55 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void packedFeatureIndexRemainsPrivatePrimitiveAndStateless() {
+        JavaClasses core = classesByModule.get(moduleEndingWith("mundane-map-core"));
+        JavaClass index = core.get("io.github.mundanej.map.core.PackedFeatureSpatialIndex");
+        JavaClass limits = core.get("io.github.mundanej.map.core.FeatureIndexLimits");
+
+        assertFalse(index.getModifiers().contains(JavaModifier.PUBLIC));
+        assertTrue(limits.getModifiers().contains(JavaModifier.PUBLIC));
+        assertTrue(
+                index.getFields().stream()
+                        .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                        .allMatch(field -> field.getModifiers().contains(JavaModifier.FINAL)),
+                "Packed index must not acquire mutable global state");
+        assertTrue(
+                index.getFields().stream()
+                        .filter(field -> field.getRawType().isArray())
+                        .allMatch(field -> field.getRawType().getBaseComponentType().isPrimitive()),
+                "Packed index arrays must remain primitive");
+        List<String> forbidden =
+                index.getDirectDependenciesFromSelf().stream()
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.equals("java.lang.Thread")
+                                                || target.startsWith("java.util.concurrent.")
+                                                || target.startsWith("org.locationtech."))
+                        .sorted()
+                        .toList();
+        assertTrue(forbidden.isEmpty(), () -> String.join("\n", forbidden));
+        assertTrue(
+                classesByModule.values().stream()
+                        .flatMap(JavaClasses::stream)
+                        .filter(
+                                type ->
+                                        !type.getPackageName()
+                                                .equals("io.github.mundanej.map.core"))
+                        .noneMatch(
+                                type ->
+                                        type.getDirectDependenciesFromSelf().stream()
+                                                .anyMatch(
+                                                        dependency ->
+                                                                dependency
+                                                                        .getTargetClass()
+                                                                        .equals(index))),
+                "Packed index implementation leaked outside core");
+    }
+
+    @Test
     void rasterSourceSliceRemainsDirectSynchronousAndToolkitNeutral() {
         ModuleDescriptor api = moduleEndingWith("mundane-map-api");
         ModuleDescriptor core = moduleEndingWith("mundane-map-core");

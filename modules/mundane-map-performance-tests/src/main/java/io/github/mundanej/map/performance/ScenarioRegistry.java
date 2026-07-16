@@ -9,6 +9,7 @@ import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
+import io.github.mundanej.map.api.FeatureQueryLimits;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
@@ -25,6 +26,7 @@ import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
@@ -34,6 +36,7 @@ import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.FeatureIndexLimits;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
@@ -57,7 +60,13 @@ final class ScenarioRegistry {
 
     static List<EvidenceScenario> create(EvidenceConfiguration.Profile profile, Path workspace)
             throws Exception {
-        return create(profile, workspace, ScenarioRegistry::source);
+        return create(profile, workspace, Optional.empty());
+    }
+
+    static List<EvidenceScenario> create(
+            EvidenceConfiguration.Profile profile, Path workspace, Optional<String> selected)
+            throws Exception {
+        return create(profile, workspace, selected, ScenarioRegistry::source);
     }
 
     static List<EvidenceScenario> create(
@@ -65,31 +74,44 @@ final class ScenarioRegistry {
             Path workspace,
             FeatureSourceFactory sourceFactory)
             throws Exception {
-        return create(profile, workspace, sourceFactory, null);
+        return create(profile, workspace, Optional.empty(), sourceFactory);
+    }
+
+    static List<EvidenceScenario> create(
+            EvidenceConfiguration.Profile profile,
+            Path workspace,
+            Optional<String> selected,
+            FeatureSourceFactory sourceFactory)
+            throws Exception {
+        return create(profile, workspace, selected, sourceFactory, null);
     }
 
     static List<EvidenceScenario> createForConstructionTest(
             EvidenceConfiguration.Profile profile, Path workspace, ScenarioAppender appender)
             throws Exception {
-        return create(profile, workspace, ScenarioRegistry::source, appender);
+        return create(profile, workspace, Optional.empty(), ScenarioRegistry::source, appender);
     }
 
     private static List<EvidenceScenario> create(
             EvidenceConfiguration.Profile profile,
             Path workspace,
+            Optional<String> selected,
             FeatureSourceFactory sourceFactory,
             ScenarioAppender appender)
             throws Exception {
-        Files.createDirectories(workspace);
         RasterGridFixture rasters = null;
         ShapefileGridFixture shapefile = null;
         List<EvidenceScenario> result = new ArrayList<>();
         try {
-            rasters = RasterGridFixture.create(workspace);
-            shapefile = ShapefileGridFixture.create(workspace, profile);
             if (appender == null) {
+                if (needsRasterFixture(selected)) {
+                    rasters = RasterGridFixture.create(workspace);
+                }
+                if (needsShapefileFixture(selected)) {
+                    shapefile = ShapefileGridFixture.create(workspace, profile);
+                }
                 appendDefaultScenarios(
-                        result, profile, rasters, shapefile, workspace, sourceFactory);
+                        result, profile, selected, rasters, shapefile, workspace, sourceFactory);
             } else {
                 appender.append(result);
             }
@@ -119,43 +141,196 @@ final class ScenarioRegistry {
     private static void appendDefaultScenarios(
             List<EvidenceScenario> result,
             EvidenceConfiguration.Profile profile,
+            Optional<String> selected,
             RasterGridFixture rasters,
             ShapefileGridFixture shapefile,
             Path workspace,
             FeatureSourceFactory sourceFactory) {
-        List<FeatureRecord> featureGrid = FixtureCatalog.featureGrid(profile);
-        List<FeatureRecord> vectors = FixtureCatalog.vectorRecords(profile);
-        List<InMemoryLayer> symbols = FixtureCatalog.symbolLayers(profile);
-        result.add(new FullQueryScenario(profile, featureGrid, rasters, shapefile, workspace));
-        result.add(new WindowQueryScenario(profile, featureGrid));
-        result.add(
-                new SourceVectorRenderScenario(
-                        profile, "dense-vector-render", vectors, 1, "G7-003", sourceFactory));
-        result.add(new VectorRenderScenario(profile, "symbol-heavy-render", symbols, 1, "G7-004"));
-        result.add(new HitScenario(profile));
-        result.add(new ShapefileQueryScenario(profile, shapefile));
-        result.add(new ShapefileRenderScenario(profile, shapefile));
-        result.add(new RasterReadScenario(profile, rasters, true, false));
-        result.add(new RasterReadScenario(profile, rasters, false, true));
-        result.add(new RasterPanScenario(profile, rasters));
-        result.add(new NavigationScenario(profile, vectors, false, sourceFactory));
-        result.add(new NavigationScenario(profile, vectors, true, sourceFactory));
+        if (selected(selected, "memory-query-full")) {
+            result.add(
+                    new FullQueryScenario(
+                            profile,
+                            FixtureCatalog.featureGrid(profile),
+                            requireFixture(rasters),
+                            requireFixture(shapefile),
+                            workspace));
+        }
+        if (selected(selected, "memory-query-window")) {
+            result.add(new WindowQueryScenario(profile, FixtureCatalog.featureGrid(profile)));
+        }
+        if (selected(selected, "dense-vector-render")) {
+            result.add(
+                    new SourceVectorRenderScenario(
+                            profile,
+                            "dense-vector-render",
+                            FixtureCatalog.vectorRecords(profile),
+                            1,
+                            "G7-003",
+                            sourceFactory));
+        }
+        if (selected(selected, "symbol-heavy-render")) {
+            result.add(
+                    new VectorRenderScenario(
+                            profile,
+                            "symbol-heavy-render",
+                            FixtureCatalog.symbolLayers(profile),
+                            1,
+                            "G7-004"));
+        }
+        if (selected(selected, "hit-test-sweep")) {
+            result.add(new HitScenario(profile));
+        }
+        if (selected(selected, "shapefile-query-window")) {
+            result.add(new ShapefileQueryScenario(profile, requireFixture(shapefile)));
+        }
+        if (selected(selected, "shapefile-render-window")) {
+            result.add(new ShapefileRenderScenario(profile, requireFixture(shapefile)));
+        }
+        if (selected(selected, "png-window-bilinear-disabled")) {
+            result.add(new RasterReadScenario(profile, requireFixture(rasters), true, false));
+        }
+        if (selected(selected, "jpeg-window-bilinear-preseeded")) {
+            result.add(new RasterReadScenario(profile, requireFixture(rasters), false, true));
+        }
+        if (selected(selected, "affine-raster-pan")) {
+            result.add(new RasterPanScenario(profile, requireFixture(rasters)));
+        }
+        if (selected(selected, "vector-pan-sequence")) {
+            result.add(
+                    new NavigationScenario(
+                            profile, FixtureCatalog.vectorRecords(profile), false, sourceFactory));
+        }
+        if (selected(selected, "vector-zoom-sequence")) {
+            result.add(
+                    new NavigationScenario(
+                            profile, FixtureCatalog.vectorRecords(profile), true, sourceFactory));
+        }
+        appendIndexScenarios(result, profile, selected);
+    }
+
+    private static void appendIndexScenarios(
+            List<EvidenceScenario> result,
+            EvidenceConfiguration.Profile profile,
+            Optional<String> selected) {
+        for (int size : List.of(128, 8_192, 131_072)) {
+            if (selected(selected, "index-build-" + size)) {
+                result.add(new IndexBuildScenario(profile, size));
+            }
+        }
+        for (int size : IndexComparisonFixture.SIZES) {
+            if (selected(selected, "index-query-linear-" + size)) {
+                result.add(new IndexQueryScenario(profile, size, false));
+            }
+            if (selected(selected, "index-query-str16-" + size)) {
+                result.add(new IndexQueryScenario(profile, size, true));
+            }
+        }
+        if (selected(selected, "memory-query-window-indexed")) {
+            result.add(
+                    new WindowQueryScenario(
+                            profile,
+                            "memory-query-window-indexed",
+                            "memory-query-window",
+                            "no change",
+                            FixtureCatalog.featureGrid(profile),
+                            ScenarioRegistry::indexedSource));
+        }
+        if (selected(selected, "hit-test-sweep-indexed")) {
+            result.add(
+                    new HitScenario(
+                            profile,
+                            "hit-test-sweep-indexed",
+                            "hit-test-sweep",
+                            "G7-004",
+                            ScenarioRegistry::indexedSource));
+        }
+        if (selected(selected, "dense-vector-render-indexed")) {
+            result.add(
+                    new SourceVectorRenderScenario(
+                            profile,
+                            "dense-vector-render-indexed",
+                            "dense-vector-render",
+                            FixtureCatalog.vectorRecords(profile),
+                            1,
+                            "G7-003",
+                            ScenarioRegistry::indexedSource));
+        }
+        if (selected(selected, "vector-pan-sequence-indexed")) {
+            result.add(
+                    new NavigationScenario(
+                            profile,
+                            "vector-pan-sequence-indexed",
+                            "vector-pan-sequence",
+                            FixtureCatalog.vectorRecords(profile),
+                            false,
+                            "G7-003/G7-004",
+                            ScenarioRegistry::indexedSource));
+        }
+        if (selected(selected, "vector-zoom-sequence-indexed")) {
+            result.add(
+                    new NavigationScenario(
+                            profile,
+                            "vector-zoom-sequence-indexed",
+                            "vector-zoom-sequence",
+                            FixtureCatalog.vectorRecords(profile),
+                            true,
+                            "G7-003/G7-004",
+                            ScenarioRegistry::indexedSource));
+        }
+    }
+
+    private static boolean selected(Optional<String> selected, String id) {
+        return selected.isEmpty() || selected.orElseThrow().equals(id);
+    }
+
+    private static boolean needsRasterFixture(Optional<String> selected) {
+        return selected.isEmpty()
+                || selected(selected, "memory-query-full")
+                || selected(selected, "png-window-bilinear-disabled")
+                || selected(selected, "jpeg-window-bilinear-preseeded")
+                || selected(selected, "affine-raster-pan");
+    }
+
+    private static boolean needsShapefileFixture(Optional<String> selected) {
+        return selected.isEmpty()
+                || selected(selected, "memory-query-full")
+                || selected(selected, "shapefile-query-window")
+                || selected(selected, "shapefile-render-window");
+    }
+
+    private static <T> T requireFixture(T fixture) {
+        return java.util.Objects.requireNonNull(fixture, "selected fixture");
     }
 
     static List<String> ids() {
-        return List.of(
-                "memory-query-full",
-                "memory-query-window",
-                "dense-vector-render",
-                "symbol-heavy-render",
-                "hit-test-sweep",
-                "shapefile-query-window",
-                "shapefile-render-window",
-                "png-window-bilinear-disabled",
-                "jpeg-window-bilinear-preseeded",
-                "affine-raster-pan",
-                "vector-pan-sequence",
-                "vector-zoom-sequence");
+        List<String> result =
+                new ArrayList<>(
+                        List.of(
+                                "memory-query-full",
+                                "memory-query-window",
+                                "dense-vector-render",
+                                "symbol-heavy-render",
+                                "hit-test-sweep",
+                                "shapefile-query-window",
+                                "shapefile-render-window",
+                                "png-window-bilinear-disabled",
+                                "jpeg-window-bilinear-preseeded",
+                                "affine-raster-pan",
+                                "vector-pan-sequence",
+                                "vector-zoom-sequence"));
+        result.add("index-build-128");
+        result.add("index-build-8192");
+        result.add("index-build-131072");
+        for (int size : IndexComparisonFixture.SIZES) {
+            result.add("index-query-linear-" + size);
+            result.add("index-query-str16-" + size);
+        }
+        result.add("memory-query-window-indexed");
+        result.add("hit-test-sweep-indexed");
+        result.add("dense-vector-render-indexed");
+        result.add("vector-pan-sequence-indexed");
+        result.add("vector-zoom-sequence-indexed");
+        return List.copyOf(result);
     }
 
     private abstract static class BaseScenario implements EvidenceScenario {
@@ -166,6 +341,7 @@ final class ScenarioRegistry {
         final String unit;
         final String sourceCache;
         final EvidenceObservation expected;
+        final String semanticId;
 
         BaseScenario(
                 EvidenceConfiguration.Profile profile,
@@ -175,13 +351,26 @@ final class ScenarioRegistry {
                 String unit,
                 String sourceCache,
                 Map<String, Long> counters) {
+            this(profile, id, id, next, operations, unit, sourceCache, counters);
+        }
+
+        BaseScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                String next,
+                long operations,
+                String unit,
+                String sourceCache,
+                Map<String, Long> counters) {
             this.profile = profile;
             this.id = id;
+            this.semanticId = semanticId;
             this.next = next;
             this.operations = operations;
             this.unit = unit;
             this.sourceCache = sourceCache;
-            this.expected = ScenarioOracleV1.expected(profile, id, counters);
+            this.expected = ScenarioOracleV1.expected(profile, semanticId, counters);
         }
 
         @Override
@@ -216,7 +405,176 @@ final class ScenarioRegistry {
 
         final EvidenceObservation observation(
                 Map<String, Long> counters, java.util.function.Consumer<FnvOracle> content) {
-            return ObservationDigests.observation(profile, id, counters, content);
+            return ObservationDigests.observation(profile, semanticId, counters, content);
+        }
+    }
+
+    private static final class IndexBuildScenario extends BaseScenario {
+        private final int size;
+        private List<FeatureRecord> records;
+        private InMemoryFeatureSource built;
+
+        IndexBuildScenario(EvidenceConfiguration.Profile profile, int size) {
+            super(
+                    profile,
+                    "index-build-" + size,
+                    "no change",
+                    size,
+                    "recordsIndexed",
+                    "NOT_APPLICABLE",
+                    buildCounters(size));
+            this.size = size;
+        }
+
+        @Override
+        public void setupScenario() {
+            records = IndexComparisonFixture.records(size);
+        }
+
+        @Override
+        public void prepareSample() {
+            built = null;
+        }
+
+        @Override
+        public void runTimedBatch() {
+            built = indexedComparisonSource(id, records);
+        }
+
+        @Override
+        public EvidenceObservation observeSample() {
+            built.close();
+            built = null;
+            return observation(buildCounters(size), digest -> {});
+        }
+
+        @Override
+        public void finishSample() {
+            if (built != null) {
+                built.close();
+                built = null;
+            }
+        }
+    }
+
+    static final class IndexQueryScenario extends BaseScenario {
+        private final int size;
+        private final boolean indexed;
+        private final Map<String, Long> counters;
+        private final FeatureSourceFactory sourceFactory;
+        private List<FeatureRecord> records;
+        private List<FeatureQuery> queries;
+        private int[] expectedOrdinals;
+        private FeatureSource source;
+        private List<FeatureRecord> actual;
+
+        IndexQueryScenario(EvidenceConfiguration.Profile profile, int size, boolean indexed) {
+            this(
+                    profile,
+                    size,
+                    indexed,
+                    indexed
+                            ? ScenarioRegistry::indexedComparisonSource
+                            : ScenarioRegistry::linearComparisonSource);
+        }
+
+        IndexQueryScenario(
+                EvidenceConfiguration.Profile profile,
+                int size,
+                boolean indexed,
+                FeatureSourceFactory sourceFactory) {
+            super(
+                    profile,
+                    "index-query-" + (indexed ? "str16-" : "linear-") + size,
+                    "no change",
+                    profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 24,
+                    "queries",
+                    "NOT_APPLICABLE",
+                    queryCounters(
+                            size,
+                            profile,
+                            indexed,
+                            indexed
+                                    ? IndexComparisonFixture.referenceCandidateTotal(size, profile)
+                                    : 0));
+            this.size = size;
+            this.indexed = indexed;
+            this.sourceFactory = sourceFactory;
+            counters = expected.counters();
+        }
+
+        @Override
+        public void setupScenario() {
+            records = IndexComparisonFixture.records(size);
+            queries =
+                    IndexComparisonFixture.viewports(size, profile).stream()
+                            .map(
+                                    bounds ->
+                                            new FeatureQuery(
+                                                    Optional.of(bounds),
+                                                    AttributeSelection.ALL,
+                                                    Optional.empty()))
+                            .toList();
+            expectedOrdinals = IndexComparisonFixture.selectedOrdinals(size, profile);
+            source = sourceFactory.open(id, records);
+            if (indexed) {
+                long actual = inferProductionCandidateTotal(source, queries, size);
+                require(
+                        actual == counters.get("indexedCandidates"),
+                        "Production candidate total differs from the independent reference");
+            }
+        }
+
+        @Override
+        public void prepareSample() {
+            actual = new ArrayList<>(expectedOrdinals.length);
+        }
+
+        @Override
+        public void runTimedBatch() {
+            for (FeatureQuery query : queries) {
+                try (FeatureCursor cursor = source.openCursor(query, CancellationToken.none())) {
+                    while (cursor.advance()) {
+                        actual.add(cursor.current());
+                    }
+                }
+            }
+        }
+
+        @Override
+        public EvidenceObservation observeSample() {
+            require(
+                    actual.size() == expectedOrdinals.length,
+                    "Index comparison query count changed");
+            for (int ordinal = 0; ordinal < expectedOrdinals.length; ordinal++) {
+                require(
+                        actual.get(ordinal).equals(records.get(expectedOrdinals[ordinal])),
+                        "Index query record order or value changed");
+            }
+            return observation(
+                    counters,
+                    digest -> {
+                        for (FeatureRecord record : actual) {
+                            ObservationDigests.addRecord(digest, record);
+                        }
+                        ObservationDigests.addDiagnostics(digest, source.openingDiagnostics());
+                    });
+        }
+
+        @Override
+        public void finishSample() {
+            actual = null;
+        }
+
+        int retainedCaptureCount() {
+            return actual == null ? 0 : actual.size();
+        }
+
+        @Override
+        public void close() {
+            if (source != null) {
+                source.close();
+            }
         }
     }
 
@@ -311,15 +669,32 @@ final class ScenarioRegistry {
     }
 
     private static final class WindowQueryScenario extends BaseScenario {
-        private final InMemoryFeatureSource source;
+        private final FeatureSource source;
         private final int side;
         private FeatureRecord[] actual;
 
         WindowQueryScenario(EvidenceConfiguration.Profile profile, List<FeatureRecord> records) {
-            super(
+            this(
                     profile,
                     "memory-query-window",
+                    "memory-query-window",
                     "G7-002",
+                    records,
+                    ScenarioRegistry::source);
+        }
+
+        WindowQueryScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                String next,
+                List<FeatureRecord> records,
+                FeatureSourceFactory factory) {
+            super(
+                    profile,
+                    id,
+                    semanticId,
+                    next,
                     profile == EvidenceConfiguration.Profile.BASELINE ? 2_048 : 128,
                     "records",
                     "NOT_APPLICABLE",
@@ -328,7 +703,7 @@ final class ScenarioRegistry {
                             profile == EvidenceConfiguration.Profile.BASELINE ? 2_048 : 128,
                             "coordinates",
                             profile == EvidenceConfiguration.Profile.BASELINE ? 2_048 : 128));
-            source = source("feature-grid-window", records);
+            source = factory.open(id, records);
             side = profile == EvidenceConfiguration.Profile.BASELINE ? 16 : 4;
         }
 
@@ -488,9 +863,21 @@ final class ScenarioRegistry {
                 int frames,
                 String next,
                 FeatureSourceFactory sourceFactory) {
+            this(profile, id, id, records, frames, next, sourceFactory);
+        }
+
+        SourceVectorRenderScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                List<FeatureRecord> records,
+                int frames,
+                String next,
+                FeatureSourceFactory sourceFactory) {
             super(
                     profile,
                     id,
+                    semanticId,
                     next,
                     frames,
                     "frames",
@@ -579,15 +966,31 @@ final class ScenarioRegistry {
     }
 
     private static final class HitScenario extends BaseScenario {
-        private final List<InMemoryFeatureSource> sources = new ArrayList<>();
+        private final List<FeatureSource> sources = new ArrayList<>();
+        private final FeatureSourceFactory sourceFactory;
         private MapView view;
         private List<MapHit>[] actualHits;
 
         HitScenario(EvidenceConfiguration.Profile profile) {
-            super(
+            this(
                     profile,
                     "hit-test-sweep",
+                    "hit-test-sweep",
                     "G7-002/G7-004",
+                    ScenarioRegistry::source);
+        }
+
+        HitScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                String next,
+                FeatureSourceFactory sourceFactory) {
+            super(
+                    profile,
+                    id,
+                    semanticId,
+                    next,
                     profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 32,
                     "probes",
                     "NOT_APPLICABLE",
@@ -598,6 +1001,7 @@ final class ScenarioRegistry {
                             profile == EvidenceConfiguration.Profile.BASELINE ? 128 : 16,
                             "misses",
                             profile == EvidenceConfiguration.Profile.BASELINE ? 128 : 16));
+            this.sourceFactory = sourceFactory;
         }
 
         @Override
@@ -608,7 +1012,9 @@ final class ScenarioRegistry {
         @Override
         public void setupScenario() throws Exception {
             for (int binding = 0; binding < 4; binding++) {
-                sources.add(source("hit-" + binding, FixtureCatalog.hitRecords(binding, profile)));
+                sources.add(
+                        sourceFactory.open(
+                                id + "-" + binding, FixtureCatalog.hitRecords(binding, profile)));
             }
             onEdt(
                     () -> {
@@ -1120,12 +1526,31 @@ final class ScenarioRegistry {
                 List<FeatureRecord> records,
                 boolean zoom,
                 FeatureSourceFactory sourceFactory) {
-            super(
+            this(
                     profile,
                     zoom ? "vector-zoom-sequence" : "vector-pan-sequence",
+                    zoom ? "vector-zoom-sequence" : "vector-pan-sequence",
+                    records,
+                    zoom,
+                    zoom ? "G7-003/G7-004" : "G7-002/G7-003/G7-004",
+                    sourceFactory);
+        }
+
+        NavigationScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                List<FeatureRecord> records,
+                boolean zoom,
+                String next,
+                FeatureSourceFactory sourceFactory) {
+            super(
+                    profile,
+                    id,
+                    semanticId,
                     records,
                     profile == EvidenceConfiguration.Profile.BASELINE ? (zoom ? 12 : 16) : 4,
-                    zoom ? "G7-003/G7-004" : "G7-002/G7-003/G7-004",
+                    next,
                     sourceFactory);
             this.zoom = zoom;
         }
@@ -1180,6 +1605,127 @@ final class ScenarioRegistry {
                 Optional.empty(),
                 Optional.of(crs),
                 FeatureSourceLimits.LEVEL_1);
+    }
+
+    private static InMemoryFeatureSource indexedSource(String id, List<FeatureRecord> records) {
+        CrsMetadata crs =
+                CrsMetadata.recognized(
+                        CrsDefinitions.EPSG_3857, Optional.of("EPSG:3857"), Optional.empty());
+        return InMemoryFeatureSource.openIndexed(
+                new SourceIdentity(id, id),
+                records,
+                Optional.empty(),
+                Optional.of(crs),
+                FeatureSourceLimits.LEVEL_1,
+                FeatureIndexLimits.LEVEL_1);
+    }
+
+    private static InMemoryFeatureSource linearComparisonSource(
+            String id, List<FeatureRecord> records) {
+        return InMemoryFeatureSource.open(
+                new SourceIdentity(id, id),
+                records,
+                Optional.empty(),
+                Optional.empty(),
+                IndexComparisonFixture.SOURCE_LIMITS);
+    }
+
+    private static InMemoryFeatureSource indexedComparisonSource(
+            String id, List<FeatureRecord> records) {
+        return InMemoryFeatureSource.openIndexed(
+                new SourceIdentity(id, id),
+                records,
+                Optional.empty(),
+                Optional.empty(),
+                IndexComparisonFixture.SOURCE_LIMITS,
+                FeatureIndexLimits.LEVEL_1);
+    }
+
+    private static Map<String, Long> buildCounters(int size) {
+        IndexComparisonFixture.Layout layout = IndexComparisonFixture.layout(size);
+        return counters(
+                "inputRecords",
+                size,
+                "leaves",
+                layout.leaves(),
+                "nodes",
+                layout.nodes(),
+                "height",
+                layout.height(),
+                "retainedBytes",
+                layout.retainedBytes(),
+                "buildBytes",
+                Math.addExact(layout.retainedBytes(), Math.multiplyExact(8L, size)));
+    }
+
+    private static Map<String, Long> queryCounters(
+            int size, EvidenceConfiguration.Profile profile, boolean indexed, long candidateTotal) {
+        LinkedHashMap<String, Long> result = new LinkedHashMap<>();
+        result.put("implementationIndexed", indexed ? 1L : 0L);
+        result.put("inputRecords", (long) size);
+        result.put("queries", profile == EvidenceConfiguration.Profile.BASELINE ? 256L : 24L);
+        long records = IndexComparisonFixture.expectedRecords(size, profile);
+        result.put("records", records);
+        result.put("coordinates", records);
+        if (indexed) {
+            result.put("indexedCandidates", candidateTotal);
+        }
+        return result;
+    }
+
+    private static long inferProductionCandidateTotal(
+            FeatureSource source, List<FeatureQuery> queries, int size) {
+        long total = 0;
+        for (int ordinal = 0; ordinal < queries.size(); ordinal++) {
+            FeatureQuery query = queries.get(ordinal);
+            if (IndexComparisonFixture.expectedRecords(size, ordinal) == 0
+                    && productionQueryAdmits(source, query, 1)) {
+                continue;
+            }
+            int low = 1;
+            int high = size;
+            while (low < high) {
+                int middle = low + Math.floorDiv(high - low, 2);
+                if (productionQueryAdmits(source, query, middle)) {
+                    high = middle;
+                } else {
+                    low = middle + 1;
+                }
+            }
+            require(
+                    productionQueryAdmits(source, query, low),
+                    "Production candidate inference did not converge");
+            total = Math.addExact(total, low);
+        }
+        return total;
+    }
+
+    private static boolean productionQueryAdmits(
+            FeatureSource source, FeatureQuery query, int examinedRecords) {
+        FeatureQueryLimits parent = IndexComparisonFixture.SOURCE_LIMITS.queryLimits();
+        FeatureQueryLimits tightened =
+                new FeatureQueryLimits(
+                        examinedRecords,
+                        parent.recordsReturned(),
+                        parent.coordinatesReturned(),
+                        parent.attributeValuesReturned(),
+                        parent.decodedTextCharactersReturned(),
+                        parent.ownedPayloadBytes(),
+                        parent.retainedWarnings());
+        FeatureQuery bounded =
+                new FeatureQuery(query.sourceBounds(), query.attributes(), Optional.of(tightened));
+        try (FeatureCursor cursor = source.openCursor(bounded, CancellationToken.none())) {
+            while (cursor.advance()) {
+                // Successful exhaustion proves the candidate-work ceiling admits this query.
+            }
+            return true;
+        } catch (SourceException failure) {
+            if (failure.terminal().code().equals("SOURCE_LIMIT_EXCEEDED")
+                    && failure.terminal().context().get("limit").equals("recordsExamined")) {
+                return false;
+            }
+            throw failure;
+        }
     }
 
     private static List<FeatureRecord> readAll(FeatureSource source) {

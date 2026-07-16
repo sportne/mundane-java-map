@@ -75,7 +75,10 @@ final class FixtureCatalog {
                 factFromLayers("symbol-field-v1", symbolCount, symbols),
                 hitFact(profile, hitProbes),
                 shapefileFact(profile, shapefileColumns, shapefileRows, shapefileRecords),
-                rasterFact());
+                rasterFact(),
+                factFromRecords(
+                        "index-comparison-v1",
+                        IndexComparisonFixture.records(IndexComparisonFixture.SIZES.getLast())));
     }
 
     static List<FeatureRecord> featureGrid(EvidenceConfiguration.Profile profile) {

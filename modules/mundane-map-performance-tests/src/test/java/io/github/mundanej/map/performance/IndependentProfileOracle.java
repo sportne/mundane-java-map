@@ -5,6 +5,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
@@ -69,8 +70,101 @@ final class IndependentProfileOracle {
             result.put("affine-raster-pan", rasterPan(profile, fixtures));
             result.put("vector-pan-sequence", navigation(profile, vectors, false));
             result.put("vector-zoom-sequence", navigation(profile, vectors, true));
+            appendIndexDigests(result, profile);
+            result.put("memory-query-window-indexed", result.get("memory-query-window"));
+            result.put("hit-test-sweep-indexed", result.get("hit-test-sweep"));
+            result.put("dense-vector-render-indexed", result.get("dense-vector-render"));
+            result.put("vector-pan-sequence-indexed", result.get("vector-pan-sequence"));
+            result.put("vector-zoom-sequence-indexed", result.get("vector-zoom-sequence"));
             return Map.copyOf(result);
         }
+    }
+
+    private static void appendIndexDigests(
+            Map<String, String> result, EvidenceConfiguration.Profile profile) {
+        for (int size : List.of(128, 8_192, 131_072)) {
+            result.put("index-build-" + size, indexBuild(profile, size));
+        }
+        for (int size : ReferenceFixtures.indexSizes()) {
+            List<FeatureRecord> records = ReferenceFixtures.indexRecords(size);
+            result.put("index-query-linear-" + size, indexQuery(profile, size, records, false, 0));
+            long candidates = ReferenceFixtures.indexCandidateTotal(profile, size);
+            result.put(
+                    "index-query-str16-" + size,
+                    indexQuery(profile, size, records, true, candidates));
+        }
+    }
+
+    private static String indexBuild(EvidenceConfiguration.Profile profile, int size) {
+        long[] layout = indexLayout(size);
+        Map<String, Long> counters =
+                counters(
+                        "inputRecords",
+                        size,
+                        "leaves",
+                        layout[0],
+                        "nodes",
+                        layout[1],
+                        "height",
+                        layout[2],
+                        "retainedBytes",
+                        layout[3],
+                        "buildBytes",
+                        Math.addExact(layout[3], Math.multiplyExact(8L, size)));
+        return digest(profile, "index-build-" + size, counters, ignored -> {});
+    }
+
+    private static String indexQuery(
+            EvidenceConfiguration.Profile profile,
+            int size,
+            List<FeatureRecord> records,
+            boolean indexed,
+            long candidates) {
+        List<FeatureRecord> selected = new ArrayList<>();
+        for (Envelope bounds : ReferenceFixtures.indexViewports(size, profile)) {
+            for (FeatureRecord record : records) {
+                Envelope envelope = record.geometry().envelope();
+                if (envelope.maxX() >= bounds.minX()
+                        && envelope.minX() <= bounds.maxX()
+                        && envelope.maxY() >= bounds.minY()
+                        && envelope.minY() <= bounds.maxY()) {
+                    selected.add(record);
+                }
+            }
+        }
+        LinkedHashMap<String, Long> counters = new LinkedHashMap<>();
+        counters.put("implementationIndexed", indexed ? 1L : 0L);
+        counters.put("inputRecords", (long) size);
+        counters.put("queries", profile == EvidenceConfiguration.Profile.BASELINE ? 256L : 24L);
+        counters.put("records", (long) selected.size());
+        counters.put("coordinates", (long) selected.size());
+        if (indexed) {
+            counters.put("indexedCandidates", candidates);
+        }
+        return digest(
+                profile,
+                "index-query-" + (indexed ? "str16-" : "linear-") + size,
+                counters,
+                oracle -> {
+                    selected.forEach(record -> ReferenceDigest.record(oracle, record));
+                    ReferenceDigest.diagnostics(oracle, DiagnosticReport.empty());
+                });
+    }
+
+    private static long[] indexLayout(int records) {
+        int leaves = Math.floorDiv(records - 1, 16) + 1;
+        int nodes = leaves;
+        int level = leaves;
+        int height = 1;
+        while (level > 1) {
+            level = Math.floorDiv(level - 1, 16) + 1;
+            nodes = Math.addExact(nodes, level);
+            height++;
+        }
+        long retained =
+                Math.addExact(Math.multiplyExact(4L, records), Math.multiplyExact(37L, nodes));
+        retained = Math.addExact(retained, Math.multiplyExact(4L, nodes - 1L));
+        return new long[] {leaves, nodes, height, retained};
     }
 
     private static String fullQuery(

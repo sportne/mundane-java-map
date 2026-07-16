@@ -753,6 +753,23 @@ library, automatic threshold/fallback, persistent query cache, format adapter, o
 If reference evidence shows small-N overhead, the report records crossover; it does not add implicit
 runtime selection.
 
+### G7-002 implementation evidence
+
+The implementation follows this design with one explicit packed STR-16 factory and no public index
+types or automatic threshold. Core tests directly pin actual plan totals against separately reviewed
+fixture constants; the performance harness independently derives the same totals with an object-tree
+reference, then validates each selected indexed row through untimed production work-limit inference.
+Timed query batches only open, exhaust, and close cursors while capturing immutable record references;
+all count/order/value/digest checks remain outside timing. The maximum fixed comparison capture is
+6,242,731 pre-sized references (49,941,848 logical reference bytes) and is released after every sample.
+
+The completed canonical BASELINE run used the G7-002 working tree based on revision
+`52dbebdc251b0ee06a595a5c4f4486097c37b0b3`; the report leaves its revision absent because the changes
+were not yet committed. All 34 scenarios completed under the fixed 512 MiB heap in 51m10s. The JSON
+SHA-256 is `fae644ae310195b4dbb5fa9af0ec2e0231334bfedb8ed2d5fb8d6eb337e65951`, the observed descriptive
+crossover is 32 records, and semantic oracles remained unchanged. Independent review and
+`qualityGate` passed; no G7-003 clipping or simplification capability is included.
+
 ## Clipping and simplification (G7-003)
 
 ### One paint-only screen-plan boundary

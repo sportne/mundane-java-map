@@ -22,6 +22,7 @@ final class EvidenceRunner {
             for (EvidenceScenario scenario : selected) {
                 samples.add(runScenario(configuration, scenario));
             }
+            samples = addObservedCrossover(configuration, samples);
             report = EvidenceReport.capture(configuration, selected, samples);
         } catch (Throwable failure) {
             primary = failure;
@@ -42,6 +43,49 @@ final class EvidenceRunner {
             throwAsException(primary);
         }
         return java.util.Objects.requireNonNull(report, "report");
+    }
+
+    private static List<EvidenceSample> addObservedCrossover(
+            EvidenceConfiguration configuration, List<EvidenceSample> samples) {
+        if (configuration.scenario().isPresent()) {
+            return samples;
+        }
+        java.util.LinkedHashMap<String, EvidenceSample> byId = new java.util.LinkedHashMap<>();
+        samples.forEach(sample -> byId.put(sample.scenarioId(), sample));
+        if (!byId.containsKey("index-query-linear-32")) {
+            return samples;
+        }
+        long crossover = 0;
+        for (int size : IndexComparisonFixture.SIZES) {
+            EvidenceSample linear = requireSample(byId, "index-query-linear-" + size);
+            EvidenceSample indexed = requireSample(byId, "index-query-str16-" + size);
+            if (crossover == 0 && indexed.medianNanos() < linear.medianNanos()) {
+                crossover = size;
+            }
+        }
+        List<EvidenceSample> result = new ArrayList<>(samples.size());
+        for (EvidenceSample sample : samples) {
+            if (sample.scenarioId().startsWith("index-query-str16-")) {
+                java.util.LinkedHashMap<String, Long> counters =
+                        new java.util.LinkedHashMap<>(sample.observation().counters());
+                counters.put("observedCrossoverRecords", crossover);
+                result.add(
+                        sample.withObservation(
+                                new EvidenceObservation(sample.observation().digest(), counters)));
+            } else {
+                result.add(sample);
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static EvidenceSample requireSample(
+            java.util.Map<String, EvidenceSample> samples, String id) {
+        EvidenceSample result = samples.get(id);
+        if (result == null) {
+            throw new IllegalStateException("Missing crossover scenario: " + id);
+        }
+        return result;
     }
 
     private static EvidenceSample runScenario(

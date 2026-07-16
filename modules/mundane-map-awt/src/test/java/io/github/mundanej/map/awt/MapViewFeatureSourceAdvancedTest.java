@@ -38,6 +38,7 @@ import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.FeatureIndexLimits;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
@@ -175,6 +176,59 @@ class MapViewFeatureSourceAdvancedTest {
                     assertEquals("lower", view.hover().orElseThrow().featureId());
                     move(view, 50, 50);
                     assertEquals("point", view.hover().orElseThrow().featureId());
+                    view.close();
+                });
+    }
+
+    @Test
+    void indexedSourceSubstitutesThroughPaintHitHoverAndSelection() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    InMemoryFeatureSource source =
+                            InMemoryFeatureSource.openIndexed(
+                                    new SourceIdentity("indexed", "Indexed"),
+                                    List.of(
+                                            new FeatureRecord(
+                                                    "outside",
+                                                    "",
+                                                    new PointGeometry(new Coordinate(-40, -40)),
+                                                    Map.of()),
+                                            new FeatureRecord(
+                                                    "target-lower",
+                                                    "",
+                                                    new PointGeometry(new Coordinate(0, 0)),
+                                                    Map.of()),
+                                            new FeatureRecord(
+                                                    "target-top",
+                                                    "",
+                                                    new PointGeometry(new Coordinate(0, 0)),
+                                                    Map.of()),
+                                            new FeatureRecord(
+                                                    "outside-two",
+                                                    "",
+                                                    new PointGeometry(new Coordinate(40, 40)),
+                                                    Map.of())),
+                                    Optional.empty(),
+                                    Optional.of(
+                                            CrsMetadata.recognized(
+                                                    CrsDefinitions.EPSG_3857,
+                                                    Optional.of("EPSG:3857"),
+                                                    Optional.empty())),
+                                    FeatureSourceLimits.LEVEL_1,
+                                    FeatureIndexLimits.LEVEL_1);
+                    MapView view = configuredView();
+                    view.setLayerBindings(List.of(ownedBinding("indexed", source)));
+
+                    BufferedImage ordinary = paint(view);
+                    assertFalse(new Color(ordinary.getRGB(50, 50), true).equals(Color.WHITE));
+                    assertEquals(
+                            "target-top",
+                            view.hitTest(50, 50, 0).topmost().orElseThrow().featureId());
+                    move(view, 50, 50);
+                    assertEquals("target-top", view.hover().orElseThrow().featureId());
+                    view.setSelection(new FeatureSelection("indexed", "target-top"));
+                    BufferedImage selected = paint(view);
+                    assertTrue(imagesDiffer(ordinary, selected));
                     view.close();
                 });
     }
@@ -378,6 +432,17 @@ class MapViewFeatureSourceAdvancedTest {
         view.dispatchEvent(
                 new MouseEvent(
                         view, MouseEvent.MOUSE_MOVED, 1L, 0, x, y, 0, false, MouseEvent.NOBUTTON));
+    }
+
+    private static boolean imagesDiffer(BufferedImage first, BufferedImage second) {
+        for (int y = 0; y < first.getHeight(); y++) {
+            for (int x = 0; x < first.getWidth(); x++) {
+                if (first.getRGB(x, y) != second.getRGB(x, y)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static void assertRed(BufferedImage image, int x, int y) {

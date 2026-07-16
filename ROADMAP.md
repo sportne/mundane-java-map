@@ -216,6 +216,13 @@ architectural requirement. Level 1 is complete only when
   the separate `performanceEvidence` lane. The checked interpretation identifies in-memory query,
   render, hit-test, and shapefile stages for the next evidence-driven tasks without defining portable
   timing thresholds.
+- G7-002 is implemented and verified: callers explicitly select a bounded packed STR-16 index on the
+  immutable in-memory source, while the original linear factory remains unchanged. Cursor-owned
+  candidate plans preserve source order, exact attributes/diagnostics/accounting, cancellation, and
+  one-live-cursor lifecycle. Independent fixed-fixture candidate totals are checked against untimed
+  production inference before evidence is reported; 22 appended build/query/real-stack rows retain
+  the G7-001 semantic oracles. The canonical BASELINE evidence completed under the fixed 512 MiB heap
+  with observed crossover 32; this remains descriptive and creates no automatic selection policy.
 - Establish repeatable large-data and JFR evidence before optimization.
 - Add a packed spatial index, viewport queries, clipping, and scale-aware simplification, then retain
   only private bounded render-cache candidates that pass predeclared evidence rules.

@@ -1,6 +1,6 @@
 # G7-002 — Packed spatial index and viewport query
 
-Status: Proposed
+Status: Complete
 Depends on: G7-001, G4-003
 Gate: G7
 Type: AFK
@@ -89,3 +89,10 @@ git diff --check
 The selected structure is a single packed STR-16 tree. G7-001 evidence determines whether callers
 benefit from choosing the indexed factory; it does not create an implicit runtime policy. Keep SHX and
 all format-specific validation semantics out of this task.
+
+Implementation evidence: the explicit packed STR-16 source, source-ordered cursor plan, structured
+limits, AWT substitution, architecture rules, and 22 appended evidence scenarios are implemented.
+Independent review approved cancellation, overflow/addressability, tie ordering, selective setup,
+timing boundaries, production/reference candidate equality, and bounded post-timer capture. The
+canonical 34-scenario BASELINE run completed in 51m10s with observed crossover 32 and JSON SHA-256
+`fae644ae310195b4dbb5fa9af0ec2e0231334bfedb8ed2d5fb8d6eb337e65951`; `qualityGate` then passed.

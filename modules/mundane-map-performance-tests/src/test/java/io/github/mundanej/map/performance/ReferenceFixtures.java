@@ -73,6 +73,94 @@ final class ReferenceFixtures {
         return List.copyOf(records);
     }
 
+    static List<Integer> indexSizes() {
+        return List.of(32, 128, 512, 2_048, 8_192, 32_768, 131_072);
+    }
+
+    static List<FeatureRecord> indexRecords(int size) {
+        int position = indexSizes().indexOf(size);
+        if (position < 0) {
+            throw new IllegalArgumentException("Unknown comparison size");
+        }
+        int columns = 8 << position;
+        List<FeatureRecord> records = new ArrayList<>(size);
+        for (int ordinal = 0; ordinal < size; ordinal++) {
+            records.add(
+                    new FeatureRecord(
+                            String.format(java.util.Locale.ROOT, "index:%06d", ordinal),
+                            "",
+                            new PointGeometry(
+                                    new Coordinate(
+                                            Math.floorMod(ordinal, columns) * 1_000.0,
+                                            Math.floorDiv(ordinal, columns) * 1_000.0)),
+                            Map.of()));
+        }
+        return List.copyOf(records);
+    }
+
+    static List<Envelope> indexViewports(int size, EvidenceConfiguration.Profile profile) {
+        int position = indexSizes().indexOf(size);
+        int columns = 8 << position;
+        int rows = 4 << position;
+        int count = profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 24;
+        List<Envelope> result = new ArrayList<>(count);
+        for (int ordinal = 0; ordinal < count; ordinal++) {
+            int kind = Math.floorMod(ordinal, 6);
+            double maxX = (columns - 1) * 1_000.0;
+            double maxY = (rows - 1) * 1_000.0;
+            if (kind == 0) {
+                result.add(new Envelope(maxX + 500, maxY + 500, maxX + 1_500, maxY + 1_500));
+            } else if (kind == 1) {
+                int column = Math.floorMod(37 * ordinal, columns);
+                int row = Math.floorMod(53 * ordinal, rows);
+                double x = column * 1_000.0;
+                double y = row * 1_000.0;
+                result.add(new Envelope(x - 500, y - 500, x, y));
+            } else if (kind == 5) {
+                result.add(new Envelope(-500, -500, maxX + 500, maxY + 500));
+            } else {
+                int selected = indexExpectedRecords(size, ordinal);
+                int exponent = Integer.numberOfTrailingZeros(selected);
+                int width = 1 << Math.floorDiv(exponent, 2);
+                int height = Math.floorDiv(selected, width);
+                int originColumn = Math.floorMod(37 * ordinal, columns - width + 1);
+                int originRow = Math.floorMod(53 * ordinal, rows - height + 1);
+                result.add(
+                        new Envelope(
+                                originColumn * 1_000.0 - 500,
+                                originRow * 1_000.0 - 500,
+                                (originColumn + width - 1) * 1_000.0 + 500,
+                                (originRow + height - 1) * 1_000.0 + 500));
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    static int indexExpectedRecords(int size, int ordinal) {
+        return switch (Math.floorMod(ordinal, 6)) {
+            case 0 -> 0;
+            case 1 -> 1;
+            case 2 -> Math.max(1, size / 1_024);
+            case 3 -> Math.max(1, size / 128);
+            case 4 -> Math.max(1, size / 8);
+            case 5 -> size;
+            default -> throw new AssertionError("unreachable");
+        };
+    }
+
+    /** Reviewed exact candidate totals from the independent STR fixture definition. */
+    static long indexCandidateTotal(EvidenceConfiguration.Profile profile, int size) {
+        int index = indexSizes().indexOf(size);
+        if (index < 0) {
+            throw new IllegalArgumentException("Unknown comparison size");
+        }
+        long[] totals =
+                profile == EvidenceConfiguration.Profile.BASELINE
+                        ? new long[] {4_176, 9_840, 29_648, 105_712, 405_712, 1_590_112, 6_296_784}
+                        : new long[] {384, 928, 2_912, 10_064, 39_264, 151_200, 599_456};
+        return totals[index];
+    }
+
     @SuppressWarnings("deprecation")
     static List<FeatureRecord> vectorRecords(EvidenceConfiguration.Profile profile) {
         int lineCount = profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 16;
