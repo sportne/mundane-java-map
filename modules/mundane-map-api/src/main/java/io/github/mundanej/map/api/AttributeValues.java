@@ -12,7 +12,12 @@ import java.util.Objects;
 public final class AttributeValues {
     private AttributeValues() {}
 
-    /** Returns an insertion-ordered immutable canonical copy. */
+    /**
+     * Returns an insertion-ordered immutable canonical copy.
+     *
+     * @param attributes source attributes
+     * @return immutable canonical attributes
+     */
     public static Map<String, Object> canonicalize(Map<String, ?> attributes) {
         Objects.requireNonNull(attributes, "attributes");
         LinkedHashMap<String, Object> copy = new LinkedHashMap<>();
@@ -26,7 +31,12 @@ public final class AttributeValues {
         return Collections.unmodifiableMap(copy);
     }
 
-    /** Returns the canonical representation of one supported value. */
+    /**
+     * Returns the canonical representation of one supported value.
+     *
+     * @param value supported non-null attribute value
+     * @return immutable canonical representation
+     */
     public static Object canonicalizeValue(Object value) {
         Objects.requireNonNull(value, "attribute value");
         if (value instanceof String

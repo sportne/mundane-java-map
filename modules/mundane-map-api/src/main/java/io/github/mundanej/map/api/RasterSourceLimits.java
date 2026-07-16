@@ -2,7 +2,11 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Captured raster-source request ceilings. */
+/**
+ * Captured raster-source request ceilings.
+ *
+ * @param requestLimits immutable ceilings applied to every source request
+ */
 public record RasterSourceLimits(RasterRequestLimits requestLimits) {
     /** Level 1 defaults. */
     public static final RasterSourceLimits LEVEL_1 =

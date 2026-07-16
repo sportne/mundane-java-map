@@ -11,7 +11,11 @@ public final class AttributeSchema {
     private final List<AttributeField> fields;
     private final Map<String, AttributeField> fieldsByName;
 
-    /** Copies and validates ordered unique fields. */
+    /**
+     * Copies and validates ordered unique fields.
+     *
+     * @param fields fields in source order
+     */
     public AttributeSchema(List<AttributeField> fields) {
         this.fields = List.copyOf(Objects.requireNonNull(fields, "fields"));
         Map<String, AttributeField> index = new HashMap<>();
@@ -24,12 +28,21 @@ public final class AttributeSchema {
         fieldsByName = Map.copyOf(index);
     }
 
-    /** Returns the immutable ordered fields. */
+    /**
+     * Returns the immutable ordered fields.
+     *
+     * @return fields in source order
+     */
     public List<AttributeField> fields() {
         return fields;
     }
 
-    /** Finds a declared field by exact name in constant time. */
+    /**
+     * Finds a declared field by exact name in constant time.
+     *
+     * @param name exact field name
+     * @return matching field, or empty when absent
+     */
     public Optional<AttributeField> field(String name) {
         return Optional.ofNullable(fieldsByName.get(Objects.requireNonNull(name, "name")));
     }

@@ -5,7 +5,16 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
-/** Optional bounded structural location within a source. */
+/**
+ * Optional bounded structural location within a source.
+ *
+ * @param component optional bounded source-component name
+ * @param recordNumber optional positive one-based record number
+ * @param partIndex optional non-negative zero-based part index
+ * @param fieldIndex optional non-negative zero-based field index
+ * @param fieldName optional bounded field name
+ * @param byteOffset optional non-negative byte offset from the component start
+ */
 public record DiagnosticLocation(
         Optional<String> component,
         OptionalLong recordNumber,
@@ -31,7 +40,11 @@ public record DiagnosticLocation(
         }
     }
 
-    /** Returns an empty location. */
+    /**
+     * Returns an empty location.
+     *
+     * @return location with every optional component absent
+     */
     public static DiagnosticLocation empty() {
         return new DiagnosticLocation(
                 Optional.empty(),

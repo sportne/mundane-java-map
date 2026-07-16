@@ -3,6 +3,10 @@ package io.github.mundanej.map.api;
 /** Receives map pointer events. */
 @FunctionalInterface
 public interface MapPointerListener {
-    /** Handles an event on the Swing event-dispatch thread. */
+    /**
+     * Handles an event on the Swing event-dispatch thread.
+     *
+     * @param event immutable pointer event
+     */
     void onMapPointerEvent(MapPointerEvent event);
 }

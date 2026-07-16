@@ -23,7 +23,13 @@ public final class RasterRequestAccounting {
     private long intermediateBytes;
     private long publishedBytes;
 
-    /** Creates accounting for exact already-resolved limits and token. */
+    /**
+     * Creates accounting for exact already-resolved limits and token.
+     *
+     * @param sourceId stable source identifier used in diagnostics
+     * @param effectiveLimits limits already resolved against source defaults
+     * @param cancellation operation-local cancellation token
+     */
     public RasterRequestAccounting(
             String sourceId, RasterRequestLimits effectiveLimits, CancellationToken cancellation) {
         this.sourceId = Objects.requireNonNull(sourceId, "sourceId");
@@ -31,7 +37,13 @@ public final class RasterRequestAccounting {
         this.cancellation = Objects.requireNonNull(cancellation, "cancellation");
     }
 
-    /** Validates that a strict window lies wholly inside the source dimensions. */
+    /**
+     * Validates that a strict window lies wholly inside the source dimensions.
+     *
+     * @param metadata authoritative source dimensions
+     * @param window zero-based source-pixel window to validate
+     * @throws SourceException when the window extends outside the source
+     */
     public void validateWindow(RasterSourceMetadata metadata, RasterWindow window) {
         Objects.requireNonNull(metadata, "metadata");
         Objects.requireNonNull(window, "window");
@@ -49,7 +61,12 @@ public final class RasterRequestAccounting {
         }
     }
 
-    /** Charges cumulative source pixels examined. */
+    /**
+     * Charges cumulative source pixels examined.
+     *
+     * @param pixels non-negative number of additional source pixels
+     * @throws SourceException when the cumulative source-pixel limit is exceeded
+     */
     public void chargeSourcePixels(long pixels) {
         sourcePixels =
                 charge(
@@ -59,7 +76,15 @@ public final class RasterRequestAccounting {
                         limits.sourceWindowPixels());
     }
 
-    /** Validates output dimensions/product and returns the output pixel count. */
+    /**
+     * Validates output dimensions/product and returns the output pixel count.
+     *
+     * @param width positive output width in pixels
+     * @param height positive output height in pixels
+     * @return checked output pixel count
+     * @throws IllegalArgumentException when a dimension is not positive
+     * @throws SourceException when an output limit is exceeded
+     */
     public long validateOutput(int width, int height) {
         if (width <= 0 || height <= 0) {
             throw new IllegalArgumentException("Output dimensions must be positive");
@@ -82,7 +107,12 @@ public final class RasterRequestAccounting {
         return pixels;
     }
 
-    /** Charges cumulative decoded or intermediate bytes. */
+    /**
+     * Charges cumulative decoded or intermediate bytes.
+     *
+     * @param bytes non-negative number of additional bytes
+     * @throws SourceException when the cumulative intermediate-byte limit is exceeded
+     */
     public void chargeIntermediateBytes(long bytes) {
         intermediateBytes =
                 charge(
@@ -92,7 +122,12 @@ public final class RasterRequestAccounting {
                         limits.decodedIntermediateBytes());
     }
 
-    /** Charges cumulative conservatively owned published bytes. */
+    /**
+     * Charges cumulative conservatively owned published bytes.
+     *
+     * @param bytes non-negative number of additional bytes
+     * @throws SourceException when the cumulative owned-payload limit is exceeded
+     */
     public void chargePublishedBytes(long bytes) {
         publishedBytes =
                 charge(
@@ -102,7 +137,11 @@ public final class RasterRequestAccounting {
                         limits.ownedPayloadBytes());
     }
 
-    /** Fails with the stable cancellation diagnostic when requested. */
+    /**
+     * Fails with the stable cancellation diagnostic when requested.
+     *
+     * @throws SourceException when cancellation has been requested
+     */
     public void checkpoint() {
         if (cancellation.isCancellationRequested()) {
             throw failure(

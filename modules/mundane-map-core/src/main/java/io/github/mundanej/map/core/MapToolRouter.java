@@ -33,22 +33,44 @@ public final class MapToolRouter {
     private boolean unavailableCancellationArmed;
     private PendingOperation pendingOperation;
 
-    /** Returns the active tool, if any. */
+    /** Creates a router with no active tool, capture, or custom cursor intent. */
+    public MapToolRouter() {}
+
+    /**
+     * Returns the active tool, if any.
+     *
+     * @return current tool instance without transferring ownership
+     */
     public Optional<MapTool> activeTool() {
         return Optional.ofNullable(activeTool);
     }
 
-    /** Returns whether the active tool currently owns pointer capture. */
+    /**
+     * Returns whether the active tool currently owns pointer capture.
+     *
+     * @return {@code true} while one pointer button is captured
+     */
     public boolean captured() {
         return capturedButton != null;
     }
 
-    /** Returns the effective toolkit-neutral cursor intent. */
+    /**
+     * Returns the effective toolkit-neutral cursor intent.
+     *
+     * @return current cursor intent for the host toolkit
+     */
     public MapCursorIntent currentCursorIntent() {
         return cursorIntent;
     }
 
-    /** Installs a tool, replacing a distinct active instance in deterministic lifecycle order. */
+    /**
+     * Installs a tool, replacing a distinct active instance in deterministic lifecycle order.
+     *
+     * @param tool tool instance to install
+     * @param replacementCancel replacement cancellation event for the previous session
+     * @param context current immutable tool context
+     * @return routing outcome for host default handling, capture, and cursor state
+     */
     public RouteOutcome setActiveTool(
             MapTool tool, MapToolEvent replacementCancel, MapToolContext context) {
         Objects.requireNonNull(tool, "tool");
@@ -66,7 +88,13 @@ public final class MapToolRouter {
         return replaceNow(tool, replacementCancel, context);
     }
 
-    /** Clears the active tool after cancellation and deactivation callbacks. */
+    /**
+     * Clears the active tool after cancellation and deactivation callbacks.
+     *
+     * @param clearCancel clear cancellation event for the current session
+     * @param context current immutable tool context
+     * @return routing outcome for host default handling, capture, and cursor state
+     */
     public RouteOutcome clearActiveTool(MapToolEvent clearCancel, MapToolContext context) {
         requireCancel(clearCancel, MapToolCancelReason.TOOL_CLEARED);
         Objects.requireNonNull(context, "context");
@@ -82,7 +110,13 @@ public final class MapToolRouter {
         return clearNow(clearCancel, context);
     }
 
-    /** Routes one ordinary pointer, wheel, or user-cancel event. */
+    /**
+     * Routes one ordinary pointer, wheel, or user-cancel event.
+     *
+     * @param event strictly increasing toolkit-neutral event
+     * @param context current immutable tool context
+     * @return routing outcome for host default handling, capture, and cursor state
+     */
     public RouteOutcome route(MapToolEvent event, MapToolContext context) {
         Objects.requireNonNull(event, "event");
         Objects.requireNonNull(context, "context");
@@ -161,7 +195,13 @@ public final class MapToolRouter {
         }
     }
 
-    /** Routes one bounded semantic command through the active tool session. */
+    /**
+     * Routes one bounded semantic command through the active tool session.
+     *
+     * @param event strictly increasing semantic command event
+     * @param context current immutable tool context
+     * @return routing outcome for host default handling and cursor state
+     */
     public RouteOutcome routeCommand(MapToolCommandEvent event, MapToolContext context) {
         Objects.requireNonNull(event, "event");
         Objects.requireNonNull(context, "context");
@@ -203,12 +243,22 @@ public final class MapToolRouter {
         }
     }
 
-    /** Cancels the current gesture while leaving the active tool installed. */
+    /**
+     * Cancels the current gesture while leaving the active tool installed.
+     *
+     * @param externalCancel cancellation event and reason
+     * @param context current immutable tool context
+     * @return routing outcome after capture and gesture cleanup
+     */
     public RouteOutcome cancelInteraction(MapToolEvent externalCancel, MapToolContext context) {
         return cancelInteraction(externalCancel, context, false);
     }
 
-    /** Refreshes an installed tool after the host becomes available again. */
+    /**
+     * Refreshes an installed tool after the host becomes available again.
+     *
+     * @return routing outcome containing the refreshed cursor state
+     */
     public RouteOutcome resume() {
         if (dispatching) {
             throw new IllegalStateException("Cannot resume during map-tool dispatch");

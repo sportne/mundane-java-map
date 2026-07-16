@@ -2,7 +2,12 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Stable layer/feature identity returned by a map hit query. */
+/**
+ * Stable layer/feature identity returned by a map hit query.
+ *
+ * @param layerId non-blank logical layer identity
+ * @param featureId non-blank stable feature identity within the layer
+ */
 public record MapHit(String layerId, String featureId) {
     /** Validates both exact non-blank identifiers. */
     public MapHit {

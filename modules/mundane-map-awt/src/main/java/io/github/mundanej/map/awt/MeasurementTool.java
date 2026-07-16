@@ -19,9 +19,15 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Swing measurement tool with packed vertices and an immutable public state snapshot. */
+/**
+ * Swing measurement tool with packed vertices and an immutable public state snapshot.
+ *
+ * <p>The tool is confined to Swing's event-dispatch thread and may be installed in at most one
+ * {@link MapView}. Its {@link MeasurementState} snapshots remain immutable after later interaction.
+ * Distances and cumulative totals are expressed in metres as required by {@link DistanceStrategy}.
+ */
 public final class MeasurementTool implements MapTool {
-    /** Default maximum committed vertex count. */
+    /** Default maximum committed vertex count ({@value}). */
     public static final int DEFAULT_VERTEX_LIMIT = 10_000;
 
     private final DistanceStrategy strategy;
@@ -36,12 +42,24 @@ public final class MeasurementTool implements MapTool {
     private MeasurementState state = MeasurementState.empty();
     private MapView owner;
 
-    /** Creates a tool with the default bounded vertex limit. */
+    /**
+     * Creates a tool with the default bounded vertex limit.
+     *
+     * @param strategy non-null CRS-bound distance strategy
+     * @throws NullPointerException if {@code strategy} is {@code null}
+     */
     public MeasurementTool(DistanceStrategy strategy) {
         this(strategy, DEFAULT_VERTEX_LIMIT);
     }
 
-    /** Creates a tool with an explicit vertex limit of at least two. */
+    /**
+     * Creates a tool with an explicit vertex limit of at least two.
+     *
+     * @param strategy non-null CRS-bound distance strategy
+     * @param vertexLimit maximum committed vertices, at least two
+     * @throws NullPointerException if {@code strategy} is {@code null}
+     * @throws IllegalArgumentException if {@code vertexLimit} is less than two
+     */
     public MeasurementTool(DistanceStrategy strategy, int vertexLimit) {
         this.strategy = Objects.requireNonNull(strategy, "strategy");
         if (vertexLimit < 2) {
@@ -54,17 +72,29 @@ public final class MeasurementTool implements MapTool {
         segmentMetres = new double[initial];
     }
 
-    /** Returns the CRS-bound distance strategy. */
+    /**
+     * Returns the CRS-bound distance strategy.
+     *
+     * @return strategy supplied at construction
+     */
     public DistanceStrategy distanceStrategy() {
         return strategy;
     }
 
-    /** Returns the immutable current state snapshot. */
+    /**
+     * Returns the immutable current state snapshot.
+     *
+     * @return state from the most recently processed interaction
+     */
     public MeasurementState state() {
         return state;
     }
 
-    /** Returns the configured maximum vertex count. */
+    /**
+     * Returns the configured maximum vertex count.
+     *
+     * @return positive maximum number of committed vertices
+     */
     public int vertexLimit() {
         return vertexLimit;
     }

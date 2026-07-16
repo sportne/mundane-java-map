@@ -4,7 +4,22 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Complete toolkit-neutral input event routed to an active map tool. */
+/**
+ * Complete toolkit-neutral input event routed to an active map tool.
+ *
+ * @param sequence positive event sequence assigned by the map view
+ * @param type routed input kind
+ * @param screenX finite horizontal screen coordinate in logical pixels
+ * @param screenY finite vertical screen coordinate in logical pixels
+ * @param mapCoordinate optional coordinate in the current map coordinate system
+ * @param button changed button, or {@link MapPointerButton#NONE}
+ * @param buttonsDown immutable set of buttons down after the event
+ * @param modifiers immutable set of active modifiers
+ * @param clickCount non-negative platform click count
+ * @param wheelRotation finite signed wheel rotation
+ * @param popupTrigger whether the platform identifies this as a popup trigger
+ * @param cancelReason cancellation reason, present only for {@link Type#CANCEL}
+ */
 public record MapToolEvent(
         long sequence,
         Type type,

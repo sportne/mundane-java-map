@@ -26,7 +26,15 @@ public final class SolidLineSymbol implements LineSymbol {
         this.opacity = requireOpacity(opacity);
     }
 
-    /** Creates a solid line with optional start and end markers. */
+    /**
+     * Creates a solid line with optional start and end markers.
+     *
+     * @param stroke line color and width
+     * @param startMarker optional marker-role start marker
+     * @param endMarker optional marker-role end marker
+     * @param opacity finite opacity from zero through one
+     * @return immutable solid line
+     */
     public static SolidLineSymbol of(
             SymbolStroke stroke,
             Optional<Symbol> startMarker,
@@ -35,22 +43,40 @@ public final class SolidLineSymbol implements LineSymbol {
         return new SolidLineSymbol(stroke, startMarker, endMarker, opacity);
     }
 
-    /** Creates a solid line without endpoint markers. */
+    /**
+     * Creates a solid line without endpoint markers.
+     *
+     * @param stroke line color and width
+     * @param opacity finite opacity from zero through one
+     * @return immutable solid line
+     */
     public static SolidLineSymbol of(SymbolStroke stroke, double opacity) {
         return of(stroke, Optional.empty(), Optional.empty(), opacity);
     }
 
-    /** Returns the line stroke. */
+    /**
+     * Returns the line stroke.
+     *
+     * @return immutable stroke
+     */
     public SymbolStroke stroke() {
         return stroke;
     }
 
-    /** Returns the optional start marker. */
+    /**
+     * Returns the optional start marker.
+     *
+     * @return optional immutable marker
+     */
     public Optional<Symbol> startMarker() {
         return startMarker;
     }
 
-    /** Returns the optional end marker. */
+    /**
+     * Returns the optional end marker.
+     *
+     * @return optional immutable marker
+     */
     public Optional<Symbol> endMarker() {
         return endMarker;
     }

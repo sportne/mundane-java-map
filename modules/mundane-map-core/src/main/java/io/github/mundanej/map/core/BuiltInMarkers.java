@@ -18,17 +18,34 @@ public final class BuiltInMarkers {
 
     private BuiltInMarkers() {}
 
-    /** Returns the common normalized marker view box. */
+    /**
+     * Returns the common normalized marker view box.
+     *
+     * @return immutable {@code [-0.5,-0.5,0.5,0.5]} local-coordinate bounds
+     */
     public static Envelope viewBox() {
         return VIEW_BOX;
     }
 
-    /** Returns the reusable immutable path for a built-in marker. */
+    /**
+     * Returns the reusable immutable path for a built-in marker.
+     *
+     * @param marker marker shape to resolve
+     * @return immutable normalized local-coordinate path
+     */
     public static VectorPath path(BuiltInMarker marker) {
         return PATHS.get(Objects.requireNonNull(marker, "marker"));
     }
 
-    /** Creates a filled centered screen marker from a built-in path. */
+    /**
+     * Creates a filled centered screen marker from a built-in path.
+     *
+     * @param marker marker shape to use
+     * @param fill marker fill color
+     * @param sizePixels marker width and height in logical screen pixels
+     * @param opacity finite opacity from zero through one
+     * @return immutable centered screen-relative marker symbol
+     */
     public static VectorMarkerSymbol filledScreen(
             BuiltInMarker marker, Rgba fill, double sizePixels, double opacity) {
         return VectorMarkerSymbol.filledScreen(path(marker), VIEW_BOX, fill, sizePixels, opacity);

@@ -38,10 +38,19 @@ public final class SymbolException extends RuntimeException {
     /** A renderer returned a result incompatible with its registered role. */
     public static final String RENDERER_INVALID_RESULT = "SYMBOL_RENDERER_INVALID_RESULT";
 
+    /** Stable failure code retained for serialization. */
     private final String code;
+
+    /** Immutable failure context retained for serialization. */
     private final Map<String, String> context;
 
-    /** Creates a failure from a stable code, message, and ordered string context. */
+    /**
+     * Creates a failure from a stable code, message, and ordered string context.
+     *
+     * @param code stable non-blank machine-readable code
+     * @param message non-blank human-readable explanation
+     * @param context insertion-ordered diagnostic context
+     */
     public SymbolException(String code, String message, Map<String, String> context) {
         super(Objects.requireNonNull(message, "message"));
         this.code = requireText(code, "code");
@@ -55,12 +64,20 @@ public final class SymbolException extends RuntimeException {
         this.context = Collections.unmodifiableMap(copy);
     }
 
-    /** Returns the stable machine-readable failure code. */
+    /**
+     * Returns the stable machine-readable failure code.
+     *
+     * @return stable code
+     */
     public String code() {
         return code;
     }
 
-    /** Returns immutable, insertion-ordered diagnostic context. */
+    /**
+     * Returns immutable, insertion-ordered diagnostic context.
+     *
+     * @return immutable context
+     */
     public Map<String, String> context() {
         return context;
     }

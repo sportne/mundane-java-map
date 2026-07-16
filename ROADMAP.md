@@ -253,7 +253,14 @@ architectural requirement. Level 1 is complete only when
   supplemental cached GraalVM CE 21.0.2 run compiled the no-fallback image and then failed in the
   newly reached measurement-label font path; no resource or reachability metadata was widened to
   treat that older local toolchain as release evidence.
-- Review public APIs, Javadocs, examples, publication metadata, and staged downstream consumption.
+- G8-002 is complete. The five published modules now have strict offline Java 21 Javadocs and a
+  published-only public-API documentation check; their immutable/toolkit/dependency boundaries were
+  reviewed without incompatible API changes. README and all five examples describe and exercise the
+  observed Level 1 surface. Fixed format-viewer identities, sensitive-path presentation tests, and
+  captured WSLg launches cover the release-review checkpoint; final Native Image wording remains
+  provisional while G8-001 awaits its required CI evidence.
+- Review publication metadata and staged downstream consumption in G8-003 after both G8 branches
+  join.
 - Run normal, native, shapefile-corpus, rendering-regression, performance, and
   publication/consumer lanes separately before the release decision.
 - Reconcile every lane against one clean candidate SHA; G8-004 records `GO` or leaves Level 1

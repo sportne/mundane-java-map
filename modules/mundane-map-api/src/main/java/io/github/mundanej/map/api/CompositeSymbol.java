@@ -37,12 +37,22 @@ public final class CompositeSymbol implements Symbol {
         this.opacity = opacity == 0.0 ? 0.0 : opacity;
     }
 
-    /** Creates an ordered, non-empty composition. */
+    /**
+     * Creates an ordered, non-empty composition.
+     *
+     * @param children role-homogeneous children in bottom-to-top paint order
+     * @param opacity finite composition opacity from zero through one
+     * @return immutable composite symbol
+     */
     public static CompositeSymbol of(List<? extends Symbol> children, double opacity) {
         return new CompositeSymbol(children, opacity);
     }
 
-    /** Returns the immutable child list in bottom-to-top paint order. */
+    /**
+     * Returns the immutable child list in bottom-to-top paint order.
+     *
+     * @return immutable child list
+     */
     public List<Symbol> children() {
         return children;
     }

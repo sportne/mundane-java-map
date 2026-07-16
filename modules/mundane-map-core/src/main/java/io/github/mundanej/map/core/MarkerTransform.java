@@ -31,42 +31,75 @@ public final class MarkerTransform {
         this.nominalScreenBounds = nominalScreenBounds;
     }
 
-    /** Returns the local-x to screen-x coefficient. */
+    /**
+     * Returns the local-x to screen-x coefficient.
+     *
+     * @return affine coefficient
+     */
     public double m00() {
         return m00;
     }
 
-    /** Returns the local-x to screen-y coefficient. */
+    /**
+     * Returns the local-x to screen-y coefficient.
+     *
+     * @return affine coefficient
+     */
     public double m10() {
         return m10;
     }
 
-    /** Returns the local-y to screen-x coefficient. */
+    /**
+     * Returns the local-y to screen-x coefficient.
+     *
+     * @return affine coefficient
+     */
     public double m01() {
         return m01;
     }
 
-    /** Returns the local-y to screen-y coefficient. */
+    /**
+     * Returns the local-y to screen-y coefficient.
+     *
+     * @return affine coefficient
+     */
     public double m11() {
         return m11;
     }
 
-    /** Returns the screen-x translation coefficient. */
+    /**
+     * Returns the screen-x translation coefficient.
+     *
+     * @return logical-screen x translation
+     */
     public double m02() {
         return m02;
     }
 
-    /** Returns the screen-y translation coefficient. */
+    /**
+     * Returns the screen-y translation coefficient.
+     *
+     * @return logical-screen y translation
+     */
     public double m12() {
         return m12;
     }
 
-    /** Returns the axis-aligned bounds of the transformed view-box corners. */
+    /**
+     * Returns the axis-aligned bounds of the transformed view-box corners.
+     *
+     * @return immutable nominal bounds in logical screen pixels
+     */
     public Envelope nominalScreenBounds() {
         return nominalScreenBounds;
     }
 
-    /** Inverse-maps one finite screen coordinate into marker-local coordinates. */
+    /**
+     * Inverse-maps one finite screen coordinate into marker-local coordinates.
+     *
+     * @param screen coordinate in logical screen pixels
+     * @return coordinate in the marker's toolkit-neutral local path space
+     */
     public Coordinate screenToLocal(Coordinate screen) {
         Objects.requireNonNull(screen, "screen");
         double maximum =

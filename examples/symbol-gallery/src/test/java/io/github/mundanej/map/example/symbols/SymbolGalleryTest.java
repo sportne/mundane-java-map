@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
@@ -254,6 +255,8 @@ class SymbolGalleryTest {
         AtomicReference<JPanel> result = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> result.set(SymbolGallery.createGalleryPanel()));
         JPanel panel = result.get();
+        JTabbedPane tabs = descendants(panel, JTabbedPane.class).getFirst();
+        assertEquals(List.of("Markers", "Placement", "Lines", "Fills"), tabTitles(tabs));
         List<MapView> views = descendants(panel, MapView.class);
         assertEquals(4, views.size());
         assertEquals(
@@ -265,6 +268,10 @@ class SymbolGalleryTest {
                 views.stream().map(Component::getName).toList());
         SwingUtilities.invokeAndWait(
                 () -> {
+                    for (int index = 0; index < tabs.getTabCount(); index++) {
+                        tabs.setSelectedIndex(index);
+                        assertEquals(index, tabs.getSelectedIndex());
+                    }
                     for (MapView view : views) {
                         assertEquals(1, view.layers().size());
                         assertFalse(view.layers().get(0).features().isEmpty());
@@ -278,6 +285,14 @@ class SymbolGalleryTest {
                         }
                     }
                 });
+    }
+
+    private static List<String> tabTitles(JTabbedPane tabs) {
+        ArrayList<String> result = new ArrayList<>();
+        for (int index = 0; index < tabs.getTabCount(); index++) {
+            result.add(tabs.getTitleAt(index));
+        }
+        return List.copyOf(result);
     }
 
     private static List<String> ids(List<GallerySection> sections) {

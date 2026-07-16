@@ -2,7 +2,11 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** A connected sequence of two or more points. */
+/**
+ * A connected sequence of two or more points.
+ *
+ * @param coordinates immutable ordered coordinates containing at least two positions
+ */
 public record LineStringGeometry(CoordinateSequence coordinates) implements Geometry {
     /** Creates a line string. */
     public LineStringGeometry {

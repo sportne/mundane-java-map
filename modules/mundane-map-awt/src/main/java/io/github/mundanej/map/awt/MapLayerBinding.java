@@ -16,7 +16,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * Explicit host binding for an eager layer snapshot or one synchronous source.
  *
  * <p>A borrowed source binding never closes its source. An owned binding closes the source exactly
- * once when removed from its view or when the binding is closed while unattached.
+ * once when removed from its view or when the binding is closed while unattached. A binding may be
+ * attached to at most one {@link MapView} and is permanently unusable after close.
  */
 public final class MapLayerBinding implements AutoCloseable {
     enum Kind {
@@ -100,12 +101,32 @@ public final class MapLayerBinding implements AutoCloseable {
         this.owned = owned;
     }
 
-    /** Creates a compatibility binding around an eager layer snapshot. */
+    /**
+     * Creates a compatibility binding around an eager immutable layer snapshot.
+     *
+     * @param layer non-null eager layer snapshot
+     * @return new unattached binding that never owns external resources
+     * @throws NullPointerException if {@code layer} is {@code null}
+     * @throws IllegalArgumentException if the layer identifier or name is blank
+     */
     public static MapLayerBinding snapshot(Layer layer) {
         return new MapLayerBinding(layer);
     }
 
-    /** Creates a feature binding whose source remains caller-owned. */
+    /**
+     * Creates a feature binding whose source remains caller-owned.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source non-null open caller-owned source
+     * @param marker marker-role symbol used for point and multipoint features
+     * @param line line-role symbol used for line and polygon boundaries
+     * @param fill fill-role symbol used for polygon interiors
+     * @return new unattached borrowed binding
+     * @throws NullPointerException if any argument is {@code null}
+     * @throws IllegalArgumentException if text is blank or a symbol has the wrong role
+     * @throws IllegalStateException if {@code source} is already closed
+     */
     public static MapLayerBinding borrowedFeature(
             String id,
             String name,
@@ -116,7 +137,20 @@ public final class MapLayerBinding implements AutoCloseable {
         return new MapLayerBinding(id, name, source, marker, line, fill, false);
     }
 
-    /** Creates a feature binding that assumes exclusive responsibility for closing its source. */
+    /**
+     * Creates a feature binding that assumes exclusive responsibility for closing its source.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source non-null open source whose ownership is transferred to this binding
+     * @param marker marker-role symbol used for point and multipoint features
+     * @param line line-role symbol used for line and polygon boundaries
+     * @param fill fill-role symbol used for polygon interiors
+     * @return new unattached owned binding
+     * @throws NullPointerException if any argument is {@code null}
+     * @throws IllegalArgumentException if text is blank or a symbol has the wrong role
+     * @throws IllegalStateException if {@code source} is already closed
+     */
     public static MapLayerBinding ownedFeature(
             String id,
             String name,
@@ -127,7 +161,17 @@ public final class MapLayerBinding implements AutoCloseable {
         return new MapLayerBinding(id, name, source, marker, line, fill, true);
     }
 
-    /** Creates a raster binding whose source remains caller-owned. */
+    /**
+     * Creates a raster binding whose source remains caller-owned and uses default presentation.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source non-null open caller-owned raster source
+     * @return new unattached borrowed raster binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank
+     * @throws IllegalStateException if {@code source} is already closed
+     */
     public static MapLayerBinding borrowedRaster(String id, String name, RasterSource source) {
         return borrowedRaster(id, name, source, RasterRenderOptions.defaults());
     }
@@ -140,13 +184,26 @@ public final class MapLayerBinding implements AutoCloseable {
      * @param source caller-owned raster source
      * @param options initial immutable presentation options
      * @return unattached borrowed raster binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank
+     * @throws IllegalStateException if {@code source} is already closed
      */
     public static MapLayerBinding borrowedRaster(
             String id, String name, RasterSource source, RasterRenderOptions options) {
         return new MapLayerBinding(id, name, source, options, false);
     }
 
-    /** Creates a raster binding that assumes exclusive responsibility for closing its source. */
+    /**
+     * Creates an owned raster binding using default presentation options.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source non-null open source whose ownership is transferred to this binding
+     * @return new unattached owned raster binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank
+     * @throws IllegalStateException if {@code source} is already closed
+     */
     public static MapLayerBinding ownedRaster(String id, String name, RasterSource source) {
         return ownedRaster(id, name, source, RasterRenderOptions.defaults());
     }
@@ -159,34 +216,62 @@ public final class MapLayerBinding implements AutoCloseable {
      * @param source raster source transferred to the binding
      * @param options initial immutable presentation options
      * @return unattached owned raster binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank
+     * @throws IllegalStateException if {@code source} is already closed
      */
     public static MapLayerBinding ownedRaster(
             String id, String name, RasterSource source, RasterRenderOptions options) {
         return new MapLayerBinding(id, name, source, options, true);
     }
 
-    /** Returns the stable layer identifier. */
+    /**
+     * Returns the stable layer identifier.
+     *
+     * @return non-blank identifier fixed at construction
+     */
     public String id() {
         return id;
     }
 
-    /** Returns the display name. */
+    /**
+     * Returns the display name.
+     *
+     * @return non-blank display name fixed at construction
+     */
     public String name() {
         return name;
     }
 
-    /** Cancels only the currently active synchronous source operation, if any. */
+    /**
+     * Cancels only the currently active synchronous source operation, if any.
+     *
+     * <p>Cancellation is cooperative and does not close the source or binding.
+     *
+     * @return {@code true} only when an active operation first accepted cancellation
+     */
     public boolean cancelCurrentOperation() {
         Operation current = operation.get();
         return current != null && current.cancel();
     }
 
-    /** Returns whether this binding has been permanently closed. */
+    /**
+     * Returns whether this binding has been permanently closed.
+     *
+     * @return {@code true} after close or removal of an attached owned binding
+     */
     public synchronized boolean isClosed() {
         return closed;
     }
 
-    /** Closes an unattached binding idempotently. */
+    /**
+     * Closes an unattached binding idempotently.
+     *
+     * <p>An owned binding closes its source exactly once. A borrowed or snapshot binding releases
+     * no external resource.
+     *
+     * @throws IllegalStateException if the binding is currently attached to a view
+     */
     @Override
     public void close() {
         FeatureSource closeFeatureSource = null;

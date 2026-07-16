@@ -32,6 +32,9 @@ public final class WebMercatorProjection implements Projection {
     private static final Envelope SOURCE_DOMAIN =
             new Envelope(-180.0, -MAX_LATITUDE, 180.0, MAX_LATITUDE);
 
+    /** Creates a strict stateless Web Mercator projection. */
+    public WebMercatorProjection() {}
+
     @Override
     public CrsDefinition sourceCrs() {
         return CrsDefinitions.EPSG_4326;

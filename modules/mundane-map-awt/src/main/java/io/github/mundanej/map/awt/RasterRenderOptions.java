@@ -14,7 +14,12 @@ public record RasterRenderOptions(RasterInterpolation interpolation, double opac
     private static final RasterRenderOptions DEFAULTS =
             new RasterRenderOptions(RasterInterpolation.NEAREST, 1.0);
 
-    /** Validates interpolation and finite opacity in {@code [0,1]}. */
+    /**
+     * Validates interpolation and finite opacity in {@code [0,1]}.
+     *
+     * @throws NullPointerException if {@code interpolation} is {@code null}
+     * @throws IllegalArgumentException if {@code opacity} is non-finite or outside {@code [0,1]}
+     */
     public RasterRenderOptions {
         Objects.requireNonNull(interpolation, "interpolation");
         if (!Double.isFinite(opacity) || opacity < 0.0 || opacity > 1.0) {
@@ -39,6 +44,7 @@ public record RasterRenderOptions(RasterInterpolation interpolation, double opac
      *
      * @param value requested sampling mode
      * @return immutable updated options
+     * @throws NullPointerException if {@code value} is {@code null}
      */
     public RasterRenderOptions withInterpolation(RasterInterpolation value) {
         return new RasterRenderOptions(value, opacity);
@@ -49,6 +55,7 @@ public record RasterRenderOptions(RasterInterpolation interpolation, double opac
      *
      * @param value finite opacity in {@code [0,1]}
      * @return immutable updated options
+     * @throws IllegalArgumentException if {@code value} is non-finite or outside {@code [0,1]}
      */
     public RasterRenderOptions withOpacity(double value) {
         return new RasterRenderOptions(interpolation, value);

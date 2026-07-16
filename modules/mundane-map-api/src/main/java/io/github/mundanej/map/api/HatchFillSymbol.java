@@ -40,7 +40,18 @@ public final class HatchFillSymbol implements FillSymbol {
         this.maxSegments = maxSegments;
     }
 
-    /** Creates a bounded hatch fill with all policies explicit. */
+    /**
+     * Creates a bounded hatch fill with all policies explicit.
+     *
+     * @param pattern hatch direction pattern
+     * @param stroke hatch color and width
+     * @param spacing positive perpendicular hatch spacing
+     * @param rotationMode screen- or map-relative orientation
+     * @param outline optional line-role outline
+     * @param opacity finite opacity from zero through one
+     * @param maxSegments positive per-feature candidate-segment limit
+     * @return immutable hatch fill
+     */
     public static HatchFillSymbol of(
             HatchPattern pattern,
             SymbolStroke stroke,
@@ -53,7 +64,16 @@ public final class HatchFillSymbol implements FillSymbol {
                 pattern, stroke, spacing, rotationMode, outline, opacity, maxSegments);
     }
 
-    /** Creates a hatch fill without an outline and with the default work limit. */
+    /**
+     * Creates a hatch fill without an outline and with the default work limit.
+     *
+     * @param pattern hatch direction pattern
+     * @param stroke hatch color and width
+     * @param spacing positive perpendicular hatch spacing
+     * @param rotationMode screen- or map-relative orientation
+     * @param opacity finite opacity from zero through one
+     * @return immutable hatch fill
+     */
     public static HatchFillSymbol of(
             HatchPattern pattern,
             SymbolStroke stroke,
@@ -70,27 +90,47 @@ public final class HatchFillSymbol implements FillSymbol {
                 DEFAULT_MAX_SEGMENTS);
     }
 
-    /** Returns the hatch pattern. */
+    /**
+     * Returns the hatch pattern.
+     *
+     * @return hatch direction pattern
+     */
     public HatchPattern pattern() {
         return pattern;
     }
 
-    /** Returns the hatch stroke. */
+    /**
+     * Returns the hatch stroke.
+     *
+     * @return immutable hatch stroke
+     */
     public SymbolStroke stroke() {
         return stroke;
     }
 
-    /** Returns the perpendicular spacing between hatch lines. */
+    /**
+     * Returns the perpendicular spacing between hatch lines.
+     *
+     * @return positive spacing and unit
+     */
     public SymbolLength spacing() {
         return spacing;
     }
 
-    /** Returns whether hatch orientation and phase are screen- or map-relative. */
+    /**
+     * Returns whether hatch orientation and phase are screen- or map-relative.
+     *
+     * @return hatch rotation mode
+     */
     public SymbolRotationMode rotationMode() {
         return rotationMode;
     }
 
-    /** Returns the optional line-symbol outline. */
+    /**
+     * Returns the optional line-symbol outline.
+     *
+     * @return optional immutable outline
+     */
     public Optional<Symbol> outline() {
         return outline;
     }
@@ -100,7 +140,11 @@ public final class HatchFillSymbol implements FillSymbol {
         return opacity;
     }
 
-    /** Returns the maximum candidate segments permitted for one feature. */
+    /**
+     * Returns the maximum candidate segments permitted for one feature.
+     *
+     * @return positive work limit
+     */
     public int maxSegments() {
         return maxSegments;
     }

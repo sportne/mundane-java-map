@@ -3,7 +3,12 @@ package io.github.mundanej.map.api;
 import java.util.List;
 import java.util.Objects;
 
-/** Immutable ordered source diagnostic report. */
+/**
+ * Immutable ordered source diagnostic report.
+ *
+ * @param entries defensively copied diagnostics in encounter order
+ * @param omittedWarningCount number of warnings omitted because of retention limits
+ */
 public record DiagnosticReport(List<SourceDiagnostic> entries, long omittedWarningCount) {
     /** Copies and validates the report. */
     public DiagnosticReport {
@@ -32,7 +37,11 @@ public record DiagnosticReport(List<SourceDiagnostic> entries, long omittedWarni
         }
     }
 
-    /** Returns an empty successful report. */
+    /**
+     * Returns an empty successful report.
+     *
+     * @return report with no entries or omissions
+     */
     public static DiagnosticReport empty() {
         return new DiagnosticReport(List.of(), 0);
     }

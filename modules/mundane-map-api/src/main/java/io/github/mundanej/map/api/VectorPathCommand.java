@@ -19,7 +19,11 @@ public enum VectorPathCommand {
         this.arity = arity;
     }
 
-    /** Returns the number of packed ordinates consumed by this command. */
+    /**
+     * Returns the number of packed ordinates consumed by this command.
+     *
+     * @return non-negative operand arity
+     */
     public int arity() {
         return arity;
     }

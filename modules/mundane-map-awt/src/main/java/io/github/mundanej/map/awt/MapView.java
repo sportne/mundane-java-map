@@ -138,14 +138,17 @@ import javax.swing.KeyStroke;
  * A lightweight Swing map component for projected vector features.
  *
  * <p>Mutation and listener callbacks follow the normal Swing event-dispatch-thread contract. Swing
- * serialization is inherited for framework compatibility and is not a persistence format.
+ * serialization is inherited for framework compatibility and is not a persistence format. The view
+ * owns only sources transferred through owned {@link MapLayerBinding} instances; callers must close
+ * borrowed sources themselves. After {@link #close()}, mutating and rendering operations are
+ * invalid and installed owned bindings have been closed.
  */
 @SuppressWarnings({"deprecation", "serial"})
 public final class MapView extends JComponent implements AutoCloseable {
-    /** Default logical-pixel tolerance for click selection. */
+    /** Default logical-pixel tolerance for click selection ({@value}). */
     public static final double DEFAULT_SELECTION_TOLERANCE_PIXELS = 4.0;
 
-    /** Default logical-pixel tolerance for pointer hover. */
+    /** Default logical-pixel tolerance for pointer hover ({@value}). */
     public static final double DEFAULT_HOVER_TOLERANCE_PIXELS = 4.0;
 
     private static final long serialVersionUID = 1L;
@@ -154,67 +157,178 @@ public final class MapView extends JComponent implements AutoCloseable {
     private static final double ZOOM_STEP = 1.2;
     private static final double SCREEN_PATH_TOLERANCE = 0.25;
 
+    /** Explicit CRS registry; Swing serialization is not a persistence contract. */
     private final CrsRegistry crsRegistry;
+
+    /** Map-coordinate CRS. */
     private final CrsDefinition mapCrs;
+
+    /** Display-world CRS. */
     private final CrsDefinition displayCrs;
+
+    /** Resolved forward CRS operation. */
     private final CrsOperation mapToDisplay;
+
+    /** Resolved inverse CRS operation. */
     private final CrsOperation displayToMap;
+
+    /** Explicit symbol renderer registry. */
     private final SymbolRendererRegistry symbolRenderers;
+
+    /** Screen-geometry optimization mode. */
     private final ScreenGeometryOptimizationMode screenGeometryOptimizationMode;
+
+    /** Private render-cache mode. */
     private final AwtRenderCacheMode renderCacheMode;
+
+    /** Private view-owned render cache. */
     private final AwtRenderCache renderCache = new AwtRenderCache();
+
+    /** Active test/evidence collector, normally {@code null}. */
     private ScreenGeometryPaintCollector activeScreenGeometryPaintCollector;
+
+    /** Active private cache collector, normally {@code null}. */
     private AwtRenderCache.CacheEventCollector activeRenderCacheCollector;
+
+    /** Active-tool router. */
     private final MapToolRouter toolRouter = new MapToolRouter();
+
+    /** Ordered pointer-listener registrations. */
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
+
+    /** Ordered hover-listener registrations. */
     private final List<MapHoverListener> hoverListeners = new ArrayList<>();
+
+    /** Ordered selection-listener registrations. */
     private final List<MapSelectionListener> selectionListeners = new ArrayList<>();
+
+    /** Ordered source-report-listener registrations. */
     private final List<MapSourceReportListener> sourceReportListeners = new ArrayList<>();
+
+    /** Queued source-report notifications. */
     private final Deque<MapSourceReportEvent> sourceReportNotifications = new ArrayDeque<>();
+
+    /** Queued interaction notifications. */
     private final Deque<InteractionNotification> interactionNotifications = new ArrayDeque<>();
+
+    /** Identity set of measurement tools claimed by this view. */
     private final Set<MeasurementTool> measurementClaims =
             Collections.newSetFromMap(new IdentityHashMap<>());
+
+    /** Immutable ordered installed binding list. */
     private List<MapLayerBinding> bindings = List.of();
+
+    /** Immutable resolved feature-binding map. */
     private Map<MapLayerBinding, ResolvedFeatureBinding> resolvedFeatureBindings = Map.of();
+
+    /** Identity-keyed view-owned raster presentation options. */
     private final IdentityHashMap<MapLayerBinding, RasterRenderOptions> rasterRenderOptions =
             new IdentityHashMap<>();
+
+    /** Stable source reports keyed by layer identifier. */
     private final LinkedHashMap<String, DiagnosticReport> sourceReports = new LinkedHashMap<>();
+
+    /** Source availability keyed by layer identifier. */
     private final Map<String, Boolean> sourceAvailability = new LinkedHashMap<>();
+
+    /** Current immutable selection identity. */
     private Optional<FeatureSelection> selection = Optional.empty();
+
+    /** Current immutable hover identity. */
     private Optional<MapHit> hover = Optional.empty();
+
+    /** Last hover query used for deterministic reprobe. */
     private Optional<HoverProbe> hoverProbe = Optional.empty();
+
+    /** Logical-paint state for the current hover. */
     private Optional<AwtLogicalPaintPresence> hoverPaintState = Optional.empty();
+
+    /** Logical-paint state for the current selection. */
     private Optional<AwtLogicalPaintPresence> selectionPaintState = Optional.empty();
+
+    /** Immutable hover overlay symbols. */
     private FeatureOverlaySymbols hoverOverlay = FeatureOverlaySymbols.defaultHover();
+
+    /** Immutable selection overlay symbols. */
     private FeatureOverlaySymbols selectionOverlay = FeatureOverlaySymbols.defaultSelection();
+
+    /** Interaction-notification reentrancy guard. */
     private boolean drainingInteractionNotifications;
+
+    /** Current immutable viewport. */
     private MapViewport viewport = MapViewport.initial(DEFAULT_WIDTH, DEFAULT_HEIGHT);
+
+    /** Active pan anchor in logical-screen pixels, or {@code null}. */
     private Point dragAnchor;
+
+    /** Last pointer x ordinate in logical-screen pixels. */
     private double lastPointerX = DEFAULT_WIDTH / 2.0;
+
+    /** Last pointer y ordinate in logical-screen pixels. */
     private double lastPointerY = DEFAULT_HEIGHT / 2.0;
+
+    /** Immutable identity set of currently pressed pointer buttons. */
     private Set<MapPointerButton> lastButtonsDown = Set.of();
+
+    /** Immutable set of current pointer modifiers. */
     private Set<MapInputModifier> lastModifiers = Set.of();
+
+    /** Monotonically increasing tool-event sequence. */
     private long toolEventSequence;
+
+    /** Current tool-router callback depth. */
     private int routerCallDepth;
+
+    /** Permanent closed state. */
     private boolean closed;
+
+    /** Source-report-notification reentrancy guard. */
     private boolean drainingSourceReportNotifications;
 
-    /** Creates an empty view using the supplied source-to-world projection. */
+    /**
+     * Creates an empty view using the supplied source-to-world projection.
+     *
+     * @param projection non-null projection used by compatibility snapshot layers
+     * @throws NullPointerException if {@code projection} is {@code null}
+     */
     public MapView(Projection projection) {
         this(projection, SymbolRendererRegistry.builtIn());
     }
 
-    /** Creates an empty view using an explicit immutable symbol renderer registry. */
+    /**
+     * Creates an empty view using an explicit immutable symbol renderer registry.
+     *
+     * @param projection non-null projection used by compatibility snapshot layers
+     * @param symbolRenderers non-null explicit immutable renderer registry
+     * @throws NullPointerException if an argument is {@code null}
+     */
     public MapView(Projection projection, SymbolRendererRegistry symbolRenderers) {
         this(configuration(projection), symbolRenderers, ScreenGeometryOptimizationMode.LEVEL1);
     }
 
-    /** Creates an empty view with explicit map and display coordinate reference systems. */
+    /**
+     * Creates an empty view with explicit map and display coordinate reference systems.
+     *
+     * @param crsRegistry non-null explicit operation registry
+     * @param mapCrs CRS used by compatibility layers and pointer coordinates
+     * @param displayCrs CRS used by viewport world coordinates
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws CrsException if either required direction is not registered
+     */
     public MapView(CrsRegistry crsRegistry, CrsDefinition mapCrs, CrsDefinition displayCrs) {
         this(crsRegistry, mapCrs, displayCrs, SymbolRendererRegistry.builtIn());
     }
 
-    /** Creates an explicitly configured view and symbol-renderer registry. */
+    /**
+     * Creates an explicitly configured view and symbol-renderer registry.
+     *
+     * @param crsRegistry non-null explicit operation registry
+     * @param mapCrs CRS used by compatibility layers and pointer coordinates
+     * @param displayCrs CRS used by viewport world coordinates
+     * @param symbolRenderers non-null explicit immutable renderer registry
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws CrsException if either required CRS operation is not registered
+     */
     public MapView(
             CrsRegistry crsRegistry,
             CrsDefinition mapCrs,
@@ -296,17 +410,34 @@ public final class MapView extends JComponent implements AutoCloseable {
         installInteraction();
     }
 
-    /** Returns the map-coordinate CRS used by legacy layers and pointer values. */
+    /**
+     * Returns the map-coordinate CRS used by compatibility layers and pointer values.
+     *
+     * @return immutable map CRS fixed at construction
+     */
     public CrsDefinition mapCrs() {
         return mapCrs;
     }
 
-    /** Returns the world/display CRS used by the viewport. */
+    /**
+     * Returns the world/display CRS used by the viewport.
+     *
+     * @return immutable display CRS fixed at construction
+     */
     public CrsDefinition displayCrs() {
         return displayCrs;
     }
 
-    /** Installs one active tool, replacing a distinct active instance by identity. */
+    /**
+     * Installs one active tool, replacing a distinct active instance by identity.
+     *
+     * <p>A replacement receives the documented cancellation/deactivation lifecycle before the new
+     * tool is activated. A {@link MeasurementTool} can be installed in only one view at a time.
+     *
+     * @param tool non-null tool to install
+     * @throws NullPointerException if {@code tool} is {@code null}
+     * @throws IllegalStateException if this view is closed or the tool belongs to another view
+     */
     public void setActiveTool(MapTool tool) {
         requireOpen();
         Objects.requireNonNull(tool, "tool");
@@ -335,7 +466,11 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Clears the active tool, if present. */
+    /**
+     * Clears the active tool, if present, after cancellation and deactivation callbacks.
+     *
+     * @throws IllegalStateException if this view is closed
+     */
     public void clearActiveTool() {
         requireOpen();
         ToolContextSnapshot context = toolContextSnapshot();
@@ -355,12 +490,25 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Returns the active tool, if any. */
+    /**
+     * Returns the active tool, if any.
+     *
+     * @return currently installed tool by identity, or empty
+     */
     public Optional<MapTool> activeTool() {
         return toolRouter.activeTool();
     }
 
-    /** Replaces the ordered eager-layer compatibility snapshot. */
+    /**
+     * Replaces the ordered eager-layer compatibility snapshot.
+     *
+     * <p>The input list is defensively copied and mapped to non-owning snapshot bindings.
+     *
+     * @param layers ordered non-null eager layers
+     * @throws NullPointerException if the list or an element is {@code null}
+     * @throws IllegalArgumentException if layer identifiers are duplicated
+     * @throws IllegalStateException if this view is closed
+     */
     public void setLayers(List<Layer> layers) {
         List<Layer> candidate = List.copyOf(Objects.requireNonNull(layers, "layers"));
         List<MapLayerBinding> mapped = new ArrayList<>(candidate.size());
@@ -370,7 +518,11 @@ public final class MapView extends JComponent implements AutoCloseable {
         setLayerBindings(mapped);
     }
 
-    /** Returns eager layers in relative order, excluding source-backed bindings. */
+    /**
+     * Returns eager layers in relative order, excluding source-backed bindings.
+     *
+     * @return immutable snapshot of installed compatibility layers
+     */
     public List<Layer> layers() {
         List<Layer> result = new ArrayList<>();
         for (MapLayerBinding binding : bindings) {
@@ -381,7 +533,19 @@ public final class MapView extends JComponent implements AutoCloseable {
         return List.copyOf(result);
     }
 
-    /** Replaces the complete ordered layer-binding stack transactionally. */
+    /**
+     * Replaces the complete ordered layer-binding stack transactionally.
+     *
+     * <p>The list is defensively copied. New bindings are claimed before the state changes; removed
+     * owned bindings are closed after a successful replacement. Each identity may occur once and
+     * identifiers must be unique.
+     *
+     * @param requested ordered non-null bindings
+     * @throws NullPointerException if the list or an element is {@code null}
+     * @throws IllegalArgumentException if an identity or identifier is duplicated
+     * @throws IllegalStateException if this view is closed, a binding is closed, or a binding is
+     *     attached to another view
+     */
     public void setLayerBindings(List<MapLayerBinding> requested) {
         requireOpen();
         List<MapLayerBinding> candidate =
@@ -435,7 +599,11 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Returns the complete immutable ordered binding stack. */
+    /**
+     * Returns the complete immutable ordered binding stack.
+     *
+     * @return immutable binding-list snapshot in paint order
+     */
     public List<MapLayerBinding> layerBindings() {
         return bindings;
     }
@@ -448,6 +616,11 @@ public final class MapView extends JComponent implements AutoCloseable {
      *
      * @param layerId installed raster layer identifier
      * @param options immutable options snapshot
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if {@code layerId} does not identify an installed raster
+     *     binding
+     * @throws IllegalStateException if the view is closed or the caller is not on the
+     *     event-dispatch thread
      */
     public void setRasterRenderOptions(String layerId, RasterRenderOptions options) {
         requireOpen();
@@ -465,7 +638,11 @@ public final class MapView extends JComponent implements AutoCloseable {
         repaint();
     }
 
-    /** Returns non-empty source reports in installed layer order. */
+    /**
+     * Returns non-empty source reports in installed layer order.
+     *
+     * @return immutable map from stable layer identifier to immutable structured report
+     */
     public Map<String, DiagnosticReport> sourceReports() {
         LinkedHashMap<String, DiagnosticReport> ordered = new LinkedHashMap<>();
         for (MapLayerBinding binding : bindings) {
@@ -479,17 +656,30 @@ public final class MapView extends JComponent implements AutoCloseable {
         return Collections.unmodifiableMap(ordered);
     }
 
-    /** Adds a source-report listener; duplicate instances receive duplicate callbacks. */
+    /**
+     * Adds a source-report listener; duplicate instances receive duplicate callbacks.
+     *
+     * @param listener non-null listener called on the event-dispatch thread
+     * @throws NullPointerException if {@code listener} is {@code null}
+     */
     public void addMapSourceReportListener(MapSourceReportListener listener) {
         sourceReportListeners.add(Objects.requireNonNull(listener, "listener"));
     }
 
-    /** Removes the first identical source-report listener registration. */
+    /**
+     * Removes the first identical source-report listener registration.
+     *
+     * @param listener identity to remove; {@code null} simply matches no registration
+     */
     public void removeMapSourceReportListener(MapSourceReportListener listener) {
         removeIdentical(sourceReportListeners, listener);
     }
 
-    /** Returns the selected stable feature identity after reconciling current content. */
+    /**
+     * Returns the selected stable feature identity after reconciling current content.
+     *
+     * @return current immutable layer/feature identity, or empty
+     */
     public Optional<FeatureSelection> selection() {
         ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
         reconcileInteraction(snapshot, true, true);
@@ -497,7 +687,14 @@ public final class MapView extends JComponent implements AutoCloseable {
         return selection;
     }
 
-    /** Selects an identity that exists uniquely in the current content snapshot. */
+    /**
+     * Selects an identity that exists uniquely in the current content snapshot.
+     *
+     * @param requested non-null stable layer/feature identity
+     * @throws NullPointerException if {@code requested} is {@code null}
+     * @throws IllegalArgumentException if the identity is not uniquely present
+     * @throws IllegalStateException if this view is closed
+     */
     public void setSelection(FeatureSelection requested) {
         requireOpen();
         Objects.requireNonNull(requested, "requested");
@@ -509,13 +706,21 @@ public final class MapView extends JComponent implements AutoCloseable {
         drainSourceReportNotifications();
     }
 
-    /** Clears selection without consulting potentially mutable layer content. */
+    /**
+     * Clears selection without consulting potentially mutable layer content.
+     *
+     * @throws IllegalStateException if this view is closed
+     */
     public void clearSelection() {
         requireOpen();
         transitionInteraction(Optional.empty(), hover, true);
     }
 
-    /** Returns the current stable hover identity after reconciling current content. */
+    /**
+     * Returns the current stable hover identity after reconciling current content.
+     *
+     * @return current immutable topmost hit identity, or empty
+     */
     public Optional<MapHit> hover() {
         ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
         reconcileInteraction(snapshot, true, true);
@@ -523,32 +728,60 @@ public final class MapView extends JComponent implements AutoCloseable {
         return hover;
     }
 
-    /** Adds a hover listener; duplicate instances receive duplicate callbacks. */
+    /**
+     * Adds a hover listener; duplicate instances receive duplicate callbacks.
+     *
+     * @param listener non-null listener called on the event-dispatch thread
+     * @throws NullPointerException if {@code listener} is {@code null}
+     */
     public void addMapHoverListener(MapHoverListener listener) {
         hoverListeners.add(Objects.requireNonNull(listener, "listener"));
     }
 
-    /** Removes the first identical hover-listener registration. */
+    /**
+     * Removes the first identical hover-listener registration.
+     *
+     * @param listener identity to remove; {@code null} simply matches no registration
+     */
     public void removeMapHoverListener(MapHoverListener listener) {
         removeIdentical(hoverListeners, listener);
     }
 
-    /** Adds a selection listener; duplicate instances receive duplicate callbacks. */
+    /**
+     * Adds a selection listener; duplicate instances receive duplicate callbacks.
+     *
+     * @param listener non-null listener called on the event-dispatch thread
+     * @throws NullPointerException if {@code listener} is {@code null}
+     */
     public void addMapSelectionListener(MapSelectionListener listener) {
         selectionListeners.add(Objects.requireNonNull(listener, "listener"));
     }
 
-    /** Removes the first identical selection-listener registration. */
+    /**
+     * Removes the first identical selection-listener registration.
+     *
+     * @param listener identity to remove; {@code null} simply matches no registration
+     */
     public void removeMapSelectionListener(MapSelectionListener listener) {
         removeIdentical(selectionListeners, listener);
     }
 
-    /** Returns the immutable hover overlay symbol bundle. */
+    /**
+     * Returns the immutable hover overlay symbol bundle.
+     *
+     * @return current marker/line/fill overlay symbols
+     */
     public FeatureOverlaySymbols hoverOverlaySymbols() {
         return hoverOverlay;
     }
 
-    /** Replaces the hover overlay symbols and repaints on a real change. */
+    /**
+     * Replaces the hover overlay symbols and repaints on a real change.
+     *
+     * @param overlay non-null immutable overlay symbol bundle
+     * @throws NullPointerException if {@code overlay} is {@code null}
+     * @throws IllegalStateException if this view is closed
+     */
     public void setHoverOverlaySymbols(FeatureOverlaySymbols overlay) {
         requireOpen();
         FeatureOverlaySymbols requested = Objects.requireNonNull(overlay, "overlay");
@@ -558,12 +791,22 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Returns the immutable selection overlay symbol bundle. */
+    /**
+     * Returns the immutable selection overlay symbol bundle.
+     *
+     * @return current marker/line/fill overlay symbols
+     */
     public FeatureOverlaySymbols selectionOverlaySymbols() {
         return selectionOverlay;
     }
 
-    /** Replaces the selection overlay symbols and repaints on a real change. */
+    /**
+     * Replaces the selection overlay symbols and repaints on a real change.
+     *
+     * @param overlay non-null immutable overlay symbol bundle
+     * @throws NullPointerException if {@code overlay} is {@code null}
+     * @throws IllegalStateException if this view is closed
+     */
     public void setSelectionOverlaySymbols(FeatureOverlaySymbols overlay) {
         requireOpen();
         FeatureOverlaySymbols requested = Objects.requireNonNull(overlay, "overlay");
@@ -573,7 +816,18 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Returns visible feature hits in deterministic topmost-first paint order. */
+    /**
+     * Returns visible feature hits in deterministic topmost-first paint order.
+     *
+     * <p>Coordinates and tolerance use logical-screen pixels. Queries outside the component return
+     * an empty result, and the tolerance is capped to the component diagonal.
+     *
+     * @param screenX finite logical-screen x ordinate
+     * @param screenY finite logical-screen y ordinate
+     * @param tolerancePixels finite non-negative logical-pixel tolerance
+     * @return immutable ordered hit results
+     * @throws IllegalArgumentException if an ordinate is non-finite or tolerance is negative
+     */
     public MapHitResults hitTest(double screenX, double screenY, double tolerancePixels) {
         if (!Double.isFinite(screenX)
                 || !Double.isFinite(screenY)
@@ -622,13 +876,23 @@ public final class MapView extends JComponent implements AutoCloseable {
         return MapHitResults.of(hits);
     }
 
-    /** Returns the current viewport, resized to the component's current dimensions. */
+    /**
+     * Returns the current viewport, resized to the component's current dimensions.
+     *
+     * @return immutable viewport in the display CRS and logical-screen pixels
+     */
     public MapViewport viewport() {
         synchronizeViewportSize();
         return viewport;
     }
 
-    /** Replaces the viewport state and repaints the component. */
+    /**
+     * Replaces the viewport state and repaints the component.
+     *
+     * @param viewport non-null immutable display-CRS viewport
+     * @throws NullPointerException if {@code viewport} is {@code null}
+     * @throws IllegalStateException if this view is closed
+     */
     public void setViewport(MapViewport viewport) {
         requireOpen();
         this.viewport = Objects.requireNonNull(viewport, "viewport");
@@ -637,7 +901,17 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Fits all non-empty layers using the requested screen-pixel padding. */
+    /**
+     * Fits all representable non-empty layers using the requested logical-screen-pixel padding.
+     *
+     * <p>Feature-source CRS failures become structured source reports; compatibility-layer CRS
+     * failures are thrown. An empty layer stack leaves the viewport unchanged.
+     *
+     * @param paddingPixels finite non-negative padding in logical pixels
+     * @throws IllegalArgumentException if padding is invalid for viewport fitting
+     * @throws IllegalStateException if this view is closed
+     * @throws CrsException if a compatibility layer extent cannot be transformed
+     */
     public void fitToData(double paddingPixels) {
         requireOpen();
         Envelope projected = null;
@@ -692,7 +966,15 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Converts a screen location into map coordinates when it lies in the inverse domain. */
+    /**
+     * Converts a screen location into map coordinates when it lies in the inverse domain.
+     *
+     * @param screenX finite logical-screen x ordinate in pixels
+     * @param screenY finite logical-screen y ordinate in pixels
+     * @return immutable map-CRS coordinate, or empty outside the supported inverse domain
+     * @throws IllegalArgumentException if an ordinate is non-finite
+     * @throws CrsException for a registry/operation failure other than an expected domain miss
+     */
     public Optional<Coordinate> screenToMap(double screenX, double screenY) {
         if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
             throw new IllegalArgumentException("Screen coordinates must be finite");
@@ -713,7 +995,14 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Converts a map coordinate into screen coordinates when it is representable. */
+    /**
+     * Converts a map coordinate into logical-screen coordinates when it is representable.
+     *
+     * @param coordinate non-null coordinate in the map CRS
+     * @return immutable logical-screen coordinate in pixels, or empty outside the supported domain
+     * @throws NullPointerException if {@code coordinate} is {@code null}
+     * @throws CrsException for a registry/operation failure other than an expected domain miss
+     */
     public Optional<Coordinate> mapToScreen(Coordinate coordinate) {
         Objects.requireNonNull(coordinate, "coordinate");
         Coordinate world;
@@ -732,12 +1021,21 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    /** Adds a pointer listener. Duplicate instances receive duplicate callbacks. */
+    /**
+     * Adds a pointer listener; duplicate instances receive duplicate callbacks.
+     *
+     * @param listener non-null listener called on the event-dispatch thread
+     * @throws NullPointerException if {@code listener} is {@code null}
+     */
     public void addMapPointerListener(MapPointerListener listener) {
         pointerListeners.add(Objects.requireNonNull(listener, "listener"));
     }
 
-    /** Removes one matching pointer-listener instance. */
+    /**
+     * Removes the first identical pointer-listener registration.
+     *
+     * @param listener identity to remove; {@code null} simply matches no registration
+     */
     public void removeMapPointerListener(MapPointerListener listener) {
         for (int index = 0; index < pointerListeners.size(); index++) {
             if (pointerListeners.get(index) == listener) {
@@ -760,7 +1058,13 @@ public final class MapView extends JComponent implements AutoCloseable {
         runThenClearHover(this::cancelAndRemoveNotify);
     }
 
-    /** Permanently disposes this view and closes installed owned bindings. */
+    /**
+     * Permanently disposes this view and closes installed owned bindings.
+     *
+     * <p>Close is idempotent. It cancels/deactivates the active tool, releases borrowed bindings,
+     * closes owned sources, and clears view-owned caches. If multiple callbacks or sources fail,
+     * the first failure is thrown and distinct later failures are suppressed.
+     */
     @Override
     public void close() {
         if (closed) {

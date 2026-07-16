@@ -244,6 +244,44 @@ class BuildConfigurationTest {
         assertTrue(failure.getMessage().contains("map.javaRelease is fixed at 21; received 25"));
     }
 
+    @Test
+    void publishedApiDocumentationPolicyIsStrictAndOffline() throws Exception {
+        String javaConvention =
+                Files.readString(
+                        ROOT.resolve(
+                                "build-logic/src/main/groovy/"
+                                        + "mundane-map.java-library-conventions.gradle"));
+        assertTrue(!javaConvention.contains("options.links"));
+
+        String publishingConvention =
+                Files.readString(
+                        ROOT.resolve(
+                                "build-logic/src/main/groovy/"
+                                        + "mundane-map.publishing-conventions.gradle"));
+        assertTrue(publishingConvention.contains("options.encoding = 'UTF-8'"));
+        assertTrue(publishingConvention.contains("options.charSet = 'UTF-8'"));
+        assertTrue(publishingConvention.contains("options.docEncoding = 'UTF-8'"));
+        assertTrue(
+                publishingConvention.contains(
+                        "options.addBooleanOption('Xdoclint:all', true)"));
+        assertTrue(publishingConvention.contains("options.addBooleanOption('Werror', true)"));
+        assertTrue(
+                publishingConvention.contains("options.addBooleanOption('notimestamp', true)"));
+        assertTrue(!publishingConvention.contains("options.links"));
+        assertTrue(publishingConvention.contains("tasks.register('checkstylePublicApi', Checkstyle)"));
+        assertTrue(publishingConvention.contains("source = sourceSets.main.allJava"));
+        assertTrue(publishingConvention.contains("dependsOn publicApiCheck"));
+
+        String publicApiRules =
+                Files.readString(ROOT.resolve("config/checkstyle/checkstyle-public-api.xml"));
+        assertTrue(publicApiRules.contains("<module name=\"JavadocPackage\"/>"));
+        assertTrue(publicApiRules.contains("<module name=\"MissingJavadocType\">"));
+        assertTrue(publicApiRules.contains("<module name=\"MissingJavadocMethod\">"));
+        assertTrue(publicApiRules.contains("<module name=\"JavadocVariable\">"));
+        assertTrue(publicApiRules.contains("<property name=\"scope\" value=\"protected\"/>"));
+        assertTrue(publicApiRules.contains("<property name=\"allowedAnnotations\" value=\"Override\"/>"));
+    }
+
     private Path createRepositoryFixture() throws IOException {
         Path project = Files.createDirectory(temporaryDirectory.resolve("repository-fixture"));
         Files.writeString(project.resolve("settings.gradle"), repositorySettings(false));

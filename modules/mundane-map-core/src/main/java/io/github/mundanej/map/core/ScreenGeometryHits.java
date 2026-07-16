@@ -8,7 +8,16 @@ import java.util.Objects;
 public final class ScreenGeometryHits {
     private ScreenGeometryHits() {}
 
-    /** Returns whether two finite points are within the inclusive radius. */
+    /**
+     * Returns whether two finite points are within the inclusive radius.
+     *
+     * @param pointX point x coordinate in logical screen pixels
+     * @param pointY point y coordinate in logical screen pixels
+     * @param queryX query x coordinate in logical screen pixels
+     * @param queryY query y coordinate in logical screen pixels
+     * @param radius non-negative inclusive hit radius in logical screen pixels
+     * @return {@code true} when the Euclidean distance is at most {@code radius}
+     */
     public static boolean pointWithin(
             double pointX, double pointY, double queryX, double queryY, double radius) {
         requireFinite(pointX, pointY, queryX, queryY, radius);
@@ -16,7 +25,16 @@ public final class ScreenGeometryHits {
         return Math.hypot(pointX - queryX, pointY - queryY) <= radius;
     }
 
-    /** Tests the union of round segment capsules in an open or closed sequence. */
+    /**
+     * Tests the union of round segment capsules in an open or closed sequence.
+     *
+     * @param screen vertices in logical screen pixels
+     * @param closed whether to include the last-to-first segment
+     * @param queryX query x coordinate in logical screen pixels
+     * @param queryY query y coordinate in logical screen pixels
+     * @param radius non-negative inclusive hit radius in logical screen pixels
+     * @return {@code true} when the query lies within any segment capsule
+     */
     public static boolean polylineWithin(
             CoordinateSequence screen,
             boolean closed,
@@ -43,7 +61,16 @@ public final class ScreenGeometryHits {
         return false;
     }
 
-    /** Tests an even-odd filled polygon plus its inclusive tolerance-expanded boundaries. */
+    /**
+     * Tests an even-odd filled polygon plus its inclusive tolerance-expanded boundaries.
+     *
+     * @param exterior exterior ring in logical screen pixels
+     * @param holes hole rings in logical screen pixels
+     * @param queryX query x coordinate in logical screen pixels
+     * @param queryY query y coordinate in logical screen pixels
+     * @param tolerance non-negative boundary tolerance in logical screen pixels
+     * @return {@code true} for a boundary hit or an even-odd filled-area hit
+     */
     public static boolean filledPolygonWithin(
             CoordinateSequence exterior,
             List<CoordinateSequence> holes,
@@ -71,7 +98,17 @@ public final class ScreenGeometryHits {
         return inside;
     }
 
-    /** Tests a convex screen quad and its inclusive tolerance-expanded boundary. */
+    /**
+     * Tests a convex screen quad and its inclusive tolerance-expanded boundary.
+     *
+     * @param screenXy8 four interleaved x/y vertices in logical screen pixels
+     * @param queryX query x coordinate in logical screen pixels
+     * @param queryY query y coordinate in logical screen pixels
+     * @param tolerance non-negative boundary tolerance in logical screen pixels
+     * @return {@code true} when the query hits the boundary or convex interior
+     * @throws IllegalArgumentException when the array does not contain exactly eight finite
+     *     ordinates or the tolerance is invalid
+     */
     public static boolean convexQuadWithin(
             double[] screenXy8, double queryX, double queryY, double tolerance) {
         Objects.requireNonNull(screenXy8, "screenXy8");

@@ -35,27 +35,59 @@ public final class NamedSymbolCatalog implements Iterable<NamedSymbol> {
         byName = Map.copyOf(lookup);
     }
 
-    /** Creates a catalog from declaration-ordered entries. */
+    /**
+     * Creates a catalog from declaration-ordered entries.
+     *
+     * @param entries named symbols in declaration order
+     * @return immutable exact-name catalog
+     * @throws NullPointerException if {@code entries} or one of its elements is {@code null}
+     * @throws SymbolException with code {@link SymbolException#CATALOG_DUPLICATE} and {@code name},
+     *     {@code firstIndex}, and {@code duplicateIndex} context when an exact name is duplicated
+     */
     public static NamedSymbolCatalog of(List<NamedSymbol> entries) {
         return new NamedSymbolCatalog(entries);
     }
 
-    /** Returns the declaration-ordered immutable entries. */
+    /**
+     * Returns the declaration-ordered immutable entries.
+     *
+     * @return immutable entries
+     */
     public List<NamedSymbol> entries() {
         return entries;
     }
 
-    /** Returns the number of entries. */
+    /**
+     * Returns the number of entries.
+     *
+     * @return catalog size
+     */
     public int size() {
         return entries.size();
     }
 
-    /** Finds an exact valid name without fallback. */
+    /**
+     * Finds an exact valid name without fallback.
+     *
+     * @param name exact case-sensitive name
+     * @return symbol or empty when absent
+     * @throws NullPointerException if {@code name} is {@code null}
+     * @throws IllegalArgumentException if {@code name} is blank or has edge whitespace
+     */
     public Optional<Symbol> find(String name) {
         return Optional.ofNullable(byName.get(NamedSymbol.requireName(name)));
     }
 
-    /** Requires an exact valid name without fallback. */
+    /**
+     * Requires an exact valid name without fallback.
+     *
+     * @param name exact case-sensitive name
+     * @return matching symbol
+     * @throws NullPointerException if {@code name} is {@code null}
+     * @throws IllegalArgumentException if {@code name} is blank or has edge whitespace
+     * @throws SymbolException with code {@link SymbolException#CATALOG_MISSING} and {@code name}
+     *     context when the exact name is absent
+     */
     public Symbol require(String name) {
         String validName = NamedSymbol.requireName(name);
         Symbol symbol = byName.get(validName);

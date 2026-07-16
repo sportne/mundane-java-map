@@ -46,7 +46,7 @@ import javax.swing.WindowConstants;
 public final class ShapefileViewer {
     static final int PREVIEW_LIMIT = 20;
     private static final String LAYER_ID = "shapefile";
-    private static final String SOURCE_ID = "shapefile-source";
+    private static final String SOURCE_ID = "shapefile-viewer";
 
     private ShapefileViewer() {}
 
@@ -165,6 +165,10 @@ public final class ShapefileViewer {
             }
             throw failure;
         }
+    }
+
+    static ViewerSession startHeadless(LoadedDataset loaded) {
+        return start(loaded, false, ignored -> {});
     }
 
     static ViewerSession launchLoaded(LoadedDataset loaded, Consumer<Runnable> scheduler) {

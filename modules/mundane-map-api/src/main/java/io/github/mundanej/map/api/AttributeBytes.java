@@ -7,22 +7,39 @@ import java.util.Objects;
 public final class AttributeBytes {
     private final byte[] bytes;
 
-    /** Copies the supplied bytes. */
+    /**
+     * Copies the supplied bytes.
+     *
+     * @param bytes payload to copy
+     */
     public AttributeBytes(byte[] bytes) {
         this.bytes = Objects.requireNonNull(bytes, "bytes").clone();
     }
 
-    /** Returns the payload length. */
+    /**
+     * Returns the payload length.
+     *
+     * @return number of bytes
+     */
     public int length() {
         return bytes.length;
     }
 
-    /** Returns the byte at an index. */
+    /**
+     * Returns the byte at an index.
+     *
+     * @param index zero-based byte index
+     * @return byte at the index
+     */
     public byte byteAt(int index) {
         return bytes[index];
     }
 
-    /** Returns a defensive payload copy. */
+    /**
+     * Returns a defensive payload copy.
+     *
+     * @return newly allocated byte array
+     */
     public byte[] toArray() {
         return bytes.clone();
     }

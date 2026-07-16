@@ -4,7 +4,15 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-/** Immutable metadata captured when a feature source opens. */
+/**
+ * Immutable metadata captured when a feature source opens.
+ *
+ * @param identity bounded logical identity with no implicit locator
+ * @param extent optional source-coordinate extent
+ * @param featureCount optional non-negative feature count
+ * @param schema optional immutable attribute schema
+ * @param crs optional retained and possibly recognized CRS metadata
+ */
 public record FeatureSourceMetadata(
         SourceIdentity identity,
         Optional<Envelope> extent,

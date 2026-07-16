@@ -15,7 +15,15 @@ import java.util.Objects;
 public final class SymbolTransforms {
     private SymbolTransforms() {}
 
-    /** Derives a marker's local-to-screen coefficients and nominal bounds. */
+    /**
+     * Derives a marker's local-to-screen coefficients and nominal bounds.
+     *
+     * @param viewBox marker-local coordinate bounds
+     * @param placement immutable marker placement
+     * @param featureScreen feature anchor in logical screen pixels
+     * @param basis map-to-screen basis at the current viewport
+     * @return validated local-to-screen affine transform
+     */
     public static MarkerTransform marker(
             Envelope viewBox,
             MarkerPlacement placement,
@@ -30,7 +38,17 @@ public final class SymbolTransforms {
         return markerWithBearing(viewBox, placement, featureScreen, basis, bearing);
     }
 
-    /** Derives a marker transform using an outward screen bearing as its rotation base. */
+    /**
+     * Derives a marker transform using an outward screen bearing as its rotation base.
+     *
+     * @param viewBox marker-local coordinate bounds
+     * @param placement immutable marker placement
+     * @param featureScreen feature anchor in logical screen pixels
+     * @param basis map-to-screen basis at the current viewport
+     * @param outwardBearingDegrees finite clockwise screen bearing in degrees used as the rotation
+     *     base
+     * @return validated local-to-screen affine transform
+     */
     public static MarkerTransform markerAtScreenBearing(
             Envelope viewBox,
             MarkerPlacement placement,
@@ -129,7 +147,14 @@ public final class SymbolTransforms {
         return new MarkerTransform(m00, m10, m01, m11, m02, m12, bounds);
     }
 
-    /** Converts a positive symbol length into logical screen pixels. */
+    /**
+     * Converts a positive symbol length into logical screen pixels.
+     *
+     * @param length positive length and unit
+     * @param basis map-to-screen basis supplying map-unit scale
+     * @return finite positive length in logical screen pixels
+     * @throws SymbolException when conversion produces a non-finite or non-positive value
+     */
     public static double screenLength(SymbolLength length, MapScreenBasis basis) {
         Objects.requireNonNull(length, "length");
         Objects.requireNonNull(basis, "basis");

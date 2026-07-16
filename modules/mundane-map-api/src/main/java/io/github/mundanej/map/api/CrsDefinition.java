@@ -2,7 +2,15 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Immutable recognized coordinate-reference-system definition. */
+/**
+ * Immutable recognized coordinate-reference-system definition.
+ *
+ * @param canonicalIdentifier stable registered identifier
+ * @param kind recognized coordinate-reference-system kind
+ * @param xAxis first-axis meaning and unit
+ * @param yAxis second-axis meaning and unit
+ * @param coordinateDomain valid coordinate envelope expressed in the declared axes
+ */
 public record CrsDefinition(
         String canonicalIdentifier,
         CrsKind kind,

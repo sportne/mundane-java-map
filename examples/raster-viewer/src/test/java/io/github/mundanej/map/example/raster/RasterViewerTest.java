@@ -10,6 +10,8 @@ import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.awt.MapView;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.EventQueue;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -20,6 +22,7 @@ import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import javax.swing.JComboBox;
@@ -31,6 +34,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class RasterViewerTest {
+    private static final String SENSITIVE_PARENT_TOKEN = "SENSITIVE_RASTER_PARENT_3B8E";
+    private static final String SENSITIVE_STEM_TOKEN = "SENSITIVE_RASTER_STEM_6D1A";
+
     @TempDir Path temporaryDirectory;
 
     @Test
@@ -55,12 +61,15 @@ class RasterViewerTest {
     }
 
     @Test
-    void explicitlyLoadsAndFitsAWorldFileWithoutGuessingItsCrs() throws Exception {
-        Path image = copyGeographicFixture();
+    void explicitlyLoadsFitsAndPresentsAWorldFileWithoutExposingItsPath() throws Exception {
+        Path sensitiveDirectory = temporaryDirectory.resolve(SENSITIVE_PARENT_TOKEN);
+        Files.createDirectories(sensitiveDirectory);
+        Path image = copyGeographicFixture(sensitiveDirectory, SENSITIVE_STEM_TOKEN);
         RasterViewer.Arguments arguments =
                 RasterViewer.parseArguments(
                         new String[] {image.toString(), "--world-file", "EPSG:4326"});
         RasterSource source = RasterViewer.load(arguments);
+        assertEquals("raster-viewer", source.metadata().identity().id());
         assertEquals(
                 RasterGridPlacement.Kind.AFFINE,
                 source.metadata().gridPlacement().orElseThrow().kind());
@@ -76,8 +85,23 @@ class RasterViewerTest {
                 new Envelope(-70.125, 39.625, -69.625, 40.125),
                 source.metadata().mapBounds().orElseThrow());
         AtomicReference<MapView> view = new AtomicReference<>();
-        SwingUtilities.invokeAndWait(() -> view.set(RasterViewer.createView(source)));
+        AtomicReference<List<String>> presentation = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView created = RasterViewer.createView(source);
+                    JLabel status = new JLabel();
+                    JPanel controls = RasterViewer.createControls(created, status);
+                    view.set(created);
+                    presentation.set(presentationStrings(source, created, controls, status));
+                });
         assertEquals(1, view.get().layerBindings().size());
+        assertTrue(presentation.get().contains("raster-viewer"));
+        assertTrue(presentation.get().contains("Raster image"));
+        assertTrue(presentation.get().contains("image"));
+        assertTrue(presentation.get().contains(RasterViewer.WORLD_FILE_LABEL));
+        assertTrue(presentation.get().stream().anyMatch(value -> value.contains("NEAREST")));
+        assertNoPresentedPath(
+                presentation.get(), image, SENSITIVE_PARENT_TOKEN, SENSITIVE_STEM_TOKEN);
         SwingUtilities.invokeAndWait(view.get()::close);
         assertTrue(source.isClosed());
     }
@@ -86,13 +110,16 @@ class RasterViewerTest {
     void mainFlowReportsFailuresAndSupportsAnExplicitLaunchBoundary() throws Exception {
         java.util.List<String> failures = new java.util.ArrayList<>();
         assertFalse(RasterViewer.runMain(new String[0], failures::add, ignored -> {}));
-        assertEquals(1, failures.size());
+        assertEquals(List.of("raster-viewer: IMAGE_VIEWER_ARGUMENT_INVALID"), failures);
+        failures.clear();
+        Path sensitiveDirectory = temporaryDirectory.resolve(SENSITIVE_PARENT_TOKEN);
+        Files.createDirectory(sensitiveDirectory);
+        Path missing = sensitiveDirectory.resolve(SENSITIVE_STEM_TOKEN + ".png");
         assertFalse(
                 RasterViewer.runMain(
-                        new String[] {temporaryDirectory.resolve("missing.png").toString()},
-                        failures::add,
-                        ignored -> {}));
-        assertTrue(failures.getLast().startsWith("IMAGE_IO_FAILED:"));
+                        new String[] {missing.toString()}, failures::add, ignored -> {}));
+        assertTrue(failures.getLast().startsWith("raster-viewer: ERROR IMAGE_IO_FAILED"));
+        assertNoPresentedPath(failures, missing, SENSITIVE_PARENT_TOKEN, SENSITIVE_STEM_TOKEN);
 
         Path image = temporaryDirectory.resolve("flow.png");
         assertTrue(
@@ -114,7 +141,7 @@ class RasterViewerTest {
                         ignored -> {
                             throw new RuntimeException();
                         }));
-        assertEquals("RuntimeException", failures.getLast());
+        assertEquals("raster-viewer: IMAGE_VIEWER_STARTUP_FAILED", failures.getLast());
     }
 
     @Test
@@ -249,7 +276,7 @@ class RasterViewerTest {
                             throw new IllegalStateException("launch failed");
                         }));
         assertTrue(launched.get().isClosed());
-        assertEquals("launch failed", failures.getLast());
+        assertEquals("raster-viewer: IMAGE_VIEWER_STARTUP_FAILED", failures.getLast());
 
         java.nio.file.Files.writeString(world, "1\n0\n0\n-1\n200\n0");
         RasterSource outsideDomain =
@@ -272,7 +299,7 @@ class RasterViewerTest {
         java.nio.file.Files.delete(image);
     }
 
-    private Path copyGeographicFixture() throws Exception {
+    private Path copyGeographicFixture(Path directory, String baseName) throws Exception {
         byte[] image =
                 Base64.getMimeDecoder().decode(resourceBytes("g6-002/geographic-rgba.png.b64"));
         assertFixture(
@@ -280,10 +307,54 @@ class RasterViewerTest {
         byte[] world = resourceBytes("g6-002/geographic-rgba.pgw");
         assertFixture(
                 world, 22, "2f04215b9625536b036b768d8bffc03c2045debd66cb34dc0361c5398ffdbbd5");
-        Path imagePath = temporaryDirectory.resolve("geographic-rgba.png");
+        Path imagePath = directory.resolve(baseName + ".png");
         Files.write(imagePath, image);
-        Files.write(temporaryDirectory.resolve("geographic-rgba.pgw"), world);
+        Files.write(directory.resolve(baseName + ".pgw"), world);
         return imagePath;
+    }
+
+    private static List<String> presentationStrings(
+            RasterSource source, MapView view, JPanel controls, JLabel status) {
+        java.util.ArrayList<String> values = new java.util.ArrayList<>();
+        var metadata = source.metadata();
+        values.add(metadata.identity().id());
+        values.add(metadata.identity().displayName());
+        values.add(view.layerBindings().getFirst().id());
+        values.add(view.layerBindings().getFirst().name());
+        values.add(String.valueOf(view.getClientProperty("raster-placement-label")));
+        values.add(status.getText());
+        appendComponentStrings(controls, values);
+        return List.copyOf(values);
+    }
+
+    private static void appendComponentStrings(Component component, List<String> values) {
+        if (component instanceof JLabel label) {
+            values.add(label.getText());
+        } else if (component instanceof JComboBox<?> comboBox) {
+            values.add(String.valueOf(comboBox.getSelectedItem()));
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                appendComponentStrings(child, values);
+            }
+        }
+    }
+
+    private static void assertNoPresentedPath(
+            List<String> presentation, Path source, String parentToken, String stemToken) {
+        List<String> forbidden =
+                List.of(
+                        source.toAbsolutePath().toString(),
+                        Objects.requireNonNull(source.getFileName(), "source file name").toString(),
+                        stemToken,
+                        parentToken);
+        for (String value : presentation) {
+            for (String candidate : forbidden) {
+                assertFalse(
+                        value.contains(candidate),
+                        () -> "presentation exposed '" + candidate + "': " + value);
+            }
+        }
     }
 
     private static byte[] resourceBytes(String resource) throws IOException {

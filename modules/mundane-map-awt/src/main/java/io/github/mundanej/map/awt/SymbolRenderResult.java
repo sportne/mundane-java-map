@@ -8,7 +8,8 @@ import java.util.Optional;
  * Immutable result of one registered symbol renderer invocation.
  *
  * <p>Marker renderers return nominal screen bounds, including when fully transparent. Line and fill
- * renderers return {@link #none()}.
+ * renderers return {@link #none()}. Instances are immutable; optional bounds contain immutable
+ * {@link Envelope} values.
  */
 public final class SymbolRenderResult {
     private static final SymbolRenderResult NONE =
@@ -22,25 +23,48 @@ public final class SymbolRenderResult {
         this.paintPresence = paintPresence;
     }
 
-    /** Returns the shared result for line/fill output without marker layout bounds. */
+    /**
+     * Returns the shared result for line/fill output without marker layout bounds.
+     *
+     * @return immutable result with unknown logical-paint presence
+     */
     public static SymbolRenderResult none() {
         return NONE;
     }
 
-    /** Creates a line/fill result with explicit logical source-paint presence. */
+    /**
+     * Creates a line/fill result with explicit logical source-paint presence.
+     *
+     * @param paintPresence non-null presence reported by the renderer
+     * @return immutable result without marker layout bounds
+     * @throws NullPointerException if {@code paintPresence} is {@code null}
+     */
     public static SymbolRenderResult none(AwtLogicalPaintPresence paintPresence) {
         return new SymbolRenderResult(
                 Optional.empty(), Objects.requireNonNull(paintPresence, "paintPresence"));
     }
 
-    /** Creates a marker result with required nominal screen bounds. */
+    /**
+     * Creates a marker result with required nominal logical-screen bounds.
+     *
+     * @param bounds non-null nominal marker bounds in logical-screen pixels
+     * @return immutable marker result with unknown logical-paint presence
+     * @throws NullPointerException if {@code bounds} is {@code null}
+     */
     public static SymbolRenderResult markerBounds(Envelope bounds) {
         return new SymbolRenderResult(
                 Optional.of(Objects.requireNonNull(bounds, "bounds")),
                 AwtLogicalPaintPresence.UNKNOWN);
     }
 
-    /** Creates a marker result with explicit logical source-paint presence. */
+    /**
+     * Creates a marker result with explicit logical source-paint presence.
+     *
+     * @param bounds non-null nominal marker bounds in logical-screen pixels
+     * @param paintPresence non-null presence reported by the renderer
+     * @return immutable marker result
+     * @throws NullPointerException if an argument is {@code null}
+     */
     public static SymbolRenderResult markerBounds(
             Envelope bounds, AwtLogicalPaintPresence paintPresence) {
         return new SymbolRenderResult(
@@ -48,17 +72,31 @@ public final class SymbolRenderResult {
                 Objects.requireNonNull(paintPresence, "paintPresence"));
     }
 
-    /** Returns the optional nominal marker layout bounds. */
+    /**
+     * Returns the optional nominal marker layout bounds.
+     *
+     * @return immutable logical-screen bounds, or empty for line/fill output
+     */
     public Optional<Envelope> nominalMarkerBounds() {
         return nominalMarkerBounds;
     }
 
-    /** Returns renderer-reported logical source-paint presence. */
+    /**
+     * Returns renderer-reported logical source-paint presence.
+     *
+     * @return non-null presence classification
+     */
     public AwtLogicalPaintPresence paintPresence() {
         return paintPresence;
     }
 
-    /** Returns a marker-bound union, treating {@link #none()} as an identity. */
+    /**
+     * Returns a marker-bound and paint-presence union, treating absent bounds as an identity.
+     *
+     * @param other non-null result to combine
+     * @return new immutable combined result
+     * @throws NullPointerException if {@code other} is {@code null}
+     */
     public SymbolRenderResult union(SymbolRenderResult other) {
         Objects.requireNonNull(other, "other");
         if (nominalMarkerBounds.isEmpty()) {

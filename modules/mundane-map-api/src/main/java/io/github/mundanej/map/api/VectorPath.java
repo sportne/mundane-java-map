@@ -24,22 +24,41 @@ public final class VectorPath {
         this.coordinateEnvelope = computeEnvelope();
     }
 
-    /** Creates a validated path from commands and their packed operands. */
+    /**
+     * Creates a validated path from commands and their packed operands.
+     *
+     * @param commands drawing commands, defensively copied
+     * @param ordinates finite packed command operands, defensively copied
+     * @return immutable validated path
+     */
     public static VectorPath of(VectorPathCommand[] commands, double... ordinates) {
         return new VectorPath(commands.clone(), ordinates);
     }
 
-    /** Returns a new single-owner fluent path builder. */
+    /**
+     * Returns a new single-owner fluent path builder.
+     *
+     * @return empty builder
+     */
     public static Builder builder() {
         return new Builder();
     }
 
-    /** Returns the number of path commands. */
+    /**
+     * Returns the number of path commands.
+     *
+     * @return positive command count
+     */
     public int commandCount() {
         return commandCodes.length;
     }
 
-    /** Returns the command at the supplied command index. */
+    /**
+     * Returns the command at the supplied command index.
+     *
+     * @param commandIndex zero-based command index
+     * @return command at the index
+     */
     public VectorPathCommand commandAt(int commandIndex) {
         if (commandIndex < 0 || commandIndex >= commandCodes.length) {
             throw new IndexOutOfBoundsException(commandIndex);
@@ -47,12 +66,21 @@ public final class VectorPath {
         return decode(commandCodes[commandIndex]);
     }
 
-    /** Returns the number of packed ordinates. */
+    /**
+     * Returns the number of packed ordinates.
+     *
+     * @return operand count
+     */
     public int ordinateCount() {
         return ordinates.length;
     }
 
-    /** Returns the ordinate at the supplied global packed index. */
+    /**
+     * Returns the ordinate at the supplied global packed index.
+     *
+     * @param ordinateIndex zero-based operand index
+     * @return finite ordinate
+     */
     public double ordinateAt(int ordinateIndex) {
         if (ordinateIndex < 0 || ordinateIndex >= ordinates.length) {
             throw new IndexOutOfBoundsException(ordinateIndex);
@@ -60,7 +88,11 @@ public final class VectorPath {
         return ordinates[ordinateIndex];
     }
 
-    /** Returns a defensive copy of the commands. */
+    /**
+     * Returns a defensive copy of the commands.
+     *
+     * @return newly allocated command array
+     */
     public VectorPathCommand[] toCommandArray() {
         VectorPathCommand[] result = new VectorPathCommand[commandCodes.length];
         for (int index = 0; index < commandCodes.length; index++) {
@@ -69,12 +101,20 @@ public final class VectorPath {
         return result;
     }
 
-    /** Returns a defensive copy of the packed ordinates. */
+    /**
+     * Returns a defensive copy of the packed ordinates.
+     *
+     * @return newly allocated operand array
+     */
     public double[] toOrdinateArray() {
         return ordinates.clone();
     }
 
-    /** Returns the conservative envelope of all path coordinates and controls. */
+    /**
+     * Returns the conservative envelope of all path coordinates and controls.
+     *
+     * @return immutable path-coordinate envelope
+     */
     public Envelope coordinateEnvelope() {
         return coordinateEnvelope;
     }
@@ -202,7 +242,13 @@ public final class VectorPath {
 
         private Builder() {}
 
-        /** Starts a subpath at the supplied coordinate. */
+        /**
+         * Starts a subpath at the supplied coordinate.
+         *
+         * @param x finite path-coordinate x ordinate
+         * @param y finite path-coordinate y ordinate
+         * @return this builder
+         */
         public Builder moveTo(double x, double y) {
             requireUsable();
             requireFinite(x, "x");
@@ -217,7 +263,13 @@ public final class VectorPath {
             return this;
         }
 
-        /** Adds a straight segment. */
+        /**
+         * Adds a straight segment.
+         *
+         * @param x finite endpoint x ordinate
+         * @param y finite endpoint y ordinate
+         * @return this builder
+         */
         public Builder lineTo(double x, double y) {
             requireUsable();
             requireFinite(x, "x");
@@ -228,7 +280,15 @@ public final class VectorPath {
             return this;
         }
 
-        /** Adds a quadratic curve segment. */
+        /**
+         * Adds a quadratic curve segment.
+         *
+         * @param controlX finite control-point x ordinate
+         * @param controlY finite control-point y ordinate
+         * @param x finite endpoint x ordinate
+         * @param y finite endpoint y ordinate
+         * @return this builder
+         */
         public Builder quadraticTo(double controlX, double controlY, double x, double y) {
             requireUsable();
             requireFinite(controlX, "controlX");
@@ -241,7 +301,17 @@ public final class VectorPath {
             return this;
         }
 
-        /** Adds a cubic curve segment. */
+        /**
+         * Adds a cubic curve segment.
+         *
+         * @param control1X finite first-control x ordinate
+         * @param control1Y finite first-control y ordinate
+         * @param control2X finite second-control x ordinate
+         * @param control2Y finite second-control y ordinate
+         * @param x finite endpoint x ordinate
+         * @param y finite endpoint y ordinate
+         * @return this builder
+         */
         public Builder cubicTo(
                 double control1X,
                 double control1Y,
@@ -262,7 +332,11 @@ public final class VectorPath {
             return this;
         }
 
-        /** Closes the active non-empty subpath. */
+        /**
+         * Closes the active non-empty subpath.
+         *
+         * @return this builder
+         */
         public Builder close() {
             requireUsable();
             if (!active || closed || !subpathHasSegment) {
@@ -273,7 +347,11 @@ public final class VectorPath {
             return this;
         }
 
-        /** Validates and publishes the one immutable path produced by this builder. */
+        /**
+         * Validates and publishes the one immutable path produced by this builder.
+         *
+         * @return immutable path
+         */
         public VectorPath build() {
             requireUsable();
             if (commandCount == 0 || !subpathHasSegment) {

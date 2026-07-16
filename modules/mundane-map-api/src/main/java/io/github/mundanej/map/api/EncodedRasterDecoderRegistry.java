@@ -60,6 +60,11 @@ public final class EncodedRasterDecoderRegistry {
          * @param format exact registration key
          * @param decoder explicit decoder instance
          * @return this builder
+         * @throws NullPointerException if {@code format} or {@code decoder} is {@code null}
+         * @throws RegistrationException with code {@code RASTER_DECODER_DUPLICATE} and {@code
+         *     format}, {@code firstIndex}, and {@code duplicateIndex} context when the exact format
+         *     is already registered
+         * @throws IllegalStateException if this single-use builder has already built a registry
          */
         public Builder register(EncodedRasterFormat format, EncodedRasterDecoder decoder) {
             requireOpen();
@@ -79,6 +84,7 @@ public final class EncodedRasterDecoderRegistry {
          * Builds and consumes this builder.
          *
          * @return the immutable registry
+         * @throws IllegalStateException if this single-use builder has already built a registry
          */
         public EncodedRasterDecoderRegistry build() {
             requireOpen();
@@ -96,7 +102,10 @@ public final class EncodedRasterDecoderRegistry {
     /** Stable duplicate-registration configuration failure. */
     @SuppressWarnings("serial")
     public static final class RegistrationException extends IllegalArgumentException {
+        /** Stable duplicate-registration code retained for serialization. */
         private final String code;
+
+        /** Immutable duplicate-registration context retained for serialization. */
         private final Map<String, String> context;
 
         private RegistrationException(

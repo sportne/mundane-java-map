@@ -7,7 +7,16 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 
-/** Immutable stable bounded source diagnostic. */
+/**
+ * Immutable stable bounded source diagnostic.
+ *
+ * @param code stable uppercase machine-readable code
+ * @param severity warning or terminal error severity
+ * @param sourceId bounded logical source identity, never a path
+ * @param location optional structural source location
+ * @param message bounded human-readable explanation
+ * @param context immutable bounded diagnostic context, ordered by key
+ */
 public record SourceDiagnostic(
         String code,
         DiagnosticSeverity severity,

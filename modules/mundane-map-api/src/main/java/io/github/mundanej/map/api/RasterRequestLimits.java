@@ -1,6 +1,15 @@
 package io.github.mundanej.map.api;
 
-/** Immutable raster-request ceilings. */
+/**
+ * Immutable raster-request ceilings.
+ *
+ * @param sourceWindowPixels maximum pixels in the requested source window
+ * @param outputDimension maximum output width or height
+ * @param outputPixels maximum output pixel count
+ * @param decodedIntermediateBytes maximum bytes used by decoded intermediate data
+ * @param ownedPayloadBytes maximum bytes owned by the returned payload
+ * @param retainedWarnings maximum warnings retained in diagnostics
+ */
 public record RasterRequestLimits(
         long sourceWindowPixels,
         int outputDimension,
@@ -24,7 +33,12 @@ public record RasterRequestLimits(
         }
     }
 
-    /** Returns whether every ceiling is no greater than the parent. */
+    /**
+     * Returns whether every ceiling is no greater than the parent.
+     *
+     * @param parent source-level ceilings
+     * @return whether this value only tightens the parent
+     */
     public boolean tightens(RasterRequestLimits parent) {
         return sourceWindowPixels <= parent.sourceWindowPixels
                 && outputDimension <= parent.outputDimension

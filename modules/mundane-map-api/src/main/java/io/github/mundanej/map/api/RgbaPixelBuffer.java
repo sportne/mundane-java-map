@@ -19,27 +19,54 @@ public final class RgbaPixelBuffer {
         this.rgba = transfer ? rgba : rgba.clone();
     }
 
-    /** Creates a buffer by copying caller-owned pixels. */
+    /**
+     * Creates a buffer by copying caller-owned pixels.
+     *
+     * @param width positive pixel width
+     * @param height positive pixel height
+     * @param rgba row-major unpremultiplied pixels
+     * @return immutable owned pixel buffer
+     */
     public static RgbaPixelBuffer copyOf(int width, int height, int[] rgba) {
         return new RgbaPixelBuffer(width, height, Objects.requireNonNull(rgba, "rgba"), false);
     }
 
-    /** Creates a single-use producer builder. */
+    /**
+     * Creates a single-use producer builder.
+     *
+     * @param width positive pixel width
+     * @param height positive pixel height
+     * @return mutable single-use builder
+     */
     public static Builder builder(int width, int height) {
         return new Builder(width, height);
     }
 
-    /** Returns the positive pixel width. */
+    /**
+     * Returns the positive pixel width.
+     *
+     * @return pixel width
+     */
     public int width() {
         return width;
     }
 
-    /** Returns the positive pixel height. */
+    /**
+     * Returns the positive pixel height.
+     *
+     * @return pixel height
+     */
     public int height() {
         return height;
     }
 
-    /** Returns one packed pixel. */
+    /**
+     * Returns one packed pixel.
+     *
+     * @param column zero-based pixel column
+     * @param row zero-based pixel row
+     * @return unpremultiplied {@code 0xRRGGBBAA} pixel
+     */
     public int rgbaAt(int column, int row) {
         if (column < 0 || column >= width || row < 0 || row >= height) {
             throw new IndexOutOfBoundsException("Pixel coordinate is outside the buffer");
@@ -47,7 +74,11 @@ public final class RgbaPixelBuffer {
         return rgba[row * width + column];
     }
 
-    /** Returns a defensive row-major pixel copy. */
+    /**
+     * Returns a defensive row-major pixel copy.
+     *
+     * @return newly allocated pixels
+     */
     public int[] rgba() {
         return rgba.clone();
     }
@@ -93,7 +124,14 @@ public final class RgbaPixelBuffer {
             rgba = new int[requiredLength(width, height)];
         }
 
-        /** Sets one packed pixel and returns this builder. */
+        /**
+         * Sets one packed pixel and returns this builder.
+         *
+         * @param column zero-based pixel column
+         * @param row zero-based pixel row
+         * @param value unpremultiplied {@code 0xRRGGBBAA} pixel
+         * @return this builder
+         */
         public Builder setRgba(int column, int row, int value) {
             requireOpen();
             if (column < 0 || column >= width || row < 0 || row >= height) {
@@ -103,7 +141,11 @@ public final class RgbaPixelBuffer {
             return this;
         }
 
-        /** Transfers the completed array to one immutable buffer. */
+        /**
+         * Transfers the completed array to one immutable buffer.
+         *
+         * @return immutable buffer owning the transferred pixels
+         */
         public RgbaPixelBuffer build() {
             requireOpen();
             int[] transferred = rgba;

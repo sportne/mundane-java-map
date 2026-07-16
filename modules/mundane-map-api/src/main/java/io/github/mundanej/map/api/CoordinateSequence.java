@@ -31,45 +31,81 @@ public final class CoordinateSequence {
         envelope = new Envelope(minX, minY, maxX, maxY);
     }
 
-    /** Creates a coordinate sequence from packed {@code x, y} pairs. */
+    /**
+     * Creates a coordinate sequence from packed {@code x, y} pairs.
+     *
+     * @param ordinates finite alternating x/y ordinates; the array is copied
+     * @return immutable non-empty sequence
+     */
     public static CoordinateSequence of(double... ordinates) {
         return new CoordinateSequence(ordinates);
     }
 
-    /** Returns the number of coordinates. */
+    /**
+     * Returns the number of coordinates.
+     *
+     * @return coordinate count
+     */
     public int size() {
         return ordinates.length / 2;
     }
 
-    /** Returns the x ordinate at the specified coordinate index. */
+    /**
+     * Returns the x ordinate at the specified coordinate index.
+     *
+     * @param index zero-based coordinate index
+     * @return x ordinate
+     */
     public double x(int index) {
         checkIndex(index);
         return ordinates[index * 2];
     }
 
-    /** Returns the y ordinate at the specified coordinate index. */
+    /**
+     * Returns the y ordinate at the specified coordinate index.
+     *
+     * @param index zero-based coordinate index
+     * @return y ordinate
+     */
     public double y(int index) {
         checkIndex(index);
         return ordinates[index * 2 + 1];
     }
 
-    /** Returns the coordinate at the specified index. */
+    /**
+     * Returns the coordinate at the specified index.
+     *
+     * @param index zero-based coordinate index
+     * @return immutable coordinate
+     */
     public Coordinate coordinate(int index) {
         return new Coordinate(x(index), y(index));
     }
 
-    /** Returns the precomputed sequence envelope. */
+    /**
+     * Returns the precomputed sequence envelope.
+     *
+     * @return immutable coordinate-space envelope
+     */
     public Envelope envelope() {
         return envelope;
     }
 
-    /** Returns whether the first and last coordinates are equal. */
+    /**
+     * Returns whether the first and last coordinates are equal.
+     *
+     * @return whether the sequence is closed
+     */
     public boolean isClosed() {
         int last = size() - 1;
         return Double.compare(x(0), x(last)) == 0 && Double.compare(y(0), y(last)) == 0;
     }
 
-    /** Returns a defensive packed-array copy. */
+    /**
+     * Returns a defensive packed-array copy.
+     *
+     * @return newly allocated alternating x/y ordinates
+     */
     public double[] toArray() {
         return ordinates.clone();
     }

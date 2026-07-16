@@ -15,6 +15,9 @@ public interface AwtSymbolRenderer {
      *
      * <p>This check must be deterministic, side-effect-free, and non-throwing for every non-null
      * symbol. Returning false produces a stable renderer-value-mismatch diagnostic.
+     *
+     * @param value non-null symbol whose role and renderer key already match this registry slot
+     * @return whether this renderer accepts the concrete value
      */
     boolean supports(Symbol value);
 
@@ -25,6 +28,10 @@ public interface AwtSymbolRenderer {
      * return {@link SymbolRenderResult#none()}. Every graphics copy obtained from the context must
      * be disposed by the implementation. Returning null or the wrong result shape produces a stable
      * invalid-result diagnostic.
+     *
+     * @param value non-null supported symbol
+     * @param context non-null callback-scoped render context
+     * @return non-null result describing marker bounds and logical-paint presence
      */
     SymbolRenderResult render(Symbol value, AwtSymbolRenderContext context);
 
@@ -33,6 +40,10 @@ public interface AwtSymbolRenderer {
      *
      * <p>The default keeps custom renderers deterministically non-hittable until they explicitly
      * opt in. Implementations must honor the component clip exposed by the callback-scoped context.
+     *
+     * @param value non-null supported symbol
+     * @param context non-null callback-scoped hit context
+     * @return whether the symbol's visible logical paint hits the query point
      */
     default boolean hitTest(Symbol value, AwtSymbolHitContext context) {
         return false;

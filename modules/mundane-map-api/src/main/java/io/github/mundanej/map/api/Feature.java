@@ -3,7 +3,15 @@ package io.github.mundanej.map.api;
 import java.util.Map;
 import java.util.Objects;
 
-/** A named geometry with stable identity, attributes, and a role-compatible symbol. */
+/**
+ * A named geometry with stable identity, attributes, and a role-compatible symbol.
+ *
+ * @param id non-blank stable feature identity
+ * @param name non-null display name, which may be empty
+ * @param geometry immutable feature geometry
+ * @param attributes attributes defensively canonicalized into insertion order
+ * @param symbol symbol compatible with the geometry role
+ */
 public record Feature(
         String id, String name, Geometry geometry, Map<String, Object> attributes, Symbol symbol) {
     /** Creates a feature and defensively copies its attributes. */
@@ -16,7 +24,11 @@ public record Feature(
         validateSymbolRole(id, geometry, symbol);
     }
 
-    /** Returns the immutable insertion-ordered owned attributes. */
+    /**
+     * Returns the immutable insertion-ordered owned attributes.
+     *
+     * @return immutable canonical attributes
+     */
     @Override
     public Map<String, Object> attributes() {
         return java.util.Collections.unmodifiableMap(attributes);

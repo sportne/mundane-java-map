@@ -54,7 +54,17 @@ public final class RasterIconSymbol implements MarkerSymbol {
         this.opacity = opacity == 0.0 ? 0.0 : opacity;
     }
 
-    /** Creates a raster marker with explicit placement and interpolation. */
+    /**
+     * Creates a raster marker with explicit placement and interpolation.
+     *
+     * @param width positive intrinsic pixel width
+     * @param height positive intrinsic pixel height
+     * @param rgbaPixels row-major unpremultiplied pixels, defensively copied
+     * @param placement marker size, anchor, offset, and rotation
+     * @param interpolation raster sampling mode
+     * @param opacity finite opacity from zero through one
+     * @return immutable raster icon
+     */
     public static RasterIconSymbol of(
             int width,
             int height,
@@ -65,7 +75,16 @@ public final class RasterIconSymbol implements MarkerSymbol {
         return new RasterIconSymbol(width, height, rgbaPixels, placement, interpolation, opacity);
     }
 
-    /** Creates a centered screen marker using one logical pixel per source pixel. */
+    /**
+     * Creates a centered screen marker using one logical pixel per source pixel.
+     *
+     * @param width positive intrinsic pixel width
+     * @param height positive intrinsic pixel height
+     * @param rgbaPixels row-major unpremultiplied pixels, defensively copied
+     * @param interpolation raster sampling mode
+     * @param opacity finite opacity from zero through one
+     * @return immutable centered raster icon
+     */
     public static RasterIconSymbol nativeScreenSize(
             int width,
             int height,
@@ -75,7 +94,17 @@ public final class RasterIconSymbol implements MarkerSymbol {
         return of(width, height, rgbaPixels, centered(width, height), interpolation, opacity);
     }
 
-    /** Creates a centered proportional screen marker with the requested width. */
+    /**
+     * Creates a centered proportional screen marker with the requested width.
+     *
+     * @param width positive intrinsic pixel width
+     * @param height positive intrinsic pixel height
+     * @param rgbaPixels row-major unpremultiplied pixels, defensively copied
+     * @param widthPixels positive rendered width in logical screen pixels
+     * @param interpolation raster sampling mode
+     * @param opacity finite opacity from zero through one
+     * @return immutable proportional raster icon
+     */
     public static RasterIconSymbol screenWidth(
             int width,
             int height,
@@ -109,17 +138,31 @@ public final class RasterIconSymbol implements MarkerSymbol {
                 SymbolRotationMode.SCREEN_RELATIVE);
     }
 
-    /** Returns the intrinsic pixel width. */
+    /**
+     * Returns the intrinsic pixel width.
+     *
+     * @return source pixel width
+     */
     public int width() {
         return width;
     }
 
-    /** Returns the intrinsic pixel height. */
+    /**
+     * Returns the intrinsic pixel height.
+     *
+     * @return source pixel height
+     */
     public int height() {
         return height;
     }
 
-    /** Returns the packed pixel at an intrinsic coordinate. */
+    /**
+     * Returns the packed pixel at an intrinsic coordinate.
+     *
+     * @param x zero-based intrinsic column
+     * @param y zero-based intrinsic row
+     * @return unpremultiplied {@code 0xRRGGBBAA} pixel
+     */
     public int rgbaAt(int x, int y) {
         if (x < 0 || x >= width || y < 0 || y >= height) {
             throw new IndexOutOfBoundsException("pixel (" + x + ", " + y + ")");
@@ -127,17 +170,29 @@ public final class RasterIconSymbol implements MarkerSymbol {
         return rgbaPixels[y * width + x];
     }
 
-    /** Returns a defensive row-major packed pixel copy. */
+    /**
+     * Returns a defensive row-major packed pixel copy.
+     *
+     * @return newly allocated unpremultiplied pixels
+     */
     public int[] toRgbaArray() {
         return rgbaPixels.clone();
     }
 
-    /** Returns the marker placement. */
+    /**
+     * Returns the marker placement.
+     *
+     * @return immutable placement
+     */
     public MarkerPlacement placement() {
         return placement;
     }
 
-    /** Returns the raster interpolation mode. */
+    /**
+     * Returns the raster interpolation mode.
+     *
+     * @return sampling mode
+     */
     public RasterInterpolation interpolation() {
         return interpolation;
     }

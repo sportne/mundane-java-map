@@ -21,6 +21,7 @@ public final class RasterPlacementException extends IllegalArgumentException {
         ENVELOPE_NON_POSITIVE
     }
 
+    /** Stable placement category retained for serialization. */
     private final Reason reason;
 
     /**

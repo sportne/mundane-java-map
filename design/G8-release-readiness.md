@@ -389,17 +389,18 @@ modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/shapefile-cor
   data/generated-polygon-hole-windows1252-3857/
   generated-polygon-hole-windows1252-3857.shp
 
-modules/mundane-map-io-image/src/test/resources/io/github/mundanej/map/io/image/
+examples/raster-viewer/build/review-fixtures/
   rotated-sheared.png
   rotated-sheared.pgw
 ```
 
 The first is G5-009's licensed corpus polygon/hole, Windows-1252, EPSG:3857 case and uses retained PRJ
-without an override. The second is G6-002's checked repository-authored rotated/sheared PNG/PGW and is
-opened with explicit `--world-file EPSG:3857`; it is not a G6-005 native resource. G6's otherwise
-unnamed fixture adopts these stable filenames during its implementation without changing its approved
-content/profile. Automated example tests continue to use tiny temporary fixtures rather than making
-normal checks execute the corpus lane.
+without an override. The second is materialized by the raster example's cacheable
+`prepareReviewFixture` task from a checked text transport of G6-002's exact repository-authored
+rotated/sheared PNG/PGW bytes, and is opened with explicit `--world-file EPSG:3857`; it is not a
+G6-005 native resource. The prep task pins length and SHA-256, writes only below the example build
+directory, and leaves the viewer/production code unaware of Base64. Automated example tests continue
+to use tiny temporary fixtures rather than making normal checks execute the corpus lane.
 
 ### Manual checkpoint and verification
 

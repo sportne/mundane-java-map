@@ -2,7 +2,13 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** A finite positive symbol width and height expressed in one unit. */
+/**
+ * A finite positive symbol width and height expressed in one unit.
+ *
+ * @param width finite positive width
+ * @param height finite positive height
+ * @param unit screen-pixel or map-unit interpretation
+ */
 public record SymbolSize(double width, double height, SymbolUnit unit) {
     /** Creates and validates a symbol size. */
     public SymbolSize {
@@ -15,7 +21,13 @@ public record SymbolSize(double width, double height, SymbolUnit unit) {
         Objects.requireNonNull(unit, "unit");
     }
 
-    /** Creates a square size in the supplied unit. */
+    /**
+     * Creates a square size in the supplied unit.
+     *
+     * @param value finite positive width and height
+     * @param unit screen-pixel or map-unit interpretation
+     * @return immutable square size
+     */
     public static SymbolSize square(double value, SymbolUnit unit) {
         return new SymbolSize(value, value, unit);
     }

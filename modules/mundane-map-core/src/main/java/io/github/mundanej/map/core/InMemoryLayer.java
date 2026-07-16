@@ -14,7 +14,13 @@ public final class InMemoryLayer implements Layer {
     private final List<Feature> features;
     private final Optional<Envelope> envelope;
 
-    /** Creates a layer by defensively copying the ordered features. */
+    /**
+     * Creates a layer by defensively copying the ordered features.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param features ordered immutable feature values
+     */
     public InMemoryLayer(String id, String name, List<Feature> features) {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");

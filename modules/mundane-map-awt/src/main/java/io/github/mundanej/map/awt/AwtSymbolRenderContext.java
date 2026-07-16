@@ -71,69 +71,123 @@ public final class AwtSymbolRenderContext {
         this.sourceComponent = sourceComponent;
     }
 
-    /** Returns the looked-up role. */
+    /**
+     * Returns the looked-up role.
+     *
+     * @return role used for explicit renderer lookup
+     */
     public SymbolRole role() {
         return role;
     }
 
-    /** Returns the feature identifier. */
+    /**
+     * Returns the feature identifier.
+     *
+     * @return stable non-empty feature identifier
+     */
     public String featureId() {
         return featureId;
     }
 
-    /** Returns the original feature geometry. */
+    /**
+     * Returns the original feature geometry in its source CRS.
+     *
+     * @return immutable original feature geometry
+     */
     public Geometry featureGeometry() {
         return featureGeometry;
     }
 
-    /** Returns the geometry for this renderer invocation. */
+    /**
+     * Returns the geometry for this renderer invocation in its source CRS.
+     *
+     * @return immutable role-specific render geometry
+     */
     public Geometry renderGeometry() {
         return renderGeometry;
     }
 
-    /** Returns the resolved map-to-display operation snapshot. */
+    /**
+     * Returns the resolved source-to-display operation snapshot.
+     *
+     * @return immutable operation used for this renderer invocation
+     */
     public CrsOperation mapToDisplayOperation() {
         return mapToDisplay;
     }
 
-    /** Returns the viewport snapshot. */
+    /**
+     * Returns the viewport snapshot.
+     *
+     * @return immutable display-world-to-screen viewport
+     */
     public MapViewport viewport() {
         return viewport;
     }
 
-    /** Returns inherited opacity before the current symbol applies its opacity. */
+    /**
+     * Returns inherited opacity before the current symbol applies its opacity.
+     *
+     * @return finite opacity in {@code [0,1]}
+     */
     public double inheritedOpacity() {
         return inheritedOpacity;
     }
 
-    /** Returns whether line endpoints are suppressed for a closed ring. */
+    /**
+     * Returns whether line endpoints are suppressed for a closed ring.
+     *
+     * @return {@code true} when this line geometry is a polygon ring
+     */
     public boolean closedRing() {
         return closedRing;
     }
 
-    /** Returns an outward endpoint bearing when auto-orienting a marker. */
+    /**
+     * Returns an outward endpoint bearing when auto-orienting a marker.
+     *
+     * @return clockwise logical-screen bearing in degrees, or empty outside an endpoint callback
+     */
     public OptionalDouble endpointBearingDegrees() {
         return endpointBearingDegrees;
     }
 
-    /** Returns the already projected marker anchor when rendering a marker. */
+    /**
+     * Returns the already projected marker anchor when rendering a marker.
+     *
+     * @return immutable logical-screen coordinate, or empty outside a marker callback
+     */
     public Optional<Coordinate> markerAnchorScreen() {
         return markerAnchorScreen;
     }
 
-    /** Returns the validated map-to-screen similarity basis. */
+    /**
+     * Returns the validated map-to-screen similarity basis.
+     *
+     * @return immutable basis for map-relative symbol placement
+     */
     public MapScreenBasis mapScreenBasis() {
         return basis;
     }
 
     /**
      * Creates a child graphics context that the caller must dispose before returning from render.
+     *
+     * @return independent mutable Java2D graphics copy valid only for this callback
      */
     public Graphics2D createGraphics() {
         return (Graphics2D) graphics.create();
     }
 
-    /** Converts one source coordinate into screen coordinates. */
+    /**
+     * Converts one source coordinate into logical-screen coordinates.
+     *
+     * @param source non-null coordinate in the feature source CRS
+     * @return immutable logical-screen coordinate in pixels
+     * @throws NullPointerException if {@code source} is {@code null}
+     * @throws io.github.mundanej.map.api.CrsException if the coordinate is outside the supported
+     *     transformation domain
+     */
     public Coordinate sourceToScreen(Coordinate source) {
         return viewport.worldToScreen(
                 mapToDisplay.transform(Objects.requireNonNull(source, "source")));
@@ -145,6 +199,13 @@ public final class AwtSymbolRenderContext {
      * <p>The child renderer receives the current inherited opacity multiplied by the supplied value
      * and remains responsible for its own symbol opacity. Cross-role children fail with the stable
      * symbol-role-mismatch diagnostic before registry lookup.
+     *
+     * @param child non-null same-role child symbol
+     * @param opacityMultiplier finite inherited-opacity multiplier in {@code [0,1]}
+     * @return non-null result from the child's explicitly registered renderer
+     * @throws NullPointerException if {@code child} is {@code null}
+     * @throws IllegalArgumentException if {@code opacityMultiplier} is invalid
+     * @throws SymbolException if the child role or renderer contract is invalid
      */
     public SymbolRenderResult renderChild(Symbol child, double opacityMultiplier) {
         Objects.requireNonNull(child, "child");

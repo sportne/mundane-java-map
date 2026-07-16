@@ -13,8 +13,44 @@ application {
     mainClass = 'io.github.mundanej.map.example.raster.RasterViewer'
 }
 
+def reviewFixtureDirectory = layout.buildDirectory.dir('review-fixtures')
+def prepareReviewFixture = tasks.register('prepareReviewFixture') {
+    group = 'verification'
+    description = 'Materializes the checksummed rotated/sheared raster-viewer review fixture.'
+    def encodedImage = layout.projectDirectory.file('src/reviewFixtures/rotated-sheared.png.b64')
+    def worldFile = layout.projectDirectory.file('src/reviewFixtures/rotated-sheared.pgw')
+    def outputImage = reviewFixtureDirectory.map { it.file('rotated-sheared.png') }
+    def outputWorldFile = reviewFixtureDirectory.map { it.file('rotated-sheared.pgw') }
+    inputs.file(encodedImage).withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(worldFile).withPathSensitivity(PathSensitivity.NONE)
+    outputs.files(outputImage, outputWorldFile)
+    outputs.cacheIf { true }
+    doLast {
+        byte[] image = Base64.mimeDecoder.decode(encodedImage.asFile.readBytes())
+        if (image.length != 79
+                || java.security.MessageDigest.getInstance('SHA-256').digest(image).encodeHex().toString()
+                != 'b24037705a1852832821c1a3419df9eee1cc7e9c9bff877be6a37f6eb32368fe') {
+            throw new GradleException('Rotated/sheared review PNG does not match its provenance')
+        }
+        byte[] world = worldFile.asFile.readBytes()
+        if (world.length != 15
+                || java.security.MessageDigest.getInstance('SHA-256').digest(world).encodeHex().toString()
+                != 'c79fc38d5bf1062a272505e645fb2cba5c8a59ddefbc38ede7c4e1fb9b81e2d8') {
+            throw new GradleException('Rotated/sheared review world file does not match its provenance')
+        }
+        outputImage.get().asFile.parentFile.mkdirs()
+        outputImage.get().asFile.bytes = image
+        outputWorldFile.get().asFile.bytes = world
+    }
+}
+
 tasks.named('run') {
+    dependsOn prepareReviewFixture
     workingDir rootProject.projectDir
+}
+
+tasks.named('check') {
+    dependsOn prepareReviewFixture
 }
 
 description = 'Runnable bounded PNG/JPEG raster viewer example.'

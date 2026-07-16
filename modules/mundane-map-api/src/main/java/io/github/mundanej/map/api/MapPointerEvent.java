@@ -3,7 +3,14 @@ package io.github.mundanej.map.api;
 import java.util.Objects;
 import java.util.Optional;
 
-/** A pointer event expressed in both screen and source-map coordinate systems. */
+/**
+ * A pointer event expressed in both screen and source-map coordinate systems.
+ *
+ * @param type pointer-event kind
+ * @param screenX finite horizontal screen coordinate in logical pixels
+ * @param screenY finite vertical screen coordinate in logical pixels
+ * @param mapCoordinate optional coordinate in the current source-map coordinate system
+ */
 public record MapPointerEvent(
         Type type, double screenX, double screenY, Optional<Coordinate> mapCoordinate) {
     /** Supported event types in the initial interaction slice. */

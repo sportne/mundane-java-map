@@ -2,6 +2,27 @@ plugins {
     id 'maven-publish'
 }
 
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    options.docEncoding = 'UTF-8'
+    options.addBooleanOption('Xdoclint:all', true)
+    options.addBooleanOption('Werror', true)
+    options.addBooleanOption('notimestamp', true)
+}
+
+def publicApiCheck = tasks.register('checkstylePublicApi', Checkstyle) {
+    group = 'verification'
+    description = 'Checks published main-source declarations for complete public API documentation.'
+    source = sourceSets.main.allJava
+    classpath = files()
+    configFile = rootProject.file('config/checkstyle/checkstyle-public-api.xml')
+}
+
+tasks.named('check') {
+    dependsOn publicApiCheck
+}
+
 publishing {
     publications {
         mavenJava(MavenPublication) {

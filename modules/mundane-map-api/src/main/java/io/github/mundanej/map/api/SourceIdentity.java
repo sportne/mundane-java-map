@@ -2,7 +2,12 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Bounded logical source identity that contains no implicit locator. */
+/**
+ * Bounded logical source identity that contains no implicit locator.
+ *
+ * @param id non-blank stable machine identity
+ * @param displayName bounded presentation name, which may be empty
+ */
 public record SourceIdentity(String id, String displayName) {
     /** Validates bounded identity text. */
     public SourceIdentity {

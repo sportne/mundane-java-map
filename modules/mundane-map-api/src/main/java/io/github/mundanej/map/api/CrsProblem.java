@@ -5,7 +5,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 
-/** Stable bounded detail for a CRS registry, domain, or numeric failure. */
+/**
+ * Stable bounded detail for a CRS registry, domain, or numeric failure.
+ *
+ * @param code stable uppercase machine-readable code
+ * @param message bounded human-readable explanation
+ * @param context immutable bounded diagnostic context, ordered by key
+ */
 public record CrsProblem(String code, String message, Map<String, String> context) {
     private static final int CODE_LIMIT = 64;
     private static final int MESSAGE_LIMIT = 1_024;

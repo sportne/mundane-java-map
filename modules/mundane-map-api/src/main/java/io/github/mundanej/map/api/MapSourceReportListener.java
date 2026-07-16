@@ -3,6 +3,10 @@ package io.github.mundanej.map.api;
 /** Listener for ordered source-report transitions. */
 @FunctionalInterface
 public interface MapSourceReportListener {
-    /** Observes a source report transition. */
+    /**
+     * Observes a source report transition.
+     *
+     * @param event immutable transition event
+     */
     void onMapSourceReportChanged(MapSourceReportEvent event);
 }

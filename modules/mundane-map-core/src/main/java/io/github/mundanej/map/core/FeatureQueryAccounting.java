@@ -35,7 +35,12 @@ public final class FeatureQueryAccounting {
     private long textCharacters;
     private long payloadBytes;
 
-    /** Creates accounting for exact already-resolved limits. */
+    /**
+     * Creates accounting for exact already-resolved limits.
+     *
+     * @param sourceId stable source identifier used in structured failures
+     * @param limits immutable operation ceilings
+     */
     public FeatureQueryAccounting(String sourceId, FeatureQueryLimits limits) {
         this.sourceId = Objects.requireNonNull(sourceId, "sourceId");
         this.limits = Objects.requireNonNull(limits, "limits");
@@ -46,7 +51,14 @@ public final class FeatureQueryAccounting {
         examined = accept("recordsExamined", examined, 1, limits.recordsExamined());
     }
 
-    /** Charges one returned record and its deterministic logical payload. */
+    /**
+     * Charges one returned record and its deterministic logical payload.
+     *
+     * @param record immutable record about to be published
+     * @param retainedReferenceSlots additional retained reference slots owned by the caller
+     * @param cancellation operation cancellation token checked before publication
+     * @throws SourceException when cancellation is requested or a query limit would be exceeded
+     */
     public void recordReturned(
             FeatureRecord record, int retainedReferenceSlots, CancellationToken cancellation) {
         Objects.requireNonNull(record, "record");

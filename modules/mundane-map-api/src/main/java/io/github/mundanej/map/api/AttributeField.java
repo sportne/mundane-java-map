@@ -2,7 +2,13 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** One ordered attribute-schema field. */
+/**
+ * One ordered attribute-schema field.
+ *
+ * @param name non-blank canonical field name
+ * @param type canonical value type accepted by the field
+ * @param nullable whether {@link AttributeNull} is accepted
+ */
 public record AttributeField(String name, AttributeType type, boolean nullable) {
     /** Validates the field. */
     public AttributeField {
@@ -10,7 +16,12 @@ public record AttributeField(String name, AttributeType type, boolean nullable) 
         Objects.requireNonNull(type, "type");
     }
 
-    /** Returns whether a canonical value conforms to this field. */
+    /**
+     * Returns whether a canonical value conforms to this field.
+     *
+     * @param value canonical attribute value to test
+     * @return whether the value conforms
+     */
     public boolean accepts(Object value) {
         if (value == AttributeNull.INSTANCE) {
             return nullable;

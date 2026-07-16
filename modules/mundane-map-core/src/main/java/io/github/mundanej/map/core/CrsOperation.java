@@ -70,27 +70,50 @@ public final class CrsOperation {
                 false);
     }
 
-    /** Returns the operation source definition. */
+    /**
+     * Returns the operation source definition.
+     *
+     * @return exact registered source CRS
+     */
     public CrsDefinition sourceCrs() {
         return sourceCrs;
     }
 
-    /** Returns the operation target definition. */
+    /**
+     * Returns the operation target definition.
+     *
+     * @return exact registered target CRS
+     */
     public CrsDefinition targetCrs() {
         return targetCrs;
     }
 
-    /** Returns the accepted source domain. */
+    /**
+     * Returns the accepted source domain.
+     *
+     * @return immutable source-coordinate domain
+     */
     public Envelope sourceDomain() {
         return sourceDomain;
     }
 
-    /** Returns the resulting target domain. */
+    /**
+     * Returns the resulting target domain.
+     *
+     * @return immutable target-coordinate domain
+     */
     public Envelope targetDomain() {
         return targetDomain;
     }
 
-    /** Transforms one coordinate strictly. */
+    /**
+     * Transforms one coordinate strictly.
+     *
+     * @param coordinate coordinate expressed in {@link #sourceCrs()}
+     * @return coordinate expressed in {@link #targetCrs()}
+     * @throws CrsException when the input is outside the source domain or the registered operation
+     *     produces an invalid result
+     */
     public Coordinate transform(Coordinate coordinate) {
         Objects.requireNonNull(coordinate, "coordinate");
         if (identity) {
@@ -121,7 +144,14 @@ public final class CrsOperation {
         return result;
     }
 
-    /** Transforms a complete envelope strictly. */
+    /**
+     * Transforms a complete envelope strictly.
+     *
+     * @param envelope envelope expressed in {@link #sourceCrs()}
+     * @return transformed envelope expressed in {@link #targetCrs()}
+     * @throws CrsException when any input bound is outside the source domain or the operation
+     *     produces an invalid result
+     */
     public Envelope transformEnvelopeStrict(Envelope envelope) {
         Objects.requireNonNull(envelope, "envelope");
         if (identity) {
@@ -153,7 +183,13 @@ public final class CrsOperation {
         return result;
     }
 
-    /** Clips a query envelope to the operation domain and transforms the intersection. */
+    /**
+     * Clips a query envelope to the operation domain and transforms the intersection.
+     *
+     * @param envelope query envelope expressed in {@link #sourceCrs()}
+     * @return status and optional target-CRS intersection; the envelope is absent when outside
+     * @throws CrsException when the intersecting envelope cannot be transformed strictly
+     */
     public QueryEnvelopeTransform transformQueryEnvelope(Envelope envelope) {
         Objects.requireNonNull(envelope, "envelope");
         double minX = Math.max(envelope.minX(), sourceDomain.minX());

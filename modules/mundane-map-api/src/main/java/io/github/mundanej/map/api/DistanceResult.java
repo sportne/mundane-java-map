@@ -2,7 +2,11 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Immutable non-negative distance measured in metres. */
+/**
+ * Immutable non-negative distance measured in metres.
+ *
+ * @param metres finite non-negative distance in metres
+ */
 public record DistanceResult(double metres) {
     /** Shared zero-distance value. */
     public static final DistanceResult ZERO = new DistanceResult(0.0);
@@ -17,7 +21,12 @@ public record DistanceResult(double metres) {
         }
     }
 
-    /** Returns the checked sum in encounter order. */
+    /**
+     * Returns the checked sum in encounter order.
+     *
+     * @param other distance to add
+     * @return finite sum in metres
+     */
     public DistanceResult plus(DistanceResult other) {
         Objects.requireNonNull(other, "other");
         double sum = metres + other.metres;

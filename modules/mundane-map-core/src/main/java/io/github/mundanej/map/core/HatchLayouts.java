@@ -11,7 +11,19 @@ import java.util.Objects;
 public final class HatchLayouts {
     private HatchLayouts() {}
 
-    /** Covers a finite screen rectangle with clipped candidate hatch lines. */
+    /**
+     * Covers a finite screen rectangle with clipped candidate hatch lines.
+     *
+     * @param pattern supported diagonal hatch pattern
+     * @param bounds finite logical-screen bounds to cover
+     * @param latticeOrigin logical-screen origin that fixes hatch phase
+     * @param orientationBaseBearing clockwise logical-screen bearing in degrees
+     * @param spacingPixels positive spacing in logical screen pixels
+     * @param maxSegments positive allocation and work ceiling
+     * @param featureId stable feature identifier used in structured failures
+     * @return immutable packed non-zero segments clipped to {@code bounds}
+     * @throws SymbolException when required work exceeds the segment limit or arithmetic is unsafe
+     */
     public static HatchSegments cover(
             HatchPattern pattern,
             Envelope bounds,

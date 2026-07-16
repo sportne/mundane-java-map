@@ -36,6 +36,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
@@ -48,6 +49,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class ShapefileViewerTest {
+    private static final String SENSITIVE_PARENT_TOKEN = "SENSITIVE_SHP_PARENT_7F4A";
+    private static final String SENSITIVE_STEM_TOKEN = "SENSITIVE_SHP_STEM_9C2D";
     private static final String WGS84_WKT =
             String.join(
                     "",
@@ -368,10 +371,12 @@ class ShapefileViewerTest {
     }
 
     @Test
-    void loadsABoundedPreviewOffTheEdtAndPresentsGenericMetadataAndValues() throws Exception {
-        Path fixture = temporaryDirectory.resolve("preview.shp");
-        Path dbf = temporaryDirectory.resolve("preview.dbf");
-        Path cpg = temporaryDirectory.resolve("preview.cpg");
+    void loadsABoundedPreviewWithoutExposingTheSuccessfulSourcePath() throws Exception {
+        Path sensitiveDirectory = temporaryDirectory.resolve(SENSITIVE_PARENT_TOKEN);
+        Files.createDirectories(sensitiveDirectory);
+        Path fixture = sensitiveDirectory.resolve(SENSITIVE_STEM_TOKEN + ".shp");
+        Path dbf = sensitiveDirectory.resolve(SENSITIVE_STEM_TOKEN + ".dbf");
+        Path cpg = sensitiveDirectory.resolve(SENSITIVE_STEM_TOKEN + ".cpg");
         Files.write(fixture, attributeShpFixture());
         Files.write(dbf, attributeDbfFixture());
         Files.writeString(cpg, "UTF-8");
@@ -379,24 +384,56 @@ class ShapefileViewerTest {
         ShapefileViewer.LoadedDataset loaded =
                 ShapefileViewer.load(fixture, Optional.of(CrsDefinitions.EPSG_4326));
         assertFalse(loaded.source().isClosed());
+        assertEquals("shapefile-viewer", loaded.metadata().identity().id());
         assertEquals(1, loaded.preview().size());
         assertFalse(loaded.truncated());
         assertEquals("record:1", loaded.preview().getFirst().id());
 
-        AtomicReference<String> displayed = new AtomicReference<>();
+        AtomicReference<ShapefileViewer.ViewerSession> session = new AtomicReference<>();
+        AtomicReference<List<String>> presentation = new AtomicReference<>();
         SwingUtilities.invokeAndWait(
                 () -> {
-                    ShapefilePreviewPanel panel = new ShapefilePreviewPanel(loaded);
-                    panel.selectFirstPreview();
-                    displayed.set(panel.displayedText());
+                    ShapefileViewer.ViewerSession started = ShapefileViewer.startHeadless(loaded);
+                    session.set(started);
+                    started.view().setSize(240, 180);
+                    paint(started.view(), 240, 180);
+                    assertTrue(started.panel().reportTransitionCount() >= 2);
+                    assertTrue(started.view().sourceReports().isEmpty());
+                    presentation.set(started.panel().presentationStrings());
                 });
-        assertTrue(displayed.get().contains("NAME: TEXT"));
-        assertTrue(displayed.get().contains("NAME = Café"));
-        assertTrue(displayed.get().contains("Opening diagnostics"));
-        loaded.source().close();
+        String displayed = presentation.get().getLast();
+        assertTrue(displayed.contains("Source: Shapefile"));
+        assertTrue(displayed.contains("NAME: TEXT"));
+        assertTrue(displayed.contains("NAME = Café"));
+        assertTrue(displayed.contains("Opening diagnostics"));
+        assertTrue(displayed.contains("SHAPEFILE_SHX_MISSING"));
+        assertTrue(displayed.contains("Preview diagnostics"));
+        assertTrue(displayed.contains("Latest map diagnostics: none"));
+        assertTrue(presentation.get().contains("record:1"));
+        assertNoPresentedPath(
+                presentation.get(), fixture, SENSITIVE_PARENT_TOKEN, SENSITIVE_STEM_TOKEN);
+        SwingUtilities.invokeAndWait(session.get().view()::close);
+        assertTrue(loaded.source().isClosed());
         Files.delete(cpg);
         Files.delete(dbf);
         Files.delete(fixture);
+    }
+
+    private static void assertNoPresentedPath(
+            List<String> presentation, Path source, String parentToken, String stemToken) {
+        List<String> forbidden =
+                List.of(
+                        source.toAbsolutePath().toString(),
+                        Objects.requireNonNull(source.getFileName(), "source file name").toString(),
+                        stemToken,
+                        parentToken);
+        for (String value : presentation) {
+            for (String candidate : forbidden) {
+                assertFalse(
+                        value.contains(candidate),
+                        () -> "presentation exposed '" + candidate + "': " + value);
+            }
+        }
     }
 
     @Test
@@ -542,7 +579,9 @@ class ShapefileViewerTest {
         assertEquals(List.of("shapefile-viewer: SHAPEFILE_VIEWER_ARGUMENT_INVALID"), reports);
 
         reports.clear();
-        Path truncated = temporaryDirectory.resolve("private-open-name.shp");
+        Path sensitiveDirectory = temporaryDirectory.resolve(SENSITIVE_PARENT_TOKEN);
+        Files.createDirectories(sensitiveDirectory);
+        Path truncated = sensitiveDirectory.resolve(SENSITIVE_STEM_TOKEN + ".shp");
         Files.write(truncated, new byte[10]);
         assertFalse(
                 ShapefileViewer.runMain(
@@ -550,7 +589,7 @@ class ShapefileViewerTest {
         assertEquals(1, reports.size());
         assertTrue(
                 reports.getFirst().contains("ERROR SHAPEFILE_HEADER_INVALID"), reports::toString);
-        assertFalse(reports.getFirst().contains(truncated.toString()));
+        assertNoPresentedPath(reports, truncated, SENSITIVE_PARENT_TOKEN, SENSITIVE_STEM_TOKEN);
 
         reports.clear();
         Path malformed = temporaryDirectory.resolve("private-record-name.shp");

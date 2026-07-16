@@ -4,6 +4,7 @@ import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterSource;
+import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
@@ -119,7 +120,7 @@ public final class RasterViewer {
         ImageOpenOptions options = ImageOpenOptions.defaults().withPlacement(placement);
         return RasterImages.open(
                 path,
-                new SourceIdentity("raster-viewer-source", "Raster image"),
+                new SourceIdentity("raster-viewer", "Raster image"),
                 options,
                 AwtRasterDecoders.level1());
     }
@@ -240,11 +241,52 @@ public final class RasterViewer {
 
     private static String summary(RuntimeException failure) {
         if (failure instanceof SourceException source) {
-            return source.terminal().code() + ": " + source.terminal().message();
+            return diagnosticSummary(source.terminal());
         }
-        return failure.getMessage() == null
-                ? failure.getClass().getSimpleName()
-                : failure.getMessage();
+        if (failure instanceof IllegalArgumentException) {
+            return "raster-viewer: IMAGE_VIEWER_ARGUMENT_INVALID";
+        }
+        return "raster-viewer: IMAGE_VIEWER_STARTUP_FAILED";
+    }
+
+    private static String diagnosticSummary(SourceDiagnostic diagnostic) {
+        StringBuilder value =
+                new StringBuilder("raster-viewer: ")
+                        .append(diagnostic.severity())
+                        .append(' ')
+                        .append(diagnostic.code());
+        diagnostic
+                .location()
+                .ifPresent(
+                        location -> {
+                            location.component()
+                                    .ifPresent(
+                                            component ->
+                                                    value.append(" component=").append(component));
+                            if (location.recordNumber().isPresent()) {
+                                value.append(" record=")
+                                        .append(location.recordNumber().getAsLong());
+                            }
+                            location.fieldName()
+                                    .ifPresent(field -> value.append(" field=").append(field));
+                            if (location.byteOffset().isPresent()) {
+                                value.append(" offset=").append(location.byteOffset().getAsLong());
+                            }
+                        });
+        if (!diagnostic.context().isEmpty()) {
+            value.append(" context={")
+                    .append(
+                            diagnostic.context().entrySet().stream()
+                                    .map(entry -> entry.getKey() + '=' + bounded(entry.getValue()))
+                                    .collect(java.util.stream.Collectors.joining(", ")))
+                    .append('}');
+        }
+        return value.toString();
+    }
+
+    private static String bounded(String value) {
+        int maximum = 160;
+        return value.length() <= maximum ? value : value.substring(0, maximum) + "…";
     }
 
     private static void closeSuppressing(AutoCloseable closeable, Throwable primary) {

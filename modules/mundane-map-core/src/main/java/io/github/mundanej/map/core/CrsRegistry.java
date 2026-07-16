@@ -30,12 +30,20 @@ public final class CrsRegistry {
         this.operations = Map.copyOf(operations);
     }
 
-    /** Returns an empty explicit registry builder. */
+    /**
+     * Returns an empty explicit registry builder.
+     *
+     * @return new single-use builder with no definitions or operations
+     */
     public static Builder builder() {
         return new Builder();
     }
 
-    /** Returns a builder pre-populated with the Level 1 definitions and Web Mercator operation. */
+    /**
+     * Returns a builder pre-populated with the Level 1 definitions and Web Mercator operation.
+     *
+     * @return new single-use Level 1 builder
+     */
     public static Builder builderWithLevel1() {
         return builder()
                 .registerDefinition(CrsDefinitions.EPSG_4326, EPSG_4326_ALIASES)
@@ -43,12 +51,22 @@ public final class CrsRegistry {
                 .registerProjection(new WebMercatorProjection());
     }
 
-    /** Returns a fresh immutable Level 1 registry. */
+    /**
+     * Returns a fresh immutable Level 1 registry.
+     *
+     * @return isolated registry containing EPSG:4326, EPSG:3857, and their direct operation
+     */
     public static CrsRegistry level1() {
         return builderWithLevel1().build();
     }
 
-    /** Resolves one exact canonical key or deliberately registered alias. */
+    /**
+     * Resolves one exact canonical key or deliberately registered alias.
+     *
+     * @param exactKey case-sensitive registered key
+     * @return exact immutable registered definition
+     * @throws CrsException when no definition is registered for the key
+     */
     public CrsDefinition resolve(String exactKey) {
         Objects.requireNonNull(exactKey, "exactKey");
         CrsDefinition definition = definitionsByKey.get(exactKey);
@@ -61,7 +79,15 @@ public final class CrsRegistry {
         return definition;
     }
 
-    /** Resolves one direct directional operation or strict identity. */
+    /**
+     * Resolves one direct directional operation or strict identity.
+     *
+     * @param source exact registered source definition
+     * @param target exact registered target definition
+     * @return immutable direct operation
+     * @throws CrsException when either definition differs from the registered value or no direct
+     *     operation exists
+     */
     public CrsOperation operation(CrsDefinition source, CrsDefinition target) {
         CrsDefinition registeredSource = requireRegistered(source);
         CrsDefinition registeredTarget = requireRegistered(target);
@@ -86,7 +112,14 @@ public final class CrsRegistry {
         return operation;
     }
 
-    /** Resolves a source-metadata operation without guessing missing or unknown definitions. */
+    /**
+     * Resolves a source-metadata operation without guessing missing or unknown definitions.
+     *
+     * @param sourceMetadata optional source metadata supplied by a data source
+     * @param target exact registered target definition
+     * @return immutable direct operation from the recognized source definition
+     * @throws CrsException when metadata is missing, unknown, mismatched, or unsupported
+     */
     public CrsOperation operationFromMetadata(
             Optional<CrsMetadata> sourceMetadata, CrsDefinition target) {
         Objects.requireNonNull(sourceMetadata, "sourceMetadata");
@@ -149,7 +182,14 @@ public final class CrsRegistry {
 
         private Builder() {}
 
-        /** Registers a canonical definition and an exact alias list. */
+        /**
+         * Registers a canonical definition and an exact alias list.
+         *
+         * @param definition immutable definition to register
+         * @param exactAliases case-sensitive aliases, defensively copied in declaration order
+         * @return this builder
+         * @throws CrsException when a canonical key or alias is already registered
+         */
         public Builder registerDefinition(CrsDefinition definition, List<String> exactAliases) {
             requireUsable();
             Objects.requireNonNull(definition, "definition");
@@ -181,7 +221,13 @@ public final class CrsRegistry {
             return this;
         }
 
-        /** Registers one strict reversible projection and both directional views. */
+        /**
+         * Registers one strict reversible projection and both directional views.
+         *
+         * @param projection projection whose exact endpoints are already registered
+         * @return this builder
+         * @throws CrsException when endpoints/domains mismatch or either direction already exists
+         */
         public Builder registerProjection(Projection projection) {
             requireUsable();
             Objects.requireNonNull(projection, "projection");
@@ -219,7 +265,12 @@ public final class CrsRegistry {
             return this;
         }
 
-        /** Consumes this builder and returns an immutable isolated registry. */
+        /**
+         * Consumes this builder and returns an immutable isolated registry.
+         *
+         * @return immutable registry containing the declared definitions and operations
+         * @throws IllegalStateException when this builder was already consumed
+         */
         public CrsRegistry build() {
             requireUsable();
             consumed = true;

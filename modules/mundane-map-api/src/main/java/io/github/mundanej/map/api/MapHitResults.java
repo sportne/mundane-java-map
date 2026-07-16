@@ -15,7 +15,12 @@ public final class MapHitResults implements Iterable<MapHit> {
         this.hits = hits;
     }
 
-    /** Creates results from a topmost-first list, rejecting duplicate identities. */
+    /**
+     * Creates results from a topmost-first list, rejecting duplicate identities.
+     *
+     * @param hits feature hits in topmost-first order
+     * @return immutable hit results
+     */
     public static MapHitResults of(List<MapHit> hits) {
         Objects.requireNonNull(hits, "hits");
         for (int index = 0; index < hits.size(); index++) {
@@ -33,17 +38,29 @@ public final class MapHitResults implements Iterable<MapHit> {
         return new MapHitResults(copy);
     }
 
-    /** Returns the number of feature hits. */
+    /**
+     * Returns the number of feature hits.
+     *
+     * @return hit count
+     */
     public int size() {
         return hits.size();
     }
 
-    /** Returns the immutable topmost-first list. */
+    /**
+     * Returns the immutable topmost-first list.
+     *
+     * @return immutable hit list
+     */
     public List<MapHit> hits() {
         return List.copyOf(hits);
     }
 
-    /** Returns the topmost hit, if present. */
+    /**
+     * Returns the topmost hit, if present.
+     *
+     * @return first hit or empty
+     */
     public Optional<MapHit> topmost() {
         return hits.isEmpty() ? Optional.empty() : Optional.of(hits.getFirst());
     }

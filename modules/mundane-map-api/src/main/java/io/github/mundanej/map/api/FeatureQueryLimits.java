@@ -1,6 +1,16 @@
 package io.github.mundanej.map.api;
 
-/** Immutable feature query ceilings. */
+/**
+ * Immutable feature query ceilings.
+ *
+ * @param recordsExamined maximum source records examined
+ * @param recordsReturned maximum feature records returned
+ * @param coordinatesReturned maximum geometry coordinates returned
+ * @param attributeValuesReturned maximum attribute values returned
+ * @param decodedTextCharactersReturned maximum decoded text characters returned
+ * @param ownedPayloadBytes maximum bytes owned by returned payloads
+ * @param retainedWarnings maximum warnings retained in diagnostics
+ */
 public record FeatureQueryLimits(
         long recordsExamined,
         long recordsReturned,
@@ -27,7 +37,12 @@ public record FeatureQueryLimits(
         }
     }
 
-    /** Returns whether every ceiling is no greater than the parent. */
+    /**
+     * Returns whether every ceiling is no greater than the parent.
+     *
+     * @param parent source-level ceilings
+     * @return whether this value only tightens the parent
+     */
     public boolean tightens(FeatureQueryLimits parent) {
         return recordsExamined <= parent.recordsExamined
                 && recordsReturned <= parent.recordsReturned

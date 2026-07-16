@@ -10,7 +10,14 @@ import java.util.OptionalDouble;
 public final class LineTangents {
     private LineTangents() {}
 
-    /** Finds the first and last non-zero segment and returns outward clockwise screen bearings. */
+    /**
+     * Finds the first and last non-zero segment and returns outward clockwise screen bearings.
+     *
+     * @param screenCoordinates immutable coordinates in logical screen space
+     * @param featureId non-blank feature identifier used in stable failure context
+     * @param partIndex non-negative declared part index used in stable failure context
+     * @return optional outward endpoint bearings; both are empty for a coincident part
+     */
     public static LineEndpointBearings outwardScreenBearings(
             CoordinateSequence screenCoordinates, String featureId, int partIndex) {
         Objects.requireNonNull(screenCoordinates, "screenCoordinates");

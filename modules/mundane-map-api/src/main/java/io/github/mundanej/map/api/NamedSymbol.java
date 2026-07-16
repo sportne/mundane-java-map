@@ -2,7 +2,12 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** An immutable exact catalog name and symbol pair. */
+/**
+ * An immutable exact catalog name and symbol pair.
+ *
+ * @param name non-blank exact case-sensitive catalog name
+ * @param symbol immutable non-legacy symbol
+ */
 @SuppressWarnings("deprecation")
 public record NamedSymbol(String name, Symbol symbol) {
     /** Creates a named non-legacy symbol. */

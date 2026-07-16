@@ -24,6 +24,10 @@ public final class DistanceStrategies {
      *
      * <p>For EPSG:3857 this is projected map distance and does not correct Web Mercator scale
      * distortion.
+     *
+     * @param projectedCrs projected easting/northing CRS whose axes use metres
+     * @return immutable Euclidean distance strategy for the exact CRS
+     * @throws CrsException when the definition does not have the required projected-metre profile
      */
     public static DistanceStrategy planarMetres(CrsDefinition projectedCrs) {
         CrsDefinition crs = Objects.requireNonNull(projectedCrs, "projectedCrs");
@@ -43,6 +47,10 @@ public final class DistanceStrategies {
      * <p>The strategy uses a radius of exactly {@value #GREAT_CIRCLE_RADIUS_METRES} metres,
      * normalizes longitude differences across the antimeridian, and reports out-of-domain inputs
      * with {@code CRS_COORDINATE_OUT_OF_DOMAIN}.
+     *
+     * @param geographicCrs exact canonical EPSG:4326 definition
+     * @return immutable spherical great-circle strategy
+     * @throws CrsException when the definition is not the canonical Level 1 EPSG:4326 value
      */
     public static DistanceStrategy epsg4326GreatCircle(CrsDefinition geographicCrs) {
         CrsDefinition crs = Objects.requireNonNull(geographicCrs, "geographicCrs");
@@ -53,7 +61,13 @@ public final class DistanceStrategies {
         return new GreatCircle(crs);
     }
 
-    /** Verifies exact strategy/view CRS identity. */
+    /**
+     * Verifies exact strategy/view CRS identity.
+     *
+     * @param strategy strategy whose coordinate CRS is required
+     * @param actualCrs actual CRS of coordinates supplied to that strategy
+     * @throws CrsException when the definitions are not equal
+     */
     public static void requireCoordinateCrs(DistanceStrategy strategy, CrsDefinition actualCrs) {
         Objects.requireNonNull(strategy, "strategy");
         CrsDefinition actual = Objects.requireNonNull(actualCrs, "actualCrs");

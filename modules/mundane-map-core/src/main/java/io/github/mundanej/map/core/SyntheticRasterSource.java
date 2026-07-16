@@ -34,7 +34,17 @@ public final class SyntheticRasterSource implements RasterSource {
         this.limits = Objects.requireNonNull(limits, "limits");
     }
 
-    /** Opens a fully described procedural source. */
+    /**
+     * Opens a fully described procedural source.
+     *
+     * @param identity stable source identity
+     * @param width positive source width in pixels
+     * @param height positive source height in pixels
+     * @param mapBounds optional source footprint in map coordinates
+     * @param crs optional CRS metadata for the footprint
+     * @param limits source and request ceilings
+     * @return open deterministic procedural source owned by the caller
+     */
     public static SyntheticRasterSource open(
             SourceIdentity identity,
             int width,
@@ -51,7 +61,16 @@ public final class SyntheticRasterSource implements RasterSource {
                 limits);
     }
 
-    /** Opens a mapped procedural source with Level 1 limits. */
+    /**
+     * Opens a mapped procedural source with Level 1 limits.
+     *
+     * @param identity stable source identity
+     * @param width positive source width in pixels
+     * @param height positive source height in pixels
+     * @param mapBounds source footprint in map coordinates
+     * @param crs CRS metadata for the footprint
+     * @return open deterministic procedural source owned by the caller
+     */
     public static SyntheticRasterSource open(
             SourceIdentity identity, int width, int height, Envelope mapBounds, CrsMetadata crs) {
         return open(

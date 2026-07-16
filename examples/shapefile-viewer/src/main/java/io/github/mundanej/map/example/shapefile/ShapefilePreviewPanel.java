@@ -33,6 +33,7 @@ final class ShapefilePreviewPanel extends JPanel implements MapSourceReportListe
     private final JTextArea details = new JTextArea();
     private DiagnosticReport live = DiagnosticReport.empty();
     private boolean ignoredOpeningTransition;
+    private int reportTransitionCount;
 
     ShapefilePreviewPanel(ShapefileViewer.LoadedDataset loaded) {
         super(new BorderLayout());
@@ -68,12 +69,23 @@ final class ShapefilePreviewPanel extends JPanel implements MapSourceReportListe
         }
     }
 
-    String displayedText() {
-        return details.getText();
+    List<String> presentationStrings() {
+        java.util.ArrayList<String> values =
+                new java.util.ArrayList<>(records.getModel().getSize() + 1);
+        for (int index = 0; index < records.getModel().getSize(); index++) {
+            values.add(records.getModel().getElementAt(index));
+        }
+        values.add(details.getText());
+        return List.copyOf(values);
+    }
+
+    int reportTransitionCount() {
+        return reportTransitionCount;
     }
 
     @Override
     public void onMapSourceReportChanged(MapSourceReportEvent event) {
+        reportTransitionCount++;
         Optional<DiagnosticReport> current = event.current();
         if (!ignoredOpeningTransition
                 && current.isPresent()

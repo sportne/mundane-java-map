@@ -3,7 +3,12 @@ package io.github.mundanej.map.api;
 import java.util.List;
 import java.util.Objects;
 
-/** A polygon with one closed exterior ring and zero or more closed interior rings. */
+/**
+ * A polygon with one closed exterior ring and zero or more closed interior rings.
+ *
+ * @param exterior immutable closed exterior ring with at least four coordinates
+ * @param holes defensively copied closed interior rings
+ */
 public record PolygonGeometry(CoordinateSequence exterior, List<CoordinateSequence> holes)
         implements Geometry {
     /** Creates a polygon. */
@@ -15,7 +20,11 @@ public record PolygonGeometry(CoordinateSequence exterior, List<CoordinateSequen
         }
     }
 
-    /** Creates a polygon with no holes. */
+    /**
+     * Creates a polygon with no holes.
+     *
+     * @param exterior immutable closed exterior ring
+     */
     public PolygonGeometry(CoordinateSequence exterior) {
         this(exterior, List.of());
     }

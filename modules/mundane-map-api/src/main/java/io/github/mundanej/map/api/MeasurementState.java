@@ -14,7 +14,16 @@ public final class MeasurementState {
     private final Optional<DistanceResult> previewSegmentDistance;
     private final DistanceResult displayedDistance;
 
-    /** Creates and validates a complete immutable measurement snapshot. */
+    /**
+     * Creates and validates a complete immutable measurement snapshot.
+     *
+     * @param phase lifecycle phase
+     * @param packedVertices alternating finite map-coordinate x/y pairs, defensively copied
+     * @param preview optional transient map-coordinate endpoint
+     * @param committedDistance total committed distance in metres
+     * @param lastCommittedSegmentDistance optional last committed segment distance in metres
+     * @param previewSegmentDistance optional transient segment distance in metres
+     */
     public MeasurementState(
             MeasurementPhase phase,
             double[] packedVertices,
@@ -36,7 +45,11 @@ public final class MeasurementState {
                 previewSegmentDistance.map(committedDistance::plus).orElse(committedDistance);
     }
 
-    /** Returns the canonical empty measurement. */
+    /**
+     * Returns the canonical empty measurement.
+     *
+     * @return immutable empty state
+     */
     public static MeasurementState empty() {
         return new MeasurementState(
                 MeasurementPhase.EMPTY,
@@ -47,48 +60,85 @@ public final class MeasurementState {
                 Optional.empty());
     }
 
-    /** Returns the lifecycle phase. */
+    /**
+     * Returns the lifecycle phase.
+     *
+     * @return measurement phase
+     */
     public MeasurementPhase phase() {
         return phase;
     }
 
-    /** Returns the number of packed vertices. */
+    /**
+     * Returns the number of packed vertices.
+     *
+     * @return committed vertex count
+     */
     public int vertexCount() {
         return packedVertices.length / 2;
     }
 
-    /** Returns one vertex by zero-based index. */
+    /**
+     * Returns one vertex by zero-based index.
+     *
+     * @param index zero-based committed-vertex index
+     * @return immutable map coordinate
+     */
     public Coordinate vertex(int index) {
         Objects.checkIndex(index, vertexCount());
         return new Coordinate(packedVertices[index * 2], packedVertices[index * 2 + 1]);
     }
 
-    /** Returns a defensive copy of packed x/y coordinate pairs. */
+    /**
+     * Returns a defensive copy of packed x/y coordinate pairs.
+     *
+     * @return newly allocated alternating x/y ordinates
+     */
     public double[] packedVertices() {
         return packedVertices.clone();
     }
 
-    /** Returns the transient preview endpoint. */
+    /**
+     * Returns the transient preview endpoint.
+     *
+     * @return optional map-coordinate endpoint
+     */
     public Optional<Coordinate> preview() {
         return preview;
     }
 
-    /** Returns the committed path distance. */
+    /**
+     * Returns the committed path distance.
+     *
+     * @return total committed distance in metres
+     */
     public DistanceResult committedDistance() {
         return committedDistance;
     }
 
-    /** Returns the last committed segment distance when one exists. */
+    /**
+     * Returns the last committed segment distance when one exists.
+     *
+     * @return optional segment distance in metres
+     */
     public Optional<DistanceResult> lastCommittedSegmentDistance() {
         return lastCommittedSegmentDistance;
     }
 
-    /** Returns the transient preview segment distance when one exists. */
+    /**
+     * Returns the transient preview segment distance when one exists.
+     *
+     * @return optional preview distance in metres
+     */
     public Optional<DistanceResult> previewSegmentDistance() {
         return previewSegmentDistance;
     }
 
-    /** Returns committed distance plus any preview segment. */
+    /**
+     * Returns committed distance plus any preview segment.
+     *
+     * @return displayed distance in metres
+     */
     public DistanceResult displayedDistance() {
         return displayedDistance;
     }

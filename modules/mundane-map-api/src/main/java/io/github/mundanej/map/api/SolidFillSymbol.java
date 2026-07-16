@@ -20,22 +20,43 @@ public final class SolidFillSymbol implements FillSymbol {
         this.opacity = requireOpacity(opacity);
     }
 
-    /** Creates a solid fill with an optional line-symbol outline. */
+    /**
+     * Creates a solid fill with an optional line-symbol outline.
+     *
+     * @param fill interior color
+     * @param outline optional line-role outline
+     * @param opacity finite opacity from zero through one
+     * @return immutable solid fill
+     */
     public static SolidFillSymbol of(Rgba fill, Optional<Symbol> outline, double opacity) {
         return new SolidFillSymbol(fill, outline, opacity);
     }
 
-    /** Creates a solid fill without an outline. */
+    /**
+     * Creates a solid fill without an outline.
+     *
+     * @param fill interior color
+     * @param opacity finite opacity from zero through one
+     * @return immutable solid fill
+     */
     public static SolidFillSymbol of(Rgba fill, double opacity) {
         return of(fill, Optional.empty(), opacity);
     }
 
-    /** Returns the interior color. */
+    /**
+     * Returns the interior color.
+     *
+     * @return immutable fill color
+     */
     public Rgba fill() {
         return fill;
     }
 
-    /** Returns the optional line-symbol outline. */
+    /**
+     * Returns the optional line-symbol outline.
+     *
+     * @return optional immutable outline
+     */
     public Optional<Symbol> outline() {
         return outline;
     }

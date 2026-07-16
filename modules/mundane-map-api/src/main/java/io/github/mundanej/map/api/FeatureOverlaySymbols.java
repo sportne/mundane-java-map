@@ -3,7 +3,13 @@ package io.github.mundanej.map.api;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Immutable role-complete symbol bundle for one interaction overlay. */
+/**
+ * Immutable role-complete symbol bundle for one interaction overlay.
+ *
+ * @param marker marker-role symbol used for point features
+ * @param line line-role symbol used for linear features
+ * @param fill fill-role symbol used for polygon features
+ */
 @SuppressWarnings("deprecation")
 public record FeatureOverlaySymbols(MarkerSymbol marker, LineSymbol line, FillSymbol fill) {
     private static final Envelope UNIT_BOX = new Envelope(-1.0, -1.0, 1.0, 1.0);
@@ -15,12 +21,20 @@ public record FeatureOverlaySymbols(MarkerSymbol marker, LineSymbol line, FillSy
         requireRole(fill, SymbolRole.FILL, "fill");
     }
 
-    /** Returns the source-listed translucent amber hover treatment. */
+    /**
+     * Returns the source-listed translucent amber hover treatment.
+     *
+     * @return immutable default hover symbols
+     */
     public static FeatureOverlaySymbols defaultHover() {
         return defaults(diamondPath(), 18.0, 4.0, 7.0, new Rgba(255, 170, 0, 176));
     }
 
-    /** Returns the source-listed opaque blue selection treatment. */
+    /**
+     * Returns the source-listed opaque blue selection treatment.
+     *
+     * @return immutable default selection symbols
+     */
     public static FeatureOverlaySymbols defaultSelection() {
         return defaults(circlePath(), 14.0, 2.0, 3.0, new Rgba(0, 102, 204, 255));
     }

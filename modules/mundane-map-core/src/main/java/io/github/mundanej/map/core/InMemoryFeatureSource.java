@@ -72,13 +72,28 @@ public final class InMemoryFeatureSource implements FeatureSource {
                         : PackedFeatureSpatialIndex.build(identity.id(), this.records, indexLimits);
     }
 
-    /** Opens a source with Level 1 limits and absent schema/CRS. */
+    /**
+     * Opens a source with Level 1 limits and absent schema/CRS.
+     *
+     * @param identity immutable source identity
+     * @param records ordered records, defensively copied with their immutable values
+     * @return open linear in-memory source owned by the caller
+     */
     public static InMemoryFeatureSource open(SourceIdentity identity, List<FeatureRecord> records) {
         return open(
                 identity, records, Optional.empty(), Optional.empty(), FeatureSourceLimits.LEVEL_1);
     }
 
-    /** Opens a fully described immutable source. */
+    /**
+     * Opens a fully described immutable source.
+     *
+     * @param identity immutable source identity
+     * @param records ordered records, defensively copied with their immutable values
+     * @param schema optional attribute schema enforced while opening
+     * @param crs optional source CRS metadata
+     * @param limits query ceilings retained by the source
+     * @return open linear in-memory source owned by the caller
+     */
     public static InMemoryFeatureSource open(
             SourceIdentity identity,
             List<FeatureRecord> records,

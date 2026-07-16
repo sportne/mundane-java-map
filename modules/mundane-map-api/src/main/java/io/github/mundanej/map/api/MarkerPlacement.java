@@ -2,7 +2,16 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Immutable marker size, anchor, offset, and clockwise rotation policy. */
+/**
+ * Immutable marker size, anchor, offset, and clockwise rotation policy.
+ *
+ * @param size marker width, height, and unit
+ * @param anchor point on the marker aligned to its geometry position
+ * @param offsetX finite horizontal offset expressed in the size unit
+ * @param offsetY finite vertical offset expressed in the size unit
+ * @param rotationDegrees clockwise rotation normalized to {@code [0, 360)} degrees
+ * @param rotationMode whether rotation is screen-relative or map-relative
+ */
 public record MarkerPlacement(
         SymbolSize size,
         SymbolAnchor anchor,
@@ -26,7 +35,12 @@ public record MarkerPlacement(
         rotationDegrees = normalizeDegrees(rotationDegrees);
     }
 
-    /** Creates a centered square screen-pixel placement with no offset or rotation. */
+    /**
+     * Creates a centered square screen-pixel placement with no offset or rotation.
+     *
+     * @param sizePixels positive width and height in logical screen pixels
+     * @return immutable centered placement
+     */
     public static MarkerPlacement centeredScreen(double sizePixels) {
         return new MarkerPlacement(
                 SymbolSize.square(sizePixels, SymbolUnit.SCREEN_PIXEL),

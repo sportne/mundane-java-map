@@ -8,6 +8,10 @@ public sealed interface Geometry
                 MultiPointGeometry,
                 MultiLineStringGeometry,
                 MultiPolygonGeometry {
-    /** Returns the geometry envelope in source-coordinate units. */
+    /**
+     * Returns the geometry envelope in source-coordinate units.
+     *
+     * @return immutable source-coordinate envelope
+     */
     Envelope envelope();
 }

@@ -4,10 +4,20 @@ import io.github.mundanej.map.api.Envelope;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Immutable result of a domain-aware query-envelope transformation. */
+/**
+ * Immutable result of a domain-aware query-envelope transformation.
+ *
+ * @param status relationship between the input query and the operation's source domain
+ * @param transformedEnvelope transformed intersection, absent exactly when {@code status} is {@link
+ *     QueryEnvelopeStatus#OUTSIDE}
+ */
 public record QueryEnvelopeTransform(
         QueryEnvelopeStatus status, Optional<Envelope> transformedEnvelope) {
-    /** Creates and validates a result. */
+    /**
+     * Creates and validates a result.
+     *
+     * @throws IllegalArgumentException when envelope presence disagrees with {@code status}
+     */
     public QueryEnvelopeTransform {
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(transformedEnvelope, "transformedEnvelope");

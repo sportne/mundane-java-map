@@ -2,7 +2,12 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** Stable identity of the single selected feature. */
+/**
+ * Stable identity of the single selected feature.
+ *
+ * @param layerId non-blank logical layer identity
+ * @param featureId non-blank stable feature identity within the layer
+ */
 public record FeatureSelection(String layerId, String featureId) {
     /** Validates both exact non-blank identifiers. */
     public FeatureSelection {

@@ -26,7 +26,13 @@ public final class MapScreenBasis {
         this.xAxisScreenBearingDegrees = xAxisScreenBearingDegrees;
     }
 
-    /** Creates a finite, orientation-reversing uniform similarity basis. */
+    /**
+     * Creates a finite, orientation-reversing uniform similarity basis.
+     *
+     * @param xUnitScreenDelta logical-screen delta for one positive projected x unit
+     * @param yUnitScreenDelta logical-screen delta for one positive projected y unit
+     * @return validated immutable similarity basis
+     */
     public static MapScreenBasis of(Coordinate xUnitScreenDelta, Coordinate yUnitScreenDelta) {
         Objects.requireNonNull(xUnitScreenDelta, "xUnitScreenDelta");
         Objects.requireNonNull(yUnitScreenDelta, "yUnitScreenDelta");
@@ -69,27 +75,47 @@ public final class MapScreenBasis {
                 xUnitScreenDelta, yUnitScreenDelta, determinant, uniformScale, bearing);
     }
 
-    /** Returns the screen delta corresponding to one projected positive-x map unit. */
+    /**
+     * Returns the screen delta corresponding to one projected positive-x map unit.
+     *
+     * @return immutable logical-screen delta
+     */
     public Coordinate xUnitScreenDelta() {
         return xUnitScreenDelta;
     }
 
-    /** Returns the screen delta corresponding to one projected positive-y map unit. */
+    /**
+     * Returns the screen delta corresponding to one projected positive-y map unit.
+     *
+     * @return immutable logical-screen delta
+     */
     public Coordinate yUnitScreenDelta() {
         return yUnitScreenDelta;
     }
 
-    /** Returns the negative orientation-reversing determinant. */
+    /**
+     * Returns the negative orientation-reversing determinant.
+     *
+     * @return finite determinant in squared screen-pixels per squared map unit
+     */
     public double determinant() {
         return determinant;
     }
 
-    /** Returns logical screen pixels per projected map unit. */
+    /**
+     * Returns logical screen pixels per projected map unit.
+     *
+     * @return finite positive uniform scale
+     */
     public double uniformScale() {
         return uniformScale;
     }
 
-    /** Returns the clockwise screen bearing of projected positive x. */
+    /**
+     * Returns the clockwise screen bearing of projected positive x.
+     *
+     * @return normalized bearing in degrees from zero inclusive to 360 exclusive
+     */
     public double xAxisScreenBearingDegrees() {
         return xAxisScreenBearingDegrees;
     }

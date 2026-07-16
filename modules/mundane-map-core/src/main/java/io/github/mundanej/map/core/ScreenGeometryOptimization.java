@@ -49,36 +49,63 @@ public final class ScreenGeometryOptimization {
         implicitIdentityComponentCount = identityComponentCount;
     }
 
-    /** Returns the authoritative immutable screen geometry by reference. */
+    /**
+     * Returns the authoritative immutable screen geometry by reference.
+     *
+     * @return original screen geometry retained for hit testing and fallback rendering
+     */
     public Geometry authoritativeGeometry() {
         return authoritativeGeometry;
     }
 
-    /** Returns rendering geometry, absent only for a culled path. */
+    /**
+     * Returns rendering geometry, absent only for a culled path.
+     *
+     * @return optimized or authoritative rendering geometry, or empty when fully culled
+     */
     public Optional<Geometry> renderingGeometry() {
         return Optional.ofNullable(renderingGeometry);
     }
 
-    /** Returns the stable aggregate outcome. */
+    /**
+     * Returns the stable aggregate outcome.
+     *
+     * @return operation outcome describing optimization, fallback, or culling
+     */
     public ScreenGeometryOptimizationOutcome outcome() {
         return outcome;
     }
 
-    /** Returns the authoritative source component count. */
+    /**
+     * Returns the authoritative source component count.
+     *
+     * @return number of source geometry components represented by the mapping
+     */
     public int sourceComponentCount() {
         return componentOffsets == null
                 ? implicitIdentityComponentCount
                 : componentOffsets.length - 1;
     }
 
-    /** Returns the rendering component count. */
+    /**
+     * Returns the rendering component count.
+     *
+     * @return number of render geometry components after clipping and simplification
+     */
     public int renderComponentCount() {
         return componentOffsets == null
                 ? implicitIdentityComponentCount
                 : componentOffsets[componentOffsets.length - 1];
     }
 
-    /** Returns one rendering-component fencepost for an authoritative component. */
+    /**
+     * Returns one rendering-component fencepost for an authoritative component.
+     *
+     * @param sourceComponentFenceIndex source component fencepost from zero through {@link
+     *     #sourceComponentCount()}
+     * @return corresponding render-component fencepost
+     * @throws IndexOutOfBoundsException when the index is outside the source fencepost range
+     */
     public int renderComponentOffset(int sourceComponentFenceIndex) {
         if (sourceComponentFenceIndex < 0 || sourceComponentFenceIndex > sourceComponentCount()) {
             throw new IndexOutOfBoundsException(sourceComponentFenceIndex);
@@ -88,7 +115,11 @@ public final class ScreenGeometryOptimization {
                 : componentOffsets[sourceComponentFenceIndex];
     }
 
-    /** Returns a defensive component-offset copy. */
+    /**
+     * Returns a defensive component-offset copy.
+     *
+     * @return monotonic render-component fenceposts with one entry per source fencepost
+     */
     public int[] renderComponentOffsets() {
         if (componentOffsets == null) {
             int[] identity = new int[implicitIdentityComponentCount + 1];

@@ -2,7 +2,11 @@ package io.github.mundanej.map.api;
 
 import java.util.Objects;
 
-/** A point geometry. */
+/**
+ * A point geometry.
+ *
+ * @param coordinate immutable point coordinate
+ */
 public record PointGeometry(Coordinate coordinate) implements Geometry {
     /** Creates a point geometry. */
     public PointGeometry {

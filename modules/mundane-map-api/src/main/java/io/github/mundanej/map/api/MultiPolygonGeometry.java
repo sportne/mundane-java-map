@@ -18,7 +18,14 @@ public final class MultiPolygonGeometry implements Geometry {
         validate();
     }
 
-    /** Creates a packed multipolygon. */
+    /**
+     * Creates a packed multipolygon.
+     *
+     * @param coordinates shared packed coordinates
+     * @param ringOffsets coordinate fenceposts, defensively copied
+     * @param polygonRingOffsets ring fenceposts, defensively copied
+     * @return immutable multipolygon geometry
+     */
     public static MultiPolygonGeometry of(
             CoordinateSequence coordinates, int[] ringOffsets, int[] polygonRingOffsets) {
         return new MultiPolygonGeometry(
@@ -27,7 +34,12 @@ public final class MultiPolygonGeometry implements Geometry {
                 Objects.requireNonNull(polygonRingOffsets, "polygonRingOffsets"));
     }
 
-    /** Flattens ordered polygons, preserving exterior-then-hole order. */
+    /**
+     * Flattens ordered polygons, preserving exterior-then-hole order.
+     *
+     * @param polygons non-empty polygons in encounter order
+     * @return immutable packed multipolygon geometry
+     */
     public static MultiPolygonGeometry ofPolygons(List<PolygonGeometry> polygons) {
         List<PolygonGeometry> copy = List.copyOf(Objects.requireNonNull(polygons, "polygons"));
         if (copy.isEmpty()) {
@@ -60,37 +72,67 @@ public final class MultiPolygonGeometry implements Geometry {
         return new MultiPolygonGeometry(CoordinateSequence.of(packed), offsets, polygonOffsets);
     }
 
-    /** Returns packed coordinates. */
+    /**
+     * Returns packed coordinates.
+     *
+     * @return immutable coordinate sequence
+     */
     public CoordinateSequence coordinates() {
         return coordinates;
     }
 
-    /** Returns the number of rings. */
+    /**
+     * Returns the number of rings.
+     *
+     * @return positive ring count
+     */
     public int ringCount() {
         return ringOffsets.length - 1;
     }
 
-    /** Returns the number of polygons. */
+    /**
+     * Returns the number of polygons.
+     *
+     * @return positive polygon count
+     */
     public int polygonCount() {
         return polygonRingOffsets.length - 1;
     }
 
-    /** Returns a coordinate fencepost offset. */
+    /**
+     * Returns a coordinate fencepost offset.
+     *
+     * @param fenceIndex index from zero through {@link #ringCount()}
+     * @return coordinate offset
+     */
     public int ringOffset(int fenceIndex) {
         return ringOffsets[fenceIndex];
     }
 
-    /** Returns a ring fencepost offset. */
+    /**
+     * Returns a ring fencepost offset.
+     *
+     * @param fenceIndex index from zero through {@link #polygonCount()}
+     * @return ring offset
+     */
     public int polygonRingOffset(int fenceIndex) {
         return polygonRingOffsets[fenceIndex];
     }
 
-    /** Returns defensive coordinate fencepost offsets. */
+    /**
+     * Returns defensive coordinate fencepost offsets.
+     *
+     * @return newly allocated offsets
+     */
     public int[] ringOffsets() {
         return ringOffsets.clone();
     }
 
-    /** Returns defensive ring fencepost offsets. */
+    /**
+     * Returns defensive ring fencepost offsets.
+     *
+     * @return newly allocated offsets
+     */
     public int[] polygonRingOffsets() {
         return polygonRingOffsets.clone();
     }

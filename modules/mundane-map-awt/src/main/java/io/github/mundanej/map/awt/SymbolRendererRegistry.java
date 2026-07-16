@@ -15,7 +15,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Immutable explicit AWT symbol renderer registry without runtime discovery. */
+/**
+ * Immutable explicit AWT symbol renderer registry without runtime discovery or global mutation.
+ *
+ * <p>Lookup uses the exact {@link SymbolRole}/{@link SymbolRendererKey} pair. Each registry owns an
+ * immutable copy of its registrations; duplicate slots and application use of reserved built-in
+ * keys fail with stable {@link SymbolException} diagnostics.
+ */
 @SuppressWarnings("deprecation")
 public final class SymbolRendererRegistry {
     private static final String RESERVED_PREFIX = "io.github.mundanej.map.symbol.";
@@ -25,17 +31,29 @@ public final class SymbolRendererRegistry {
         this.renderers = Map.copyOf(renderers);
     }
 
-    /** Returns an empty single-use builder. */
+    /**
+     * Returns an empty single-use builder.
+     *
+     * @return new application-registration builder
+     */
     public static Builder builder() {
         return new Builder(false);
     }
 
-    /** Returns a single-use builder preloaded with the source-listed built-ins. */
+    /**
+     * Returns a single-use builder preloaded with the source-listed built-ins.
+     *
+     * @return new builder containing all Level 1 built-in renderer slots
+     */
     public static Builder builderWithBuiltIns() {
         return new Builder(true);
     }
 
-    /** Returns a new immutable registry containing the source-listed built-ins. */
+    /**
+     * Returns a new immutable registry containing the source-listed built-ins.
+     *
+     * @return independent immutable built-in registry
+     */
     public static SymbolRendererRegistry builtIn() {
         return builderWithBuiltIns().build();
     }
@@ -44,7 +62,7 @@ public final class SymbolRendererRegistry {
         return renderers.get(new Slot(role, key));
     }
 
-    /** Single-use explicit registry builder. */
+    /** Single-use explicit registry builder without automatic discovery. */
     public static final class Builder {
         private final LinkedHashMap<Slot, AwtSymbolRenderer> entries = new LinkedHashMap<>();
         private boolean consumed;
@@ -55,7 +73,18 @@ public final class SymbolRendererRegistry {
             }
         }
 
-        /** Registers one application-owned role/key renderer slot. */
+        /**
+         * Registers one application-owned role/key renderer slot.
+         *
+         * @param role non-legacy symbol role
+         * @param key non-reserved application renderer key
+         * @param renderer non-null renderer instance owned by the resulting registry
+         * @return this builder
+         * @throws NullPointerException if an argument is {@code null}
+         * @throws IllegalArgumentException if {@code role} is the legacy role
+         * @throws SymbolException if the key is reserved or the exact role/key slot is duplicated
+         * @throws IllegalStateException if this builder has already been consumed
+         */
         public Builder register(
                 SymbolRole role, SymbolRendererKey key, AwtSymbolRenderer renderer) {
             requireOpen();
@@ -72,7 +101,12 @@ public final class SymbolRendererRegistry {
             return this;
         }
 
-        /** Builds an immutable registry and consumes this builder. */
+        /**
+         * Builds an immutable registry and consumes this builder.
+         *
+         * @return independent immutable registry
+         * @throws IllegalStateException if this builder has already been consumed
+         */
         public SymbolRendererRegistry build() {
             requireOpen();
             consumed = true;

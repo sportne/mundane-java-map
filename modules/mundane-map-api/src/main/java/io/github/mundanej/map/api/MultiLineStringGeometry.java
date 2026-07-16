@@ -15,13 +15,24 @@ public final class MultiLineStringGeometry implements Geometry {
         validate();
     }
 
-    /** Creates a packed multiline. */
+    /**
+     * Creates a packed multiline.
+     *
+     * @param coordinates shared packed coordinates
+     * @param partOffsets coordinate fenceposts, defensively copied
+     * @return immutable multiline geometry
+     */
     public static MultiLineStringGeometry of(CoordinateSequence coordinates, int[] partOffsets) {
         return new MultiLineStringGeometry(
                 coordinates, Objects.requireNonNull(partOffsets, "partOffsets"));
     }
 
-    /** Flattens ordered line parts. */
+    /**
+     * Flattens ordered line parts.
+     *
+     * @param parts non-empty line parts in encounter order
+     * @return immutable packed multiline geometry
+     */
     public static MultiLineStringGeometry ofParts(List<CoordinateSequence> parts) {
         List<CoordinateSequence> copy = List.copyOf(Objects.requireNonNull(parts, "parts"));
         if (copy.isEmpty()) {
@@ -51,22 +62,39 @@ public final class MultiLineStringGeometry implements Geometry {
         return new MultiLineStringGeometry(CoordinateSequence.of(packed), offsets);
     }
 
-    /** Returns packed coordinates. */
+    /**
+     * Returns packed coordinates.
+     *
+     * @return immutable coordinate sequence
+     */
     public CoordinateSequence coordinates() {
         return coordinates;
     }
 
-    /** Returns the number of parts. */
+    /**
+     * Returns the number of parts.
+     *
+     * @return positive part count
+     */
     public int partCount() {
         return partOffsets.length - 1;
     }
 
-    /** Returns a coordinate fencepost offset. */
+    /**
+     * Returns a coordinate fencepost offset.
+     *
+     * @param fenceIndex index from zero through {@link #partCount()}
+     * @return coordinate offset
+     */
     public int partOffset(int fenceIndex) {
         return partOffsets[fenceIndex];
     }
 
-    /** Returns defensive coordinate fencepost offsets. */
+    /**
+     * Returns defensive coordinate fencepost offsets.
+     *
+     * @return newly allocated offsets
+     */
     public int[] partOffsets() {
         return partOffsets.clone();
     }

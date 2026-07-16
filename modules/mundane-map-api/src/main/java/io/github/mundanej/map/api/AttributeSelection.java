@@ -21,7 +21,12 @@ public final class AttributeSelection {
         this.orderedNames = orderedNames;
     }
 
-    /** Creates a non-empty ordered unique selection. */
+    /**
+     * Creates a non-empty ordered unique selection.
+     *
+     * @param names exact field names in requested order
+     * @return immutable named-field selection
+     */
     public static AttributeSelection only(List<String> names) {
         List<String> copy = List.copyOf(Objects.requireNonNull(names, "names"));
         if (copy.isEmpty()) {
@@ -36,12 +41,20 @@ public final class AttributeSelection {
         return new AttributeSelection(Kind.ONLY, copy);
     }
 
-    /** Returns ordered selected names, empty for ALL and NONE. */
+    /**
+     * Returns ordered selected names, empty for ALL and NONE.
+     *
+     * @return immutable selected names
+     */
     public List<String> orderedNames() {
         return List.copyOf(orderedNames);
     }
 
-    /** Returns whether this selection requests named fields only. */
+    /**
+     * Returns whether this selection requests named fields only.
+     *
+     * @return whether this is an {@code ONLY} selection
+     */
     public boolean isOnly() {
         return kind == Kind.ONLY;
     }

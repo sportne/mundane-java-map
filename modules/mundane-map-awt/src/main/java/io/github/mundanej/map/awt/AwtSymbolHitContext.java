@@ -17,7 +17,13 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 
-/** Callback-scoped logical-paint hit context for an explicitly registered AWT renderer. */
+/**
+ * Callback-scoped logical-paint hit context for an explicitly registered AWT renderer.
+ *
+ * <p>The context is valid only for the current hit-test callback and must not be retained. Geometry
+ * and viewport values are immutable snapshots; the returned component clip is defensively copied.
+ * Screen ordinates and tolerances are measured in logical pixels.
+ */
 public final class AwtSymbolHitContext {
     private static final double CURVE_FLATNESS = 1.0e-9;
     private static final int MAX_CURVE_DEPTH = 32;
@@ -75,77 +81,141 @@ public final class AwtSymbolHitContext {
         this.owner = Objects.requireNonNull(owner, "owner");
     }
 
-    /** Returns the symbol role. */
+    /**
+     * Returns the symbol role.
+     *
+     * @return marker, line, fill, or legacy-geometry role used for registry lookup
+     */
     public SymbolRole role() {
         return role;
     }
 
-    /** Returns the stable feature identifier. */
+    /**
+     * Returns the stable feature identifier.
+     *
+     * @return non-empty identifier of the feature being tested
+     */
     public String featureId() {
         return featureId;
     }
 
-    /** Returns the original feature geometry. */
+    /**
+     * Returns the original feature geometry in its source CRS.
+     *
+     * @return immutable original feature geometry
+     */
     public Geometry featureGeometry() {
         return featureGeometry;
     }
 
-    /** Returns the geometry currently rendered by this symbol. */
+    /**
+     * Returns the geometry currently rendered by this symbol in its source CRS.
+     *
+     * @return immutable role-specific render geometry
+     */
     public Geometry renderGeometry() {
         return renderGeometry;
     }
 
-    /** Returns the fixed viewport snapshot. */
+    /**
+     * Returns the fixed viewport snapshot.
+     *
+     * @return immutable display-world-to-screen viewport used by this callback
+     */
     public MapViewport viewport() {
         return viewport;
     }
 
-    /** Returns inherited owner/composite opacity. */
+    /**
+     * Returns inherited owner/composite opacity.
+     *
+     * @return finite opacity in {@code [0,1]} before the current symbol applies its opacity
+     */
     public double inheritedOpacity() {
         return inheritedOpacity;
     }
 
-    /** Returns whether a line context represents a closed polygon ring. */
+    /**
+     * Returns whether a line context represents a closed polygon ring.
+     *
+     * @return {@code true} when endpoint paint must be suppressed for ring closure
+     */
     public boolean closedRing() {
         return closedRing;
     }
 
-    /** Returns an endpoint's outward screen bearing when present. */
+    /**
+     * Returns an endpoint's outward screen bearing when present.
+     *
+     * @return clockwise logical-screen bearing in degrees, or empty outside an endpoint callback
+     */
     public OptionalDouble endpointBearingDegrees() {
         return endpointBearing;
     }
 
-    /** Returns the resolved screen marker anchor when present. */
+    /**
+     * Returns the resolved screen marker anchor when present.
+     *
+     * @return immutable logical-screen coordinate, or empty outside a marker callback
+     */
     public Optional<Coordinate> markerAnchorScreen() {
         return markerAnchor;
     }
 
-    /** Returns the fixed map-to-screen basis. */
+    /**
+     * Returns the fixed map-to-screen basis.
+     *
+     * @return validated similarity basis for map-relative symbol placement
+     */
     public MapScreenBasis mapScreenBasis() {
         return screenBasis;
     }
 
-    /** Returns the query x ordinate. */
+    /**
+     * Returns the query x ordinate.
+     *
+     * @return finite logical-screen x ordinate in pixels
+     */
     public double queryX() {
         return queryX;
     }
 
-    /** Returns the query y ordinate. */
+    /**
+     * Returns the query y ordinate.
+     *
+     * @return finite logical-screen y ordinate in pixels
+     */
     public double queryY() {
         return queryY;
     }
 
-    /** Returns the non-negative logical-pixel tolerance. */
+    /**
+     * Returns the non-negative logical-pixel tolerance.
+     *
+     * @return finite hit tolerance in logical pixels
+     */
     public double tolerancePixels() {
         return tolerance;
     }
 
-    /** Returns a defensive component-clip rectangle. */
+    /**
+     * Returns a defensive component-clip rectangle.
+     *
+     * @return mutable copy of the component bounds in logical-screen pixels
+     */
     public Rectangle2D componentClip() {
         return (Rectangle2D) componentClip.clone();
     }
 
-    /** Converts a source-map coordinate with the fixed projection and viewport snapshots. */
+    /**
+     * Converts a source coordinate with the fixed CRS operation and viewport snapshots.
+     *
+     * @param coordinate non-null coordinate in the feature source CRS
+     * @return immutable logical-screen coordinate in pixels
+     * @throws NullPointerException if {@code coordinate} is {@code null}
+     * @throws io.github.mundanej.map.api.CrsException if the coordinate is outside the supported
+     *     transformation domain
+     */
     public Coordinate sourceToScreen(Coordinate coordinate) {
         return owner.toScreen(coordinate, sourceToDisplay, viewport);
     }
@@ -154,12 +224,28 @@ public final class AwtSymbolHitContext {
         return sourceToDisplay;
     }
 
-    /** Tests a child with inherited opacity and the same derived context. */
+    /**
+     * Tests a same-role child with inherited opacity and the same derived context.
+     *
+     * @param child non-null child symbol
+     * @param opacityMultiplier finite multiplier in {@code [0,1]}
+     * @return whether the child reports a hit
+     * @throws NullPointerException if {@code child} is {@code null}
+     * @throws IllegalArgumentException if the multiplier is invalid
+     * @throws io.github.mundanej.map.api.SymbolException if the role or registered renderer is
+     *     invalid
+     */
     public boolean hitChild(Symbol child, double opacityMultiplier) {
         return owner.hitChild(child, this, opacityMultiplier);
     }
 
-    /** Tests a final logical paint footprint after intersecting the exact component clip. */
+    /**
+     * Tests a final logical paint footprint after intersecting the exact component clip.
+     *
+     * @param logicalPaintFootprint non-null shape in logical-screen coordinates
+     * @return whether its interior or boundary falls within the query tolerance
+     * @throws NullPointerException if {@code logicalPaintFootprint} is {@code null}
+     */
     public boolean visibleShapeHit(Shape logicalPaintFootprint) {
         Area visible =
                 new Area(Objects.requireNonNull(logicalPaintFootprint, "logicalPaintFootprint"));

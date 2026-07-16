@@ -1,6 +1,6 @@
 # G8-002 — Public API, Javadocs, and examples review
 
-Status: Proposed
+Status: Complete
 Depends on: G2-006, G3-004, G5-009, G6-004, G7-004
 Gate: G8
 Type: HITL
@@ -88,7 +88,7 @@ Manual HITL validation (run and close each application before starting the next)
 ./gradlew :examples:symbol-gallery:run
 ./gradlew :examples:measurement-viewer:run
 ./gradlew :examples:shapefile-viewer:run --args='modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/shapefile-corpus/data/generated-polygon-hole-windows1252-3857/generated-polygon-hole-windows1252-3857.shp'
-./gradlew :examples:raster-viewer:run --args='modules/mundane-map-io-image/src/test/resources/io/github/mundanej/map/io/image/rotated-sheared.png --world-file EPSG:3857'
+./gradlew :examples:raster-viewer:run --args='examples/raster-viewer/build/review-fixtures/rotated-sheared.png --world-file EPSG:3857'
 ```
 
 ```bash
@@ -105,3 +105,54 @@ Record the checkpoint in these Notes with commit, reviewer/date, Java/OS/archite
 display scale, exact commands, per-example result, API/Javadoc and compatibility dispositions, and
 blockers. Fix accidental API inconsistencies only when compatibility impact is understood and
 recorded. Avoid adding convenience abstractions solely to make the examples shorter.
+
+Completed on 2026-07-16. The exhaustive generated-Javadoc/checkstyle review covered every public or
+protected declaration in the five published modules. API values retain defensive array/collection
+copies and toolkit-neutral signatures; core remains JDK-only; AWT retains its explicit instance-owned
+registries, EDT confinement, and owned/borrowed lifecycle; shapefile and image expose only their
+bounded format entry points/options/limits. No incompatible correction was approved or made. Java 21
+doclint required the already-implicit public no-argument constructors of `CancellationSource`,
+`MapToolRouter`, and `WebMercatorProjection` to be declared explicitly so they could be documented;
+this is source-, ABI-, and behavior-neutral. `Layer`/`InMemoryLayer` remain supported small immutable
+snapshots. Deprecated `FeatureStyle` remains supported through the first Level 1 `0.x` release with
+role-specific symbols as its migration and removal before `1.0.0`; G8-004 still owns the actual
+release version/support decision.
+
+The five example dispositions are: basic uses the final point/line/fill symbol roles and has
+headless fit, pointer, wheel, and offscreen-render evidence; gallery retains its exact G2 catalog,
+resource/composite inventory and selects/paints every tab; measurement exposes both approved CRS
+strategies with preview, committed distance, undo, cancel, pan, wheel, tab/units, and crimson-overlay
+evidence; shapefile uses production parsing with bounded preview, attributes, holes, structured
+reports, and ownership cleanup; raster uses production image/world-file loading with explicit decoder,
+affine placement, interpolation/opacity controls, structured failures, and cleanup. Format viewer
+identities are exactly `shapefile-viewer` and `raster-viewer`; sensitive parent/path/filename tests
+exercise both successful and failing inputs with independent parent and filename-stem sentinel
+tokens. On success the shapefile check binds the owned source in a real headless viewer session,
+drives fit/render and opening-to-query/live-report transitions, enumerates the panel's record labels
+and metadata/attribute/report text, then verifies view-owned cleanup. The raster check enumerates its
+identity, binding, placement, status, and control strings. No absolute path, full filename, stem
+token, or parent token reaches those presentation values. Failure checks retain stable structured
+diagnostic codes and component/record/offset context while excluding the same locator values. The
+raster review fixture is checksummed text transport of the exact G6-002
+bytes; a cacheable prep task writes only beneath the example build directory and the production
+viewer is unaware of Base64.
+
+HITL evidence: the maintainer granted advance approval for every G6-G9 HITL checkpoint. Review used
+OpenJDK 21.0.11 on Linux 5.15.167.4 WSL2 x86-64 through WSLg Wayland/X11 (`DISPLAY=:0`,
+3840x1080 at 96 dpi; no GDK/QT scale override). All five exact commands above launched on the
+available display without startup errors. Window captures confirmed the basic point/line/polygon
+view and coordinate status; the gallery's marker tab; both measurement tabs and units explanation;
+the shapefile polygon shells/hole, `Café` attribute, EPSG:3857 metadata, and separated reports; and
+the rotated/sheared raster with interpolation, opacity, and placement status. Processes were closed
+after capture. Automated headless tests establish the remaining tab selection, interaction,
+topology, tolerant rendering, diagnostic, and cleanup behavior; no claim relies on pixel-identical
+screenshots. The containing commit is the authoritative reviewed revision.
+
+Final validation passed: the exact five-module/architecture/five-example check command (`BUILD
+SUCCESSFUL` in 1m15s), the exact five strict Javadoc tasks (`BUILD SUCCESSFUL`; the final cached
+confirmation took 1s), `renderRegression` (`BUILD SUCCESSFUL` in 7s), and `qualityGate` (`BUILD
+SUCCESSFUL`; the final cached confirmation took 6s).
+Generated options were inspected for UTF-8, all doclint groups, warning-as-error, no timestamp, and
+no remote links. The review-fixture outputs matched 79/15 bytes and their recorded SHA-256 values.
+Native, corpus, performance, publication, and consumer lanes were not folded into this task. No
+G8-002 blocker remains.

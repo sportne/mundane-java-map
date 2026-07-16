@@ -11,7 +11,13 @@ import java.util.Map;
 import javax.imageio.spi.IIORegistry;
 import javax.imageio.spi.ImageReaderSpi;
 
-/** Explicit factory for the Level 1 JDK ImageIO raster decoder bridge. */
+/**
+ * Explicit factory for the Level 1 JDK ImageIO raster decoder bridge.
+ *
+ * <p>The factory performs no application-classpath codec discovery: it accepts exactly one {@code
+ * java.desktop} reader provider for each required format and reports stable configuration context
+ * otherwise. Returned registries are immutable and instance-owned.
+ */
 public final class AwtRasterDecoders {
     private AwtRasterDecoders() {}
 
@@ -19,6 +25,8 @@ public final class AwtRasterDecoders {
      * Builds a fresh immutable PNG/JPEG registry backed only by {@code java.desktop} readers.
      *
      * @return the explicit Level 1 decoder registry
+     * @throws DecoderConfigurationException if exactly one JDK provider cannot be selected for each
+     *     required format
      */
     public static EncodedRasterDecoderRegistry level1() {
         EnumMap<EncodedRasterFormat, ImageReaderSpi> providers =
@@ -67,10 +75,18 @@ public final class AwtRasterDecoders {
         return false;
     }
 
-    /** Stable unavailable/ambiguous JDK-reader configuration failure. */
+    /**
+     * Stable unavailable/ambiguous JDK-reader configuration failure.
+     *
+     * <p>{@link #code()} and {@link #context()} are stable diagnostic data. The inherited message
+     * is explanatory text and is not a compatibility contract.
+     */
     @SuppressWarnings("serial")
     public static final class DecoderConfigurationException extends IllegalStateException {
+        /** Stable configuration diagnostic code. */
         private final String code;
+
+        /** Immutable stable diagnostic context. */
         private final Map<String, String> context;
 
         private DecoderConfigurationException(String code, Map<String, String> context) {
@@ -89,7 +105,7 @@ public final class AwtRasterDecoders {
         }
 
         /**
-         * Returns immutable stable context.
+         * Returns immutable stable context in deterministic key order.
          *
          * @return immutable stable context
          */

@@ -24,7 +24,14 @@ public final class CrsMetadata {
         this.retainedDefinition = retainedDefinition;
     }
 
-    /** Creates metadata for an explicitly recognized definition. */
+    /**
+     * Creates metadata for an explicitly recognized definition.
+     *
+     * @param definition recognized registered definition
+     * @param declaredIdentifier optional exact declared identifier
+     * @param retainedDefinition optional bounded original definition text
+     * @return immutable recognized metadata
+     */
     public static CrsMetadata recognized(
             CrsDefinition definition,
             Optional<String> declaredIdentifier,
@@ -36,7 +43,13 @@ public final class CrsMetadata {
                 validateRetained(retainedDefinition));
     }
 
-    /** Creates metadata that retains an unrecognized declaration without guessing a transform. */
+    /**
+     * Creates metadata that retains an unrecognized declaration without guessing a transform.
+     *
+     * @param declaredIdentifier optional exact declared identifier
+     * @param retainedDefinition optional bounded original definition text
+     * @return immutable unknown metadata
+     */
     public static CrsMetadata unknown(
             Optional<String> declaredIdentifier, Optional<String> retainedDefinition) {
         Optional<String> declared = validateDeclared(declaredIdentifier);
@@ -48,27 +61,47 @@ public final class CrsMetadata {
         return new CrsMetadata(Optional.empty(), declared, retained);
     }
 
-    /** Returns the recognized definition, or empty for retained unknown metadata. */
+    /**
+     * Returns the recognized definition, or empty for retained unknown metadata.
+     *
+     * @return optional recognized definition
+     */
     public Optional<CrsDefinition> definition() {
         return definition;
     }
 
-    /** Returns the exact declared identifier when one was supplied. */
+    /**
+     * Returns the exact declared identifier when one was supplied.
+     *
+     * @return optional retained identifier
+     */
     public Optional<String> declaredIdentifier() {
         return declaredIdentifier;
     }
 
-    /** Returns the exact bounded retained definition when one was supplied. */
+    /**
+     * Returns the exact bounded retained definition when one was supplied.
+     *
+     * @return optional retained definition text
+     */
     public Optional<String> retainedDefinition() {
         return retainedDefinition;
     }
 
-    /** Returns the recognized canonical identifier, if any. */
+    /**
+     * Returns the recognized canonical identifier, if any.
+     *
+     * @return optional registered identifier
+     */
     public Optional<String> canonicalIdentifier() {
         return definition.map(CrsDefinition::canonicalIdentifier);
     }
 
-    /** Returns the recognized kind, or {@link CrsKind#UNKNOWN}. */
+    /**
+     * Returns the recognized kind, or {@link CrsKind#UNKNOWN}.
+     *
+     * @return coordinate-reference-system kind
+     */
     public CrsKind kind() {
         return definition.map(CrsDefinition::kind).orElse(CrsKind.UNKNOWN);
     }

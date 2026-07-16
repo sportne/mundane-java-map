@@ -3,7 +3,11 @@ package io.github.mundanej.map.api;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
-/** A stable, namespaced key used for explicit symbol-renderer lookup. */
+/**
+ * A stable, namespaced key used for explicit symbol-renderer lookup.
+ *
+ * @param value exact lowercase dot-separated namespaced key
+ */
 public record SymbolRendererKey(String value) {
     private static final Pattern VALID_KEY =
             Pattern.compile("[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+");

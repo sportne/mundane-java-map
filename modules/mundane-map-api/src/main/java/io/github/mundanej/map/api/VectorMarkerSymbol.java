@@ -51,7 +51,17 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
         this.opacity = opacity == 0.0 ? 0.0 : opacity;
     }
 
-    /** Creates a vector marker with explicit optional stroke and placement. */
+    /**
+     * Creates a vector marker with explicit optional stroke and placement.
+     *
+     * @param path immutable closed-subpath vector path
+     * @param viewBox finite positive-area path coordinate bounds
+     * @param fill marker fill color
+     * @param stroke optional round stroke
+     * @param placement marker size, anchor, offset, and rotation
+     * @param opacity finite opacity from zero through one
+     * @return immutable vector marker
+     */
     public static VectorMarkerSymbol of(
             VectorPath path,
             Envelope viewBox,
@@ -62,7 +72,16 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
         return new VectorMarkerSymbol(path, viewBox, fill, stroke, placement, opacity);
     }
 
-    /** Creates a centered, square, fill-only marker measured in logical screen pixels. */
+    /**
+     * Creates a centered, square, fill-only marker measured in logical screen pixels.
+     *
+     * @param path immutable closed-subpath vector path
+     * @param viewBox finite positive-area path coordinate bounds
+     * @param fill marker fill color
+     * @param screenSizePixels positive logical-screen width and height
+     * @param opacity finite opacity from zero through one
+     * @return immutable centered vector marker
+     */
     public static VectorMarkerSymbol filledScreen(
             VectorPath path, Envelope viewBox, Rgba fill, double screenSizePixels, double opacity) {
         return of(
@@ -74,27 +93,47 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
                 opacity);
     }
 
-    /** Returns the immutable vector path. */
+    /**
+     * Returns the immutable vector path.
+     *
+     * @return marker path
+     */
     public VectorPath path() {
         return path;
     }
 
-    /** Returns the finite positive-area path coordinate bounds mapped to the marker rectangle. */
+    /**
+     * Returns the finite positive-area path coordinate bounds mapped to the marker rectangle.
+     *
+     * @return immutable path-coordinate view box
+     */
     public Envelope viewBox() {
         return viewBox;
     }
 
-    /** Returns the marker fill color. */
+    /**
+     * Returns the marker fill color.
+     *
+     * @return immutable fill color
+     */
     public Rgba fill() {
         return fill;
     }
 
-    /** Returns the optional round marker stroke. */
+    /**
+     * Returns the optional round marker stroke.
+     *
+     * @return optional immutable stroke
+     */
     public Optional<SymbolStroke> stroke() {
         return stroke;
     }
 
-    /** Returns the marker placement. */
+    /**
+     * Returns the marker placement.
+     *
+     * @return immutable placement
+     */
     public MarkerPlacement placement() {
         return placement;
     }

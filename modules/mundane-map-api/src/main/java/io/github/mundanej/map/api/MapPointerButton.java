@@ -1,6 +1,10 @@
 package io.github.mundanej.map.api;
 
-/** Toolkit-neutral pointer-button identity. */
+/**
+ * Toolkit-neutral pointer-button identity.
+ *
+ * @param number non-negative toolkit-neutral button number; zero means no changed button
+ */
 public record MapPointerButton(int number) {
     /** No changed button. */
     public static final MapPointerButton NONE = new MapPointerButton(0);

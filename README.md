@@ -1,87 +1,73 @@
 # mundane-java-map
 
-`mundane-java-map` is a small Java 21 map-component library built around explicit APIs,
-JDK-only runtime modules, Swing/Java2D rendering, and GraalVM Native Image compatibility.
+`mundane-java-map` is a small Java 21 map-component library with toolkit-neutral geometry, sources,
+symbols, interaction contracts, and bounded format readers. Its Level 1 runtime is JDK-only;
+Swing and Java2D integration is isolated in `mundane-map-awt`.
 
-The repository currently contains an initial vertical slice: in-memory point, line, and polygon
-features can be projected, displayed, panned, zoomed, and inspected through map-coordinate pointer
-events. Data-format adapters, symbols, measurements, and raster sources are planned but are not
-represented by empty placeholder modules.
+The project is pre-1.0. Compatibility changes in `0.x` are intentional, documented migrations rather
+than unrestricted churn. The deprecated `FeatureStyle` snapshot contract remains supported for the
+first Level 1 `0.x` release; role-specific marker, line, and fill symbols are its replacement, and
+`FeatureStyle` is intended for removal before `1.0.0`.
 
 ## Requirements
 
-- A Java 17 or newer runtime to launch Gradle; the build resolves a Java 21 compiler toolchain.
-- GraalVM with `native-image` only for the optional native smoke lane.
+- Java 21 for consumers and compilation. A Java 17 or newer runtime can launch Gradle, which selects
+  a Java 21 compiler toolchain.
+- GraalVM Java 21 with `native-image` only for the separate Native Image smoke lane.
 
-## Build
+## Published modules
+
+| Artifact | Responsibility |
+| --- | --- |
+| `mundane-map-api` | Immutable geometry, feature, symbol, interaction, CRS, source, diagnostic, cancellation, and limit contracts. |
+| `mundane-map-core` | JDK-only viewport/projection, source, hit-testing, measurement, indexing, clipping, simplification, and symbol algorithms. |
+| `mundane-map-awt` | Swing `MapView`, Java2D renderers, explicit symbol/decoder registries, interaction routing, and measurement UI. |
+| `mundane-map-io-shapefile` | Bounded read-only SHP/SHX/DBF/CPG/PRJ feature sources. |
+| `mundane-map-io-image` | Bounded PNG/JPEG metadata, world-file placement, requests, lifecycle, and caches through an explicit decoder boundary. |
+
+The format modules contain no AWT types and do not discover implementations. Applications explicitly
+construct their CRS, symbol-renderer, and encoded-raster-decoder registries. Callers close opened
+feature/raster sources; owned `MapLayerBinding` instances transfer that responsibility to `MapView`,
+whose `close()` cancels current work and releases its owned bindings. Public values make defensive
+copies of mutable inputs.
+
+## Build and verification
+
+The normal local gate is:
 
 ```bash
 ./gradlew qualityGate --console=plain
 ```
 
-Useful focused commands:
+Specialized evidence remains independent so normal development does not silently require platform
+raster evidence, a corpus, profiling, publication staging, or a native toolchain:
 
 ```bash
-./gradlew checkAll --console=plain
-./gradlew :examples:basic-viewer:run
-./gradlew :examples:symbol-gallery:run
 ./gradlew offlineRepositoryVerification --console=plain
 ./gradlew renderRegression --console=plain
+./gradlew shapefileCorpus --console=plain
+./gradlew performanceQuick --console=plain
+./gradlew performanceEvidence --console=plain
 ./gradlew nativeSmoke --console=plain
 ./gradlew publicationDryRun --console=plain
-./gradlew printPublishedArtifacts --console=plain
 ```
 
-`renderRegression` is a deterministic headless Java2D lane with tolerant bounds, region, color,
-ordering, clipping, and interpolation assertions; it never compares complete images byte-for-byte.
-Failures may write a diagnostic PNG beneath
-`modules/mundane-map-awt/build/render-regression/diagnostics/`. Passing scenarios write nothing.
+`renderRegression` uses bounds, topology, tolerant color regions, ordering, clipping, and
+interpolation invariants rather than byte-identical whole images. `performanceQuick` is a
+noncanonical iteration lane; only `performanceEvidence` produces canonical performance evidence.
+The offline lane verifies the complete normal gate from one isolated Maven-layout repository.
 
-`offlineRepositoryVerification`, `renderRegression`, and `nativeSmoke` are intentionally separate
-from `qualityGate`. The offline lane constructs a verified Maven-layout repository, copies the
-project, and proves the complete build with an isolated Gradle home on Java 21. CI runs it only when
-Gradle dependency or repository-policy inputs change. Rendering has its own Linux CI evidence, while
-native smoke requires a GraalVM toolchain. The normal gate has no isolated-build, platform-raster,
-external-service, or native-tool requirement.
-
-The library always compiles to the Java 21 API and class-file baseline. CI may select a newer test
-launcher with `-Pmap.testJavaVersion=<version>` without changing published bytecode.
-
-For a fully local build, provide one absolute normalized Maven-layout repository as the sole plugin
-and dependency source for both the main build and `build-logic`:
-
-```bash
-./gradlew -Pmap.offlineRepo=/absolute/path/to/repository --offline qualityGate --console=plain
-```
-
-The repository must contain the required plugin markers and all transitive build/test artifacts.
-There is no public or machine-local fallback when `map.offlineRepo` is set.
-
-`publicationDryRun` recreates and verifies `build/release-dry-run/maven` with the POM, Gradle module
-metadata, binary, sources, and Javadoc artifacts for `io.github.mundanej:mundane-map-api`,
-`io.github.mundanej:mundane-map-core`, and `io.github.mundanej:mundane-map-awt` at the current project
-version. It performs no remote publication.
-
-## Modules
-
-| Module | Responsibility |
-| --- | --- |
-| `mundane-map-api` | Public geometry, feature, layer, style, projection, and pointer-event contracts. |
-| `mundane-map-core` | JDK-only viewport math, Web Mercator projection, and in-memory layers. |
-| `mundane-map-awt` | Swing/Java2D map component and interaction wiring. |
-| `mundane-map-architecture-tests` | Dependency-direction and Native Image architecture checks. |
-| `mundane-map-native-tests` | Real offscreen-render Native Image smoke entrypoint. |
-| `examples/basic-viewer` | Runnable point, line, and polygon demonstration. |
-| `examples/symbol-gallery` | Runnable named inventory of Level 1 symbol behavior. |
-
-Future formats will be isolated adapters such as `mundane-map-io-shapefile`,
-`mundane-map-io-image`, and `mundane-map-io-geotiff`. They should be added only with working
-behavior and tests.
+Release verification targets GraalVM Java 21 on Ubuntu 24.04 Linux x86_64; Native Image
+compatibility remains unverified until the G8 Linux Native Image release-lane checkpoint is
+approved. Windows, macOS, Linux AArch64, other distributions, and cross-platform compatibility are
+unverified.
 
 ## Small example
 
 ```java
-Layer cities = new InMemoryLayer(
+var marker = BuiltInMarkers.filledScreen(
+    BuiltInMarker.CIRCLE, Rgba.rgb(28, 108, 184), 10.0, 1.0);
+var cities = new InMemoryLayer(
     "cities",
     "Cities",
     List.of(new Feature(
@@ -89,21 +75,53 @@ Layer cities = new InMemoryLayer(
         "Boston",
         new PointGeometry(new Coordinate(-71.0589, 42.3601)),
         Map.of("kind", "city"),
-        FeatureStyle.point(Rgba.rgb(28, 108, 184), 10.0))));
+        marker)));
 
-MapView map = new MapView(new WebMercatorProjection());
+var map = new MapView(new WebMercatorProjection());
 map.setLayers(List.of(cities));
 map.fitToData(32.0);
+// Close the containing view/window when finished; close() also releases owned source bindings.
 ```
 
-See `examples/basic-viewer` for complete usage.
+This example uses the supported `Layer`/`InMemoryLayer` small-snapshot path. For bounded or lazy data,
+open a `FeatureSource` or `RasterSource` and install it with `MapLayerBinding.borrowed*` or
+`MapLayerBinding.owned*` according to the desired lifecycle.
+
+## Level 1 format and CRS profile
+
+The shapefile reader supports bounded two-dimensional null, point, multipoint, polyline, and polygon
+records, multipart lines/polygons and holes, sequential SHP access, validated SHX indexed access,
+bounded DBF attributes, CPG encoding selection, and retained/recognized PRJ metadata. Z/M shape
+profiles and heuristic CRS transformation are unsupported.
+
+The image reader supports bounded PNG and JPEG, axis-aligned or six-coefficient world-file affine
+placement, window requests, nearest/bilinear rendering controls, opacity, cancellation, lifecycle,
+and bounded decode/resample caching. `ImageIO` and packed-pixel conversion remain in the explicit AWT
+decoder implementation.
+
+Level 1 recognizes only explicitly registered EPSG:4326 and EPSG:3857 definitions and operations.
+Unknown definitions are retained when available but are not guessed or transformed. GeoJSON,
+GeoTIFF, DTED, SVG import, GeoPackage, MBTiles, GPX/KML, remote tiles, additional projections,
+editing/persistence, and optional JTS/PROJ/SQLite/GDAL adapters remain Level 2 work.
+
+## Examples
+
+Five independent examples consume the published APIs without copying parsers or renderers:
+
+```bash
+./gradlew :examples:basic-viewer:run
+./gradlew :examples:symbol-gallery:run
+./gradlew :examples:measurement-viewer:run
+./gradlew :examples:shapefile-viewer:run --args='<path.shp> [EPSG:4326|EPSG:3857]'
+./gradlew :examples:raster-viewer:run --args='<image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857]'
+```
+
+The basic, symbol, and measurement examples are deterministic no-argument demonstrations. The two
+format viewers are real file consumers, apply the format modules' limits, present structured
+diagnostics under fixed non-path source identities, and transfer source ownership to their views.
 
 ## Design and roadmap
 
-- [DESIGN.md](DESIGN.md) records the compact architecture and decision log.
-- [ROADMAP.md](ROADMAP.md) defines capability gates rather than speculative modules.
-- [tasks/](tasks/) contains implementation-sized vertical slices.
-
-## Status
-
-The project starts at `0.1.0-SNAPSHOT`. Public APIs may change freely before `1.0.0`.
+- [DESIGN.md](DESIGN.md) indexes the compact architecture and approved decisions.
+- [ROADMAP.md](ROADMAP.md) separates the Level 1 release gates from Level 2 work.
+- [tasks/](tasks/) contains implementation-sized vertical slices and exact validation commands.
