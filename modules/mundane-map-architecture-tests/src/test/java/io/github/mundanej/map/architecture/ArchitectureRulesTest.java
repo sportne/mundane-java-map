@@ -8,6 +8,8 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import io.github.mundanej.map.api.ElevationSource;
+import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.architecture.ArchitecturePolicy.ModuleDescriptor;
 import java.io.File;
 import java.io.IOException;
@@ -526,6 +528,75 @@ class ArchitectureRulesTest {
                                                                         .getTargetClass()
                                                                         .equals(index))),
                 "Packed index implementation leaked outside core");
+    }
+
+    @Test
+    void elevationModelRemainsFormatNeutralPackedAndDistinctFromRaster() throws IOException {
+        ModuleDescriptor api = moduleEndingWith("mundane-map-api");
+        ModuleDescriptor core = moduleEndingWith("mundane-map-core");
+        JavaClasses apiClasses = classesByModule.get(api);
+        JavaClasses coreClasses = classesByModule.get(core);
+        JavaClass source = apiClasses.get("io.github.mundanej.map.api.ElevationSource");
+        JavaClass metadata = apiClasses.get("io.github.mundanej.map.api.ElevationSourceMetadata");
+        JavaClass limits = apiClasses.get("io.github.mundanej.map.api.ElevationSourceLimits");
+        JavaClass unit = apiClasses.get("io.github.mundanej.map.api.ElevationUnit");
+        JavaClass packed = coreClasses.get("io.github.mundanej.map.core.PackedElevationGrid");
+        List<JavaClass> elevationTypes = List.of(source, metadata, limits, unit, packed);
+
+        assertFalse(RasterSource.class.isAssignableFrom(ElevationSource.class));
+        assertEquals(Object.class.getName(), packed.getRawSuperclass().orElseThrow().getName());
+        assertTrue(packed.getModifiers().contains(JavaModifier.FINAL));
+        assertTrue(packed.getModifiers().contains(JavaModifier.PUBLIC));
+        assertEquals(
+                Set.of("double", "long"),
+                packed.getFields().stream()
+                        .filter(field -> field.getRawType().isArray())
+                        .map(field -> field.getRawType().getBaseComponentType().getName())
+                        .collect(Collectors.toSet()));
+        assertTrue(
+                packed.getFields().stream()
+                        .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                        .allMatch(field -> field.getModifiers().contains(JavaModifier.FINAL)),
+                "Packed elevation storage must not acquire mutable static state");
+
+        List<String> forbiddenDependencies =
+                elevationTypes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("java.util.concurrent.")
+                                                || target.equals("java.lang.Thread")
+                                                || target.contains(".io.image.")
+                                                || target.contains(".io.shapefile.")
+                                                || target.endsWith("RasterSource"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        assertTrue(forbiddenDependencies.isEmpty(), () -> String.join("\n", forbiddenDependencies));
+
+        List<String> misplacedTypes =
+                classesByModule.entrySet().stream()
+                        .filter(
+                                entry ->
+                                        !entry.getKey().equals(api) && !entry.getKey().equals(core))
+                        .flatMap(entry -> entry.getValue().stream())
+                        .filter(type -> type.getSimpleName().contains("Elevation"))
+                        .map(JavaClass::getName)
+                        .sorted()
+                        .toList();
+        assertTrue(misplacedTypes.isEmpty(), () -> String.join("\n", misplacedTypes));
+        assertFalse(
+                Files.readString(settings).contains("mundane-map-io-dted"),
+                "G9-001 must not create an empty DTED module");
     }
 
     @Test

@@ -288,8 +288,11 @@ separately decomposed.
 
 ### G9 — Elevation and DTED
 
-- Define the format-neutral regularly sampled elevation model first, then render it through color
-  ramps and optional hillshading.
+- G9-001 is complete under the maintainer's explicit sequencing exception while G8-004 awaits the
+  one final push. The toolkit-neutral source, post-center metadata, typed limits/units, packed finite
+  samples, structural no-data mask, diagnostics, and lifecycle are implemented without a format
+  module or raster inheritance; this does not make the Level 1 release gate complete.
+- Render the shared elevation model through color ramps and optional hillshading next.
 - Add dependency-free `mundane-map-io-dted` support for Levels 0, 1, and 2 with bounded headers,
   dimensions, checksums, signed-magnitude samples, voids, position queries, licensed fixtures,
   memory/read evidence, and Native Image verification.

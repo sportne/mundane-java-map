@@ -1,6 +1,6 @@
 # G9-001 — Format-neutral elevation model
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G9
 Type: AFK
@@ -81,3 +81,9 @@ git diff --check
 Keep coordinate interpolation out of this task so G9-005 can define it explicitly. The sole HITL-free
 implementation choice is the approved `double[]` plus packed-bit mask; a lazy/windowed representation
 requires G9-007 evidence. See `design/G9-elevation-and-dted.md` for the authoritative contract.
+
+Implementation follows the approved boundary: four toolkit-neutral API types and one eager packed
+core source, with no raster inheritance, inverse query, renderer, format field, worker, cache, or DTED
+module. The maintainer explicitly authorized this Level 2 sequencing exception while G8-004 remains
+Blocked on the one final push and exact-candidate CI evidence; completing this task does not change
+the Level 1 release status.
