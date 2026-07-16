@@ -223,6 +223,13 @@ architectural requirement. Level 1 is complete only when
   production inference before evidence is reported; 22 appended build/query/real-stack rows retain
   the G7-001 semantic oracles. The canonical BASELINE evidence completed under the fixed 512 MiB heap
   with observed crossover 32; this remains descriptive and creates no automatic selection policy.
+- G7-003 is implemented and verified: one JDK-only core optimizer performs deterministic screen-space
+  line clipping/simplification and conservative polygon optimization with exact whole-result
+  fallback. AWT retains one packed operation-local plan for eligible built-in symbol trees while
+  endpoints, hit/hover/selection, source publication, and custom renderers remain authoritative. The
+  canonical 39-scenario BASELINE run reduced exact rendered-coordinate work in every optimized pair,
+  but median/p95 timings were slower on this host; those results are descriptive evidence for G7-004,
+  not an automatic cache, tuning switch, or performance claim.
 - Establish repeatable large-data and JFR evidence before optimization.
 - Add a packed spatial index, viewport queries, clipping, and scale-aware simplification, then retain
   only private bounded render-cache candidates that pass predeclared evidence rules.

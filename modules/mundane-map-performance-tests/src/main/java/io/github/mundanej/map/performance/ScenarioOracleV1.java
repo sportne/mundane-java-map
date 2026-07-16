@@ -18,6 +18,7 @@ final class ScenarioOracleV1 {
                     entry("BASELINE", "affine-raster-pan", "c9178011eeb45578"),
                     entry("BASELINE", "vector-pan-sequence", "0791a2a96393ed1a"),
                     entry("BASELINE", "vector-zoom-sequence", "0f00fd437fbd4f25"),
+                    entry("BASELINE", "small-vector-render-v1", "5dadc5d8a1a12f3b"),
                     entry("BASELINE", "index-build-128", "2bc8fe25bef25ada"),
                     entry("BASELINE", "index-build-8192", "44c8bcf1ece91769"),
                     entry("BASELINE", "index-build-131072", "322961c99fccd029"),
@@ -47,6 +48,7 @@ final class ScenarioOracleV1 {
                     entry("SMOKE", "affine-raster-pan", "65accc605d7e170b"),
                     entry("SMOKE", "vector-pan-sequence", "0b82bd929c2c2213"),
                     entry("SMOKE", "vector-zoom-sequence", "56d246ef2d1394ce"),
+                    entry("SMOKE", "small-vector-render-v1", "c44f8900d71ba258"),
                     entry("SMOKE", "index-build-128", "324d9003171db243"),
                     entry("SMOKE", "index-build-8192", "b3755bcb97e923d2"),
                     entry("SMOKE", "index-build-131072", "a816722a5eb10d1e"),
@@ -97,6 +99,11 @@ final class ScenarioOracleV1 {
             alias(result, profile, "dense-vector-render-indexed", "dense-vector-render");
             alias(result, profile, "vector-pan-sequence-indexed", "vector-pan-sequence");
             alias(result, profile, "vector-zoom-sequence-indexed", "vector-zoom-sequence");
+            alias(result, profile, "small-vector-render-unoptimized", "small-vector-render-v1");
+            alias(result, profile, "small-vector-render-optimized", "small-vector-render-v1");
+            alias(result, profile, "dense-vector-render-optimized", "dense-vector-render");
+            alias(result, profile, "vector-pan-sequence-optimized", "vector-pan-sequence");
+            alias(result, profile, "vector-zoom-sequence-optimized", "vector-zoom-sequence");
         }
         return Map.copyOf(result);
     }

@@ -76,6 +76,19 @@ final class IndependentProfileOracle {
             result.put("dense-vector-render-indexed", result.get("dense-vector-render"));
             result.put("vector-pan-sequence-indexed", result.get("vector-pan-sequence"));
             result.put("vector-zoom-sequence-indexed", result.get("vector-zoom-sequence"));
+            List<FeatureRecord> small =
+                    vectors.stream()
+                            .filter(
+                                    record ->
+                                            record.id().equals("line:000")
+                                                    || record.id().equals("polygon:000"))
+                            .toList();
+            String smallRender = denseRender(profile, small, "small-vector-render-v1");
+            result.put("small-vector-render-unoptimized", smallRender);
+            result.put("small-vector-render-optimized", smallRender);
+            result.put("dense-vector-render-optimized", result.get("dense-vector-render"));
+            result.put("vector-pan-sequence-optimized", result.get("vector-pan-sequence"));
+            result.put("vector-zoom-sequence-optimized", result.get("vector-zoom-sequence"));
             return Map.copyOf(result);
         }
     }
@@ -212,6 +225,12 @@ final class IndependentProfileOracle {
 
     private static String denseRender(
             EvidenceConfiguration.Profile profile, List<FeatureRecord> records) throws Exception {
+        return denseRender(profile, records, "dense-vector-render");
+    }
+
+    private static String denseRender(
+            EvidenceConfiguration.Profile profile, List<FeatureRecord> records, String semanticId)
+            throws Exception {
         FeatureSource source = source("independent-dense", records);
         MapView view = view();
         BufferedImage image = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
@@ -232,7 +251,7 @@ final class IndependentProfileOracle {
                     referenceRenderInvariants(image, viewport, expected[0]);
             return digest(
                     profile,
-                    "dense-vector-render",
+                    semanticId,
                     counters,
                     oracle -> {
                         readAll(source).forEach(record -> ReferenceDigest.record(oracle, record));

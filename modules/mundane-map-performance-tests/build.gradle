@@ -46,7 +46,34 @@ def evidenceScenarioIds = [
     'jpeg-window-bilinear-preseeded',
     'affine-raster-pan',
     'vector-pan-sequence',
-    'vector-zoom-sequence'
+    'vector-zoom-sequence',
+    'index-build-128',
+    'index-build-8192',
+    'index-build-131072',
+    'index-query-linear-32',
+    'index-query-str16-32',
+    'index-query-linear-128',
+    'index-query-str16-128',
+    'index-query-linear-512',
+    'index-query-str16-512',
+    'index-query-linear-2048',
+    'index-query-str16-2048',
+    'index-query-linear-8192',
+    'index-query-str16-8192',
+    'index-query-linear-32768',
+    'index-query-str16-32768',
+    'index-query-linear-131072',
+    'index-query-str16-131072',
+    'memory-query-window-indexed',
+    'hit-test-sweep-indexed',
+    'dense-vector-render-indexed',
+    'vector-pan-sequence-indexed',
+    'vector-zoom-sequence-indexed',
+    'small-vector-render-unoptimized',
+    'small-vector-render-optimized',
+    'dense-vector-render-optimized',
+    'vector-pan-sequence-optimized',
+    'vector-zoom-sequence-optimized'
 ].asImmutable()
 
 def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
@@ -58,6 +85,10 @@ def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
     filter {
         includeTestsMatching(
                 'io.github.mundanej.map.performance.IndependentProfileOracleTest.baselineDigestsComeFromIndependentProfileFixturesAndPublicPaths')
+        includeTestsMatching(
+                'io.github.mundanej.map.performance.ScreenGeometryWorkOracleTest.baselineFrozenWorkCountersMatchTheIndependentReference')
+        includeTestsMatching(
+                'io.github.mundanej.map.performance.ScreenGeometryWorkOracleTest.baselineProductionCaptureMatchesTheFrozenWorkCounters')
     }
     systemProperty 'performanceBaselineOracle', 'true'
     systemProperty 'performanceProfile', 'BASELINE'

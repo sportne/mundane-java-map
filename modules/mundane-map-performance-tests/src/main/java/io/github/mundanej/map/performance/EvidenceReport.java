@@ -18,16 +18,19 @@ final class EvidenceReport {
     private final Map<String, String> environment;
     private final List<FixtureFact> fixtures;
     private final List<ScenarioFact> scenarios;
+    private final List<TimingComparison> comparisons;
 
     private EvidenceReport(
             EvidenceConfiguration configuration,
             Map<String, String> environment,
             List<FixtureFact> fixtures,
-            List<ScenarioFact> scenarios) {
+            List<ScenarioFact> scenarios,
+            List<TimingComparison> comparisons) {
         this.configuration = configuration;
         this.environment = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(environment));
         this.fixtures = List.copyOf(fixtures);
         this.scenarios = List.copyOf(scenarios);
+        this.comparisons = List.copyOf(comparisons);
     }
 
     static EvidenceReport capture(
@@ -42,7 +45,11 @@ final class EvidenceReport {
             facts.add(ScenarioFact.from(scenario, sample));
         }
         return new EvidenceReport(
-                configuration, environment(), FixtureCatalog.facts(configuration.profile()), facts);
+                configuration,
+                environment(),
+                FixtureCatalog.facts(configuration.profile()),
+                facts,
+                pairedComparisons(samples));
     }
 
     byte[] json() {
@@ -82,6 +89,11 @@ final class EvidenceReport {
         for (int index = 0; index < scenarios.size(); index++) {
             appendScenarioJson(result, scenarios.get(index));
             result.append(index + 1 == scenarios.size() ? "\n" : ",\n");
+        }
+        result.append("  ],\n  \"vectorPathComparisons\": [\n");
+        for (int index = 0; index < comparisons.size(); index++) {
+            appendComparisonJson(result, comparisons.get(index));
+            result.append(index + 1 == comparisons.size() ? "\n" : ",\n");
         }
         result.append("  ]\n}\n");
         return result.toString().getBytes(StandardCharsets.UTF_8);
@@ -161,6 +173,8 @@ final class EvidenceReport {
                     .append(scenario.sourceCache())
                     .append("`\n- View cache: `")
                     .append(scenario.viewCache())
+                    .append("`\n- Vector path: `")
+                    .append(scenario.vectorPath())
                     .append("`\n- Semantic digest: `")
                     .append(hex(scenario.digest()))
                     .append("`\n- Semantic counters: ");
@@ -179,7 +193,81 @@ final class EvidenceReport {
                     .append(scenario.unit())
                     .append("/s`)\n");
         }
+        result.append("\n## Paired vector-path comparisons\n\n")
+                .append(
+                        "These within-report median and p95 comparisons are descriptive evidence "
+                                + "only; they are not timing gates.\n");
+        if (comparisons.isEmpty()) {
+            result.append("\nNo complete unoptimized/optimized pair was selected.\n");
+        }
+        for (TimingComparison comparison : comparisons) {
+            result.append("\n### `")
+                    .append(comparison.name())
+                    .append("`\n\n- Unoptimized scenario: `")
+                    .append(comparison.unoptimizedScenario())
+                    .append("`\n- Optimized scenario: `")
+                    .append(comparison.optimizedScenario())
+                    .append(
+                            "`\n- Median nanos (unoptimized / optimized / optimized minus unoptimized): ")
+                    .append(comparison.unoptimizedMedianNanos())
+                    .append(" / ")
+                    .append(comparison.optimizedMedianNanos())
+                    .append(" / ")
+                    .append(comparison.medianDeltaNanos())
+                    .append(
+                            "\n- p95 nanos (unoptimized / optimized / optimized minus unoptimized): ")
+                    .append(comparison.unoptimizedP95Nanos())
+                    .append(" / ")
+                    .append(comparison.optimizedP95Nanos())
+                    .append(" / ")
+                    .append(comparison.p95DeltaNanos())
+                    .append('\n');
+        }
         return result.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    static List<TimingComparison> pairedComparisons(List<EvidenceSample> samples) {
+        LinkedHashMap<String, EvidenceSample> byId = new LinkedHashMap<>();
+        samples.forEach(sample -> byId.put(sample.scenarioId(), sample));
+        List<TimingComparison> result = new ArrayList<>();
+        addComparison(
+                result,
+                byId,
+                "small-vector-render",
+                "small-vector-render-unoptimized",
+                "small-vector-render-optimized");
+        addComparison(
+                result,
+                byId,
+                "dense-vector-render",
+                "dense-vector-render-indexed",
+                "dense-vector-render-optimized");
+        addComparison(
+                result,
+                byId,
+                "vector-pan-sequence",
+                "vector-pan-sequence-indexed",
+                "vector-pan-sequence-optimized");
+        addComparison(
+                result,
+                byId,
+                "vector-zoom-sequence",
+                "vector-zoom-sequence-indexed",
+                "vector-zoom-sequence-optimized");
+        return List.copyOf(result);
+    }
+
+    private static void addComparison(
+            List<TimingComparison> target,
+            Map<String, EvidenceSample> samples,
+            String name,
+            String unoptimizedId,
+            String optimizedId) {
+        EvidenceSample unoptimized = samples.get(unoptimizedId);
+        EvidenceSample optimized = samples.get(optimizedId);
+        if (unoptimized != null && optimized != null) {
+            target.add(TimingComparison.from(name, unoptimized, optimized));
+        }
     }
 
     private static void appendMarkdownCounters(StringBuilder result, Map<String, Long> counters) {
@@ -209,6 +297,8 @@ final class EvidenceReport {
                 .append(fact.sourceCache())
                 .append("\", \"viewCacheState\": \"")
                 .append(fact.viewCache())
+                .append("\", \"vectorPathState\": \"")
+                .append(fact.vectorPath())
                 .append("\", \"semanticDigest\": \"")
                 .append(hex(fact.digest()))
                 .append("\", \"semanticCounters\": ");
@@ -221,6 +311,28 @@ final class EvidenceReport {
                 .append(fact.p95())
                 .append(", \"operationsPerSecondMilli\": ")
                 .append(fact.throughputMilli())
+                .append('}');
+    }
+
+    private static void appendComparisonJson(StringBuilder result, TimingComparison comparison) {
+        result.append("    {\"comparison\": \"")
+                .append(comparison.name())
+                .append("\", \"policy\": \"DESCRIPTIVE_ONLY\", \"unoptimizedScenario\": \"")
+                .append(comparison.unoptimizedScenario())
+                .append("\", \"optimizedScenario\": \"")
+                .append(comparison.optimizedScenario())
+                .append("\", \"unoptimizedMedianNanos\": ")
+                .append(comparison.unoptimizedMedianNanos())
+                .append(", \"optimizedMedianNanos\": ")
+                .append(comparison.optimizedMedianNanos())
+                .append(", \"medianDeltaNanos\": ")
+                .append(comparison.medianDeltaNanos())
+                .append(", \"unoptimizedP95Nanos\": ")
+                .append(comparison.unoptimizedP95Nanos())
+                .append(", \"optimizedP95Nanos\": ")
+                .append(comparison.optimizedP95Nanos())
+                .append(", \"p95DeltaNanos\": ")
+                .append(comparison.p95DeltaNanos())
                 .append('}');
     }
 
@@ -338,6 +450,31 @@ final class EvidenceReport {
         }
     }
 
+    record TimingComparison(
+            String name,
+            String unoptimizedScenario,
+            String optimizedScenario,
+            long unoptimizedMedianNanos,
+            long optimizedMedianNanos,
+            long medianDeltaNanos,
+            long unoptimizedP95Nanos,
+            long optimizedP95Nanos,
+            long p95DeltaNanos) {
+        static TimingComparison from(
+                String name, EvidenceSample unoptimized, EvidenceSample optimized) {
+            return new TimingComparison(
+                    name,
+                    unoptimized.scenarioId(),
+                    optimized.scenarioId(),
+                    unoptimized.medianNanos(),
+                    optimized.medianNanos(),
+                    Math.subtractExact(optimized.medianNanos(), unoptimized.medianNanos()),
+                    unoptimized.p95Nanos(),
+                    optimized.p95Nanos(),
+                    Math.subtractExact(optimized.p95Nanos(), unoptimized.p95Nanos()));
+        }
+    }
+
     private record ScenarioFact(
             String id,
             String next,
@@ -345,6 +482,7 @@ final class EvidenceReport {
             String unit,
             String sourceCache,
             String viewCache,
+            String vectorPath,
             long digest,
             Map<String, Long> counters,
             List<Long> rawNanos,
@@ -359,6 +497,7 @@ final class EvidenceReport {
                     scenario.workUnit(),
                     scenario.sourceCacheState(),
                     scenario.viewCacheState(),
+                    scenario.vectorPathState(),
                     sample.observation().digest(),
                     sample.observation().counters(),
                     sample.rawNanos(),

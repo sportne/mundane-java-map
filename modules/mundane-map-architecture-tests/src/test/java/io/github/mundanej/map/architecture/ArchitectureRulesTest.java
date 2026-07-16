@@ -138,6 +138,105 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void screenGeometryOptimizationIsBoundedToCoreAwtAndTheNonPublishedEvidenceBridge()
+            throws IOException {
+        ModuleDescriptor core = moduleEndingWith("mundane-map-core");
+        ModuleDescriptor awt = moduleEndingWith("mundane-map-awt");
+        JavaClasses coreClasses = classesByModule.get(core);
+        JavaClasses awtClasses = classesByModule.get(awt);
+        JavaClass optimizer =
+                coreClasses.get("io.github.mundanej.map.core.ScreenGeometryOptimizer");
+        List<String> toolkitDependencies =
+                optimizer.getDirectDependenciesFromSelf().stream()
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(
+                                name ->
+                                        name.startsWith("java.awt.")
+                                                || name.startsWith("javax.swing.")
+                                                || name.startsWith("javax.imageio."))
+                        .sorted()
+                        .toList();
+        assertTrue(toolkitDependencies.isEmpty(), toolkitDependencies::toString);
+        assertTrue(optimizer.getModifiers().contains(JavaModifier.PUBLIC));
+        assertTrue(
+                coreClasses
+                        .get("io.github.mundanej.map.core.ScreenGeometryOptimization")
+                        .getModifiers()
+                        .contains(JavaModifier.PUBLIC));
+        assertFalse(
+                awtClasses
+                        .get("io.github.mundanej.map.awt.ScreenGeometryOptimizationMode")
+                        .getModifiers()
+                        .contains(JavaModifier.PUBLIC));
+        assertFalse(
+                awtClasses
+                        .get("io.github.mundanej.map.awt.ScreenGeometryPaintResult")
+                        .getModifiers()
+                        .contains(JavaModifier.PUBLIC));
+        JavaClass screenPlan = awtClasses.get("io.github.mundanej.map.awt.ScreenRenderPlan");
+        assertFalse(screenPlan.getModifiers().contains(JavaModifier.PUBLIC));
+        JavaClass mapView = awtClasses.get("io.github.mundanej.map.awt.MapView");
+        List<String> sharedPlans =
+                mapView.getFields().stream()
+                        .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                        .map(field -> field.getName().toLowerCase(java.util.Locale.ROOT))
+                        .filter(name -> name.contains("plan") || name.contains("cache"))
+                        .toList();
+        assertTrue(sharedPlans.isEmpty(), sharedPlans::toString);
+        assertTrue(
+                mapView.getFields().stream()
+                        .noneMatch(field -> field.getRawType().equals(screenPlan)),
+                "MapView must not retain an operation-local screen plan");
+        List<String> recursiveCoordinateMethods =
+                optimizer.getMethods().stream()
+                        .flatMap(method -> method.getMethodCallsFromSelf().stream())
+                        .filter(call -> call.getTargetOwner().equals(optimizer))
+                        .filter(call -> call.getOrigin().getName().equals(call.getName()))
+                        .map(call -> call.getOrigin().getFullName())
+                        .sorted()
+                        .toList();
+        assertTrue(
+                recursiveCoordinateMethods.isEmpty(),
+                () -> String.join("\n", recursiveCoordinateMethods));
+        Set<String> privateSeamTypes =
+                Set.of(
+                        "io.github.mundanej.map.awt.ScreenGeometryOptimizationMode",
+                        "io.github.mundanej.map.awt.ScreenGeometryPaintResult");
+        List<String> leakedSeams =
+                classesByModule.entrySet().stream()
+                        .filter(entry -> !entry.getKey().path().contains("performance-tests"))
+                        .flatMap(entry -> entry.getValue().stream())
+                        .filter(type -> !type.getPackageName().equals("io.github.mundanej.map.awt"))
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(privateSeamTypes::contains)
+                        .sorted()
+                        .toList();
+        assertTrue(leakedSeams.isEmpty(), leakedSeams::toString);
+        String bridge =
+                Files.readString(
+                        performanceSources.resolve(
+                                "io/github/mundanej/map/awt/ScreenGeometryEvidenceSupport.java"));
+        assertTrue(bridge.contains("ScreenGeometryOptimizationMode.DISABLED"));
+        assertTrue(bridge.contains("ScreenGeometryOptimizationMode.LEVEL1"));
+        assertTrue(bridge.contains("paintWithScreenGeometryResult"));
+        List<String> bridgeConsumersOutsidePerformance =
+                classesByModule.entrySet().stream()
+                        .filter(entry -> !entry.getKey().path().contains("performance-tests"))
+                        .flatMap(entry -> entry.getValue().stream())
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(
+                                name ->
+                                        name.equals(
+                                                "io.github.mundanej.map.awt.ScreenGeometryEvidenceSupport"))
+                        .toList();
+        assertTrue(
+                bridgeConsumersOutsidePerformance.isEmpty(),
+                bridgeConsumersOutsidePerformance::toString);
+    }
+
+    @Test
     void actualProductionSatisfiesModuleAndToolkitBoundaries() {
         Map<String, String> owners = owningModules(classesByModule);
         List<String> violations = new ArrayList<>();

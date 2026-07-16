@@ -1090,6 +1090,34 @@ padding, retained level-of-detail hierarchy, general topology library, custom-re
 cache. G7-004 receives an optimized uncached path and evidence rather than an abstraction built for a
 cache that may not be justified.
 
+### G7-003 implementation evidence
+
+The implementation retains one packed core result by reference in AWT and traverses multipart source,
+render-component, polygon, and ring ranges without unpacking component coordinate arrays. Core uses
+prospective cumulative primitive charging, a conservative whole-multipart result preflight, implicit
+allocation-free identity mappings for fallback, iterative line algorithms, and tri-state normalized
+polygon predicates. Whole-result fallback is atomic on late build/topology exhaustion. Source paint
+tests pin cancellation before publication to zero pixels/work and successful publication to a complete
+paint that rejects later cancellation; separate legacy and feature-source CRS tests pin exactly one
+post-preflight plan projection.
+
+The performance harness freezes all twelve relevant rows in both profiles from a separate
+fixture-to-core orchestration that cannot call MapView, the AWT evidence bridge, ScenarioRegistry
+counter helpers, or captured reports. Production SMOKE and BASELINE captures match those 24 frozen
+facts. Every counter dimension, mode, and row mapping has a negative control, and the report adds four
+descriptive-only median/p95 pairs. Two independent reviews approved the final topology, build-budget,
+packed AWT, publication, architecture, regression, and evidence boundaries.
+
+The canonical BASELINE run used the G7-003 working tree based on revision
+`c914cfd52c3eec304f3455a1af4edb571ff05d52`; the report omits a revision because the changes were not
+yet committed. All 39 scenarios completed under the fixed 512 MiB heap in 49m34s. The JSON SHA-256 is
+`3dd34fb556b1643ab18754108bcd31fa620b42b6571c5dafb1584da539256140`. Exact rendered coordinates fell
+from 452 to 204 for the small pair, 90,624 to 27,136 for dense rendering, 1,442,144 to 424,768 for pan,
+and 968,640 to 294,576 for zoom. On this host the optimized median was slower for every pair (0.634 vs
+0.106 ms small, 7.971 vs 6.419 ms dense, 121.481 vs 101.623 ms pan, and 82.324 vs 73.326 ms zoom), as
+the design requires the report to record rather than gate. `qualityGate`, `renderRegression`, focused
+module/architecture checks, independent BASELINE-oracle verification, and whitespace all passed.
+
 ## Render-cache evidence and performance acceptance (G7-004)
 
 ### Two removable AWT candidates, not a cache framework

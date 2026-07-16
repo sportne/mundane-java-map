@@ -607,7 +607,37 @@ class RenderRegressionTest {
                         new Region(140, 52, 13, 13),
                         new Region(132, 48, 7, 7),
                         new Region(149, 64, 7, 7));
-        return Stream.of(horizontal, rising, falling);
+        RenderScenario clippedAndSimplified =
+                scenario(
+                        "line-clipped-simplified",
+                        List.of(
+                                new Feature(
+                                        "clipped",
+                                        "",
+                                        new LineStringGeometry(
+                                                CoordinateSequence.of(
+                                                        -200, 0, -60, 0.1, 0, -0.1, 60, 0.1, 200,
+                                                        0)),
+                                        Map.of(),
+                                        SolidLineSymbol.of(stroke(GREEN, 6), 1))),
+                        1,
+                        Optional.empty(),
+                        List.of(
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "visible-centerline",
+                                                image,
+                                                new Region(4, 57, 152, 7),
+                                                GREEN),
+                                (id, image) ->
+                                        requireExcluded(
+                                                id,
+                                                "unrelated-background",
+                                                image,
+                                                new Region(20, 20, 120, 20),
+                                                GREEN)));
+        return Stream.of(horizontal, rising, falling, clippedAndSimplified);
     }
 
     private static RenderScenario lineDirectionScenario(

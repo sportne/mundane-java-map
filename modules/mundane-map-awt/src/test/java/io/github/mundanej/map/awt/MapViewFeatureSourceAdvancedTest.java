@@ -13,6 +13,7 @@ import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticLocation;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.DiagnosticSeverity;
+import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
@@ -22,6 +23,7 @@ import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.MapHit;
+import io.github.mundanej.map.api.MapSourceReportEvent;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
@@ -126,6 +128,65 @@ class MapViewFeatureSourceAdvancedTest {
                     assertFalse(bindingReference.get().cancelCurrentOperation());
                     view.close();
                 });
+    }
+
+    @Test
+    void optimizedSourcePaintPublishesOnlyAfterSuccessfulTerminalArbitration() throws Exception {
+        BlockingLineSource source = new BlockingLineSource();
+        AtomicReference<MapView> viewReference = new AtomicReference<>();
+        AtomicReference<MapLayerBinding> bindingReference = new AtomicReference<>();
+        List<MapSourceReportEvent> reportEvents = new ArrayList<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = configuredView();
+                    MapLayerBinding binding = binding("optimized", source, plainLine());
+                    view.setLayerBindings(List.of(binding));
+                    view.addMapSourceReportListener(reportEvents::add);
+                    viewReference.set(view);
+                    bindingReference.set(binding);
+                });
+
+        BufferedImage cancelledImage = transparentImage();
+        AtomicReference<ScreenGeometryPaintResult> cancelledResult = new AtomicReference<>();
+        AtomicReference<Throwable> unexpected = new AtomicReference<>();
+        CountDownLatch cancelledPaintFinished = new CountDownLatch(1);
+        SwingUtilities.invokeLater(
+                () -> {
+                    try {
+                        cancelledResult.set(evidencePaint(viewReference.get(), cancelledImage));
+                    } catch (Throwable failure) {
+                        unexpected.set(failure);
+                    } finally {
+                        cancelledPaintFinished.countDown();
+                    }
+                });
+
+        assertTrue(source.entered.await(5, TimeUnit.SECONDS));
+        assertTrue(bindingReference.get().cancelCurrentOperation());
+        source.release.countDown();
+        assertTrue(cancelledPaintFinished.await(5, TimeUnit.SECONDS));
+        assertEquals(null, unexpected.get());
+        assertEquals(new ScreenGeometryPaintResult(0, 0, 0, 0, 0, 0, 0), cancelledResult.get());
+        assertTrue(isAllWhite(cancelledImage));
+        assertEquals(
+                "SOURCE_CANCELLED",
+                viewReference.get().sourceReports().get("optimized").entries().getLast().code());
+        assertEquals(1, reportEvents.size());
+        assertTrue(reportEvents.getFirst().current().isPresent());
+
+        source.block = false;
+        BufferedImage successfulImage = transparentImage();
+        AtomicReference<ScreenGeometryPaintResult> successfulResult = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> successfulResult.set(evidencePaint(viewReference.get(), successfulImage)));
+
+        assertFalse(bindingReference.get().cancelCurrentOperation());
+        assertEquals(new ScreenGeometryPaintResult(4, 4, 2, 1, 0, 0, 32), successfulResult.get());
+        assertFalse(isAllWhite(successfulImage));
+        assertTrue(viewReference.get().sourceReports().isEmpty());
+        assertEquals(2, reportEvents.size());
+        assertTrue(reportEvents.getLast().current().isEmpty());
+        SwingUtilities.invokeAndWait(viewReference.get()::close);
     }
 
     @Test
@@ -428,6 +489,30 @@ class MapViewFeatureSourceAdvancedTest {
         return image;
     }
 
+    private static BufferedImage transparentImage() {
+        return new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
+    }
+
+    private static ScreenGeometryPaintResult evidencePaint(MapView view, BufferedImage image) {
+        Graphics2D graphics = image.createGraphics();
+        try {
+            return view.paintWithScreenGeometryResult(graphics);
+        } finally {
+            graphics.dispose();
+        }
+    }
+
+    private static boolean isAllWhite(BufferedImage image) {
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                if (image.getRGB(x, y) != Color.WHITE.getRGB()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private static void move(MapView view, int x, int y) {
         view.dispatchEvent(
                 new MouseEvent(
@@ -564,6 +649,77 @@ class MapViewFeatureSourceAdvancedTest {
                     closed = true;
                 }
             };
+        }
+    }
+
+    private static final class BlockingLineSource extends TestSource {
+        private final CountDownLatch entered = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+        private final FeatureRecord line =
+                new FeatureRecord(
+                        "line",
+                        "",
+                        new io.github.mundanej.map.api.LineStringGeometry(
+                                CoordinateSequence.of(-30, 0, -10, 0, 10, 0, 30, 0)),
+                        Map.of());
+        private volatile boolean block = true;
+
+        private BlockingLineSource() {
+            super("blocking-line-source", Optional.of(lineEnvelope()));
+        }
+
+        @Override
+        public FeatureCursor openCursor(FeatureQuery query, CancellationToken cancellation) {
+            return new FeatureCursor() {
+                private int state;
+                private boolean closed;
+
+                @Override
+                public boolean advance() {
+                    if (state == 0 && block) {
+                        entered.countDown();
+                        try {
+                            if (!release.await(5, TimeUnit.SECONDS)) {
+                                throw new AssertionError("Timed out awaiting cancellation release");
+                            }
+                        } catch (InterruptedException failure) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(failure);
+                        }
+                    }
+                    if (cancellation.isCancellationRequested()) {
+                        throw sourceFailure(metadata().identity().id(), "SOURCE_CANCELLED");
+                    }
+                    return state++ == 0;
+                }
+
+                @Override
+                public FeatureRecord current() {
+                    if (state != 1) {
+                        throw new IllegalStateException("no current record");
+                    }
+                    return line;
+                }
+
+                @Override
+                public DiagnosticReport diagnostics() {
+                    return DiagnosticReport.empty();
+                }
+
+                @Override
+                public boolean isClosed() {
+                    return closed;
+                }
+
+                @Override
+                public void close() {
+                    closed = true;
+                }
+            };
+        }
+
+        private static Envelope lineEnvelope() {
+            return new Envelope(-30, 0, 30, 0);
         }
     }
 

@@ -14,7 +14,43 @@ public final class LineTangents {
     public static LineEndpointBearings outwardScreenBearings(
             CoordinateSequence screenCoordinates, String featureId, int partIndex) {
         Objects.requireNonNull(screenCoordinates, "screenCoordinates");
+        return outwardScreenBearings(
+                screenCoordinates, 0, screenCoordinates.size(), featureId, partIndex);
+    }
+
+    /**
+     * Finds outward endpoint bearings in one non-empty coordinate range without copying the range.
+     *
+     * @param screenCoordinates packed screen coordinates containing the line part
+     * @param startInclusive first coordinate index in the part
+     * @param endExclusive coordinate fencepost immediately after the part
+     * @param featureId non-blank feature identifier used in stable failure context
+     * @param partIndex non-negative declared part index used in stable failure context
+     * @return optional start and end bearings; both are empty when the range is coincident
+     * @throws IndexOutOfBoundsException when the range is outside the coordinate sequence
+     * @throws IllegalArgumentException when the range is empty, the feature ID is blank, or the
+     *     part index is negative
+     */
+    public static LineEndpointBearings outwardScreenBearings(
+            CoordinateSequence screenCoordinates,
+            int startInclusive,
+            int endExclusive,
+            String featureId,
+            int partIndex) {
+        Objects.requireNonNull(screenCoordinates, "screenCoordinates");
         Objects.requireNonNull(featureId, "featureId");
+        if (startInclusive < 0 || endExclusive > screenCoordinates.size()) {
+            throw new IndexOutOfBoundsException(
+                    "Coordinate range ["
+                            + startInclusive
+                            + ", "
+                            + endExclusive
+                            + ") is outside sequence size "
+                            + screenCoordinates.size());
+        }
+        if (startInclusive >= endExclusive) {
+            throw new IllegalArgumentException("Coordinate range must not be empty or reversed");
+        }
         if (featureId.isBlank()) {
             throw new IllegalArgumentException("featureId must not be blank");
         }
@@ -23,9 +59,9 @@ public final class LineTangents {
         }
 
         OptionalDouble start = OptionalDouble.empty();
-        double firstX = screenCoordinates.x(0);
-        double firstY = screenCoordinates.y(0);
-        for (int index = 1; index < screenCoordinates.size(); index++) {
+        double firstX = screenCoordinates.x(startInclusive);
+        double firstY = screenCoordinates.y(startInclusive);
+        for (int index = startInclusive + 1; index < endExclusive; index++) {
             double x = screenCoordinates.x(index);
             double y = screenCoordinates.y(index);
             if (x != firstX || y != firstY) {
@@ -37,10 +73,10 @@ public final class LineTangents {
         }
 
         OptionalDouble end = OptionalDouble.empty();
-        int lastIndex = screenCoordinates.size() - 1;
+        int lastIndex = endExclusive - 1;
         double lastX = screenCoordinates.x(lastIndex);
         double lastY = screenCoordinates.y(lastIndex);
-        for (int index = lastIndex - 1; index >= 0; index--) {
+        for (int index = lastIndex - 1; index >= startInclusive; index--) {
             double x = screenCoordinates.x(index);
             double y = screenCoordinates.y(index);
             if (x != lastX || y != lastY) {

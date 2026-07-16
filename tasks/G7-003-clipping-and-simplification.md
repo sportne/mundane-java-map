@@ -1,6 +1,6 @@
 # G7-003 — Clipping and simplification
 
-Status: Proposed
+Status: Complete
 Depends on: G7-002
 Gate: G7
 Type: AFK
@@ -86,3 +86,12 @@ git diff --check
 The production policy is fixed and evidence-backed, not a caller tuning surface. Correct topology,
 authoritative interaction, and exact fallback take priority over vertex-count reduction; G7-004 owns
 any later retention/cache decision.
+
+Implementation evidence: one bounded core optimizer and one packed, operation-local AWT plan now
+clip/simplify eligible built-in paths while every interaction and endpoint operation remains
+authoritative. Independent review approved topology/build fallback, multipart/composite ordering,
+source publication, private evidence seams, and frozen counter derivation. The canonical 39-scenario
+BASELINE run completed in 49m34s; its JSON SHA-256 is
+`3dd34fb556b1643ab18754108bcd31fa620b42b6571c5dafb1584da539256140`. Exact work counters show
+substantial coordinate reduction while all four paired median/p95 comparisons remain descriptive and
+were slower on this host; G7-004 therefore receives evidence, not an automatic cache or timing policy.

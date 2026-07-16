@@ -42,6 +42,42 @@ class LineTangentsTest {
     }
 
     @Test
+    void packedRangeMatchesAnEquivalentStandalonePartWithoutCopyingSemantics() {
+        CoordinateSequence packed =
+                CoordinateSequence.of(
+                        -100.0, -100.0, 2.0, 3.0, 2.0, 3.0, 8.0, 3.0, 8.0, 9.0, 100.0, 100.0);
+        CoordinateSequence standalone =
+                CoordinateSequence.of(2.0, 3.0, 2.0, 3.0, 8.0, 3.0, 8.0, 9.0);
+
+        assertEquals(
+                LineTangents.outwardScreenBearings(standalone, "road", 4),
+                LineTangents.outwardScreenBearings(packed, 1, 5, "road", 4));
+    }
+
+    @Test
+    void packedRangeValidatesBothFencepostsAndRequiresOneCoordinate() {
+        CoordinateSequence coordinates = CoordinateSequence.of(0.0, 0.0, 1.0, 1.0);
+
+        assertThrows(
+                IndexOutOfBoundsException.class,
+                () -> LineTangents.outwardScreenBearings(coordinates, -1, 1, "road", 0));
+        assertThrows(
+                IndexOutOfBoundsException.class,
+                () -> LineTangents.outwardScreenBearings(coordinates, 0, 3, "road", 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineTangents.outwardScreenBearings(coordinates, 1, 1, "road", 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LineTangents.outwardScreenBearings(coordinates, 2, 1, "road", 0));
+
+        LineEndpointBearings single =
+                LineTangents.outwardScreenBearings(coordinates, 1, 2, "road", 0);
+        assertFalse(single.startBearingDegrees().isPresent());
+        assertFalse(single.endBearingDegrees().isPresent());
+    }
+
+    @Test
     void coordinateSequenceRejectsAnUnrepresentableEnvelopeBeforeTangentWork() {
         assertThrows(
                 IllegalArgumentException.class,

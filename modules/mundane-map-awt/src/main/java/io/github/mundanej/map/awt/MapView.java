@@ -85,6 +85,9 @@ import io.github.mundanej.map.core.RasterGridWindows;
 import io.github.mundanej.map.core.RasterRequestAccounting;
 import io.github.mundanej.map.core.RouteOutcome;
 import io.github.mundanej.map.core.ScreenGeometryHits;
+import io.github.mundanej.map.core.ScreenGeometryOptimizationLimits;
+import io.github.mundanej.map.core.ScreenGeometryOptimizationOutcome;
+import io.github.mundanej.map.core.ScreenGeometryOptimizer;
 import io.github.mundanej.map.core.SymbolTransforms;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
@@ -148,6 +151,7 @@ public final class MapView extends JComponent implements AutoCloseable {
     private static final int DEFAULT_WIDTH = 800;
     private static final int DEFAULT_HEIGHT = 600;
     private static final double ZOOM_STEP = 1.2;
+    private static final double SCREEN_PATH_TOLERANCE = 0.25;
 
     private final CrsRegistry crsRegistry;
     private final CrsDefinition mapCrs;
@@ -155,6 +159,8 @@ public final class MapView extends JComponent implements AutoCloseable {
     private final CrsOperation mapToDisplay;
     private final CrsOperation displayToMap;
     private final SymbolRendererRegistry symbolRenderers;
+    private final ScreenGeometryOptimizationMode screenGeometryOptimizationMode;
+    private ScreenGeometryPaintCollector activeScreenGeometryPaintCollector;
     private final MapToolRouter toolRouter = new MapToolRouter();
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private final List<MapHoverListener> hoverListeners = new ArrayList<>();
@@ -196,7 +202,7 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     /** Creates an empty view using an explicit immutable symbol renderer registry. */
     public MapView(Projection projection, SymbolRendererRegistry symbolRenderers) {
-        this(configuration(projection), symbolRenderers);
+        this(configuration(projection), symbolRenderers, ScreenGeometryOptimizationMode.LEVEL1);
     }
 
     /** Creates an empty view with explicit map and display coordinate reference systems. */
@@ -215,16 +221,44 @@ public final class MapView extends JComponent implements AutoCloseable {
                         Objects.requireNonNull(crsRegistry, "crsRegistry"),
                         Objects.requireNonNull(mapCrs, "mapCrs"),
                         Objects.requireNonNull(displayCrs, "displayCrs")),
-                symbolRenderers);
+                symbolRenderers,
+                ScreenGeometryOptimizationMode.LEVEL1);
     }
 
-    private MapView(CoordinateConfiguration configuration, SymbolRendererRegistry symbolRenderers) {
+    MapView(
+            Projection projection,
+            SymbolRendererRegistry symbolRenderers,
+            ScreenGeometryOptimizationMode optimizationMode) {
+        this(configuration(projection), symbolRenderers, optimizationMode);
+    }
+
+    MapView(
+            CrsRegistry crsRegistry,
+            CrsDefinition mapCrs,
+            CrsDefinition displayCrs,
+            SymbolRendererRegistry symbolRenderers,
+            ScreenGeometryOptimizationMode optimizationMode) {
+        this(
+                new CoordinateConfiguration(
+                        Objects.requireNonNull(crsRegistry, "crsRegistry"),
+                        Objects.requireNonNull(mapCrs, "mapCrs"),
+                        Objects.requireNonNull(displayCrs, "displayCrs")),
+                symbolRenderers,
+                optimizationMode);
+    }
+
+    private MapView(
+            CoordinateConfiguration configuration,
+            SymbolRendererRegistry symbolRenderers,
+            ScreenGeometryOptimizationMode optimizationMode) {
         this.crsRegistry = configuration.registry();
         this.mapCrs = configuration.mapCrs();
         this.displayCrs = configuration.displayCrs();
         this.mapToDisplay = crsRegistry.operation(mapCrs, displayCrs);
         this.displayToMap = crsRegistry.operation(displayCrs, mapCrs);
         this.symbolRenderers = Objects.requireNonNull(symbolRenderers, "symbolRenderers");
+        this.screenGeometryOptimizationMode =
+                Objects.requireNonNull(optimizationMode, "optimizationMode");
         setOpaque(true);
         setFocusable(true);
         setBackground(Color.WHITE);
@@ -959,8 +993,15 @@ public final class MapView extends JComponent implements AutoCloseable {
                                         feature.sourceToDisplay(),
                                         viewportSnapshot))
                         : Optional.empty();
+        ScreenRenderPlan screenPlan =
+                buildScreenRenderPlan(
+                        symbol,
+                        feature.geometry(),
+                        feature.sourceToDisplay(),
+                        viewportSnapshot,
+                        basisSnapshot);
         AwtSymbolRenderContext context =
-                context(
+                contextWithScreenPlan(
                         graphics,
                         symbol.role(),
                         feature.id(),
@@ -972,7 +1013,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                         OptionalDouble.empty(),
                         markerAnchor,
                         viewportSnapshot,
-                        basisSnapshot);
+                        basisSnapshot,
+                        screenPlan,
+                        -1);
         SymbolRenderResult result = dispatch(symbol, context);
         if (feature.geometry() instanceof PointGeometry) {
             Envelope bounds = result.nominalMarkerBounds().orElseThrow();
@@ -1000,9 +1043,16 @@ public final class MapView extends JComponent implements AutoCloseable {
                                         feature.sourceToDisplay(),
                                         viewportSnapshot))
                         : Optional.empty();
+        ScreenRenderPlan screenPlan =
+                buildScreenRenderPlan(
+                        symbol,
+                        feature.geometry(),
+                        feature.sourceToDisplay(),
+                        viewportSnapshot,
+                        basisSnapshot);
         dispatch(
                 symbol,
-                context(
+                contextWithScreenPlan(
                         graphics,
                         symbol.role(),
                         feature.id(),
@@ -1014,7 +1064,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                         OptionalDouble.empty(),
                         markerAnchor,
                         viewportSnapshot,
-                        basisSnapshot));
+                        basisSnapshot,
+                        screenPlan,
+                        -1));
     }
 
     private static Symbol overlaySymbol(FeatureOverlaySymbols overlay, Geometry geometry) {
@@ -1064,7 +1116,42 @@ public final class MapView extends JComponent implements AutoCloseable {
                 endpointBearing,
                 markerAnchor,
                 basisSnapshot,
-                this);
+                this,
+                null,
+                -1);
+    }
+
+    private AwtSymbolRenderContext contextWithScreenPlan(
+            Graphics2D graphics,
+            SymbolRole role,
+            String featureId,
+            Geometry featureGeometry,
+            Geometry renderGeometry,
+            CrsOperation sourceToDisplay,
+            double inheritedOpacity,
+            boolean closedRing,
+            OptionalDouble endpointBearing,
+            Optional<Coordinate> markerAnchor,
+            MapViewport viewportSnapshot,
+            MapScreenBasis basisSnapshot,
+            ScreenRenderPlan screenPlan,
+            int sourceComponent) {
+        return new AwtSymbolRenderContext(
+                graphics,
+                role,
+                featureId,
+                featureGeometry,
+                renderGeometry,
+                sourceToDisplay,
+                viewportSnapshot,
+                inheritedOpacity,
+                closedRing,
+                endpointBearing,
+                markerAnchor,
+                basisSnapshot,
+                this,
+                screenPlan,
+                sourceComponent);
     }
 
     private SymbolRenderResult dispatch(Symbol symbol, AwtSymbolRenderContext context) {
@@ -1700,7 +1787,7 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     SymbolRenderResult renderChild(Symbol child, AwtSymbolRenderContext parent, double multiplier) {
         AwtSymbolRenderContext childContext =
-                context(
+                contextWithScreenPlan(
                         parent.parentGraphics(),
                         parent.role(),
                         parent.featureId(),
@@ -1712,7 +1799,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                         parent.endpointBearingDegrees(),
                         parent.markerAnchorScreen(),
                         parent.viewport(),
-                        parent.mapScreenBasis());
+                        parent.mapScreenBasis(),
+                        parent.screenPlan(),
+                        parent.sourceComponent());
         return dispatch(child, childContext);
     }
 
@@ -1724,7 +1813,8 @@ public final class MapView extends JComponent implements AutoCloseable {
             }
             return result;
         }
-        if (isMultipart(context.renderGeometry())) {
+        if (isMultipart(context.renderGeometry())
+                && (context.screenPlan() == null || context.sourceComponent() < 0)) {
             return renderMultipart(value, context);
         }
         if (value instanceof FeatureStyle style) {
@@ -1734,7 +1824,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                             context.renderGeometry(),
                             style,
                             context.featureId(),
-                            context.viewport());
+                            context.mapToDisplayOperation(),
+                            context.viewport(),
+                            context.screenPlan(),
+                            componentIndex(context));
             AwtLogicalPaintPresence presence = legacyPresence(style, context);
             return bounds == null
                     ? SymbolRenderResult.none(presence)
@@ -1767,11 +1860,15 @@ public final class MapView extends JComponent implements AutoCloseable {
             return renderRasterIcon(icon, context);
         }
         if (value instanceof SolidLineSymbol line
-                && context.renderGeometry() instanceof LineStringGeometry) {
+                && (context.renderGeometry() instanceof LineStringGeometry
+                        || (context.screenPlan() != null
+                                && context.renderGeometry() instanceof MultiLineStringGeometry))) {
             return SymbolRenderResult.none(renderRegisteredLine(line, context));
         }
         if ((value instanceof SolidFillSymbol || value instanceof HatchFillSymbol)
-                && context.renderGeometry() instanceof PolygonGeometry) {
+                && (context.renderGeometry() instanceof PolygonGeometry
+                        || (context.screenPlan() != null
+                                && context.renderGeometry() instanceof MultiPolygonGeometry))) {
             return SymbolRenderResult.none(renderRegisteredFill(value, context));
         }
         throw rendererValueMismatch(new SymbolSnapshot(value.role(), value.rendererKey()));
@@ -1779,7 +1876,35 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private SymbolRenderResult renderMultipart(Symbol value, AwtSymbolRenderContext context) {
         SymbolRenderResult result = SymbolRenderResult.none(AwtLogicalPaintPresence.EMPTY);
-        for (Geometry component : singularComponents(context.renderGeometry())) {
+        if (context.screenPlan() != null) {
+            for (int component = 0;
+                    component < context.screenPlan().sourceComponentCount();
+                    component++) {
+                result =
+                        result.union(
+                                dispatch(
+                                        value,
+                                        contextWithScreenPlan(
+                                                context.parentGraphics(),
+                                                context.role(),
+                                                context.featureId(),
+                                                context.featureGeometry(),
+                                                context.renderGeometry(),
+                                                context.mapToDisplayOperation(),
+                                                context.inheritedOpacity(),
+                                                false,
+                                                OptionalDouble.empty(),
+                                                Optional.empty(),
+                                                context.viewport(),
+                                                context.mapScreenBasis(),
+                                                context.screenPlan(),
+                                                component)));
+            }
+            return result;
+        }
+        List<Geometry> components = singularComponents(context.renderGeometry());
+        for (int componentIndex = 0; componentIndex < components.size(); componentIndex++) {
+            Geometry component = components.get(componentIndex);
             Optional<Coordinate> anchor =
                     component instanceof PointGeometry point
                             ? Optional.of(context.sourceToScreen(point.coordinate()))
@@ -1788,7 +1913,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                     result.union(
                             dispatch(
                                     value,
-                                    context(
+                                    contextWithScreenPlan(
                                             context.parentGraphics(),
                                             context.role(),
                                             context.featureId(),
@@ -1800,7 +1925,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                                             OptionalDouble.empty(),
                                             anchor,
                                             context.viewport(),
-                                            context.mapScreenBasis())));
+                                            context.mapScreenBasis(),
+                                            context.screenPlan(),
+                                            componentIndex)));
         }
         return result;
     }
@@ -2014,10 +2141,28 @@ public final class MapView extends JComponent implements AutoCloseable {
                     ? AwtLogicalPaintPresence.PRESENT
                     : AwtLogicalPaintPresence.EMPTY;
         }
-        if (context.renderGeometry() instanceof LineStringGeometry line) {
-            CoordinateSequence screen = toScreen(line.coordinates(), context.viewport());
-            LineEndpointBearings bearings =
-                    LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+        if (context.renderGeometry() instanceof LineStringGeometry
+                || (context.screenPlan() != null
+                        && context.renderGeometry() instanceof MultiLineStringGeometry)) {
+            LineEndpointBearings bearings;
+            if (context.screenPlan() == null) {
+                LineStringGeometry line = (LineStringGeometry) context.renderGeometry();
+                CoordinateSequence screen =
+                        toScreen(
+                                line.coordinates(),
+                                context.mapToDisplayOperation(),
+                                context.viewport());
+                bearings = LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+            } else {
+                int component = componentIndex(context);
+                bearings =
+                        LineTangents.outwardScreenBearings(
+                                context.screenPlan().authoritativeLineCoordinates(),
+                                context.screenPlan().authoritativeLineStart(component),
+                                context.screenPlan().authoritativeLineEnd(component),
+                                context.featureId(),
+                                component);
+            }
             return style.stroke().alpha() > 0
                             && style.strokeWidth() > 0.0
                             && (bearings.startBearingDegrees().isPresent()
@@ -2035,7 +2180,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             Geometry geometry,
             FeatureStyle style,
             String featureId,
-            MapViewport viewportSnapshot) {
+            CrsOperation sourceToDisplayOperation,
+            MapViewport viewportSnapshot,
+            ScreenRenderPlan screenPlan,
+            int sourceComponent) {
         graphics.setStroke(
                 new BasicStroke(
                         (float) style.strokeWidth(),
@@ -2044,23 +2192,79 @@ public final class MapView extends JComponent implements AutoCloseable {
 
         if (geometry instanceof PointGeometry point) {
             return renderLegacyPoint(graphics, point, style, viewportSnapshot);
-        } else if (geometry instanceof LineStringGeometry line) {
+        } else if (geometry instanceof LineStringGeometry
+                || (screenPlan != null && geometry instanceof MultiLineStringGeometry)) {
             if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
-                CoordinateSequence screen = toScreen(line.coordinates(), viewportSnapshot);
+                CoordinateSequence screen;
+                int first;
+                int last;
+                if (screenPlan == null) {
+                    LineStringGeometry line = (LineStringGeometry) geometry;
+                    screen =
+                            toScreen(
+                                    line.coordinates(), sourceToDisplayOperation, viewportSnapshot);
+                    first = 0;
+                    last = screen.size();
+                } else {
+                    screen = screenPlan.authoritativeLineCoordinates();
+                    first = screenPlan.authoritativeLineStart(sourceComponent);
+                    last = screenPlan.authoritativeLineEnd(sourceComponent);
+                }
                 LineEndpointBearings bearings =
-                        LineTangents.outwardScreenBearings(screen, featureId, 0);
+                        LineTangents.outwardScreenBearings(
+                                screen, first, last, featureId, sourceComponent);
                 if (bearings.startBearingDegrees().isEmpty()
                         && bearings.endBearingDegrees().isEmpty()) {
                     return null;
                 }
-                Path2D path = screenPath(screen, false);
                 graphics.setColor(color(style.stroke()));
-                graphics.draw(path);
+                if (screenPlan == null) {
+                    graphics.draw(screenPath(screen, false));
+                } else {
+                    drawPlannedLineGeometry(graphics, screenPlan, sourceComponent);
+                }
             }
-        } else if (geometry instanceof PolygonGeometry polygon) {
-            renderPolygon(graphics, polygon, style, viewportSnapshot);
+        } else if (geometry instanceof PolygonGeometry
+                || (screenPlan != null && geometry instanceof MultiPolygonGeometry)) {
+            Path2D renderingPath =
+                    screenPlan == null
+                            ? screenPolygon(
+                                            (PolygonGeometry) geometry,
+                                            sourceToDisplayOperation,
+                                            viewportSnapshot)
+                                    .path()
+                            : plannedPolygonPath(screenPlan, sourceComponent);
+            if (renderingPath != null) {
+                renderLegacyScreenPolygon(graphics, renderingPath, style);
+            }
         }
         return null;
+    }
+
+    private static void drawPlannedLineGeometry(
+            Graphics2D graphics, ScreenRenderPlan plan, int sourceComponent) {
+        int first = plan.renderComponentOffset(sourceComponent);
+        int last = plan.renderComponentOffset(sourceComponent + 1);
+        for (int component = first; component < last; component++) {
+            graphics.draw(
+                    screenPath(
+                            plan.renderingLineCoordinates(),
+                            plan.renderingLineStart(component),
+                            plan.renderingLineEnd(component),
+                            false));
+        }
+    }
+
+    private static void renderLegacyScreenPolygon(
+            Graphics2D graphics, Path2D path, FeatureStyle style) {
+        if (style.fill().alpha() > 0) {
+            graphics.setColor(color(style.fill()));
+            graphics.fill(path);
+        }
+        if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
+            graphics.setColor(color(style.stroke()));
+            graphics.draw(path);
+        }
     }
 
     private Rectangle2D renderLegacyPoint(
@@ -2171,14 +2375,28 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private AwtLogicalPaintPresence renderRegisteredLine(
             SolidLineSymbol line, AwtSymbolRenderContext context) {
-        LineStringGeometry geometry = (LineStringGeometry) context.renderGeometry();
-        CoordinateSequence screen =
-                toScreen(
-                        geometry.coordinates(),
-                        context.mapToDisplayOperation(),
-                        context.viewport());
+        Geometry geometry = context.renderGeometry();
+        CoordinateSequence sourceCoordinates = sourceLineCoordinates(geometry);
+        int component = componentIndex(context);
+        int sourceFirst = sourceLineStart(geometry, component);
+        int sourceLast = sourceLineEnd(geometry, component);
+        CoordinateSequence authoritativeScreen;
+        int first;
+        int last;
+        if (context.screenPlan() == null) {
+            authoritativeScreen =
+                    toScreen(
+                            sourceCoordinates, context.mapToDisplayOperation(), context.viewport());
+            first = 0;
+            last = authoritativeScreen.size();
+        } else {
+            authoritativeScreen = context.screenPlan().authoritativeLineCoordinates();
+            first = context.screenPlan().authoritativeLineStart(component);
+            last = context.screenPlan().authoritativeLineEnd(component);
+        }
         LineEndpointBearings bearings =
-                LineTangents.outwardScreenBearings(screen, context.featureId(), 0);
+                LineTangents.outwardScreenBearings(
+                        authoritativeScreen, first, last, context.featureId(), component);
         if (bearings.startBearingDegrees().isEmpty() && bearings.endBearingDegrees().isEmpty()) {
             return AwtLogicalPaintPresence.EMPTY;
         }
@@ -2187,8 +2405,22 @@ public final class MapView extends JComponent implements AutoCloseable {
                 opacity > 0.0 && line.stroke().color().alpha() > 0
                         ? AwtLogicalPaintPresence.PRESENT
                         : AwtLogicalPaintPresence.EMPTY;
-        paintLinePart(
-                context.parentGraphics(), screen, line.stroke(), context.mapScreenBasis(), opacity);
+        if (context.screenPlan() == null) {
+            paintLinePart(
+                    context.parentGraphics(),
+                    authoritativeScreen,
+                    line.stroke(),
+                    context.mapScreenBasis(),
+                    opacity);
+        } else {
+            paintPlannedLineGeometry(
+                    context.parentGraphics(),
+                    context.screenPlan(),
+                    component,
+                    line.stroke(),
+                    context.mapScreenBasis(),
+                    opacity);
+        }
         if (context.closedRing()) {
             return presence;
         }
@@ -2200,13 +2432,12 @@ public final class MapView extends JComponent implements AutoCloseable {
                                             line.startMarker().orElseThrow(),
                                             context,
                                             opacity,
-                                            geometry.coordinates().coordinate(0),
-                                            screen.coordinate(0),
+                                            sourceCoordinates.coordinate(sourceFirst),
+                                            authoritativeScreen.coordinate(first),
                                             bearings.startBearingDegrees().orElseThrow())
                                     .paintPresence());
         }
         if (line.endMarker().isPresent() && bearings.endBearingDegrees().isPresent()) {
-            int last = geometry.coordinates().size() - 1;
             presence =
                     unionPresence(
                             presence,
@@ -2214,12 +2445,33 @@ public final class MapView extends JComponent implements AutoCloseable {
                                             line.endMarker().orElseThrow(),
                                             context,
                                             opacity,
-                                            geometry.coordinates().coordinate(last),
-                                            screen.coordinate(last),
+                                            sourceCoordinates.coordinate(sourceLast - 1),
+                                            authoritativeScreen.coordinate(last - 1),
                                             bearings.endBearingDegrees().orElseThrow())
                                     .paintPresence());
         }
         return presence;
+    }
+
+    private static void paintPlannedLineGeometry(
+            Graphics2D graphics,
+            ScreenRenderPlan plan,
+            int sourceComponent,
+            SymbolStroke stroke,
+            MapScreenBasis basis,
+            double opacity) {
+        int first = plan.renderComponentOffset(sourceComponent);
+        int last = plan.renderComponentOffset(sourceComponent + 1);
+        for (int component = first; component < last; component++) {
+            paintLinePart(
+                    graphics,
+                    plan.renderingLineCoordinates(),
+                    plan.renderingLineStart(component),
+                    plan.renderingLineEnd(component),
+                    stroke,
+                    basis,
+                    opacity);
+        }
     }
 
     private SymbolRenderResult dispatchEndpoint(
@@ -2252,6 +2504,17 @@ public final class MapView extends JComponent implements AutoCloseable {
             SymbolStroke stroke,
             MapScreenBasis basis,
             double opacity) {
+        paintLinePart(graphics, part, 0, part.size(), stroke, basis, opacity);
+    }
+
+    private static void paintLinePart(
+            Graphics2D graphics,
+            CoordinateSequence part,
+            int first,
+            int last,
+            SymbolStroke stroke,
+            MapScreenBasis basis,
+            double opacity) {
         if (opacity == 0.0 || stroke.color().alpha() == 0) {
             return;
         }
@@ -2261,7 +2524,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                     AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) opacity));
             child.setStroke(screenStroke(stroke, basis));
             child.setColor(color(stroke.color()));
-            child.draw(screenPath(part, false));
+            child.draw(screenPath(part, first, last, false));
         } finally {
             child.dispose();
         }
@@ -2269,57 +2532,420 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private AwtLogicalPaintPresence renderRegisteredFill(
             Symbol symbol, AwtSymbolRenderContext context) {
-        PolygonGeometry geometry = (PolygonGeometry) context.renderGeometry();
-        ScreenPolygon polygon =
-                screenPolygon(geometry, context.mapToDisplayOperation(), context.viewport());
+        Geometry geometry = context.renderGeometry();
+        boolean eligible = context.screenPlan() != null;
+        Path2D polygonPath =
+                eligible
+                        ? plannedPolygonPath(context.screenPlan(), componentIndex(context))
+                        : screenPolygon(
+                                        (PolygonGeometry) geometry,
+                                        context.mapToDisplayOperation(),
+                                        context.viewport())
+                                .path();
         if (symbol instanceof SolidFillSymbol fill) {
             double opacity = context.inheritedOpacity() * fill.opacity();
             AwtLogicalPaintPresence presence =
                     opacity > 0.0 && fill.fill().alpha() > 0
                             ? AwtLogicalPaintPresence.PRESENT
                             : AwtLogicalPaintPresence.EMPTY;
-            if (opacity > 0.0 && fill.fill().alpha() > 0) {
+            if (polygonPath != null && opacity > 0.0 && fill.fill().alpha() > 0) {
                 Graphics2D child = context.createGraphics();
                 try {
                     child.setComposite(
                             AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) opacity));
                     child.setColor(color(fill.fill()));
-                    child.fill(polygon.path());
+                    child.fill(polygonPath);
                 } finally {
                     child.dispose();
                 }
             }
-            if (fill.outline().isPresent()) {
+            if (polygonPath != null && fill.outline().isPresent()) {
                 presence =
                         unionPresence(
                                 presence,
-                                renderRegisteredOutline(
-                                        fill.outline().orElseThrow(), geometry, context, opacity));
+                                eligible
+                                        ? renderScreenOutline(
+                                                fill.outline().orElseThrow(),
+                                                context.screenPlan(),
+                                                componentIndex(context),
+                                                context,
+                                                opacity)
+                                        : renderRegisteredOutline(
+                                                fill.outline().orElseThrow(),
+                                                (PolygonGeometry) geometry,
+                                                context,
+                                                opacity));
             }
             return presence;
         } else if (symbol instanceof HatchFillSymbol hatch) {
             double opacity = context.inheritedOpacity() * hatch.opacity();
             AwtLogicalPaintPresence presence =
-                    paintHatch(
-                                    context.parentGraphics(),
-                                    hatch,
-                                    polygon,
-                                    context.mapScreenBasis(),
-                                    context.viewport(),
-                                    context.featureId(),
-                                    opacity)
+                    polygonPath != null
+                                    && paintHatch(
+                                            context.parentGraphics(),
+                                            hatch,
+                                            polygonPath,
+                                            context.mapScreenBasis(),
+                                            context.viewport(),
+                                            context.featureId(),
+                                            opacity)
                             ? AwtLogicalPaintPresence.PRESENT
                             : AwtLogicalPaintPresence.EMPTY;
-            if (hatch.outline().isPresent()) {
+            if (polygonPath != null && hatch.outline().isPresent()) {
                 presence =
                         unionPresence(
                                 presence,
-                                renderRegisteredOutline(
-                                        hatch.outline().orElseThrow(), geometry, context, opacity));
+                                eligible
+                                        ? renderScreenOutline(
+                                                hatch.outline().orElseThrow(),
+                                                context.screenPlan(),
+                                                componentIndex(context),
+                                                context,
+                                                opacity)
+                                        : renderRegisteredOutline(
+                                                hatch.outline().orElseThrow(),
+                                                (PolygonGeometry) geometry,
+                                                context,
+                                                opacity));
             }
             return presence;
         }
         throw new IllegalArgumentException("Unsupported built-in fill symbol");
+    }
+
+    private ScreenRenderPlan buildScreenRenderPlan(
+            Symbol symbol,
+            Geometry sourceGeometry,
+            CrsOperation sourceToDisplay,
+            MapViewport viewportSnapshot,
+            MapScreenBasis basis) {
+        if (!screenOptimizationEligible(symbol, sourceGeometry)) {
+            return null;
+        }
+        Geometry authoritativeScreenGeometry =
+                toScreenPathGeometry(sourceGeometry, sourceToDisplay, viewportSnapshot);
+        double maximumHalfStroke = maximumSymbolHalfStroke(symbol, basis);
+        if (!Double.isFinite(maximumHalfStroke) || maximumHalfStroke < 0.0) {
+            throw transformFailure("symbol-screen-stroke-width");
+        }
+        if (screenGeometryOptimizationMode == ScreenGeometryOptimizationMode.DISABLED) {
+            recordScreenGeometryWork(
+                    authoritativeScreenGeometry,
+                    Optional.of(authoritativeScreenGeometry),
+                    ScreenGeometryOptimizationOutcome.UNCHANGED,
+                    componentCount(authoritativeScreenGeometry),
+                    0,
+                    0L);
+            return new ScreenRenderPlan(authoritativeScreenGeometry);
+        }
+        double margin = 1.0 + maximumHalfStroke;
+        var optimization =
+                ScreenGeometryOptimizer.optimize(
+                        authoritativeScreenGeometry,
+                        new Envelope(
+                                -margin,
+                                -margin,
+                                viewportSnapshot.width() + margin,
+                                viewportSnapshot.height() + margin),
+                        SCREEN_PATH_TOLERANCE,
+                        ScreenGeometryOptimizationLimits.defaults());
+        Optional<Geometry> renderingGeometry = optimization.renderingGeometry();
+        long retainedBytes =
+                renderingGeometry.isPresent()
+                                && renderingGeometry.orElseThrow() != authoritativeScreenGeometry
+                        ? logicalGeometryBytes(renderingGeometry.orElseThrow())
+                        : 0L;
+        int culledComponents = 0;
+        for (int component = 0; component < optimization.sourceComponentCount(); component++) {
+            if (optimization.renderComponentOffset(component)
+                    == optimization.renderComponentOffset(component + 1)) {
+                culledComponents++;
+            }
+        }
+        recordScreenGeometryWork(
+                authoritativeScreenGeometry,
+                renderingGeometry,
+                optimization.outcome(),
+                optimization.renderComponentCount(),
+                culledComponents,
+                retainedBytes);
+        return new ScreenRenderPlan(optimization);
+    }
+
+    private Geometry toScreenPathGeometry(
+            Geometry geometry, CrsOperation operation, MapViewport viewportSnapshot) {
+        if (geometry instanceof LineStringGeometry line) {
+            return new LineStringGeometry(
+                    toScreen(line.coordinates(), operation, viewportSnapshot));
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return MultiLineStringGeometry.of(
+                    toScreen(lines.coordinates(), operation, viewportSnapshot),
+                    lines.partOffsets());
+        }
+        if (geometry instanceof PolygonGeometry polygon) {
+            return polygonGeometry(screenPolygon(polygon, operation, viewportSnapshot));
+        }
+        MultiPolygonGeometry polygons = (MultiPolygonGeometry) geometry;
+        return MultiPolygonGeometry.of(
+                toScreen(polygons.coordinates(), operation, viewportSnapshot),
+                polygons.ringOffsets(),
+                polygons.polygonRingOffsets());
+    }
+
+    private static boolean screenOptimizationEligible(Symbol symbol, Geometry geometry) {
+        boolean pathGeometry =
+                geometry instanceof LineStringGeometry
+                        || geometry instanceof MultiLineStringGeometry
+                        || geometry instanceof PolygonGeometry
+                        || geometry instanceof MultiPolygonGeometry;
+        if (!pathGeometry) {
+            return false;
+        }
+        if (symbol instanceof FeatureStyle) {
+            return true;
+        }
+        return symbol.role() == SymbolRole.LINE
+                ? isBuiltInLineTree(symbol)
+                : symbol.role() == SymbolRole.FILL && isBuiltInFillTree(symbol);
+    }
+
+    private static boolean isBuiltInFillTree(Symbol symbol) {
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                if (!isBuiltInFillTree(child)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (symbol instanceof SolidFillSymbol || symbol instanceof HatchFillSymbol) {
+            return fillOutline(symbol).map(MapView::isBuiltInLineTree).orElse(true);
+        }
+        return false;
+    }
+
+    private static double maximumSymbolHalfStroke(Symbol symbol, MapScreenBasis basis) {
+        if (symbol instanceof FeatureStyle style) {
+            return style.stroke().alpha() > 0 && style.strokeWidth() > 0.0
+                    ? style.strokeWidth() / 2.0
+                    : 0.0;
+        }
+        if (symbol.role() == SymbolRole.LINE) {
+            return maximumLineHalfStroke(symbol, basis);
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            double result = 0.0;
+            if (composite.opacity() > 0.0) {
+                for (Symbol child : composite.children()) {
+                    result = Math.max(result, maximumSymbolHalfStroke(child, basis));
+                }
+            }
+            return result;
+        }
+        return maximumFillHalfStroke(symbol, basis);
+    }
+
+    ScreenGeometryPaintResult paintWithScreenGeometryResult(Graphics2D graphics) {
+        Objects.requireNonNull(graphics, "graphics");
+        if (activeScreenGeometryPaintCollector != null) {
+            throw new IllegalStateException("Screen geometry evidence paint is already active");
+        }
+        ScreenGeometryPaintCollector collector = new ScreenGeometryPaintCollector();
+        activeScreenGeometryPaintCollector = collector;
+        try {
+            paint(graphics);
+            return collector.result();
+        } finally {
+            activeScreenGeometryPaintCollector = null;
+        }
+    }
+
+    private void recordScreenGeometryWork(
+            Geometry authoritative,
+            Optional<Geometry> rendering,
+            ScreenGeometryOptimizationOutcome outcome,
+            int renderComponents,
+            int culledComponents,
+            long retainedBytes) {
+        if (activeScreenGeometryPaintCollector != null) {
+            activeScreenGeometryPaintCollector.add(
+                    coordinateCount(authoritative),
+                    rendering.map(MapView::coordinateCount).orElse(0),
+                    authoritative instanceof LineStringGeometry
+                                    || authoritative instanceof MultiLineStringGeometry
+                            ? renderComponents
+                            : 0,
+                    culledComponents,
+                    outcome == ScreenGeometryOptimizationOutcome.FALLBACK ? 1 : 0,
+                    retainedBytes);
+        }
+    }
+
+    private static int coordinateCount(Geometry geometry) {
+        if (geometry instanceof PointGeometry) {
+            return 1;
+        }
+        if (geometry instanceof MultiPointGeometry points) {
+            return points.coordinates().size();
+        }
+        if (geometry instanceof LineStringGeometry line) {
+            return line.coordinates().size();
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return lines.coordinates().size();
+        }
+        if (geometry instanceof PolygonGeometry polygon) {
+            int result = polygon.exterior().size();
+            for (CoordinateSequence hole : polygon.holes()) {
+                result = Math.addExact(result, hole.size());
+            }
+            return result;
+        }
+        return ((MultiPolygonGeometry) geometry).coordinates().size();
+    }
+
+    private static int componentCount(Geometry geometry) {
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return lines.partCount();
+        }
+        if (geometry instanceof MultiPolygonGeometry polygons) {
+            return polygons.polygonCount();
+        }
+        return 1;
+    }
+
+    private static int componentIndex(AwtSymbolRenderContext context) {
+        return context.sourceComponent() < 0 ? 0 : context.sourceComponent();
+    }
+
+    private static CoordinateSequence sourceLineCoordinates(Geometry geometry) {
+        return geometry instanceof LineStringGeometry line
+                ? line.coordinates()
+                : ((MultiLineStringGeometry) geometry).coordinates();
+    }
+
+    private static int sourceLineStart(Geometry geometry, int component) {
+        return geometry instanceof LineStringGeometry
+                ? 0
+                : ((MultiLineStringGeometry) geometry).partOffset(component);
+    }
+
+    private static int sourceLineEnd(Geometry geometry, int component) {
+        return geometry instanceof LineStringGeometry line
+                ? line.coordinates().size()
+                : ((MultiLineStringGeometry) geometry).partOffset(component + 1);
+    }
+
+    private static long logicalGeometryBytes(Geometry geometry) {
+        long result = Math.multiplyExact((long) coordinateCount(geometry), 16L);
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            result = Math.addExact(result, Math.multiplyExact((long) lines.partCount() + 1L, 4L));
+        } else if (geometry instanceof PolygonGeometry polygon) {
+            result =
+                    Math.addExact(
+                            result, Math.multiplyExact((long) polygon.holes().size() + 2L, 4L));
+        } else if (geometry instanceof MultiPolygonGeometry polygons) {
+            result =
+                    Math.addExact(result, Math.multiplyExact((long) polygons.ringCount() + 1L, 4L));
+            result =
+                    Math.addExact(
+                            result, Math.multiplyExact((long) polygons.polygonCount() + 1L, 4L));
+        }
+        return result;
+    }
+
+    private static final class ScreenGeometryPaintCollector {
+        private long inputCoordinates;
+        private long renderCoordinates;
+        private long lineFragments;
+        private long culledPaths;
+        private long fallbackPlans;
+        private long retainedRenderGeometryBytes;
+
+        void add(
+                long input,
+                long rendered,
+                long fragments,
+                long culled,
+                long fallbacks,
+                long retainedBytes) {
+            inputCoordinates = Math.addExact(inputCoordinates, input);
+            renderCoordinates = Math.addExact(renderCoordinates, rendered);
+            lineFragments = Math.addExact(lineFragments, fragments);
+            culledPaths = Math.addExact(culledPaths, culled);
+            fallbackPlans = Math.addExact(fallbackPlans, fallbacks);
+            retainedRenderGeometryBytes = Math.addExact(retainedRenderGeometryBytes, retainedBytes);
+        }
+
+        ScreenGeometryPaintResult result() {
+            return new ScreenGeometryPaintResult(
+                    inputCoordinates,
+                    inputCoordinates,
+                    renderCoordinates,
+                    lineFragments,
+                    culledPaths,
+                    fallbackPlans,
+                    retainedRenderGeometryBytes);
+        }
+    }
+
+    private static double maximumFillHalfStroke(Symbol symbol, MapScreenBasis basis) {
+        double symbolOpacity =
+                symbol instanceof SolidFillSymbol fill
+                        ? fill.opacity()
+                        : ((HatchFillSymbol) symbol).opacity();
+        if (symbolOpacity == 0.0) {
+            return 0.0;
+        }
+        double result = 0.0;
+        if (symbol instanceof HatchFillSymbol hatch
+                && hatch.opacity() > 0.0
+                && hatch.stroke().color().alpha() > 0) {
+            result = SymbolTransforms.screenLength(hatch.stroke().width(), basis) / 2.0;
+        }
+        Optional<Symbol> outline = fillOutline(symbol);
+        return Math.max(
+                result, outline.map(value -> maximumLineHalfStroke(value, basis)).orElse(0.0));
+    }
+
+    private static Optional<Symbol> fillOutline(Symbol symbol) {
+        return symbol instanceof SolidFillSymbol fill
+                ? fill.outline()
+                : ((HatchFillSymbol) symbol).outline();
+    }
+
+    private static boolean isBuiltInLineTree(Symbol symbol) {
+        if (symbol instanceof SolidLineSymbol) {
+            return true;
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                if (!isBuiltInLineTree(child)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static double maximumLineHalfStroke(Symbol symbol, MapScreenBasis basis) {
+        if (symbol instanceof SolidLineSymbol line) {
+            return line.opacity() > 0.0 && line.stroke().color().alpha() > 0
+                    ? SymbolTransforms.screenLength(line.stroke().width(), basis) / 2.0
+                    : 0.0;
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            double result = 0.0;
+            if (composite.opacity() > 0.0) {
+                for (Symbol child : composite.children()) {
+                    result = Math.max(result, maximumLineHalfStroke(child, basis));
+                }
+            }
+            return result;
+        }
+        return 0.0;
     }
 
     private AwtLogicalPaintPresence renderRegisteredOutline(
@@ -2355,10 +2981,51 @@ public final class MapView extends JComponent implements AutoCloseable {
         return presence;
     }
 
+    private static AwtLogicalPaintPresence renderScreenOutline(
+            Symbol outline,
+            ScreenRenderPlan plan,
+            int sourceComponent,
+            AwtSymbolRenderContext context,
+            double inheritedOpacity) {
+        if (outline instanceof CompositeSymbol composite) {
+            AwtLogicalPaintPresence result = AwtLogicalPaintPresence.EMPTY;
+            for (Symbol child : composite.children()) {
+                result =
+                        unionPresence(
+                                result,
+                                renderScreenOutline(
+                                        child,
+                                        plan,
+                                        sourceComponent,
+                                        context,
+                                        inheritedOpacity * composite.opacity()));
+            }
+            return result;
+        }
+        SolidLineSymbol line = (SolidLineSymbol) outline;
+        double opacity = inheritedOpacity * line.opacity();
+        AwtLogicalPaintPresence presence =
+                opacity > 0.0 && line.stroke().color().alpha() > 0
+                        ? AwtLogicalPaintPresence.PRESENT
+                        : AwtLogicalPaintPresence.EMPTY;
+        int rings = plan.renderingRingCount(sourceComponent);
+        for (int ring = 0; ring < rings; ring++) {
+            paintLinePart(
+                    context.parentGraphics(),
+                    plan.renderingRingCoordinates(sourceComponent, ring),
+                    plan.renderingRingStart(sourceComponent, ring),
+                    plan.renderingRingEnd(sourceComponent, ring),
+                    line.stroke(),
+                    context.mapScreenBasis(),
+                    opacity);
+        }
+        return presence;
+    }
+
     private boolean paintHatch(
             Graphics2D graphics,
             HatchFillSymbol hatch,
-            ScreenPolygon polygon,
+            Path2D polygon,
             MapScreenBasis basis,
             MapViewport viewportSnapshot,
             String featureId,
@@ -2367,8 +3034,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             return false;
         }
         Rectangle2D work =
-                polygon.path()
-                        .getBounds2D()
+                polygon.getBounds2D()
                         .createIntersection(
                                 new Rectangle2D.Double(0.0, 0.0, getWidth(), getHeight()));
         if (graphics.getClip() != null) {
@@ -2398,7 +3064,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                         featureId);
         Graphics2D child = (Graphics2D) graphics.create();
         try {
-            child.clip(polygon.path());
+            child.clip(polygon);
             child.setComposite(
                     AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) opacity));
             child.setStroke(screenStroke(hatch.stroke(), basis));
@@ -2441,26 +3107,6 @@ public final class MapView extends JComponent implements AutoCloseable {
         return new Point2D.Double(nominalBounds.getMaxX() + 4.0, nominalBounds.getMinY() - 2.0);
     }
 
-    private void renderPolygon(
-            Graphics2D graphics,
-            PolygonGeometry polygon,
-            FeatureStyle style,
-            MapViewport viewportSnapshot) {
-        Path2D path = screenPolygon(polygon, viewportSnapshot).path();
-        if (style.fill().alpha() > 0) {
-            graphics.setColor(color(style.fill()));
-            graphics.fill(path);
-        }
-        if (style.stroke().alpha() > 0 && style.strokeWidth() > 0.0) {
-            graphics.setColor(color(style.stroke()));
-            graphics.draw(path);
-        }
-    }
-
-    private CoordinateSequence toScreen(CoordinateSequence source, MapViewport viewportSnapshot) {
-        return toScreen(source, mapToDisplay, viewportSnapshot);
-    }
-
     private CoordinateSequence toScreen(
             CoordinateSequence source,
             CrsOperation sourceToDisplayOperation,
@@ -2473,10 +3119,6 @@ public final class MapView extends JComponent implements AutoCloseable {
             ordinates[index * 2 + 1] = screen.y();
         }
         return CoordinateSequence.of(ordinates);
-    }
-
-    private ScreenPolygon screenPolygon(PolygonGeometry polygon, MapViewport viewportSnapshot) {
-        return screenPolygon(polygon, mapToDisplay, viewportSnapshot);
     }
 
     private ScreenPolygon screenPolygon(
@@ -2495,6 +3137,11 @@ public final class MapView extends JComponent implements AutoCloseable {
         return new ScreenPolygon(screenPath, List.copyOf(rings));
     }
 
+    private static PolygonGeometry polygonGeometry(ScreenPolygon polygon) {
+        return new PolygonGeometry(
+                polygon.rings().getFirst(), polygon.rings().subList(1, polygon.rings().size()));
+    }
+
     private static MapScreenBasis screenBasis(MapViewport viewportSnapshot) {
         double screenPixelsPerMapUnit = 1.0 / viewportSnapshot.worldUnitsPerPixel();
         return MapScreenBasis.of(
@@ -2503,19 +3150,46 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private static Path2D screenPath(CoordinateSequence coordinates, boolean close) {
+        return screenPath(coordinates, 0, coordinates.size(), close);
+    }
+
+    private static Path2D screenPath(
+            CoordinateSequence coordinates, int first, int last, boolean close) {
         Path2D result = new Path2D.Double();
-        appendScreen(result, coordinates, close);
+        appendScreen(result, coordinates, first, last, close);
         return result;
     }
 
     private static void appendScreen(Path2D path, CoordinateSequence coordinates, boolean close) {
-        path.moveTo(coordinates.x(0), coordinates.y(0));
-        for (int index = 1; index < coordinates.size(); index++) {
+        appendScreen(path, coordinates, 0, coordinates.size(), close);
+    }
+
+    private static void appendScreen(
+            Path2D path, CoordinateSequence coordinates, int first, int last, boolean close) {
+        path.moveTo(coordinates.x(first), coordinates.y(first));
+        for (int index = first + 1; index < last; index++) {
             path.lineTo(coordinates.x(index), coordinates.y(index));
         }
         if (close) {
             path.closePath();
         }
+    }
+
+    private static Path2D plannedPolygonPath(ScreenRenderPlan plan, int sourceComponent) {
+        int rings = plan.renderingRingCount(sourceComponent);
+        if (rings == 0) {
+            return null;
+        }
+        Path2D path = new Path2D.Double(Path2D.WIND_EVEN_ODD);
+        for (int ring = 0; ring < rings; ring++) {
+            appendScreen(
+                    path,
+                    plan.renderingRingCoordinates(sourceComponent, ring),
+                    plan.renderingRingStart(sourceComponent, ring),
+                    plan.renderingRingEnd(sourceComponent, ring),
+                    true);
+        }
+        return path;
     }
 
     Coordinate toScreen(Coordinate source, MapViewport viewportSnapshot) {

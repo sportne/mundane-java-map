@@ -19,4 +19,18 @@ final class TestMapViews {
                 CrsDefinitions.EPSG_3857,
                 renderers);
     }
+
+    static MapView identity(ScreenGeometryOptimizationMode optimizationMode) {
+        return identity(SymbolRendererRegistry.builtIn(), optimizationMode);
+    }
+
+    static MapView identity(
+            SymbolRendererRegistry renderers, ScreenGeometryOptimizationMode optimizationMode) {
+        return new MapView(
+                CrsRegistry.level1(),
+                CrsDefinitions.EPSG_3857,
+                CrsDefinitions.EPSG_3857,
+                renderers,
+                optimizationMode);
+    }
 }

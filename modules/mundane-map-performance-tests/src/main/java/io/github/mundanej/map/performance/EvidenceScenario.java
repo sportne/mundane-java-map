@@ -15,6 +15,10 @@ interface EvidenceScenario extends AutoCloseable {
         return "NONE";
     }
 
+    default String vectorPathState() {
+        return "DISABLED";
+    }
+
     default void setupScenario() throws Exception {}
 
     void prepareSample() throws Exception;

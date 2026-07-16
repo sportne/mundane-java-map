@@ -62,10 +62,20 @@ class EvidenceHarnessTest {
             EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             String json = new String(report.json(), StandardCharsets.UTF_8);
             String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
-            assertEquals(41, count(json, "\"id\": \""));
+            assertEquals(46, count(json, "\"id\": \""));
             assertTrue(json.startsWith("{\n  \"schemaVersion\""));
             assertTrue(json.endsWith("\n"));
             assertTrue(markdown.contains("Durations are environment-specific evidence"));
+            assertEquals(4, count(json, "\"policy\": \"DESCRIPTIVE_ONLY\""));
+            assertTrue(markdown.contains("descriptive evidence only; they are not timing gates"));
+            assertTrue(
+                    json.contains(
+                            "\"comparison\": \"small-vector-render\", \"policy\": \"DESCRIPTIVE_ONLY\""));
+            assertTrue(
+                    json.contains(
+                            "\"comparison\": \"dense-vector-render\", \"policy\": \"DESCRIPTIVE_ONLY\""));
+            assertTrue(markdown.contains("### `vector-pan-sequence`"));
+            assertTrue(markdown.contains("### `vector-zoom-sequence`"));
             assertFalse(json.contains("consumer"));
             assertFalse(markdown.contains("consumer"));
             for (String setting : EvidenceConfiguration.JVM_SETTINGS) {
@@ -76,7 +86,74 @@ class EvidenceHarnessTest {
                 assertTrue(json.contains("\"id\": \"" + id + "\""));
                 assertTrue(markdown.contains("`" + id + "`"));
             }
+            assertEquals(4, count(json, "\"vectorPathState\": \"LEVEL1_OPERATION_LOCAL\""));
+            assertEquals(35, count(json, "\"vectorPathState\": \"DISABLED\""));
+            assertEquals(
+                    List.of(
+                            "small-vector-render-unoptimized",
+                            "small-vector-render-optimized",
+                            "dense-vector-render-optimized",
+                            "vector-pan-sequence-optimized",
+                            "vector-zoom-sequence-optimized"),
+                    ScenarioRegistry.ids().subList(34, 39));
+            assertScenarioCounters(
+                    json,
+                    "small-vector-render-unoptimized",
+                    "DISABLED",
+                    "{\"frames\": 1, \"features\": 2, \"portableInvariants\": 6, "
+                            + "\"inputCoordinates\": 228, \"projectedCoordinates\": 228, "
+                            + "\"renderCoordinates\": 228, \"lineFragments\": 2, "
+                            + "\"culledPaths\": 0, \"fallbackPlans\": 0, "
+                            + "\"retainedRenderGeometryBytes\": 0}");
+            assertScenarioCounters(
+                    json,
+                    "small-vector-render-optimized",
+                    "LEVEL1_OPERATION_LOCAL",
+                    "{\"frames\": 1, \"features\": 2, \"portableInvariants\": 6, "
+                            + "\"inputCoordinates\": 228, \"projectedCoordinates\": 228, "
+                            + "\"renderCoordinates\": 200, \"lineFragments\": 2, "
+                            + "\"culledPaths\": 0, \"fallbackPlans\": 1, "
+                            + "\"retainedRenderGeometryBytes\": 76}");
+            assertScenarioCounters(
+                    json,
+                    "dense-vector-render-optimized",
+                    "LEVEL1_OPERATION_LOCAL",
+                    "{\"frames\": 1, \"features\": 24, \"portableInvariants\": 6, "
+                            + "\"inputCoordinates\": 2080, \"projectedCoordinates\": 2080, "
+                            + "\"renderCoordinates\": 1632, \"lineFragments\": 32, "
+                            + "\"culledPaths\": 0, \"fallbackPlans\": 8, "
+                            + "\"retainedRenderGeometryBytes\": 1216}");
+            assertScenarioCounters(
+                    json,
+                    "vector-pan-sequence-optimized",
+                    "LEVEL1_OPERATION_LOCAL",
+                    "{\"frames\": 4, \"features\": 24, \"portableInvariants\": 6, "
+                            + "\"inputCoordinates\": 8320, \"projectedCoordinates\": 8320, "
+                            + "\"renderCoordinates\": 6528, \"lineFragments\": 128, "
+                            + "\"culledPaths\": 0, \"fallbackPlans\": 32, "
+                            + "\"retainedRenderGeometryBytes\": 4864}");
+            assertScenarioCounters(
+                    json,
+                    "vector-zoom-sequence-optimized",
+                    "LEVEL1_OPERATION_LOCAL",
+                    "{\"frames\": 4, \"features\": 24, \"portableInvariants\": 6, "
+                            + "\"inputCoordinates\": 6512, \"projectedCoordinates\": 6512, "
+                            + "\"renderCoordinates\": 5420, \"lineFragments\": 64, "
+                            + "\"culledPaths\": 2, \"fallbackPlans\": 28, "
+                            + "\"retainedRenderGeometryBytes\": 5608}");
+            for (String counter :
+                    List.of(
+                            "inputCoordinates",
+                            "projectedCoordinates",
+                            "renderCoordinates",
+                            "lineFragments",
+                            "culledPaths",
+                            "fallbackPlans",
+                            "retainedRenderGeometryBytes")) {
+                assertTrue(json.contains("\"" + counter + "\":"));
+            }
             assertEquivalentScenarioFacts(json, markdown);
+            assertEquivalentTimingComparisons(json, markdown);
             assertEquals(7, count(json, "\"observedCrossoverRecords\":"));
             assertEquals(7, count(markdown, "`observedCrossoverRecords="));
             for (String file :
@@ -112,6 +189,37 @@ class EvidenceHarnessTest {
                 () -> EvidenceSample.of("bad", new long[] {1}, 0, observation));
         assertThrows(IllegalArgumentException.class, () -> new TimedObservation(0));
         assertThrows(IllegalArgumentException.class, () -> new TimedObservation(-1));
+    }
+
+    @Test
+    void pairedTimingComparisonsRemainDescriptiveWhenTheOptimizedSampleIsSlower() {
+        EvidenceObservation observation = new EvidenceObservation(1L, Map.of("work", 1L));
+        EvidenceSample unoptimized =
+                EvidenceSample.of(
+                        "small-vector-render-unoptimized",
+                        new long[] {100, 120, 140},
+                        1,
+                        observation);
+        EvidenceSample optimized =
+                EvidenceSample.of(
+                        "small-vector-render-optimized",
+                        new long[] {150, 180, 210},
+                        1,
+                        observation);
+
+        assertEquals(
+                List.of(
+                        new EvidenceReport.TimingComparison(
+                                "small-vector-render",
+                                "small-vector-render-unoptimized",
+                                "small-vector-render-optimized",
+                                120,
+                                180,
+                                60,
+                                140,
+                                210,
+                                70)),
+                EvidenceReport.pairedComparisons(List.of(unoptimized, optimized)));
     }
 
     @Test
@@ -202,7 +310,7 @@ class EvidenceHarnessTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new EvidenceObservation(1, Map.of("bad", -1L)));
-        assertEquals(68, ScenarioOracleV1.frozenDigests().size());
+        assertEquals(80, ScenarioOracleV1.frozenDigests().size());
         assertEquals(
                 "56d246ef2d1394ce",
                 ScenarioOracleV1.frozenDigests().get("SMOKE/vector-zoom-sequence"));
@@ -870,6 +978,7 @@ class EvidenceHarnessTest {
                                 + ", \\\"workUnit\\\": \\\"([^\\\"]+)\\\""
                                 + ", \\\"sourceCacheState\\\": \\\"([^\\\"]+)\\\""
                                 + ", \\\"viewCacheState\\\": \\\"([^\\\"]+)\\\""
+                                + ", \\\"vectorPathState\\\": \\\"([^\\\"]+)\\\""
                                 + ", \\\"semanticDigest\\\": \\\"([^\\\"]+)\\\""
                                 + ", \\\"semanticCounters\\\": \\{([^}]*)}"
                                 + ", \\\"rawNanos\\\": (\\[[^]]+])"
@@ -887,19 +996,74 @@ class EvidenceHarnessTest {
                             "Batch: " + matcher.group(3) + " `" + matcher.group(4) + "`"));
             assertTrue(markdown.contains("Source cache: `" + matcher.group(5) + "`"));
             assertTrue(markdown.contains("View cache: `" + matcher.group(6) + "`"));
-            assertTrue(markdown.contains("Semantic digest: `" + matcher.group(7) + "`"));
+            assertTrue(markdown.contains("Vector path: `" + matcher.group(7) + "`"));
+            assertTrue(markdown.contains("Semantic digest: `" + matcher.group(8) + "`"));
             Matcher counters =
-                    Pattern.compile("\\\"([^\\\"]+)\\\": ([0-9]+)").matcher(matcher.group(8));
+                    Pattern.compile("\\\"([^\\\"]+)\\\": ([0-9]+)").matcher(matcher.group(9));
             while (counters.find()) {
                 assertTrue(
                         markdown.contains("`" + counters.group(1) + "=" + counters.group(2) + "`"));
             }
-            assertTrue(markdown.contains("Raw nanos: `" + matcher.group(9) + "`"));
-            assertTrue(markdown.contains("Median nanos: " + matcher.group(10)));
-            assertTrue(markdown.contains("p95 nanos: " + matcher.group(11)));
-            assertTrue(markdown.contains("Operations per second milli: " + matcher.group(12)));
+            assertTrue(markdown.contains("Raw nanos: `" + matcher.group(10) + "`"));
+            assertTrue(markdown.contains("Median nanos: " + matcher.group(11)));
+            assertTrue(markdown.contains("p95 nanos: " + matcher.group(12)));
+            assertTrue(markdown.contains("Operations per second milli: " + matcher.group(13)));
         }
         assertEquals(ScenarioRegistry.ids().size(), matched);
+    }
+
+    private static void assertEquivalentTimingComparisons(String json, String markdown) {
+        Pattern comparison =
+                Pattern.compile(
+                        "\\{\\\"comparison\\\": \\\"([^\\\"]+)\\\""
+                                + ", \\\"policy\\\": \\\"DESCRIPTIVE_ONLY\\\""
+                                + ", \\\"unoptimizedScenario\\\": \\\"([^\\\"]+)\\\""
+                                + ", \\\"optimizedScenario\\\": \\\"([^\\\"]+)\\\""
+                                + ", \\\"unoptimizedMedianNanos\\\": ([0-9]+)"
+                                + ", \\\"optimizedMedianNanos\\\": ([0-9]+)"
+                                + ", \\\"medianDeltaNanos\\\": (-?[0-9]+)"
+                                + ", \\\"unoptimizedP95Nanos\\\": ([0-9]+)"
+                                + ", \\\"optimizedP95Nanos\\\": ([0-9]+)"
+                                + ", \\\"p95DeltaNanos\\\": (-?[0-9]+)}");
+        Matcher matcher = comparison.matcher(json);
+        int matched = 0;
+        while (matcher.find()) {
+            matched++;
+            assertTrue(markdown.contains("### `" + matcher.group(1) + "`"));
+            assertTrue(markdown.contains("Unoptimized scenario: `" + matcher.group(2) + "`"));
+            assertTrue(markdown.contains("Optimized scenario: `" + matcher.group(3) + "`"));
+            assertTrue(
+                    markdown.contains(
+                            "Median nanos (unoptimized / optimized / optimized minus unoptimized): "
+                                    + matcher.group(4)
+                                    + " / "
+                                    + matcher.group(5)
+                                    + " / "
+                                    + matcher.group(6)));
+            assertTrue(
+                    markdown.contains(
+                            "p95 nanos (unoptimized / optimized / optimized minus unoptimized): "
+                                    + matcher.group(7)
+                                    + " / "
+                                    + matcher.group(8)
+                                    + " / "
+                                    + matcher.group(9)));
+        }
+        assertEquals(4, matched);
+    }
+
+    private static void assertScenarioCounters(
+            String json, String id, String vectorPathState, String counters) {
+        int start = json.indexOf("{\"id\": \"" + id + "\"");
+        assertTrue(start >= 0, "Missing scenario " + id);
+        int end = json.indexOf('\n', start);
+        String scenario = json.substring(start, end);
+        assertTrue(
+                scenario.contains("\"vectorPathState\": \"" + vectorPathState + "\""),
+                "Unexpected vector path mode for " + id);
+        assertTrue(
+                scenario.contains("\"semanticCounters\": " + counters),
+                "Unexpected counters for " + id);
     }
 
     private static int count(String text, String needle) {

@@ -33,6 +33,7 @@ import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.awt.ScreenGeometryEvidenceSupport;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
@@ -206,6 +207,81 @@ final class ScenarioRegistry {
                             profile, FixtureCatalog.vectorRecords(profile), true, sourceFactory));
         }
         appendIndexScenarios(result, profile, selected);
+        appendScreenGeometryScenarios(result, profile, selected);
+    }
+
+    private static void appendScreenGeometryScenarios(
+            List<EvidenceScenario> result,
+            EvidenceConfiguration.Profile profile,
+            Optional<String> selected) {
+        List<FeatureRecord> records = FixtureCatalog.vectorRecords(profile);
+        List<FeatureRecord> small =
+                records.stream()
+                        .filter(
+                                record ->
+                                        record.id().equals("line:000")
+                                                || record.id().equals("polygon:000"))
+                        .toList();
+        if (selected(selected, "small-vector-render-unoptimized")) {
+            result.add(
+                    new SourceVectorRenderScenario(
+                            profile,
+                            "small-vector-render-unoptimized",
+                            "small-vector-render-v1",
+                            small,
+                            1,
+                            "no change",
+                            ScenarioRegistry::indexedSource,
+                            false));
+        }
+        if (selected(selected, "small-vector-render-optimized")) {
+            result.add(
+                    new SourceVectorRenderScenario(
+                            profile,
+                            "small-vector-render-optimized",
+                            "small-vector-render-v1",
+                            small,
+                            1,
+                            "no change",
+                            ScenarioRegistry::indexedSource,
+                            true));
+        }
+        if (selected(selected, "dense-vector-render-optimized")) {
+            result.add(
+                    new SourceVectorRenderScenario(
+                            profile,
+                            "dense-vector-render-optimized",
+                            "dense-vector-render",
+                            records,
+                            1,
+                            "G7-004",
+                            ScenarioRegistry::indexedSource,
+                            true));
+        }
+        if (selected(selected, "vector-pan-sequence-optimized")) {
+            result.add(
+                    new NavigationScenario(
+                            profile,
+                            "vector-pan-sequence-optimized",
+                            "vector-pan-sequence",
+                            records,
+                            false,
+                            "G7-004",
+                            ScenarioRegistry::indexedSource,
+                            true));
+        }
+        if (selected(selected, "vector-zoom-sequence-optimized")) {
+            result.add(
+                    new NavigationScenario(
+                            profile,
+                            "vector-zoom-sequence-optimized",
+                            "vector-zoom-sequence",
+                            records,
+                            true,
+                            "G7-004",
+                            ScenarioRegistry::indexedSource,
+                            true));
+        }
     }
 
     private static void appendIndexScenarios(
@@ -330,6 +406,11 @@ final class ScenarioRegistry {
         result.add("dense-vector-render-indexed");
         result.add("vector-pan-sequence-indexed");
         result.add("vector-zoom-sequence-indexed");
+        result.add("small-vector-render-unoptimized");
+        result.add("small-vector-render-optimized");
+        result.add("dense-vector-render-optimized");
+        result.add("vector-pan-sequence-optimized");
+        result.add("vector-zoom-sequence-optimized");
         return List.copyOf(result);
     }
 
@@ -764,6 +845,7 @@ final class ScenarioRegistry {
         MapView view;
         MapViewport expectedViewport;
         BufferedImage surface;
+        ScreenGeometryEvidenceSupport.PaintResult screenGeometryWork;
 
         VectorRenderScenario(
                 EvidenceConfiguration.Profile profile,
@@ -778,13 +860,16 @@ final class ScenarioRegistry {
                     frames,
                     "frames",
                     "NOT_APPLICABLE",
-                    counters(
-                            "frames",
-                            frames,
-                            "features",
-                            layers.stream().mapToLong(item -> item.features().size()).sum(),
-                            "portableInvariants",
-                            6));
+                    ScreenGeometryWorkOracleV1.expectedOrDefault(
+                            profile,
+                            id,
+                            counters(
+                                    "frames",
+                                    frames,
+                                    "features",
+                                    layers.stream().mapToLong(item -> item.features().size()).sum(),
+                                    "portableInvariants",
+                                    6)));
             this.layers = List.copyOf(layers);
         }
 
@@ -817,27 +902,56 @@ final class ScenarioRegistry {
 
         @Override
         public void runTimedBatch() {
-            paint(view, surface);
+            screenGeometryWork = ScreenGeometryEvidenceSupport.paint(view, surface);
         }
 
         @Override
         public EvidenceObservation observeSample() {
             long features = layers.stream().mapToLong(item -> item.features().size()).sum();
-            Map<String, Long> counters =
+            Map<String, Long> semanticCounters =
                     counters("frames", operations, "features", features, "portableInvariants", 6);
             ObservationDigests.RenderInvariants render =
                     ObservationDigests.renderInvariants(surface, view.viewport(), expectedViewport);
-            return observation(
-                    counters,
-                    digest -> {
-                        for (Layer layer : layers) {
-                            digest.add(layer.id()).add(layer.name());
-                            for (Feature feature : layer.features()) {
-                                ObservationDigests.addFeature(digest, feature);
-                            }
-                        }
-                        ObservationDigests.addRenderInvariants(digest, render);
-                    });
+            EvidenceObservation semantic =
+                    observation(
+                            semanticCounters,
+                            digest -> {
+                                for (Layer layer : layers) {
+                                    digest.add(layer.id()).add(layer.name());
+                                    for (Feature feature : layer.features()) {
+                                        ObservationDigests.addFeature(digest, feature);
+                                    }
+                                }
+                                ObservationDigests.addRenderInvariants(digest, render);
+                            });
+            Map<String, Long> workCounters =
+                    screenGeometryCounters(operations, features, screenGeometryWork);
+            return new EvidenceObservation(semantic.digest(), workCounters);
+        }
+
+        private static Map<String, Long> screenGeometryCounters(
+                long frames, long features, ScreenGeometryEvidenceSupport.PaintResult work) {
+            return counters(
+                    "frames",
+                    frames,
+                    "features",
+                    features,
+                    "portableInvariants",
+                    6,
+                    "inputCoordinates",
+                    work.inputCoordinates(),
+                    "projectedCoordinates",
+                    work.projectedCoordinates(),
+                    "renderCoordinates",
+                    work.renderCoordinates(),
+                    "lineFragments",
+                    work.lineFragments(),
+                    "culledPaths",
+                    work.culledPaths(),
+                    "fallbackPlans",
+                    work.fallbackPlans(),
+                    "retainedRenderGeometryBytes",
+                    work.retainedRenderGeometryBytes());
         }
 
         @Override
@@ -851,10 +965,12 @@ final class ScenarioRegistry {
     private static class SourceVectorRenderScenario extends BaseScenario {
         final List<FeatureRecord> declaredRecords;
         final FeatureSourceFactory sourceFactory;
+        final boolean level1ScreenGeometry;
         FeatureSource source;
         MapView view;
         MapViewport expectedViewport;
         BufferedImage surface;
+        ScreenGeometryEvidenceSupport.PaintResult screenGeometryWork;
 
         SourceVectorRenderScenario(
                 EvidenceConfiguration.Profile profile,
@@ -863,7 +979,7 @@ final class ScenarioRegistry {
                 int frames,
                 String next,
                 FeatureSourceFactory sourceFactory) {
-            this(profile, id, id, records, frames, next, sourceFactory);
+            this(profile, id, id, records, frames, next, sourceFactory, false);
         }
 
         SourceVectorRenderScenario(
@@ -874,6 +990,18 @@ final class ScenarioRegistry {
                 int frames,
                 String next,
                 FeatureSourceFactory sourceFactory) {
+            this(profile, id, semanticId, records, frames, next, sourceFactory, false);
+        }
+
+        SourceVectorRenderScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                List<FeatureRecord> records,
+                int frames,
+                String next,
+                FeatureSourceFactory sourceFactory,
+                boolean level1ScreenGeometry) {
             super(
                     profile,
                     id,
@@ -882,10 +1010,19 @@ final class ScenarioRegistry {
                     frames,
                     "frames",
                     "NOT_APPLICABLE",
-                    counters(
-                            "frames", frames, "features", records.size(), "portableInvariants", 6));
+                    ScreenGeometryWorkOracleV1.expectedOrDefault(
+                            profile,
+                            id,
+                            counters(
+                                    "frames",
+                                    frames,
+                                    "features",
+                                    records.size(),
+                                    "portableInvariants",
+                                    6)));
             declaredRecords = List.copyOf(records);
             this.sourceFactory = java.util.Objects.requireNonNull(sourceFactory, "sourceFactory");
+            this.level1ScreenGeometry = level1ScreenGeometry;
         }
 
         @Override
@@ -894,16 +1031,22 @@ final class ScenarioRegistry {
         }
 
         @Override
+        public String vectorPathState() {
+            return level1ScreenGeometry ? "LEVEL1_OPERATION_LOCAL" : "DISABLED";
+        }
+
+        @Override
         public void setupScenario() throws Exception {
             source = sourceFactory.open(id + "-linear", declaredRecords);
             onEdt(
                     () -> {
-                        view = view();
+                        view = view(level1ScreenGeometry);
                         view.setSize(800, 600);
                         view.setLayerBindings(List.of(binding(id, source)));
                         view.fitToData(24.0);
                         expectedViewport = view.viewport();
                         surface = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
+                        clear(surface);
                     });
         }
 
@@ -918,7 +1061,7 @@ final class ScenarioRegistry {
 
         @Override
         public void runTimedBatch() {
-            paint(view, surface);
+            screenGeometryWork = ScreenGeometryEvidenceSupport.paint(view, surface);
         }
 
         @Override
@@ -928,7 +1071,8 @@ final class ScenarioRegistry {
 
         final EvidenceObservation sourceObservation(MapViewport actualViewport) {
             List<FeatureRecord> actualRecords = readAll(source);
-            Map<String, Long> counters =
+            Map<String, Long> counters = sourceCounters(actualRecords, screenGeometryWork);
+            Map<String, Long> semanticCounters =
                     counters(
                             "frames",
                             operations,
@@ -938,15 +1082,45 @@ final class ScenarioRegistry {
                             6);
             ObservationDigests.RenderInvariants render =
                     ObservationDigests.renderInvariants(surface, actualViewport, expectedViewport);
-            return observation(
-                    counters,
-                    digest -> {
-                        for (FeatureRecord record : actualRecords) {
-                            ObservationDigests.addRecord(digest, record);
-                        }
-                        ObservationDigests.addRenderInvariants(digest, render);
-                        ObservationDigests.addDiagnostics(digest, source.openingDiagnostics());
-                    });
+            EvidenceObservation semantic =
+                    observation(
+                            semanticCounters,
+                            digest -> {
+                                for (FeatureRecord record : actualRecords) {
+                                    ObservationDigests.addRecord(digest, record);
+                                }
+                                ObservationDigests.addRenderInvariants(digest, render);
+                                ObservationDigests.addDiagnostics(
+                                        digest, source.openingDiagnostics());
+                            });
+            return ScreenGeometryWorkOracleV1.applies(profile, id)
+                    ? new EvidenceObservation(semantic.digest(), counters)
+                    : semantic;
+        }
+
+        final Map<String, Long> sourceCounters(
+                List<FeatureRecord> actualRecords, ScreenGeometryEvidenceSupport.PaintResult work) {
+            return counters(
+                    "frames",
+                    operations,
+                    "features",
+                    actualRecords.size(),
+                    "portableInvariants",
+                    6,
+                    "inputCoordinates",
+                    work.inputCoordinates(),
+                    "projectedCoordinates",
+                    work.projectedCoordinates(),
+                    "renderCoordinates",
+                    work.renderCoordinates(),
+                    "lineFragments",
+                    work.lineFragments(),
+                    "culledPaths",
+                    work.culledPaths(),
+                    "fallbackPlans",
+                    work.fallbackPlans(),
+                    "retainedRenderGeometryBytes",
+                    work.retainedRenderGeometryBytes());
         }
 
         @Override
@@ -1544,6 +1718,18 @@ final class ScenarioRegistry {
                 boolean zoom,
                 String next,
                 FeatureSourceFactory sourceFactory) {
+            this(profile, id, semanticId, records, zoom, next, sourceFactory, false);
+        }
+
+        NavigationScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                List<FeatureRecord> records,
+                boolean zoom,
+                String next,
+                FeatureSourceFactory sourceFactory,
+                boolean level1ScreenGeometry) {
             super(
                     profile,
                     id,
@@ -1551,14 +1737,19 @@ final class ScenarioRegistry {
                     records,
                     profile == EvidenceConfiguration.Profile.BASELINE ? (zoom ? 12 : 16) : 4,
                     next,
-                    sourceFactory);
+                    sourceFactory,
+                    level1ScreenGeometry);
             this.zoom = zoom;
         }
 
         @Override
         public void setupScenario() throws Exception {
             super.setupScenario();
-            onEdt(() -> initial = view.viewport());
+            onEdt(
+                    () -> {
+                        initial = view.viewport();
+                        clear(surface);
+                    });
         }
 
         @Override
@@ -1572,7 +1763,13 @@ final class ScenarioRegistry {
 
         @Override
         public void runTimedBatch() {
+            screenGeometryWork = runNavigationEvidenceBatch();
+        }
+
+        private ScreenGeometryEvidenceSupport.PaintResult runNavigationEvidenceBatch() {
             int frames = profile == EvidenceConfiguration.Profile.BASELINE ? (zoom ? 12 : 16) : 4;
+            ScreenGeometryEvidenceSupport.PaintResult result =
+                    new ScreenGeometryEvidenceSupport.PaintResult(0, 0, 0, 0, 0, 0, 0);
             for (int index = 0; index < frames; index++) {
                 if (zoom) {
                     double factor = index % 2 == 0 ? 1.25 : 0.8;
@@ -1584,8 +1781,9 @@ final class ScenarioRegistry {
                             view.viewport()
                                     .panByPixels(deltas[direction][0], deltas[direction][1]));
                 }
-                paint(view, surface);
+                result = result.plus(ScreenGeometryEvidenceSupport.paint(view, surface));
             }
+            return result;
         }
 
         @Override
@@ -1747,8 +1945,15 @@ final class ScenarioRegistry {
     }
 
     private static MapView view() {
-        return new MapView(
-                CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+        return view(false);
+    }
+
+    private static MapView view(boolean level1ScreenGeometry) {
+        return ScreenGeometryEvidenceSupport.view(
+                CrsRegistry.level1(),
+                CrsDefinitions.EPSG_3857,
+                CrsDefinitions.EPSG_3857,
+                level1ScreenGeometry);
     }
 
     private static MapLayerBinding binding(String id, FeatureSource source) {

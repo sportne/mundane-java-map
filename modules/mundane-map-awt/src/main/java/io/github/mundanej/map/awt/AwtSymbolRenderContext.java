@@ -34,6 +34,8 @@ public final class AwtSymbolRenderContext {
     private final Optional<Coordinate> markerAnchorScreen;
     private final MapScreenBasis basis;
     private final MapView owner;
+    private final ScreenRenderPlan screenPlan;
+    private final int sourceComponent;
 
     AwtSymbolRenderContext(
             Graphics2D graphics,
@@ -48,7 +50,9 @@ public final class AwtSymbolRenderContext {
             OptionalDouble endpointBearingDegrees,
             Optional<Coordinate> markerAnchorScreen,
             MapScreenBasis basis,
-            MapView owner) {
+            MapView owner,
+            ScreenRenderPlan screenPlan,
+            int sourceComponent) {
         this.graphics = Objects.requireNonNull(graphics, "graphics");
         this.role = Objects.requireNonNull(role, "role");
         this.featureId = Objects.requireNonNull(featureId, "featureId");
@@ -63,6 +67,8 @@ public final class AwtSymbolRenderContext {
         this.markerAnchorScreen = Objects.requireNonNull(markerAnchorScreen, "markerAnchorScreen");
         this.basis = Objects.requireNonNull(basis, "basis");
         this.owner = Objects.requireNonNull(owner, "owner");
+        this.screenPlan = screenPlan;
+        this.sourceComponent = sourceComponent;
     }
 
     /** Returns the looked-up role. */
@@ -166,5 +172,13 @@ public final class AwtSymbolRenderContext {
 
     Graphics2D parentGraphics() {
         return graphics;
+    }
+
+    ScreenRenderPlan screenPlan() {
+        return screenPlan;
+    }
+
+    int sourceComponent() {
+        return sourceComponent;
     }
 }
