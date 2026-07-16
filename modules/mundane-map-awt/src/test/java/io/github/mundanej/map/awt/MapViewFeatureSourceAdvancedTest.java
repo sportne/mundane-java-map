@@ -181,7 +181,10 @@ class MapViewFeatureSourceAdvancedTest {
                 () -> successfulResult.set(evidencePaint(viewReference.get(), successfulImage)));
 
         assertFalse(bindingReference.get().cancelCurrentOperation());
-        assertEquals(new ScreenGeometryPaintResult(4, 4, 2, 1, 0, 0, 32), successfulResult.get());
+        assertEquals(
+                new ScreenGeometryPaintResult(
+                        4, 4, 2, 1, 0, 0, 32, RenderCachePaintMetrics.empty()),
+                successfulResult.get());
         assertFalse(isAllWhite(successfulImage));
         assertTrue(viewReference.get().sourceReports().isEmpty());
         assertEquals(2, reportEvents.size());

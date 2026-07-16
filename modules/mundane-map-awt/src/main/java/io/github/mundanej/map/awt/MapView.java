@@ -68,6 +68,7 @@ import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
+import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.FeatureQueryAccounting;
@@ -160,7 +161,10 @@ public final class MapView extends JComponent implements AutoCloseable {
     private final CrsOperation displayToMap;
     private final SymbolRendererRegistry symbolRenderers;
     private final ScreenGeometryOptimizationMode screenGeometryOptimizationMode;
+    private final AwtRenderCacheMode renderCacheMode;
+    private final AwtRenderCache renderCache = new AwtRenderCache();
     private ScreenGeometryPaintCollector activeScreenGeometryPaintCollector;
+    private AwtRenderCache.CacheEventCollector activeRenderCacheCollector;
     private final MapToolRouter toolRouter = new MapToolRouter();
     private final List<MapPointerListener> pointerListeners = new ArrayList<>();
     private final List<MapHoverListener> hoverListeners = new ArrayList<>();
@@ -251,6 +255,31 @@ public final class MapView extends JComponent implements AutoCloseable {
             CoordinateConfiguration configuration,
             SymbolRendererRegistry symbolRenderers,
             ScreenGeometryOptimizationMode optimizationMode) {
+        this(configuration, symbolRenderers, optimizationMode, AwtRenderCacheMode.VECTOR_TEMPLATE);
+    }
+
+    MapView(
+            CrsRegistry crsRegistry,
+            CrsDefinition mapCrs,
+            CrsDefinition displayCrs,
+            SymbolRendererRegistry symbolRenderers,
+            ScreenGeometryOptimizationMode optimizationMode,
+            AwtRenderCacheMode cacheMode) {
+        this(
+                new CoordinateConfiguration(
+                        Objects.requireNonNull(crsRegistry, "crsRegistry"),
+                        Objects.requireNonNull(mapCrs, "mapCrs"),
+                        Objects.requireNonNull(displayCrs, "displayCrs")),
+                symbolRenderers,
+                optimizationMode,
+                cacheMode);
+    }
+
+    private MapView(
+            CoordinateConfiguration configuration,
+            SymbolRendererRegistry symbolRenderers,
+            ScreenGeometryOptimizationMode optimizationMode,
+            AwtRenderCacheMode cacheMode) {
         this.crsRegistry = configuration.registry();
         this.mapCrs = configuration.mapCrs();
         this.displayCrs = configuration.displayCrs();
@@ -259,6 +288,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         this.symbolRenderers = Objects.requireNonNull(symbolRenderers, "symbolRenderers");
         this.screenGeometryOptimizationMode =
                 Objects.requireNonNull(optimizationMode, "optimizationMode");
+        this.renderCacheMode = Objects.requireNonNull(cacheMode, "cacheMode");
         setOpaque(true);
         setFocusable(true);
         setBackground(Color.WHITE);
@@ -747,6 +777,17 @@ public final class MapView extends JComponent implements AutoCloseable {
         bindings = List.of();
         resolvedFeatureBindings = Map.of();
         rasterRenderOptions.clear();
+        if (renderCacheMode.enabled()) {
+            try {
+                clearRenderCacheForClose();
+            } catch (RuntimeException | Error failure) {
+                if (primary == null) {
+                    primary = failure;
+                } else {
+                    suppressDistinct(primary, failure);
+                }
+            }
+        }
         selection = Optional.empty();
         hover = Optional.empty();
         hoverProbe = Optional.empty();
@@ -763,6 +804,13 @@ public final class MapView extends JComponent implements AutoCloseable {
         primary = drainSourceReportNotifications(primary);
         if (primary != null) {
             throwUnchecked(primary);
+        }
+    }
+
+    private void clearRenderCacheForClose() {
+        Throwable cleanupFailure = EdtCompletion.runAndWait(renderCache::clear);
+        if (cleanupFailure != null) {
+            throwUnchecked(cleanupFailure);
         }
     }
 
@@ -792,6 +840,13 @@ public final class MapView extends JComponent implements AutoCloseable {
     @Override
     protected void paintComponent(Graphics graphics) {
         synchronizeViewportSize();
+        boolean ownsCacheCollector = activeRenderCacheCollector == null;
+        if (ownsCacheCollector) {
+            activeRenderCacheCollector = new AwtRenderCache.CacheEventCollector();
+        }
+        if (renderCacheMode.enabled() && EventQueue.isDispatchThread()) {
+            renderCache.snapshotState(activeRenderCacheCollector);
+        }
         Graphics2D graphics2D = (Graphics2D) graphics.create();
         boolean interactionChanged = false;
         boolean paintStateChanged = false;
@@ -861,6 +916,12 @@ public final class MapView extends JComponent implements AutoCloseable {
         } catch (Error failure) {
             errorFailure = failure;
         } finally {
+            if (renderCacheMode.enabled() && EventQueue.isDispatchThread()) {
+                renderCache.snapshotState(activeRenderCacheCollector);
+            }
+            if (ownsCacheCollector) {
+                activeRenderCacheCollector = null;
+            }
             graphics2D.dispose();
             if (interactionChanged || paintStateChanged) {
                 repaint();
@@ -2323,7 +2384,23 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 == 0)) {
             return nominal;
         }
-        VectorPath2D.Converted converted = VectorPath2D.convert(marker.path());
+        VectorPath path = marker.path();
+        AwtRenderCache.VectorLookup vectorLookup = null;
+        VectorPath2D.Converted converted;
+        if (renderCacheMode.vectorTemplates()
+                && activeRenderCacheCollector != null
+                && EventQueue.isDispatchThread()) {
+            vectorLookup = renderCache.lookupVectorTemplate(path, activeRenderCacheCollector);
+            converted = vectorLookup.hit();
+            if (converted == null) {
+                converted = renderCache.buildVectorTemplate(path, activeRenderCacheCollector);
+            }
+        } else {
+            if (activeRenderCacheCollector != null) {
+                renderCache.recordUncachedVectorBuild(path, activeRenderCacheCollector);
+            }
+            converted = VectorPath2D.convert(path);
+        }
         AffineTransform transform =
                 new AffineTransform(
                         markerTransform.m00(),
@@ -2356,6 +2433,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             }
         } finally {
             childGraphics.dispose();
+        }
+        if (vectorLookup != null) {
+            renderCache.completeVectorTemplate(
+                    vectorLookup, path, converted, true, activeRenderCacheCollector);
         }
         return nominal;
     }
@@ -2751,14 +2832,25 @@ public final class MapView extends JComponent implements AutoCloseable {
         if (activeScreenGeometryPaintCollector != null) {
             throw new IllegalStateException("Screen geometry evidence paint is already active");
         }
+        if (activeRenderCacheCollector != null) {
+            throw new IllegalStateException("Render-cache evidence paint is already active");
+        }
         ScreenGeometryPaintCollector collector = new ScreenGeometryPaintCollector();
+        AwtRenderCache.CacheEventCollector cacheCollector =
+                new AwtRenderCache.CacheEventCollector();
         activeScreenGeometryPaintCollector = collector;
+        activeRenderCacheCollector = cacheCollector;
         try {
             paint(graphics);
-            return collector.result();
+            return collector.result(cacheCollector.result());
         } finally {
             activeScreenGeometryPaintCollector = null;
+            activeRenderCacheCollector = null;
         }
+    }
+
+    void clearVectorTemplateCacheForEvidence() {
+        renderCache.clearVectorTemplates();
     }
 
     private void recordScreenGeometryWork(
@@ -2878,7 +2970,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             retainedRenderGeometryBytes = Math.addExact(retainedRenderGeometryBytes, retainedBytes);
         }
 
-        ScreenGeometryPaintResult result() {
+        ScreenGeometryPaintResult result(RenderCachePaintMetrics cacheMetrics) {
             return new ScreenGeometryPaintResult(
                     inputCoordinates,
                     inputCoordinates,
@@ -2886,7 +2978,8 @@ public final class MapView extends JComponent implements AutoCloseable {
                     lineFragments,
                     culledPaths,
                     fallbackPlans,
-                    retainedRenderGeometryBytes);
+                    retainedRenderGeometryBytes,
+                    cacheMetrics);
         }
     }
 

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,6 +31,100 @@ class ScreenGeometryWorkOracleTest {
     @Test
     void baselineFrozenWorkCountersMatchTheIndependentReference() {
         verifyReference(EvidenceConfiguration.Profile.BASELINE);
+    }
+
+    @Test
+    void renderCacheFrozenFactsMatchIndependentSmokeAndBaselineReferences() {
+        for (EvidenceConfiguration.Profile profile : EvidenceConfiguration.Profile.values()) {
+            LinkedHashMap<String, Map<String, Long>> frozen = new LinkedHashMap<>();
+            for (String id : RenderCacheWorkOracleV1.ids()) {
+                frozen.put(id, RenderCacheWorkOracleV1.expected(profile, id));
+            }
+            assertEquals(
+                    frozen, IndependentScreenGeometryWorkOracle.deriveCacheCandidates(profile));
+        }
+    }
+
+    @Test
+    void renderCacheSmokeProductionCaptureMatchesEveryFrozenCounter() throws Exception {
+        for (String id : RenderCacheWorkOracleV1.ids()) {
+            var scenarios =
+                    ScenarioRegistry.create(
+                            EvidenceConfiguration.Profile.SMOKE,
+                            temporary.resolve("render-cache").resolve(id),
+                            Optional.of(id));
+            EvidenceScenario scenario = scenarios.getFirst();
+            try {
+                scenario.setupScenario();
+                scenario.prepareSample();
+                runTimed(scenario);
+                EvidenceObservation actual = scenario.observeSample();
+                assertEquals(
+                        RenderCacheWorkOracleV1.expected(EvidenceConfiguration.Profile.SMOKE, id),
+                        actual.counters(),
+                        id);
+                scenario.oracle().verify(actual);
+            } finally {
+                scenario.close();
+            }
+        }
+    }
+
+    @Test
+    void everyRenderCacheCounterDimensionAndRowOrderRejectNegativeControls() {
+        for (EvidenceConfiguration.Profile profile : EvidenceConfiguration.Profile.values()) {
+            for (String id : RenderCacheWorkOracleV1.ids()) {
+                Map<String, Long> expected = RenderCacheWorkOracleV1.expected(profile, id);
+                EvidenceObservation frozen = new EvidenceObservation(1L, expected);
+                for (String dimension : expected.keySet()) {
+                    LinkedHashMap<String, Long> changed = new LinkedHashMap<>(expected);
+                    changed.compute(dimension, (ignored, value) -> Math.addExact(value, 1L));
+                    assertThrows(
+                            IllegalStateException.class,
+                            () ->
+                                    ScenarioOracleV1.exact(frozen)
+                                            .verify(new EvidenceObservation(1L, changed)),
+                            profile + "/" + id + "/" + dimension);
+                }
+            }
+        }
+        List<String> rows =
+                ScenarioRegistry.ids().stream()
+                        .filter(RenderCacheWorkOracleV1.ids()::contains)
+                        .toList();
+        RenderCacheWorkOracleV1.verifyRowOrder(rows);
+        ArrayList<String> changed = new ArrayList<>(rows);
+        changed.add(changed.removeFirst());
+        assertThrows(
+                IllegalStateException.class, () -> RenderCacheWorkOracleV1.verifyRowOrder(changed));
+    }
+
+    @Test
+    void coldClearingAndWarmPreseedRemainOperationLocalWithZeroOrMultipleWarmups()
+            throws Exception {
+        for (int warmups : List.of(0, 2)) {
+            for (String id :
+                    List.of(
+                            "symbol-heavy-render-template-cache-cold",
+                            "symbol-heavy-render-template-cache-warm")) {
+                EvidenceConfiguration configuration =
+                        new EvidenceConfiguration(
+                                EvidenceConfiguration.Profile.SMOKE,
+                                EvidenceConfiguration.SEED,
+                                warmups,
+                                2,
+                                Optional.of(id),
+                                Optional.empty(),
+                                true);
+                var scenarios =
+                        ScenarioRegistry.create(
+                                EvidenceConfiguration.Profile.SMOKE,
+                                temporary.resolve("warmups-" + warmups).resolve(id),
+                                Optional.of(id));
+                EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
+                assertTrue(new String(report.json(), StandardCharsets.UTF_8).contains(id));
+            }
+        }
     }
 
     @Test
@@ -137,7 +233,7 @@ class ScreenGeometryWorkOracleTest {
             try {
                 scenario.setupScenario();
                 scenario.prepareSample();
-                scenario.runTimedBatch();
+                runTimed(scenario);
                 EvidenceObservation actual = scenario.observeSample();
                 actualByScenario.put(id, actual.counters());
                 assertEquals(
@@ -157,5 +253,20 @@ class ScreenGeometryWorkOracleTest {
             result.put(id, ScreenGeometryWorkOracleV1.expected(profile, id));
         }
         return java.util.Collections.unmodifiableMap(result);
+    }
+
+    private static void runTimed(EvidenceScenario scenario) throws Exception {
+        if (scenario.runsOnEdt()) {
+            SwingUtilities.invokeAndWait(
+                    () -> {
+                        try {
+                            scenario.runTimedBatch();
+                        } catch (Exception failure) {
+                            throw new IllegalStateException(failure);
+                        }
+                    });
+        } else {
+            scenario.runTimedBatch();
+        }
     }
 }

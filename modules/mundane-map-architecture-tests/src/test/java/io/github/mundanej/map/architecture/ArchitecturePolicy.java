@@ -168,6 +168,42 @@ final class ArchitecturePolicy {
         return violations;
     }
 
+    static List<String> workerCreationViolations(Collection<JavaClass> classes) {
+        List<String> violations = new ArrayList<>();
+        for (JavaClass javaClass : classes) {
+            for (JavaField field : javaClass.getFields()) {
+                for (JavaClass type : field.getAllInvolvedRawTypes()) {
+                    if (isWorkerType(type.getBaseComponentType().getName())) {
+                        violations.add(
+                                diagnostic(
+                                        "retained worker",
+                                        "AWT feature-source composition",
+                                        javaClass,
+                                        field.getFullName()));
+                    }
+                }
+            }
+            for (JavaAccess<?> access : javaClass.getAccessesFromSelf()) {
+                String owner = access.getTargetOwner().getName();
+                String name = access.getName();
+                boolean prohibitedThreadAccess =
+                        owner.equals("java.lang.Thread")
+                                && !name.equals("currentThread")
+                                && !name.equals("interrupt");
+                if (prohibitedThreadAccess
+                        || (!owner.equals("java.lang.Thread") && isWorkerType(owner))) {
+                    violations.add(
+                            diagnostic(
+                                    "worker creation or use",
+                                    "AWT feature-source composition",
+                                    javaClass,
+                                    owner + "." + name));
+                }
+            }
+        }
+        return violations;
+    }
+
     static List<String> discoveryResourceViolations(String modulePath, Path resourceRoot)
             throws IOException {
         if (!Files.isDirectory(resourceRoot)) {
@@ -403,6 +439,15 @@ final class ArchitecturePolicy {
                 || typeName.equals("sun.misc.Unsafe")
                 || typeName.startsWith("jdk.internal.")
                 || typeName.startsWith("sun.");
+    }
+
+    private static boolean isWorkerType(String typeName) {
+        return typeName.equals("java.lang.Thread")
+                || typeName.startsWith("java.util.concurrent.Executor")
+                || typeName.startsWith("java.util.concurrent.Executors")
+                || typeName.startsWith("java.util.concurrent.Flow")
+                || typeName.startsWith("java.util.concurrent.Future")
+                || typeName.startsWith("java.util.concurrent.CompletableFuture");
     }
 
     private static boolean isFixedImageIoQualification(

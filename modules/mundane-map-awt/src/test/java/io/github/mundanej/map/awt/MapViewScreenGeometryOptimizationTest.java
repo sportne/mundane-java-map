@@ -446,8 +446,13 @@ class MapViewScreenGeometryOptimizationTest {
                     ScreenGeometryPaintResult second = evidencePaint(enabled);
 
                     assertEquals(
-                            new ScreenGeometryPaintResult(4, 4, 4, 1, 0, 0, 0), disabledResult);
-                    assertEquals(new ScreenGeometryPaintResult(4, 4, 2, 1, 0, 0, 32), first);
+                            new ScreenGeometryPaintResult(
+                                    4, 4, 4, 1, 0, 0, 0, RenderCachePaintMetrics.empty()),
+                            disabledResult);
+                    assertEquals(
+                            new ScreenGeometryPaintResult(
+                                    4, 4, 2, 1, 0, 0, 32, RenderCachePaintMetrics.empty()),
+                            first);
                     assertEquals(first, second);
                 });
     }

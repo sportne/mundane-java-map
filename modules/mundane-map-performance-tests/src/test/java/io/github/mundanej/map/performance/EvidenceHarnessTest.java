@@ -62,12 +62,14 @@ class EvidenceHarnessTest {
             EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             String json = new String(report.json(), StandardCharsets.UTF_8);
             String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
-            assertEquals(46, count(json, "\"id\": \""));
+            assertEquals(48, count(json, "\"id\": \""));
             assertTrue(json.startsWith("{\n  \"schemaVersion\""));
             assertTrue(json.endsWith("\n"));
             assertTrue(markdown.contains("Durations are environment-specific evidence"));
             assertEquals(4, count(json, "\"policy\": \"DESCRIPTIVE_ONLY\""));
             assertTrue(markdown.contains("descriptive evidence only; they are not timing gates"));
+            assertEquals(1, count(json, "\"decision\": \"NOT_EVALUATED\""));
+            assertTrue(markdown.contains("## Render-cache decisions"));
             assertTrue(
                     json.contains(
                             "\"comparison\": \"small-vector-render\", \"policy\": \"DESCRIPTIVE_ONLY\""));
@@ -87,7 +89,7 @@ class EvidenceHarnessTest {
                 assertTrue(markdown.contains("`" + id + "`"));
             }
             assertEquals(4, count(json, "\"vectorPathState\": \"LEVEL1_OPERATION_LOCAL\""));
-            assertEquals(35, count(json, "\"vectorPathState\": \"DISABLED\""));
+            assertEquals(37, count(json, "\"vectorPathState\": \"DISABLED\""));
             assertEquals(
                     List.of(
                             "small-vector-render-unoptimized",
@@ -96,6 +98,11 @@ class EvidenceHarnessTest {
                             "vector-pan-sequence-optimized",
                             "vector-zoom-sequence-optimized"),
                     ScenarioRegistry.ids().subList(34, 39));
+            assertEquals(
+                    List.of(
+                            "symbol-heavy-render-template-cache-cold",
+                            "symbol-heavy-render-template-cache-warm"),
+                    ScenarioRegistry.ids().subList(39, 41));
             assertScenarioCounters(
                     json,
                     "small-vector-render-unoptimized",
@@ -310,7 +317,7 @@ class EvidenceHarnessTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new EvidenceObservation(1, Map.of("bad", -1L)));
-        assertEquals(80, ScenarioOracleV1.frozenDigests().size());
+        assertEquals(84, ScenarioOracleV1.frozenDigests().size());
         assertEquals(
                 "56d246ef2d1394ce",
                 ScenarioOracleV1.frozenDigests().get("SMOKE/vector-zoom-sequence"));

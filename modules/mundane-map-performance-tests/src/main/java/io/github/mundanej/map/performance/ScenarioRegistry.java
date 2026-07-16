@@ -208,6 +208,28 @@ final class ScenarioRegistry {
         }
         appendIndexScenarios(result, profile, selected);
         appendScreenGeometryScenarios(result, profile, selected);
+        appendRenderCacheScenarios(result, profile, selected);
+    }
+
+    private static void appendRenderCacheScenarios(
+            List<EvidenceScenario> result,
+            EvidenceConfiguration.Profile profile,
+            Optional<String> selected) {
+        for (boolean warm : List.of(false, true)) {
+            String id = "symbol-heavy-render-template-cache-" + (warm ? "warm" : "cold");
+            if (selected(selected, id)) {
+                result.add(
+                        new VectorRenderScenario(
+                                profile,
+                                id,
+                                "symbol-heavy-render",
+                                FixtureCatalog.symbolLayers(profile),
+                                1,
+                                "G7-004 decision",
+                                true,
+                                warm));
+            }
+        }
     }
 
     private static void appendScreenGeometryScenarios(
@@ -411,6 +433,8 @@ final class ScenarioRegistry {
         result.add("dense-vector-render-optimized");
         result.add("vector-pan-sequence-optimized");
         result.add("vector-zoom-sequence-optimized");
+        result.add("symbol-heavy-render-template-cache-cold");
+        result.add("symbol-heavy-render-template-cache-warm");
         return List.copyOf(result);
     }
 
@@ -480,7 +504,7 @@ final class ScenarioRegistry {
         }
 
         @Override
-        public final ScenarioOracle oracle() {
+        public ScenarioOracle oracle() {
             return ScenarioOracleV1.exact(expected);
         }
 
@@ -842,6 +866,8 @@ final class ScenarioRegistry {
 
     private static class VectorRenderScenario extends BaseScenario {
         final List<Layer> layers;
+        final boolean vectorTemplateCache;
+        final boolean warmCache;
         MapView view;
         MapViewport expectedViewport;
         BufferedImage surface;
@@ -853,24 +879,54 @@ final class ScenarioRegistry {
                 List<InMemoryLayer> layers,
                 int frames,
                 String next) {
+            this(profile, id, id, layers, frames, next, false, false);
+        }
+
+        VectorRenderScenario(
+                EvidenceConfiguration.Profile profile,
+                String id,
+                String semanticId,
+                List<InMemoryLayer> layers,
+                int frames,
+                String next,
+                boolean vectorTemplateCache,
+                boolean warmCache) {
             super(
                     profile,
                     id,
+                    semanticId,
                     next,
                     frames,
                     "frames",
                     "NOT_APPLICABLE",
-                    ScreenGeometryWorkOracleV1.expectedOrDefault(
+                    RenderCacheWorkOracleV1.expectedOrDefault(
                             profile,
                             id,
-                            counters(
-                                    "frames",
-                                    frames,
-                                    "features",
-                                    layers.stream().mapToLong(item -> item.features().size()).sum(),
-                                    "portableInvariants",
-                                    6)));
+                            ScreenGeometryWorkOracleV1.expectedOrDefault(
+                                    profile,
+                                    id,
+                                    counters(
+                                            "frames",
+                                            frames,
+                                            "features",
+                                            layers.stream()
+                                                    .mapToLong(item -> item.features().size())
+                                                    .sum(),
+                                            "portableInvariants",
+                                            6))));
             this.layers = List.copyOf(layers);
+            this.vectorTemplateCache = vectorTemplateCache;
+            this.warmCache = warmCache;
+        }
+
+        @Override
+        public String viewCacheState() {
+            if (!vectorTemplateCache) {
+                return "NONE";
+            }
+            return warmCache
+                    ? "VECTOR_TEMPLATE_WARM_PRESEEDED"
+                    : "VECTOR_TEMPLATE_COLD_EACH_SAMPLE";
         }
 
         @Override
@@ -882,12 +938,21 @@ final class ScenarioRegistry {
         public void setupScenario() throws Exception {
             onEdt(
                     () -> {
-                        view = view();
+                        view = view(false, vectorTemplateCache);
                         view.setSize(800, 600);
                         view.setLayers(layers);
                         view.fitToData(24.0);
                         expectedViewport = view.viewport();
                         surface = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
+                        if (vectorTemplateCache && warmCache) {
+                            clear(surface);
+                            screenGeometryWork = ScreenGeometryEvidenceSupport.paint(view, surface);
+                            require(
+                                    observeSample().digest() == expected.digest(),
+                                    "Vector-template preseed semantic oracle changed");
+                            clear(surface);
+                            screenGeometryWork = null;
+                        }
                     });
         }
 
@@ -897,6 +962,9 @@ final class ScenarioRegistry {
                     () -> {
                         clear(surface);
                         view.fitToData(24.0);
+                        if (vectorTemplateCache && !warmCache) {
+                            ScreenGeometryEvidenceSupport.clearVectorTemplateCache(view);
+                        }
                     });
         }
 
@@ -926,7 +994,25 @@ final class ScenarioRegistry {
                             });
             Map<String, Long> workCounters =
                     screenGeometryCounters(operations, features, screenGeometryWork);
+            if (vectorTemplateCache) {
+                workCounters =
+                        withCacheCounters(
+                                workCounters,
+                                "vectorTemplate",
+                                screenGeometryWork.cacheFacts().vectorTemplate());
+            } else if (id.equals("symbol-heavy-render")) {
+                workCounters =
+                        withBuildCounter(
+                                workCounters,
+                                "vectorTemplateBuilds",
+                                screenGeometryWork.cacheFacts().vectorTemplate().builds());
+            }
             return new EvidenceObservation(semantic.digest(), workCounters);
+        }
+
+        @Override
+        public ScenarioOracle oracle() {
+            return super.oracle();
         }
 
         private static Map<String, Long> screenGeometryCounters(
@@ -1010,16 +1096,19 @@ final class ScenarioRegistry {
                     frames,
                     "frames",
                     "NOT_APPLICABLE",
-                    ScreenGeometryWorkOracleV1.expectedOrDefault(
+                    RenderCacheWorkOracleV1.expectedOrDefault(
                             profile,
                             id,
-                            counters(
-                                    "frames",
-                                    frames,
-                                    "features",
-                                    records.size(),
-                                    "portableInvariants",
-                                    6)));
+                            ScreenGeometryWorkOracleV1.expectedOrDefault(
+                                    profile,
+                                    id,
+                                    counters(
+                                            "frames",
+                                            frames,
+                                            "features",
+                                            records.size(),
+                                            "portableInvariants",
+                                            6))));
             declaredRecords = List.copyOf(records);
             this.sourceFactory = java.util.Objects.requireNonNull(sourceFactory, "sourceFactory");
             this.level1ScreenGeometry = level1ScreenGeometry;
@@ -1100,27 +1189,34 @@ final class ScenarioRegistry {
 
         final Map<String, Long> sourceCounters(
                 List<FeatureRecord> actualRecords, ScreenGeometryEvidenceSupport.PaintResult work) {
-            return counters(
-                    "frames",
-                    operations,
-                    "features",
-                    actualRecords.size(),
-                    "portableInvariants",
-                    6,
-                    "inputCoordinates",
-                    work.inputCoordinates(),
-                    "projectedCoordinates",
-                    work.projectedCoordinates(),
-                    "renderCoordinates",
-                    work.renderCoordinates(),
-                    "lineFragments",
-                    work.lineFragments(),
-                    "culledPaths",
-                    work.culledPaths(),
-                    "fallbackPlans",
-                    work.fallbackPlans(),
-                    "retainedRenderGeometryBytes",
-                    work.retainedRenderGeometryBytes());
+            Map<String, Long> result =
+                    counters(
+                            "frames",
+                            operations,
+                            "features",
+                            actualRecords.size(),
+                            "portableInvariants",
+                            6,
+                            "inputCoordinates",
+                            work.inputCoordinates(),
+                            "projectedCoordinates",
+                            work.projectedCoordinates(),
+                            "renderCoordinates",
+                            work.renderCoordinates(),
+                            "lineFragments",
+                            work.lineFragments(),
+                            "culledPaths",
+                            work.culledPaths(),
+                            "fallbackPlans",
+                            work.fallbackPlans(),
+                            "retainedRenderGeometryBytes",
+                            work.retainedRenderGeometryBytes());
+            return result;
+        }
+
+        @Override
+        public ScenarioOracle oracle() {
+            return super.oracle();
         }
 
         @Override
@@ -1769,7 +1865,8 @@ final class ScenarioRegistry {
         private ScreenGeometryEvidenceSupport.PaintResult runNavigationEvidenceBatch() {
             int frames = profile == EvidenceConfiguration.Profile.BASELINE ? (zoom ? 12 : 16) : 4;
             ScreenGeometryEvidenceSupport.PaintResult result =
-                    new ScreenGeometryEvidenceSupport.PaintResult(0, 0, 0, 0, 0, 0, 0);
+                    new ScreenGeometryEvidenceSupport.PaintResult(
+                            0, 0, 0, 0, 0, 0, 0, ScreenGeometryEvidenceSupport.CacheFacts.empty());
             for (int index = 0; index < frames; index++) {
                 if (zoom) {
                     double factor = index % 2 == 0 ? 1.25 : 0.8;
@@ -1949,11 +2046,16 @@ final class ScenarioRegistry {
     }
 
     private static MapView view(boolean level1ScreenGeometry) {
+        return view(level1ScreenGeometry, false);
+    }
+
+    private static MapView view(boolean level1ScreenGeometry, boolean vectorTemplateCache) {
         return ScreenGeometryEvidenceSupport.view(
                 CrsRegistry.level1(),
                 CrsDefinitions.EPSG_3857,
                 CrsDefinitions.EPSG_3857,
-                level1ScreenGeometry);
+                level1ScreenGeometry,
+                vectorTemplateCache);
     }
 
     private static MapLayerBinding binding(String id, FeatureSource source) {
@@ -2066,6 +2168,33 @@ final class ScenarioRegistry {
             {-120, -80}, {-80, -40}, {-40, 0}, {0, 0}, {40, 0}, {80, 40},
             {120, 80}, {80, 80}, {40, 40}, {0, 0}, {-40, -40}, {-80, -80}
         };
+    }
+
+    private static Map<String, Long> withCacheCounters(
+            Map<String, Long> base,
+            String prefix,
+            ScreenGeometryEvidenceSupport.PartitionFacts facts) {
+        LinkedHashMap<String, Long> result = new LinkedHashMap<>(base);
+        result.put(prefix + "CacheRequests", facts.requests());
+        result.put(prefix + "CacheHits", facts.hits());
+        result.put(prefix + "CacheMisses", facts.misses());
+        result.put(prefix + "Builds", facts.builds());
+        result.put(prefix + "CacheAdmissions", facts.admissions());
+        result.put(prefix + "CacheEvictions", facts.evictions());
+        result.put(prefix + "CacheBypasses", facts.bypasses());
+        result.put(prefix + "BuildUnits", facts.buildUnits());
+        result.put(prefix + "CacheCurrentEntries", facts.currentEntries());
+        result.put(prefix + "CacheCurrentLogicalBytes", facts.currentLogicalBytes());
+        result.put(prefix + "CachePeakEntries", facts.peakEntries());
+        result.put(prefix + "CachePeakLogicalBytes", facts.peakLogicalBytes());
+        return result;
+    }
+
+    private static Map<String, Long> withBuildCounter(
+            Map<String, Long> base, String key, long value) {
+        LinkedHashMap<String, Long> result = new LinkedHashMap<>(base);
+        result.put(key, value);
+        return result;
     }
 
     private static Map<String, Long> counters(Object... entries) {

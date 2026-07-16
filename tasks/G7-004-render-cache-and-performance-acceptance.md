@@ -1,6 +1,6 @@
 # G7-004 — Render cache and performance acceptance
 
-Status: Proposed
+Status: Complete
 Depends on: G7-003, G6-004
 Gate: G7
 Type: AFK
@@ -62,6 +62,16 @@ method; its existing rows, fixtures, semantic oracles, order, and cache-state la
 - Existing evidence rows remain byte-for-byte compatible in ID, order, fixture, batch, cache label,
   and semantic oracle. New cold and explicitly preseeded-warm rows append to them and compare in the
   same unfiltered `BASELINE` run; warm seeding is independent of the configured warmup count.
+- Both full and quick evidence Java processes run from an invocation-unique real `/tmp` classpath,
+  working directory, temporary directory, fixture workspace, and provisional output tree. Staging
+  preserves classpath order, rejects symbolic-link/path escapes, cleans on success or failure, and
+  publishes only completed JSON/Markdown files back to separate build destinations with locked atomic
+  replacement; the canonical profile and report semantics otherwise remain unchanged.
+- Root `performanceQuick` depends only on the module quick task. It runs every SMOKE scenario with
+  fixed explicit one/two iteration counts, no BASELINE oracle or override inputs, produces an
+  investigative `NOT_EVALUATED` report under `build/performance-quick`, stays outside all other lanes,
+  and completes in under five minutes on this reference WSL workspace without becoming a portable
+  wall-clock gate.
 - Logical weights charge every packed array retained through a key or value exactly once, including
   source geometry, authoritative/render screen geometry, and both vector-template streams. Borrowed
   attachment/operation objects have no cache back-reference and contribute only retained reference
@@ -99,7 +109,8 @@ method; its existing rows, fixtures, semantic oracles, order, and cache-state la
   the screen cache, and mixed open/closed vector paths prove the cached fill/stroke split.
 - Performance tests pin append-only row order, cold clearing, warm preseed with zero or more warmups,
   operation-local counter snapshots, formulas, frozen oracle reuse, retain/delete arithmetic, filtered
-  investigation as `not evaluated`, and deterministic decision rendering.
+  investigation as `not evaluated`, deterministic decision rendering, quick-lane investigation
+  identity, native scratch staging/publishing cleanup, and exact full/quick task isolation.
 - Architecture tests prove AWT-only instance ownership, G6's sole raster-pixel cache, no public/cache
   SPI or knobs, and every existing prohibited mechanism.
 
@@ -108,6 +119,7 @@ method; its existing rows, fixtures, semantic oracles, order, and cache-state la
 ```bash
 ./gradlew :modules:mundane-map-awt:check :modules:mundane-map-performance-tests:check :modules:mundane-map-architecture-tests:check --console=plain
 ./gradlew renderRegression --console=plain
+./gradlew performanceQuick --console=plain
 ./gradlew performanceEvidence --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
@@ -119,3 +131,11 @@ The retain/delete decision is AFK because every checkpoint and ratio is declared
 otherwise noncanonical run may investigate behavior but cannot decide retention. Duration thresholds
 select code once from one recorded canonical reference run; they never become recurring CI quality
 gates or runtime policy.
+
+The canonical `/tmp`-native BASELINE run completed in 2m15s. Its JSON SHA-256 is
+`d53ff058919ff6fee178ec3ee86d0bd5ce540fe602adca686be287b763c0d585`; its Markdown SHA-256 is
+`f7e53388585ff1fc9fec1bed4e07fbf3907ff145108a7653033ea74583a595`. The screen-plan candidate was
+rejected because warm pan produced zero hits, 6,104 builds, and 6,104 evictions; it was removed in
+full. The vector-template candidate was retained at the final 512-entry, 4 MiB total, and 256 KiB
+per-entry limits. The G7 design contains the complete environment, counters, timings, and known-limit
+record. Final recurring evidence contains only the retained vector comparison.

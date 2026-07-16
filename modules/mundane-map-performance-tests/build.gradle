@@ -20,6 +20,58 @@ abstract class VerifyPerformanceLaneIsolation extends DefaultTask {
     }
 }
 
+abstract class PerformanceScratchService implements
+org.gradle.api.services.BuildService<org.gradle.api.services.BuildServiceParameters.None>,
+AutoCloseable {
+    private final Set<java.nio.file.Path> roots = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    synchronized void register(java.nio.file.Path root) {
+        roots.add(root)
+    }
+
+    synchronized void cleanup(java.nio.file.Path root) {
+        if (root == null || !roots.contains(root)) {
+            return
+        }
+        deleteTree(root)
+        roots.remove(root)
+    }
+
+    @Override
+    void close() {
+        List<java.nio.file.Path> remaining = roots.toList()
+        Throwable primary = null
+        remaining.each {
+            try {
+                cleanup(it)
+            } catch (Throwable failure) {
+                if (primary == null) {
+                    primary = failure
+                } else {
+                    primary.addSuppressed(failure)
+                }
+            }
+        }
+        if (primary != null) {
+            throw primary
+        }
+    }
+
+    private static void deleteTree(java.nio.file.Path root) {
+        if (!java.nio.file.Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return
+        }
+        def paths = java.nio.file.Files.walk(root)
+        try {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach {
+                java.nio.file.Files.deleteIfExists(it)
+            }
+        } finally {
+            paths.close()
+        }
+    }
+}
+
 dependencies {
     implementation project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
@@ -33,7 +85,20 @@ description = 'Non-published deterministic performance-evidence support.'
 def java21Launcher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(21)
 }
+def evidenceJvmArguments = [
+    '-Xms512m',
+    '-Xmx512m',
+    '-XX:+UseG1GC',
+    '-Djava.awt.headless=true',
+    '-Dfile.encoding=UTF-8',
+    '-Duser.language=en',
+    '-Duser.country=US',
+    '-Duser.timezone=UTC'
+].asImmutable()
 def evidenceDirectory = rootProject.layout.buildDirectory.dir('performance-evidence')
+def quickEvidenceDirectory = rootProject.layout.buildDirectory.dir('performance-quick')
+def rootBuildPath = rootProject.layout.buildDirectory.get().asFile.toPath()
+        .toAbsolutePath().normalize()
 def evidenceScenarioIds = [
     'memory-query-full',
     'memory-query-window',
@@ -73,7 +138,9 @@ def evidenceScenarioIds = [
     'small-vector-render-optimized',
     'dense-vector-render-optimized',
     'vector-pan-sequence-optimized',
-    'vector-zoom-sequence-optimized'
+    'vector-zoom-sequence-optimized',
+    'symbol-heavy-render-template-cache-cold',
+    'symbol-heavy-render-template-cache-warm'
 ].asImmutable()
 
 def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
@@ -101,38 +168,374 @@ def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
     binaryResultsDirectory = layout.buildDirectory.dir('test-results/baselineOracle/binary')
 }
 
-tasks.register('runPerformanceEvidence', JavaExec) {
+def fullEvidenceProperties = [performanceProfile: 'BASELINE']
+if (providers.gradleProperty('performanceScenario').isPresent()) {
+    fullEvidenceProperties.performanceScenario =
+            providers.gradleProperty('performanceScenario').get()
+}
+if (providers.gradleProperty('performanceWarmups').isPresent()) {
+    fullEvidenceProperties.performanceWarmups =
+            providers.gradleProperty('performanceWarmups').get()
+}
+if (providers.gradleProperty('performanceMeasurements').isPresent()) {
+    fullEvidenceProperties.performanceMeasurements =
+            providers.gradleProperty('performanceMeasurements').get()
+}
+if (providers.gradleProperty('performanceRevision').isPresent()) {
+    fullEvidenceProperties.performanceRevision =
+            providers.gradleProperty('performanceRevision').get()
+} else if (providers.environmentVariable('GITHUB_SHA').isPresent()) {
+    fullEvidenceProperties.GITHUB_SHA = providers.environmentVariable('GITHUB_SHA').get()
+}
+
+def runPerformanceEvidence = tasks.register('runPerformanceEvidence', Exec) {
     group = 'verification'
     description = 'Runs the full deterministic performance-evidence profile.'
     dependsOn tasks.named('classes'), verifyBaselineOracle
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'io.github.mundanej.map.performance.PerformanceEvidenceMain'
-    javaLauncher = java21Launcher
-    minHeapSize = '512m'
-    maxHeapSize = '512m'
-    jvmArgs '-XX:+UseG1GC', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
-            '-Duser.language=en', '-Duser.country=US', '-Duser.timezone=UTC'
-    systemProperty 'performanceProfile', 'BASELINE'
-    systemProperty 'performanceOutput', evidenceDirectory.get().asFile.absolutePath
-    if (providers.gradleProperty('performanceScenario').isPresent()) {
-        systemProperty 'performanceScenario',
-                providers.gradleProperty('performanceScenario').get()
+}
+
+def quickEvidenceProperties = [
+    performanceProfile: 'SMOKE',
+    // Explicit defaults make the report investigative, so it can never decide cache retention.
+    performanceWarmups: '1',
+    performanceMeasurements: '2'
+].asImmutable()
+
+def runQuickPerformanceEvidence = tasks.register('runQuickPerformanceEvidence', Exec) {
+    group = 'verification'
+    description = 'Runs the fixed noncanonical SMOKE performance profile for quick iteration.'
+    dependsOn tasks.named('classes')
+}
+
+def requireNoSymlinkComponents = { java.nio.file.Path candidate, String label ->
+    java.nio.file.Path absolute = candidate.toAbsolutePath().normalize()
+    java.nio.file.Path cursor = absolute.root
+    for (java.nio.file.Path component : absolute) {
+        cursor = cursor.resolve(component)
+        if (java.nio.file.Files.isSymbolicLink(cursor)) {
+            throw new GradleException("${label} traverses a symbolic link: ${cursor}")
+        }
     }
-    if (providers.gradleProperty('performanceWarmups').isPresent()) {
-        systemProperty 'performanceWarmups', providers.gradleProperty('performanceWarmups').get()
+}
+
+def stageRuntimeClasspath = { java.nio.file.Path runtime, Iterable<File> original ->
+    java.nio.file.Files.createDirectory(runtime)
+    List<File> entries = original.toList()
+    List<File> staged = []
+    entries.eachWithIndex { File entryFile, int index ->
+        java.nio.file.Path declared = entryFile.toPath().toAbsolutePath().normalize()
+        if (!java.nio.file.Files.exists(declared, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return
+        }
+        requireNoSymlinkComponents(declared, 'Performance runtime entry')
+        java.nio.file.Path source = declared.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        if (source != declared) {
+            throw new GradleException("Performance runtime entry traverses a symbolic link: ${declared}")
+        }
+        java.nio.file.Path target = runtime.resolve(String.format('%03d-entry', index)).normalize()
+        if (!target.startsWith(runtime)) {
+            throw new GradleException('Performance runtime staging escaped its scratch directory')
+        }
+        if (java.nio.file.Files.isDirectory(source, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            java.nio.file.Files.createDirectory(target)
+            def paths = java.nio.file.Files.walk(source)
+            try {
+                for (java.nio.file.Path path : paths.sorted().toList()) {
+                    if (java.nio.file.Files.isSymbolicLink(path)) {
+                        throw new GradleException(
+                        "Performance runtime contains a symbolic link: ${path}")
+                    }
+                    java.nio.file.Path relative = source.relativize(path)
+                    java.nio.file.Path destination = target.resolve(relative).normalize()
+                    if (!destination.startsWith(target)) {
+                        throw new GradleException(
+                        'Performance runtime entry escaped its staged directory')
+                    }
+                    if (java.nio.file.Files.isDirectory(
+                            path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                        java.nio.file.Files.createDirectories(destination)
+                    } else if (java.nio.file.Files.isRegularFile(
+                            path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                        java.nio.file.Files.copy(path, destination)
+                    } else {
+                        throw new GradleException(
+                        "Unsupported performance runtime entry: ${path}")
+                    }
+                }
+            } finally {
+                paths.close()
+            }
+        } else if (java.nio.file.Files.isRegularFile(
+                source, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            java.nio.file.Files.copy(source, target)
+        } else {
+            throw new GradleException("Unsupported performance runtime entry: ${source}")
+        }
+        staged.add(target.toFile())
     }
-    if (providers.gradleProperty('performanceMeasurements').isPresent()) {
-        systemProperty 'performanceMeasurements',
-                providers.gradleProperty('performanceMeasurements').get()
+    if (staged.isEmpty()) {
+        throw new GradleException('Performance runtime classpath is empty')
     }
-    if (providers.gradleProperty('performanceRevision').isPresent()) {
-        systemProperty 'performanceRevision', providers.gradleProperty('performanceRevision').get()
-    } else if (providers.environmentVariable('GITHUB_SHA').isPresent()) {
-        systemProperty 'GITHUB_SHA', providers.environmentVariable('GITHUB_SHA').get()
+    staged
+}
+
+def publishEvidenceReports = { java.nio.file.Path scratchOutput, java.nio.file.Path destinationPath, java.nio.file.Path configuredBuildRoot ->
+    java.nio.file.Path output = scratchOutput.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    if (java.nio.file.Files.isSymbolicLink(scratchOutput)
+            || !java.nio.file.Files.isDirectory(
+            output, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+        throw new GradleException('Performance scratch output is not a real directory')
     }
-    outputs.files(
-            evidenceDirectory.map { it.file('evidence-v1.json') },
-            evidenceDirectory.map { it.file('evidence-v1.md') })
+    List<String> names = [
+        'evidence-v1.json',
+        'evidence-v1.md'
+    ]
+    List<java.nio.file.Path> sources = names.collect { String name ->
+        java.nio.file.Path source = output.resolve(name).normalize()
+        if (!source.startsWith(output)
+                || java.nio.file.Files.isSymbolicLink(source)
+                || !java.nio.file.Files.isRegularFile(
+                source, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || source.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS).parent != output
+                || java.nio.file.Files.size(source) <= 0
+                || java.nio.file.Files.size(source) > 16L * 1_024L * 1_024L) {
+            throw new GradleException("Performance report is missing or unsafe: ${name}")
+        }
+        source
+    }
+
+    java.nio.file.Path buildRoot = configuredBuildRoot
+    requireNoSymlinkComponents(buildRoot, 'Root build directory')
+    java.nio.file.Files.createDirectories(buildRoot)
+    if (java.nio.file.Files.isSymbolicLink(buildRoot)) {
+        throw new GradleException('Root build directory must not be a symbolic link')
+    }
+    java.nio.file.Path realBuildRoot = buildRoot.toRealPath(
+            java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    java.nio.file.Path declaredDestination = destinationPath.toAbsolutePath().normalize()
+    if (!declaredDestination.startsWith(buildRoot)) {
+        throw new GradleException('Performance report destination escaped the root build directory')
+    }
+    requireNoSymlinkComponents(declaredDestination, 'Performance report destination')
+    java.nio.file.Files.createDirectories(declaredDestination)
+    if (java.nio.file.Files.isSymbolicLink(declaredDestination)) {
+        throw new GradleException('Performance report destination must not be a symbolic link')
+    }
+    java.nio.file.Path destination = declaredDestination.toRealPath(
+            java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    if (!destination.startsWith(realBuildRoot)) {
+        throw new GradleException('Performance report destination resolved outside the build directory')
+    }
+
+    String destinationName = destination.fileName.toString()
+    if (!(destinationName ==~ /[a-z][a-z0-9-]{0,63}/)) {
+        throw new GradleException('Performance report destination name is unsafe')
+    }
+    java.nio.file.Path lockPath = realBuildRoot.resolve(
+            ".${destinationName}.publish.lock").normalize()
+    if (!lockPath.startsWith(realBuildRoot)) {
+        throw new GradleException('Performance report lock escaped the build directory')
+    }
+    if (java.nio.file.Files.isSymbolicLink(lockPath)) {
+        throw new GradleException('Performance report lock must not be a symbolic link')
+    }
+    def channel = java.nio.channels.FileChannel.open(
+            lockPath,
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.WRITE)
+    def lock = null
+    try {
+        lock = channel.lock()
+        List<java.nio.file.Path> temporaries = []
+        try {
+            sources.eachWithIndex { java.nio.file.Path source, int index ->
+                java.nio.file.Path temporary = java.nio.file.Files.createTempFile(
+                        destination, ".${names[index]}-", '.tmp')
+                temporaries.add(temporary)
+                java.nio.file.Files.copy(
+                        source, temporary, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                def report = java.nio.channels.FileChannel.open(
+                        temporary, java.nio.file.StandardOpenOption.WRITE)
+                try {
+                    report.force(true)
+                } finally {
+                    report.close()
+                }
+            }
+            temporaries.eachWithIndex { java.nio.file.Path temporary, int index ->
+                java.nio.file.Path target = destination.resolve(names[index]).normalize()
+                if (!target.startsWith(destination)) {
+                    throw new GradleException('Performance report target escaped its destination')
+                }
+                java.nio.file.Files.move(
+                        temporary,
+                        target,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            temporaries.each { java.nio.file.Files.deleteIfExists(it) }
+        }
+    } finally {
+        if (lock != null) {
+            lock.release()
+        }
+        channel.close()
+    }
+}
+
+def configureNativeEvidenceExecution = { TaskProvider<Exec> provider, Provider<org.gradle.api.file.Directory> destination, String label, Map<String, String> evidenceProperties ->
+    def originalClasspath = sourceSets.main.runtimeClasspath
+    def scratchService = gradle.sharedServices.registerIfAbsent(
+            'mundaneMapPerformanceScratch', PerformanceScratchService) {}
+    provider.configure {
+        ext.performanceScratch = null
+        usesService scratchService
+        inputs.files(originalClasspath)
+                .withPropertyName("${label}UnstagedRuntimeClasspath")
+                .withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.properties(evidenceProperties)
+        inputs.property('performanceJvmArguments', evidenceJvmArguments)
+        outputs.files(
+                destination.map { it.file('evidence-v1.json') },
+                destination.map { it.file('evidence-v1.md') })
+        outputs.upToDateWhen { false }
+        doFirst {
+            java.nio.file.Path temporaryRoot = java.nio.file.Path.of('/tmp')
+                    .toAbsolutePath().normalize()
+            requireNoSymlinkComponents(temporaryRoot, 'Performance scratch root')
+            if (java.nio.file.Files.isSymbolicLink(temporaryRoot)
+                    || !java.nio.file.Files.isDirectory(
+                    temporaryRoot, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                throw new GradleException('/tmp must be a real directory for performance evidence')
+            }
+            temporaryRoot = temporaryRoot.toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)
+            java.nio.file.Path created = java.nio.file.Files.createTempDirectory(
+                    temporaryRoot, "mundane-map-${label}-")
+            ext.performanceScratch = created
+            scratchService.get().register(created)
+            java.nio.file.Path scratch = created.toRealPath(
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS)
+            if (scratch.parent != temporaryRoot || java.nio.file.Files.isSymbolicLink(scratch)) {
+                scratchService.get().cleanup(scratch)
+                ext.performanceScratch = null
+                throw new GradleException('Performance scratch directory is unsafe')
+            }
+            ext.performanceScratch = scratch
+            java.nio.file.Path work = java.nio.file.Files.createDirectory(scratch.resolve('work'))
+            java.nio.file.Path output = java.nio.file.Files.createDirectory(scratch.resolve('output'))
+            java.nio.file.Path temporary = java.nio.file.Files.createDirectory(scratch.resolve('tmp'))
+            java.nio.file.Path runtime = scratch.resolve('runtime')
+            List<File> stagedClasspath = stageRuntimeClasspath(runtime, originalClasspath.files)
+            List<String> javaArguments = new ArrayList<>(evidenceJvmArguments)
+            evidenceProperties.each { String key, String value ->
+                javaArguments.add("-D${key}=${value}")
+            }
+            javaArguments.add("-DperformanceOutput=${output}")
+            javaArguments.add("-Djava.io.tmpdir=${temporary}")
+            javaArguments.add('-cp')
+            javaArguments.add(stagedClasspath.collect { it.absolutePath }.join(File.pathSeparator))
+            javaArguments.add('io.github.mundanej.map.performance.PerformanceEvidenceMain')
+            executable = java21Launcher.get().executablePath.asFile
+            args = javaArguments
+            workingDir work.toFile()
+        }
+        doLast {
+            java.nio.file.Path scratch = ext.performanceScratch
+            Throwable primary = null
+            try {
+                publishEvidenceReports(
+                        scratch.resolve('output'),
+                        destination.get().asFile.toPath(),
+                        rootBuildPath)
+            } catch (Throwable failure) {
+                primary = failure
+                throw failure
+            } finally {
+                try {
+                    scratchService.get().cleanup(scratch)
+                    ext.performanceScratch = null
+                } catch (Throwable cleanupFailure) {
+                    if (primary == null) {
+                        throw cleanupFailure
+                    }
+                    primary.addSuppressed(cleanupFailure)
+                }
+            }
+        }
+    }
+}
+
+configureNativeEvidenceExecution(
+        runPerformanceEvidence, evidenceDirectory, 'full', fullEvidenceProperties)
+configureNativeEvidenceExecution(
+        runQuickPerformanceEvidence, quickEvidenceDirectory, 'quick', quickEvidenceProperties)
+
+def verifyPerformanceScratchBoundaries = tasks.register('verifyPerformanceScratchBoundaries') {
+    group = 'verification'
+    description = 'Exercises negative staging, report validation, and scratch-cleanup paths.'
+    def scratchService = gradle.sharedServices.registerIfAbsent(
+            'mundaneMapPerformanceScratch', PerformanceScratchService) {}
+    usesService scratchService
+    outputs.upToDateWhen { false }
+    doLast {
+        java.nio.file.Path temporaryRoot = java.nio.file.Path.of('/tmp')
+                .toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        java.nio.file.Path scratch = java.nio.file.Files.createTempDirectory(
+                temporaryRoot, 'mundane-map-boundary-test-')
+        scratchService.get().register(scratch)
+        try {
+            java.nio.file.Path source = java.nio.file.Files.createDirectory(scratch.resolve('source'))
+            java.nio.file.Path regular = java.nio.file.Files.writeString(
+                    source.resolve('regular.txt'), 'runtime')
+            java.nio.file.Files.createSymbolicLink(source.resolve('linked.txt'), regular)
+            boolean runtimeLinkRejected = false
+            try {
+                stageRuntimeClasspath(scratch.resolve('runtime'), [source.toFile()])
+            } catch (GradleException expected) {
+                if (!expected.message.contains('symbolic link')) {
+                    throw expected
+                }
+                runtimeLinkRejected = true
+            }
+            if (!runtimeLinkRejected) {
+                throw new GradleException('Runtime staging accepted a linked classpath entry')
+            }
+
+            java.nio.file.Path output = java.nio.file.Files.createDirectory(scratch.resolve('output'))
+            java.nio.file.Files.writeString(output.resolve('evidence-v1.json'), '{}')
+            java.nio.file.Path buildRoot = java.nio.file.Files.createDirectory(scratch.resolve('build'))
+            try {
+                publishEvidenceReports(output, buildRoot.resolve('performance-negative'), buildRoot)
+                throw new GradleException('Expected report publication to reject a missing report')
+            } catch (GradleException expected) {
+                if (!expected.message.contains('missing or unsafe')) {
+                    throw expected
+                }
+            }
+
+            java.nio.file.Path outside = java.nio.file.Files.writeString(
+                    scratch.resolve('outside.md'), 'outside')
+            java.nio.file.Files.createSymbolicLink(output.resolve('evidence-v1.md'), outside)
+            try {
+                publishEvidenceReports(output, buildRoot.resolve('performance-negative'), buildRoot)
+                throw new GradleException('Expected report publication to reject a linked report')
+            } catch (GradleException expected) {
+                if (!expected.message.contains('missing or unsafe')) {
+                    throw expected
+                }
+            }
+        } finally {
+            scratchService.get().cleanup(scratch)
+        }
+        if (java.nio.file.Files.exists(scratch, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            throw new GradleException('Negative performance scratch was not cleaned')
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyPerformanceScratchBoundaries
 }
 
 def performanceJfr = tasks.register('performanceJfr', JavaExec) {
@@ -234,17 +637,19 @@ tasks.register('authorRasterEvidenceResources', JavaExec) {
 def verifyPerformanceLaneIsolation = tasks.register(
         'verifyPerformanceLaneIsolation', VerifyPerformanceLaneIsolation) {
             group = 'verification'
-            description = 'Proves the full evidence and JFR tasks stay outside ordinary/specialized lanes.'
+            description = 'Proves the full, quick, and JFR evidence tasks stay outside other lanes.'
             violations.convention([])
         }
 
 gradle.projectsEvaluated {
     def violations = []
-    Task full = tasks.named('runPerformanceEvidence').get()
+    Task full = runPerformanceEvidence.get()
+    Task quick = runQuickPerformanceEvidence.get()
     Task jfr = tasks.named('performanceJfr').get()
     Set<Task> owned =
             [
                 full,
+                quick,
                 verifyBaselineOracle.get(),
                 jfr,
                 performanceJfrSummary.get(),
@@ -347,6 +752,24 @@ gradle.projectsEvaluated {
     if (direct != ([full.path] as Set)) {
         violations.add(
                 "performanceEvidence must depend only on ${full.path}; found ${direct.sort()}")
+    }
+    Task rootQuick = rootProject.tasks.named('performanceQuick').get()
+    Set<String> quickDirect = declaredDependencies(rootQuick)
+            .collect { it.path } as Set
+    if (quickDirect != ([quick.path] as Set)) {
+        violations.add(
+                "performanceQuick must depend only on ${quick.path}; found ${quickDirect.sort()}")
+    }
+    Set<String> quickDependencies = dependencyClosure(quick).collect { it.path } as Set
+    if (quickDependencies.contains(verifyBaselineOracle.get().path)) {
+        violations.add('runQuickPerformanceEvidence must not depend on verifyBaselineOracle')
+    }
+    if (quickDependencies.contains(full.path)) {
+        violations.add('runQuickPerformanceEvidence must not depend on runPerformanceEvidence')
+    }
+    Set<String> fullDependencies = dependencyClosure(full).collect { it.path } as Set
+    if (fullDependencies.contains(quick.path)) {
+        violations.add('runPerformanceEvidence must not depend on runQuickPerformanceEvidence')
     }
     verifyPerformanceLaneIsolation.configure {
         it.violations.set(violations.unique().sort())

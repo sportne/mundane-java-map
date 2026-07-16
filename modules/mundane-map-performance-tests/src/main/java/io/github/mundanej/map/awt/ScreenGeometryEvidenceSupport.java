@@ -12,6 +12,20 @@ public final class ScreenGeometryEvidenceSupport {
     /** Creates an evidence-only map view in the selected fixed implementation mode. */
     public static MapView view(
             CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs, boolean level1) {
+        return view(registry, mapCrs, displayCrs, level1, false);
+    }
+
+    /** Creates an evidence view with the evidence-retained vector-template cache selected. */
+    public static MapView view(
+            CrsRegistry registry,
+            CrsDefinition mapCrs,
+            CrsDefinition displayCrs,
+            boolean level1,
+            boolean vectorTemplateCache) {
+        AwtRenderCacheMode cacheMode =
+                vectorTemplateCache
+                        ? AwtRenderCacheMode.VECTOR_TEMPLATE
+                        : AwtRenderCacheMode.DISABLED;
         return new MapView(
                 registry,
                 mapCrs,
@@ -19,7 +33,13 @@ public final class ScreenGeometryEvidenceSupport {
                 SymbolRendererRegistry.builtIn(),
                 level1
                         ? ScreenGeometryOptimizationMode.LEVEL1
-                        : ScreenGeometryOptimizationMode.DISABLED);
+                        : ScreenGeometryOptimizationMode.DISABLED,
+                cacheMode);
+    }
+
+    /** Clears the retained vector-template partition before a cold sample. */
+    public static void clearVectorTemplateCache(MapView view) {
+        view.clearVectorTemplateCacheForEvidence();
     }
 
     /** Paints once and returns only call-local deterministic work facts. */
@@ -34,7 +54,8 @@ public final class ScreenGeometryEvidenceSupport {
                     result.lineFragments(),
                     result.culledPaths(),
                     result.fallbackPlans(),
-                    result.retainedRenderGeometryBytes());
+                    result.retainedRenderGeometryBytes(),
+                    CacheFacts.from(result.cacheMetrics()));
         } finally {
             graphics.dispose();
         }
@@ -48,7 +69,8 @@ public final class ScreenGeometryEvidenceSupport {
             long lineFragments,
             long culledPaths,
             long fallbackPlans,
-            long retainedRenderGeometryBytes) {
+            long retainedRenderGeometryBytes,
+            CacheFacts cacheFacts) {
         /** Adds two sequential paint calls with checked arithmetic. */
         public PaintResult plus(PaintResult other) {
             return new PaintResult(
@@ -58,7 +80,75 @@ public final class ScreenGeometryEvidenceSupport {
                     Math.addExact(lineFragments, other.lineFragments),
                     Math.addExact(culledPaths, other.culledPaths),
                     Math.addExact(fallbackPlans, other.fallbackPlans),
-                    Math.addExact(retainedRenderGeometryBytes, other.retainedRenderGeometryBytes));
+                    Math.addExact(retainedRenderGeometryBytes, other.retainedRenderGeometryBytes),
+                    cacheFacts.plus(other.cacheFacts));
+        }
+    }
+
+    /** Public only inside the non-published performance fixture source set. */
+    public record CacheFacts(PartitionFacts vectorTemplate) {
+        static CacheFacts from(RenderCachePaintMetrics metrics) {
+            return new CacheFacts(PartitionFacts.from(metrics.vectorTemplate()));
+        }
+
+        /** Returns the empty operation-local fact set. */
+        public static CacheFacts empty() {
+            return new CacheFacts(PartitionFacts.empty());
+        }
+
+        CacheFacts plus(CacheFacts other) {
+            return new CacheFacts(vectorTemplate.plus(other.vectorTemplate));
+        }
+    }
+
+    /** Exact facts for one typed private cache partition. */
+    public record PartitionFacts(
+            long requests,
+            long hits,
+            long misses,
+            long builds,
+            long admissions,
+            long evictions,
+            long bypasses,
+            long buildUnits,
+            long currentEntries,
+            long currentLogicalBytes,
+            long peakEntries,
+            long peakLogicalBytes) {
+        static PartitionFacts from(CachePartitionMetrics metrics) {
+            return new PartitionFacts(
+                    metrics.requests(),
+                    metrics.hits(),
+                    metrics.misses(),
+                    metrics.builds(),
+                    metrics.admissions(),
+                    metrics.evictions(),
+                    metrics.bypasses(),
+                    metrics.buildUnits(),
+                    metrics.currentEntries(),
+                    metrics.currentLogicalBytes(),
+                    metrics.peakEntries(),
+                    metrics.peakLogicalBytes());
+        }
+
+        static PartitionFacts empty() {
+            return new PartitionFacts(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        PartitionFacts plus(PartitionFacts other) {
+            return new PartitionFacts(
+                    Math.addExact(requests, other.requests),
+                    Math.addExact(hits, other.hits),
+                    Math.addExact(misses, other.misses),
+                    Math.addExact(builds, other.builds),
+                    Math.addExact(admissions, other.admissions),
+                    Math.addExact(evictions, other.evictions),
+                    Math.addExact(bypasses, other.bypasses),
+                    Math.addExact(buildUnits, other.buildUnits),
+                    other.currentEntries,
+                    other.currentLogicalBytes,
+                    Math.max(peakEntries, other.peakEntries),
+                    Math.max(peakLogicalBytes, other.peakLogicalBytes));
         }
     }
 }

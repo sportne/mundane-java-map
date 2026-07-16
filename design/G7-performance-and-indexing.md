@@ -16,19 +16,41 @@ project dependency for its public-reader scenarios. It never consumes examples o
 test output.
 
 The project uses the ordinary Java-library conventions. `src/main/java` owns a public launcher solely
-for `JavaExec`, package-private harness/scenario/report code, and support-only fixture generators.
+for explicit build execution, package-private harness/scenario/report code, and support-only fixture
+generators.
 `src/test/java` owns the harness/statistics/report tests and one reduced smoke execution. Fixed encoded
 PNG/JPEG evidence resources and their provenance may be main resources because the project is never
-published; generated shapefiles and all reports live beneath its `build/` tree. No production package
-may depend on this project or its fixture code.
+published. Each evidence Java process generates shapefiles and other writable fixtures only in its
+unique native-WSL scratch tree; only completed reports return beneath the root `build/` tree. No
+production package may depend on this project or its fixture code.
 
 The module task `runPerformanceEvidence` and root task `performanceEvidence` are introduced here. The
 root task depends only on that execution, uses a Java 21 launcher even when Gradle runs newer, and
-supplies exact defaults `-Xms512m`, `-Xmx512m`, G1, headless AWT, UTF-8, `en-US`, and UTC. It writes
-UTF-8/LF files beneath `build/performance-evidence/`: `evidence-v1.json` plus a deterministic
-`evidence-v1.md` rendering. `check`, `checkAll`, and `qualityGate` must not depend on the full run.
+supplies exact defaults `-Xms512m`, `-Xmx512m`, G1, headless AWT, UTF-8, `en-US`, and UTC. Before the
+Java process starts, the module task copies its ordered runtime classpath into an atomically created,
+invocation-unique real directory directly beneath `/tmp`; the process working directory,
+`java.io.tmpdir`, generated fixtures, and provisional reports all remain below the same scratch root.
+Classpath staging rejects symbolic links and non-regular entries, preserves classpath order, and
+never follows a staged path outside its assigned root. An invocation-scoped cleanup service deletes
+the scratch tree after success or failure. On success only the two checked regular reports are copied
+under a destination lock and individually atomically replaced as
+`build/performance-evidence/evidence-v1.json`
+and `evidence-v1.md`. Concurrent Gradle invocations therefore cannot share scratch state or publish
+partial files. The profile, harness, scenario order, oracles, and report bytes other than measured
+durations are unchanged. `check`, `checkAll`, and `qualityGate` must not depend on the full run.
 G9-007 later makes `runPerformanceEvidence` depend on one fresh-JVM DTED memory probe; the root still
 has this sole direct dependency and the canonical output remains these two reports.
+
+G7-004 also adds module task `runQuickPerformanceEvidence` and root task `performanceQuick`. The root
+depends only on that module execution. It uses the same native `/tmp` classpath/workspace isolation,
+same Java settings, every current scenario, and the existing `SMOKE` fixture/oracle profile with one
+warmup and two measurements. Supplying those counts explicitly makes its report
+`investigation=true`, so every retention decision is `NOT_EVALUATED`; it cannot accept or reject
+production code. It skips the independent full-cardinality BASELINE oracle, accepts no scenario,
+count, or revision override, publishes only to `build/performance-quick/`, and remains outside every
+other verification lane. Its purpose is a complete semantic/timing iteration signal that is measured
+under five minutes on the reference WSL workspace, not a portable duration gate or replacement for
+canonical evidence.
 
 A separate Ubuntu 24.04/Java 21 performance-evidence CI job first runs
 `:modules:mundane-map-performance-tests:testClasses` with ordinary dependency resolution, then runs
@@ -64,7 +86,7 @@ profile-specific expected observations:
 | Profile | Seed | Warmups | Measurements | Purpose |
 | --- | --- | ---: | ---: | --- |
 | `BASELINE` | `0x4d554e44414e454a` | 5 | 20 | Full `performanceEvidence` and comparisons |
-| `SMOKE` | same | 1 | 2 | Normal module tests with reduced cardinalities |
+| `SMOKE` | same | 1 | 2 | Normal tests and investigative `performanceQuick` with reduced cardinalities |
 
 The seed's decimal value is `5572446169001248074`. Investigation properties are exact:
 `performanceScenario` is absent or one declared scenario ID, `performanceWarmups` is an ASCII decimal
@@ -1376,6 +1398,8 @@ future work, or selected at runtime. JFR may corroborate where time/allocation m
 a formula. Duration rules are a one-time complexity decision on the recorded reference environment;
 `performanceEvidence` continues to fail only on configuration, semantics, counters, cleanup, or
 report construction and never becomes a recurring wall-clock quality gate.
+`performanceQuick` always reports the noncanonical SMOKE/investigation configuration and therefore
+cannot enter these formulas even if its timings appear favorable.
 
 ### Checked-in acceptance record and G7 closeout
 
@@ -1387,8 +1411,8 @@ FPS, latency SLA, heap measurement, or cross-platform guarantee.
 
 | Candidate | Canonical reference evidence | Decision | Final limits/known limits |
 | --- | --- | --- | --- |
-| Screen plan | Pending G7-004 implementation evidence | Pending | Provisional limits above |
-| Vector template | Pending G7-004 implementation evidence | Pending | Provisional limits above |
+| Screen plan | Canonical BASELINE report JSON SHA-256 `d53ff058919ff6fee178ec3ee86d0bd5ce540fe602adca686be287b763c0d585` | Rejected and removed | Warm pan had 0 hits, 6,104 builds, and 6,104 evictions because the working set exceeded 32 MiB |
+| Vector template | Same report; Markdown SHA-256 `f7e53388585ff1fc9fec1bed4e07fbf3907ff145108a7653033ea74583a595` | Retained | 512 entries, 4 MiB logical total, 256 KiB per entry |
 
 Tests pin exact keys and identity misses, weights and limit edges, successful-hit promotion, LRU ties,
 oversized no-eviction, build/use/admission order, source publication/cancellation, binding purge, close,
@@ -1399,13 +1423,48 @@ oracle inheritance, comparison arithmetic, candidate removal, filtered `not eval
 deterministic acceptance rendering. Architecture tests forbid public/generic/global cache state, core
 or format cache code, raster duplication, public metrics/modes, external/native dependencies, and
 prohibited mechanisms. Validation includes AWT/performance/architecture checks,
-`renderRegression`, `performanceEvidence`, `qualityGate`, and whitespace.
+`renderRegression`, the under-five-minute reference run of `performanceQuick`,
+`performanceEvidence`, `qualityGate`, and whitespace.
 
-G7 therefore closes with one evidence lane, one explicitly selected packed in-memory index, one fixed
-operation-local screen optimizer, and zero or one private MapView cache owner containing only
-evidence-retained typed partitions. G6 remains the sole raster-pixel cache. Ordinary developers choose
+G7 therefore closes with one canonical evidence lane plus one explicitly noncanonical quick lane, one
+explicitly selected packed in-memory index, one fixed operation-local screen optimizer, and zero or
+one private MapView cache owner containing only evidence-retained typed partitions. G6 remains the
+sole raster-pixel cache. Ordinary developers choose
 `InMemoryFeatureSource.openIndexed(...)` explicitly when an index is wanted; MapView otherwise has
 fixed invisible defaults. There is no public performance policy, generic cache/index/topology
 framework, automatic data-structure chooser, source LOD, native acceleration, or duplicate rendering
 state. This is the smallest design that preserves bounded work and leaves observable complexity only
 where recorded evidence pays for it.
+
+### Final G7-004 decision record
+
+The one canonical source run used Java `21.0.11+10-1-24.04.2-Ubuntu` on Linux
+`5.15.167.4-microsoft-standard-WSL2`/amd64 under WSL2, with 32 reported processors, a 512 MiB maximum
+heap, G1, headless AWT, seed `0x4d554e44414e454a`, five warmups, and twenty measurements. Both the
+ordered runtime classpath and generated fixture/report work ran in one invocation-unique real
+`/tmp` tree. The report has no revision field because it measured the uncommitted G7-004 candidate
+worktree based on `d260e0b`; the two report checksums above bind the exact evidence instead. The run
+completed successfully in 2m15s after removing `/mnt/d` filesystem traffic from the timed process.
+
+The screen-plan candidate failed its exact behavior rules independently of timing. Its warm pan row
+had 6,104 requests, zero hits, 6,104 builds, and 6,104 evictions at a 4,149-entry/33,551,684-byte end
+state (4,153 entries/33,554,432 bytes peak). The 16-position trace has a working set larger than the
+32 MiB provisional budget, so sequential LRU access thrashes. The partition, modes, evidence rows,
+metrics, oracles, decision branch, and candidate-only tests were deleted. G7-003's operation-local
+screen plan remains unchanged and uncached.
+
+The vector-template candidate passed every declared rule. Against the unchanged symbol median of
+21,677,854 ns (p95 24,107,840 ns), cold median was 18,690,680 ns (86.22%; p95 20,010,715 ns) and warm
+median was 18,386,448 ns (84.82%; p95 19,304,863 ns). The cold row made 4,352 requests, 4,343 hits,
+nine misses/builds/admissions, and retained nine entries/4,869 logical bytes; the warm row made 4,352
+hits with no build. Both reported zero eviction and bypass. Production therefore enables only this
+private view-owned AWT partition with the final 512-entry, 4 MiB total, and 256 KiB per-entry limits.
+Public API and configuration remain unchanged; view close clears the partition, and G6 remains the
+sole raster-pixel cache.
+
+After the decision, the recurring full and quick reports contain the retained vector comparison only.
+`performanceQuick` runs all 41 final SMOKE scenarios with one warmup/two measurements, is always
+investigative/`NOT_EVALUATED`, and completed in 7.89–10.92 seconds during reference checks. The
+canonical report remains an ignored source artifact rather than checked-in generated output. The
+timings justify this one private implementation decision; they are not a portable SLA or runtime
+policy.

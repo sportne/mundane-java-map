@@ -56,6 +56,20 @@ class EvidenceConfigurationTest {
     }
 
     @Test
+    void explicitSmokeDefaultsAreAnInvestigationThatCannotDecideRetention() {
+        System.setProperty("performanceWarmups", "1");
+        System.setProperty("performanceMeasurements", "2");
+        EvidenceConfiguration configuration = EvidenceConfiguration.system(ScenarioRegistry.ids());
+        assertEquals(EvidenceConfiguration.Profile.SMOKE, configuration.profile());
+        assertEquals(1, configuration.warmups());
+        assertEquals(2, configuration.measurements());
+        assertTrue(configuration.investigation());
+        assertTrue(
+                RenderCacheDecision.evaluate(configuration, java.util.List.of()).stream()
+                        .allMatch(decision -> decision.decision().equals("NOT_EVALUATED")));
+    }
+
+    @Test
     void malformedOverridesAreRejectedWithoutClamping() {
         for (String invalid : new String[] {"-1", "+1", "01", " 1", "101"}) {
             System.setProperty("performanceWarmups", invalid);

@@ -1,5 +1,6 @@
 package io.github.mundanej.map.performance;
 
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Envelope;
@@ -10,11 +11,16 @@ import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.VectorMarkerSymbol;
+import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.ScreenGeometryOptimizationLimits;
 import io.github.mundanej.map.core.ScreenGeometryOptimizationOutcome;
 import io.github.mundanej.map.core.ScreenGeometryOptimizer;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +61,41 @@ final class IndependentScreenGeometryWorkOracle {
         return java.util.Collections.unmodifiableMap(result);
     }
 
+    static Map<String, Map<String, Long>> deriveCacheCandidates(
+            EvidenceConfiguration.Profile profile) {
+        Map<String, Map<String, Long>> baseline = derive(profile);
+        LinkedHashMap<String, Map<String, Long>> result = new LinkedHashMap<>();
+        TemplateWork templates = templateWork(profile);
+        result.put(
+                "symbol-heavy-render-template-cache-cold",
+                templates.counters(baseline.get("symbol-heavy-render"), false));
+        result.put(
+                "symbol-heavy-render-template-cache-warm",
+                templates.counters(baseline.get("symbol-heavy-render"), true));
+        return java.util.Collections.unmodifiableMap(result);
+    }
+
+    private static TemplateWork templateWork(EvidenceConfiguration.Profile profile) {
+        TemplateWork result = new TemplateWork();
+        for (InMemoryLayer layer : FixtureCatalog.symbolLayers(profile)) {
+            for (Feature feature : layer.features()) {
+                addTemplateRequests(feature.symbol(), result);
+            }
+        }
+        return result;
+    }
+
+    private static void addTemplateRequests(Symbol symbol, TemplateWork result) {
+        if (symbol instanceof VectorMarkerSymbol vector) {
+            result.add(vector.path());
+        } else if (symbol instanceof CompositeSymbol composite) {
+            composite.children().forEach(child -> addTemplateRequests(child, result));
+        } else if (symbol instanceof SolidLineSymbol line) {
+            line.startMarker().ifPresent(marker -> addTemplateRequests(marker, result));
+            line.endMarker().ifPresent(marker -> addTemplateRequests(marker, result));
+        }
+    }
+
     private static Map<String, Long> symbols(EvidenceConfiguration.Profile profile) {
         List<InMemoryLayer> layers = FixtureCatalog.symbolLayers(profile);
         long features = layers.stream().mapToLong(layer -> layer.features().size()).sum();
@@ -64,9 +105,10 @@ final class IndependentScreenGeometryWorkOracle {
                 if (isPath(feature.geometry())) {
                     work.addDisabled(feature.geometry());
                 }
+                work.addVectorBuilds(vectorBuilds(feature.symbol()));
             }
         }
-        return work.counters(1, features);
+        return work.counters(1, features, true);
     }
 
     private static Map<String, Long> source(
@@ -91,7 +133,28 @@ final class IndependentScreenGeometryWorkOracle {
                 }
             }
         }
-        return work.counters(frames, records.size());
+        return work.counters(frames, records.size(), false);
+    }
+
+    private static long vectorBuilds(Symbol symbol) {
+        if (symbol instanceof VectorMarkerSymbol) {
+            return 1;
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            return composite.children().stream()
+                    .mapToLong(IndependentScreenGeometryWorkOracle::vectorBuilds)
+                    .sum();
+        }
+        if (symbol instanceof SolidLineSymbol line) {
+            return Math.addExact(
+                    line.startMarker()
+                            .map(IndependentScreenGeometryWorkOracle::vectorBuilds)
+                            .orElse(0L),
+                    line.endMarker()
+                            .map(IndependentScreenGeometryWorkOracle::vectorBuilds)
+                            .orElse(0L));
+        }
+        return 0;
     }
 
     private static Envelope envelope(List<FeatureRecord> records) {
@@ -232,6 +295,7 @@ final class IndependentScreenGeometryWorkOracle {
         private long culled;
         private long fallbacks;
         private long retainedBytes;
+        private long vectorBuilds;
 
         void addDisabled(Geometry geometry) {
             long coordinates = coordinateCount(geometry);
@@ -273,7 +337,11 @@ final class IndependentScreenGeometryWorkOracle {
             }
         }
 
-        Map<String, Long> counters(long frames, long features) {
+        void addVectorBuilds(long count) {
+            vectorBuilds = Math.addExact(vectorBuilds, count);
+        }
+
+        Map<String, Long> counters(long frames, long features, boolean includeVectorBuilds) {
             LinkedHashMap<String, Long> result = new LinkedHashMap<>();
             result.put("frames", frames);
             result.put("features", features);
@@ -285,7 +353,104 @@ final class IndependentScreenGeometryWorkOracle {
             result.put("culledPaths", culled);
             result.put("fallbackPlans", fallbacks);
             result.put("retainedRenderGeometryBytes", retainedBytes);
+            if (includeVectorBuilds) {
+                result.put("vectorTemplateBuilds", vectorBuilds);
+            }
             return java.util.Collections.unmodifiableMap(result);
         }
+    }
+
+    private static final class TemplateWork {
+        private final IdentityHashMap<VectorPath, Boolean> paths = new IdentityHashMap<>();
+        private long requests;
+        private long builds;
+        private long buildUnits;
+        private long bytes;
+
+        void add(VectorPath path) {
+            requests = Math.addExact(requests, 1);
+            if (paths.put(path, Boolean.TRUE) != null) {
+                return;
+            }
+            builds = Math.addExact(builds, 1);
+            long fillCommands = 0;
+            long fillOrdinates = 0;
+            long subpathCommands = 0;
+            long subpathOrdinates = 0;
+            for (int index = 0; index < path.commandCount(); index++) {
+                var command = path.commandAt(index);
+                if (command == io.github.mundanej.map.api.VectorPathCommand.MOVE_TO) {
+                    subpathCommands = 0;
+                    subpathOrdinates = 0;
+                }
+                subpathCommands = Math.addExact(subpathCommands, 1);
+                subpathOrdinates = Math.addExact(subpathOrdinates, command.arity());
+                if (command == io.github.mundanej.map.api.VectorPathCommand.CLOSE) {
+                    fillCommands = Math.addExact(fillCommands, subpathCommands);
+                    fillOrdinates = Math.addExact(fillOrdinates, subpathOrdinates);
+                }
+            }
+            buildUnits =
+                    Math.addExact(
+                            buildUnits,
+                            Math.addExact(
+                                    Math.addExact(path.commandCount(), path.ordinateCount()),
+                                    Math.addExact(fillCommands, fillOrdinates)));
+            long weight = 128L;
+            weight = Math.addExact(weight, path.commandCount());
+            weight = Math.addExact(weight, Math.multiplyExact((long) path.ordinateCount(), 8L));
+            weight = Math.addExact(weight, path.commandCount());
+            weight = Math.addExact(weight, Math.multiplyExact((long) path.ordinateCount(), 8L));
+            weight = Math.addExact(weight, fillCommands);
+            weight = Math.addExact(weight, Math.multiplyExact(fillOrdinates, 8L));
+            bytes = Math.addExact(bytes, weight);
+        }
+
+        Map<String, Long> counters(Map<String, Long> work, boolean warm) {
+            LinkedHashMap<String, Long> result = new LinkedHashMap<>(work);
+            appendCacheCounters(
+                    result,
+                    "vectorTemplate",
+                    requests,
+                    warm ? requests : requests - builds,
+                    warm ? 0L : builds,
+                    warm ? 0L : builds,
+                    warm ? 0L : builds,
+                    0L,
+                    warm ? 0L : buildUnits,
+                    builds,
+                    bytes,
+                    builds,
+                    bytes);
+            return java.util.Collections.unmodifiableMap(result);
+        }
+    }
+
+    private static void appendCacheCounters(
+            Map<String, Long> result,
+            String prefix,
+            long requests,
+            long hits,
+            long misses,
+            long builds,
+            long admissions,
+            long evictions,
+            long buildUnits,
+            long entries,
+            long bytes,
+            long peakEntries,
+            long peakBytes) {
+        result.put(prefix + "CacheRequests", requests);
+        result.put(prefix + "CacheHits", hits);
+        result.put(prefix + "CacheMisses", misses);
+        result.put(prefix + "Builds", builds);
+        result.put(prefix + "CacheAdmissions", admissions);
+        result.put(prefix + "CacheEvictions", evictions);
+        result.put(prefix + "CacheBypasses", 0L);
+        result.put(prefix + "BuildUnits", buildUnits);
+        result.put(prefix + "CacheCurrentEntries", entries);
+        result.put(prefix + "CacheCurrentLogicalBytes", bytes);
+        result.put(prefix + "CachePeakEntries", peakEntries);
+        result.put(prefix + "CachePeakLogicalBytes", peakBytes);
     }
 }

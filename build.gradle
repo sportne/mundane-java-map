@@ -355,6 +355,12 @@ tasks.register('performanceEvidence') {
     dependsOn ':modules:mundane-map-performance-tests:runPerformanceEvidence'
 }
 
+tasks.register('performanceQuick') {
+    group = 'verification'
+    description = 'Runs the separate noncanonical quick performance-evidence lane.'
+    dependsOn ':modules:mundane-map-performance-tests:runQuickPerformanceEvidence'
+}
+
 def shapefileCorpusProject = project(':modules:mundane-map-io-shapefile')
 def shapefileCorpusOwnedTasks = [
     'compileShapefileCorpusTestJava',

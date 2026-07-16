@@ -30,6 +30,29 @@ final class VectorPath2D {
         return new Converted(stroke, fill);
     }
 
+    static StreamCounts preflight(VectorPath source) {
+        Objects.requireNonNull(source, "source");
+        long fillCommands = 0;
+        long fillOrdinates = 0;
+        long subpathCommands = 0;
+        long subpathOrdinates = 0;
+        for (int index = 0; index < source.commandCount(); index++) {
+            VectorPathCommand command = source.commandAt(index);
+            if (command == VectorPathCommand.MOVE_TO) {
+                subpathCommands = 0;
+                subpathOrdinates = 0;
+            }
+            subpathCommands = Math.addExact(subpathCommands, 1);
+            subpathOrdinates = Math.addExact(subpathOrdinates, command.arity());
+            if (command == VectorPathCommand.CLOSE) {
+                fillCommands = Math.addExact(fillCommands, subpathCommands);
+                fillOrdinates = Math.addExact(fillOrdinates, subpathOrdinates);
+            }
+        }
+        return new StreamCounts(
+                source.commandCount(), source.ordinateCount(), fillCommands, fillOrdinates);
+    }
+
     private static void appendRange(
             Path2D.Double target,
             VectorPath source,
@@ -71,4 +94,15 @@ final class VectorPath2D {
     }
 
     record Converted(Path2D.Double strokePath, Path2D.Double fillPath) {}
+
+    record StreamCounts(
+            long strokeCommands, long strokeOrdinates, long fillCommands, long fillOrdinates) {
+        long strokeUnits() {
+            return Math.addExact(strokeCommands, strokeOrdinates);
+        }
+
+        long fillUnits() {
+            return Math.addExact(fillCommands, fillOrdinates);
+        }
+    }
 }

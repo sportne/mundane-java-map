@@ -210,6 +210,18 @@ public final class MechanismFixtures {
         }
     }
 
+    public static final class ThreadWorkerUse {
+        public void start(Runnable action) {
+            new Thread(action).start();
+        }
+    }
+
+    public static final class ThreadInterruptRestorationUse {
+        public void restore() {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     public static final class PublicCacheMetrics {
         public long hits() {
             return 0;

@@ -26,11 +26,19 @@ final class TestMapViews {
 
     static MapView identity(
             SymbolRendererRegistry renderers, ScreenGeometryOptimizationMode optimizationMode) {
+        return identity(renderers, optimizationMode, AwtRenderCacheMode.DISABLED);
+    }
+
+    static MapView identity(
+            SymbolRendererRegistry renderers,
+            ScreenGeometryOptimizationMode optimizationMode,
+            AwtRenderCacheMode cacheMode) {
         return new MapView(
                 CrsRegistry.level1(),
                 CrsDefinitions.EPSG_3857,
                 CrsDefinitions.EPSG_3857,
                 renderers,
-                optimizationMode);
+                optimizationMode,
+                cacheMode);
     }
 }

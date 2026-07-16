@@ -230,9 +230,18 @@ architectural requirement. Level 1 is complete only when
   canonical 39-scenario BASELINE run reduced exact rendered-coordinate work in every optimized pair,
   but median/p95 timings were slower on this host; those results are descriptive evidence for G7-004,
   not an automatic cache, tuning switch, or performance claim.
-- Establish repeatable large-data and JFR evidence before optimization.
-- Add a packed spatial index, viewport queries, clipping, and scale-aware simplification, then retain
-  only private bounded render-cache candidates that pass predeclared evidence rules.
+- G7-004 moves both evidence Java processes, their ordered staged runtime classpaths, and generated
+  fixture workspaces into invocation-unique native `/tmp` trees before timing, then safely returns only
+  completed reports to the project build tree. The separate `performanceQuick` lane runs the full
+  reduced-cardinality SMOKE scenario set with fixed one/two iterations for an under-five-minute local
+  loop; it is always investigative and `NOT_EVALUATED`, remains outside every other lane, and cannot
+  replace the full BASELINE evidence used for one-time cache decisions.
+- G7-004 is implemented and verified. The canonical `/tmp`-native BASELINE run completed in 2m15s.
+  Warm screen-plan pan produced zero hits and 6,104 evictions, so that candidate was removed in full.
+  The vector-template candidate reduced the unchanged symbol median from 21.68 ms to 18.69 ms cold
+  and 18.39 ms warm, with nine retained entries/4,869 logical bytes and zero eviction/bypass, so the
+  private AWT partition is retained at 512 entries, 4 MiB total, and 256 KiB per entry. No cache API,
+  tuning switch, raster duplication, or native acceleration was added. G7 is complete.
 - Do not add a custom native performance library without separate benchmark evidence and a new
   decision. See the [G7 task set](tasks/README.md#g7--performance-evidence-and-optimization).
 

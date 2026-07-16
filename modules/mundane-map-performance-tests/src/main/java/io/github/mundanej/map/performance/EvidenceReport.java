@@ -19,18 +19,21 @@ final class EvidenceReport {
     private final List<FixtureFact> fixtures;
     private final List<ScenarioFact> scenarios;
     private final List<TimingComparison> comparisons;
+    private final List<RenderCacheDecision> cacheDecisions;
 
     private EvidenceReport(
             EvidenceConfiguration configuration,
             Map<String, String> environment,
             List<FixtureFact> fixtures,
             List<ScenarioFact> scenarios,
-            List<TimingComparison> comparisons) {
+            List<TimingComparison> comparisons,
+            List<RenderCacheDecision> cacheDecisions) {
         this.configuration = configuration;
         this.environment = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(environment));
         this.fixtures = List.copyOf(fixtures);
         this.scenarios = List.copyOf(scenarios);
         this.comparisons = List.copyOf(comparisons);
+        this.cacheDecisions = List.copyOf(cacheDecisions);
     }
 
     static EvidenceReport capture(
@@ -49,7 +52,8 @@ final class EvidenceReport {
                 environment(),
                 FixtureCatalog.facts(configuration.profile()),
                 facts,
-                pairedComparisons(samples));
+                pairedComparisons(samples),
+                RenderCacheDecision.evaluate(configuration, samples));
     }
 
     byte[] json() {
@@ -94,6 +98,24 @@ final class EvidenceReport {
         for (int index = 0; index < comparisons.size(); index++) {
             appendComparisonJson(result, comparisons.get(index));
             result.append(index + 1 == comparisons.size() ? "\n" : ",\n");
+        }
+        result.append("  ],\n  \"renderCacheDecisions\": [\n");
+        for (int index = 0; index < cacheDecisions.size(); index++) {
+            RenderCacheDecision decision = cacheDecisions.get(index);
+            result.append("    {\"candidate\": \"")
+                    .append(decision.candidate())
+                    .append("\", \"decision\": \"")
+                    .append(decision.decision())
+                    .append("\", \"checks\": {");
+            int check = 0;
+            for (Map.Entry<String, Boolean> entry : decision.checks().entrySet()) {
+                if (check++ > 0) {
+                    result.append(", ");
+                }
+                result.append('\"').append(entry.getKey()).append("\": ").append(entry.getValue());
+            }
+            result.append("}}");
+            result.append(index + 1 == cacheDecisions.size() ? "\n" : ",\n");
         }
         result.append("  ]\n}\n");
         return result.toString().getBytes(StandardCharsets.UTF_8);
@@ -223,7 +245,31 @@ final class EvidenceReport {
                     .append(comparison.p95DeltaNanos())
                     .append('\n');
         }
+        result.append("\n## Render-cache decisions\n");
+        for (RenderCacheDecision decision : cacheDecisions) {
+            result.append("\n### `")
+                    .append(decision.candidate())
+                    .append("`\n\n- Decision: `")
+                    .append(decision.decision())
+                    .append("`\n- Checks: ");
+            appendMarkdownChecks(result, decision.checks());
+            result.append('\n');
+        }
         return result.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static void appendMarkdownChecks(StringBuilder result, Map<String, Boolean> checks) {
+        if (checks.isEmpty()) {
+            result.append("not evaluated");
+            return;
+        }
+        int index = 0;
+        for (Map.Entry<String, Boolean> entry : checks.entrySet()) {
+            if (index++ > 0) {
+                result.append(", ");
+            }
+            result.append(entry.getKey()).append('=').append(entry.getValue());
+        }
     }
 
     static List<TimingComparison> pairedComparisons(List<EvidenceSample> samples) {

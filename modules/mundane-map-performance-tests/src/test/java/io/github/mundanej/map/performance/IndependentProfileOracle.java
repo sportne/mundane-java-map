@@ -89,6 +89,10 @@ final class IndependentProfileOracle {
             result.put("dense-vector-render-optimized", result.get("dense-vector-render"));
             result.put("vector-pan-sequence-optimized", result.get("vector-pan-sequence"));
             result.put("vector-zoom-sequence-optimized", result.get("vector-zoom-sequence"));
+            result.put(
+                    "symbol-heavy-render-template-cache-cold", result.get("symbol-heavy-render"));
+            result.put(
+                    "symbol-heavy-render-template-cache-warm", result.get("symbol-heavy-render"));
             return Map.copyOf(result);
         }
     }

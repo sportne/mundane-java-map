@@ -100,12 +100,24 @@ class ArchitectureRulesTest {
         assertFalse(moduleBuild.contains("mundane-map.publishing-conventions"));
         assertTrue(moduleBuild.contains("verifyPerformanceLaneIsolation"));
         assertTrue(moduleBuild.contains("runPerformanceEvidence"));
+        assertTrue(moduleBuild.contains("runQuickPerformanceEvidence"));
+        assertTrue(moduleBuild.contains("configureNativeEvidenceExecution"));
+        assertTrue(moduleBuild.contains("stageRuntimeClasspath"));
+        assertTrue(moduleBuild.contains("Path.of('/tmp')"));
+        assertTrue(moduleBuild.contains("performanceProfile: 'SMOKE'"));
+        assertTrue(moduleBuild.contains("performanceWarmups: '1'"));
+        assertTrue(moduleBuild.contains("performanceMeasurements: '2'"));
+        assertTrue(moduleBuild.contains("outputs.upToDateWhen { false }"));
         assertTrue(moduleBuild.contains("performanceJfr"));
         String root = Files.readString(rootBuild);
         assertTrue(root.contains("tasks.register('performanceEvidence')"));
         assertTrue(
                 root.contains(
                         "dependsOn ':modules:mundane-map-performance-tests:runPerformanceEvidence'"));
+        assertTrue(root.contains("tasks.register('performanceQuick')"));
+        assertTrue(
+                root.contains(
+                        "dependsOn ':modules:mundane-map-performance-tests:runQuickPerformanceEvidence'"));
 
         List<String> sourceText;
         try (var paths = Files.walk(performanceSources)) {
@@ -234,6 +246,68 @@ class ArchitectureRulesTest {
         assertTrue(
                 bridgeConsumersOutsidePerformance.isEmpty(),
                 bridgeConsumersOutsidePerformance::toString);
+    }
+
+    @Test
+    void renderCacheIsOnePrivateAwtInstanceOwnerAndAddsNoRasterOrPublicSurface() {
+        ModuleDescriptor awt = moduleEndingWith("mundane-map-awt");
+        JavaClasses awtClasses = classesByModule.get(awt);
+        JavaClass owner = awtClasses.get("io.github.mundanej.map.awt.AwtRenderCache");
+        JavaClass mapView = awtClasses.get("io.github.mundanej.map.awt.MapView");
+        assertFalse(owner.getModifiers().contains(JavaModifier.PUBLIC));
+        var ownerFields =
+                mapView.getFields().stream()
+                        .filter(field -> field.getRawType().equals(owner))
+                        .toList();
+        assertEquals(1, ownerFields.size(), "MapView must own exactly one AWT render cache");
+        assertTrue(
+                ownerFields
+                        .getFirst()
+                        .getModifiers()
+                        .containsAll(Set.of(JavaModifier.PRIVATE, JavaModifier.FINAL)),
+                "The AWT render cache owner must be one private final MapView instance field");
+        assertFalse(ownerFields.getFirst().getModifiers().contains(JavaModifier.STATIC));
+        for (String internalType :
+                List.of(
+                        "io.github.mundanej.map.awt.AwtRenderCacheMode",
+                        "io.github.mundanej.map.awt.CachePartitionMetrics",
+                        "io.github.mundanej.map.awt.RenderCachePaintMetrics")) {
+            assertFalse(
+                    awtClasses.get(internalType).getModifiers().contains(JavaModifier.PUBLIC),
+                    internalType);
+        }
+        assertTrue(
+                owner.getDirectDependenciesFromSelf().stream()
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .noneMatch(
+                                name ->
+                                        name.contains("Raster")
+                                                || name.equals("java.awt.image.BufferedImage")
+                                                || name.startsWith("java.util.concurrent.")),
+                "The render cache must not duplicate raster pixels or add workers");
+        List<String> publicCacheSurface =
+                awtClasses.stream()
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .flatMap(type -> type.getMethods().stream())
+                        .filter(method -> method.getModifiers().contains(JavaModifier.PUBLIC))
+                        .filter(
+                                method ->
+                                        method.getName()
+                                                .toLowerCase(java.util.Locale.ROOT)
+                                                .contains("cache"))
+                        .map(method -> method.getFullName())
+                        .sorted()
+                        .toList();
+        assertTrue(publicCacheSurface.isEmpty(), publicCacheSurface::toString);
+        List<String> outsideAwtOwners =
+                classesByModule.entrySet().stream()
+                        .filter(entry -> !entry.getKey().equals(awt))
+                        .flatMap(entry -> entry.getValue().stream())
+                        .flatMap(type -> type.getFields().stream())
+                        .filter(field -> field.getRawType().getName().contains("AwtRenderCache"))
+                        .map(field -> field.getFullName())
+                        .toList();
+        assertTrue(outsideAwtOwners.isEmpty(), outsideAwtOwners::toString);
     }
 
     @Test
@@ -376,29 +450,10 @@ class ArchitectureRulesTest {
                                 type ->
                                         type.getSimpleName().equals("MapView")
                                                 || type.getSimpleName().equals("MapLayerBinding")
+                                                || type.getSimpleName().equals("EdtCompletion")
                                                 || type.getSimpleName().startsWith("AwtSymbol"))
                         .toList();
-        List<String> hiddenWorkers =
-                awtComposition.stream()
-                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
-                        .map(
-                                dependency ->
-                                        dependency
-                                                .getTargetClass()
-                                                .getBaseComponentType()
-                                                .getName())
-                        .filter(
-                                target ->
-                                        target.equals("java.lang.Thread")
-                                                || target.startsWith(
-                                                        "java.util.concurrent.Executor")
-                                                || target.startsWith("java.util.concurrent.Flow")
-                                                || target.startsWith("java.util.concurrent.Future")
-                                                || target.startsWith(
-                                                        "java.util.concurrent.CompletableFuture"))
-                        .distinct()
-                        .sorted()
-                        .toList();
+        List<String> hiddenWorkers = ArchitecturePolicy.workerCreationViolations(awtComposition);
         List<String> retainedRecords =
                 mapView.getFields().stream()
                         .filter(
@@ -1098,6 +1153,19 @@ class ArchitectureRulesTest {
                 fixture("MechanismFixtures$ImmutableCatalogAndInstanceRegistryUse");
         assertTrue(
                 ArchitecturePolicy.prohibitedMechanismViolations(List.of(instanceRegistry))
+                        .isEmpty());
+    }
+
+    @Test
+    void workerPolicyRejectsCreationButAllowsInterruptRestoration() {
+        JavaClass threadWorker = fixture("MechanismFixtures$ThreadWorkerUse");
+        JavaClass executorWorker = fixture("MechanismFixtures$CacheWorkerUse");
+        assertFalse(ArchitecturePolicy.workerCreationViolations(List.of(threadWorker)).isEmpty());
+        assertFalse(ArchitecturePolicy.workerCreationViolations(List.of(executorWorker)).isEmpty());
+
+        JavaClass interruptRestoration = fixture("MechanismFixtures$ThreadInterruptRestorationUse");
+        assertTrue(
+                ArchitecturePolicy.workerCreationViolations(List.of(interruptRestoration))
                         .isEmpty());
     }
 

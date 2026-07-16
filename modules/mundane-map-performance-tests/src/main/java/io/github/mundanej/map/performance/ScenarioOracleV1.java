@@ -104,6 +104,16 @@ final class ScenarioOracleV1 {
             alias(result, profile, "dense-vector-render-optimized", "dense-vector-render");
             alias(result, profile, "vector-pan-sequence-optimized", "vector-pan-sequence");
             alias(result, profile, "vector-zoom-sequence-optimized", "vector-zoom-sequence");
+            alias(
+                    result,
+                    profile,
+                    "symbol-heavy-render-template-cache-cold",
+                    "symbol-heavy-render");
+            alias(
+                    result,
+                    profile,
+                    "symbol-heavy-render-template-cache-warm",
+                    "symbol-heavy-render");
         }
         return Map.copyOf(result);
     }

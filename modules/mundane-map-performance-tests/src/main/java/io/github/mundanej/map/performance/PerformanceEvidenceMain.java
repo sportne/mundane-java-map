@@ -21,7 +21,7 @@ public final class PerformanceEvidenceMain {
             throw new IllegalArgumentException("Performance evidence accepts no command arguments");
         }
         List<String> ids = ScenarioRegistry.ids();
-        if (ids.size() != 39 || new HashSet<>(ids).size() != ids.size()) {
+        if (ids.size() != 41 || new HashSet<>(ids).size() != ids.size()) {
             throw new IllegalStateException("Performance scenario registry is invalid");
         }
         EvidenceConfiguration configuration = EvidenceConfiguration.system(ids);

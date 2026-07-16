@@ -75,7 +75,11 @@ final class ScreenGeometryWorkOracleV1 {
     private static Map<String, Map<String, Long>> frozen() {
         LinkedHashMap<String, Map<String, Long>> result = new LinkedHashMap<>();
         add(result, "SMOKE", "dense-vector-render", work(1, 24, 2_080, 2_080, 2_080, 32, 0, 0, 0));
-        add(result, "SMOKE", "symbol-heavy-render", work(1, 256, 288, 288, 288, 32, 0, 0, 0));
+        add(
+                result,
+                "SMOKE",
+                "symbol-heavy-render",
+                withBuilds(work(1, 256, 288, 288, 288, 32, 0, 0, 0), "vectorTemplate", 272));
         add(result, "SMOKE", "vector-pan-sequence", work(4, 24, 8_320, 8_320, 8_320, 128, 0, 0, 0));
         add(result, "SMOKE", "vector-zoom-sequence", work(4, 24, 6_512, 6_512, 6_512, 64, 0, 0, 0));
         alias(result, "SMOKE", "dense-vector-render-indexed", "dense-vector-render");
@@ -115,7 +119,10 @@ final class ScreenGeometryWorkOracleV1 {
                 result,
                 "BASELINE",
                 "symbol-heavy-render",
-                work(1, 4_096, 4_608, 4_608, 4_608, 512, 0, 0, 0));
+                withBuilds(
+                        work(1, 4_096, 4_608, 4_608, 4_608, 512, 0, 0, 0),
+                        "vectorTemplate",
+                        4_352));
         add(
                 result,
                 "BASELINE",
@@ -191,6 +198,13 @@ final class ScreenGeometryWorkOracleV1 {
         result.put("culledPaths", culledPaths);
         result.put("fallbackPlans", fallbackPlans);
         result.put("retainedRenderGeometryBytes", retainedRenderGeometryBytes);
+        return Map.copyOf(result);
+    }
+
+    private static Map<String, Long> withBuilds(
+            Map<String, Long> counters, String prefix, long builds) {
+        LinkedHashMap<String, Long> result = new LinkedHashMap<>(counters);
+        result.put(prefix + "Builds", builds);
         return Map.copyOf(result);
     }
 }
