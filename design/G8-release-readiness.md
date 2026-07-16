@@ -344,7 +344,8 @@ parallel branches, this task writes the exact provisional Native Image statement
 > approved. Windows, macOS, Linux AArch64, other distributions, and cross-platform compatibility are
 > unverified.
 
-G8-004, which runs only after G8-003 has joined both branches, is the sole owner that replaces this
+G8-001 and G8-003 are independent evidence branches after this review. G8-004 depends explicitly on
+both and is the sole owner that replaces this
 status with G8-001's recorded evidence and final approved support wording. Architecture rationale
 stays in `DESIGN.md`; README remains a concise consumer entry point and no `docs/` tree is created.
 
@@ -558,7 +559,8 @@ root task is always-run/non-cacheable because it proves isolation and process be
 Before the valid run, a separate copied project and newly empty Gradle home omit the repository
 property and must fail before resolution with exact settings invariant
 `map.consumerRepository must name an absolute existing directory`. A second fresh home performs the
-real run. The child never consumes a developer cache, workspace project, included build, public
+wrong-existing-repository control; a third fresh home performs the real run. The child never consumes
+a developer cache, workspace project, included build, public
 repository, or prior negative-run state.
 
 ### Real public consumer assertions
@@ -585,9 +587,16 @@ Only after all assertions does it print `mundane-map consumer smoke: OK`.
 ### Verification and simplicity
 
 `publicationDryRun` includes verifier unit/functional tests, clean staging, and exact artifact
-validation. `consumerSmoke` depends on it and adds the two isolated child invocations. Naming both in
+validation. `consumerSmoke` depends on it and adds the three isolated child invocations. Naming both in
 one Gradle command performs the work once. The lane remains outside `qualityGate`; native, corpus,
 render-regression, and performance support are neither published nor executed.
+
+The implemented lane keeps this boundary literal: the five-row contract is the sole release table,
+the actual repository-writing tasks depend on cleanup and are ordered in table order, and the same
+rows drive POM/module/archive checks and exact consumer resolution. Mutation controls regenerate
+sidecars after semantic tampering so license, dependency, metadata, path, and ZIP-entry checks are
+proved independently of ordinary checksum failure. Snapshot and non-snapshot repository layouts are
+both exercised; a successful validation emits the manifest below before either isolated child runs.
 
 Tests cover positive snapshot/release layouts; missing main/source/Javadocs/POM/module/license;
 metadata/dependency/version/checksum mutations; forbidden/unsafe/duplicate entries; stale sentinel;

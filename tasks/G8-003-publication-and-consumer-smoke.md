@@ -1,7 +1,7 @@
 # G8-003 — Publication and consumer smoke
 
-Status: Proposed
-Depends on: G8-001, G8-002
+Status: Complete
+Depends on: G8-002
 Gate: G8
 Type: AFK
 
@@ -62,7 +62,8 @@ metadata/content, and introduces `consumerSmoke` for downstream evidence.
 - Runtime assertions prove dependencies/resources are resolvable from artifacts, diagnostics are
   usable, and source/cursor/raster lifecycles close correctly.
 - `consumerSmoke` depends on validated clean staging, first proves the fixed missing-repository
-  diagnostic, then runs the valid consumer with a second fresh home, asserts one final success marker,
+  diagnostic, proves a wrong existing repository with a second fresh home, then runs the valid
+  consumer with a third fresh home, asserts one final success marker,
   and remains separate from `qualityGate`.
 - Validator mutation controls fail with stable build tags for missing/extra artifacts, classifiers,
   dependencies, license, metadata, checksum, unsafe content, stale version, or repository.
@@ -88,3 +89,10 @@ git diff --check
 The template is tiny, has no wrapper or external runtime dependency, and is not included in the main
 settings/project inventory. `publicationDryRun consumerSmoke` names one combined release lane;
 `consumerSmoke` is not part of the normal gate.
+
+Implementation evidence covers both unique-snapshot and literal release layouts. The release
+contract drives real-task ordering, POM/module/archive verification, mutation controls, the
+reproducible artifact manifest, and exact downstream component assertions. The standalone consumer
+uses three fresh homes and no workspace substitution or external repository. G8-001 remains Proposed:
+this task completes the independently executable publication branch but does not claim the pending
+Linux Native Image CI checkpoint or Level 1 release readiness.

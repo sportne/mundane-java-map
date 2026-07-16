@@ -1,0 +1,75 @@
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+
+plugins {
+    id 'application'
+}
+
+group = 'consumer.test'
+version = '1'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+}
+
+String mapVersion = providers.gradleProperty('map.consumerVersion').get()
+dependencies {
+    implementation "io.github.mundanej:mundane-map-awt:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-shapefile:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-image:${mapVersion}"
+}
+
+application {
+    mainClass = 'consumer.MundaneMapConsumerSmoke'
+}
+
+def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
+    def runtime = configurations.runtimeClasspath
+    inputs.files(runtime)
+    doLast {
+        Set<String> modules = []
+        def rootIdentifier = runtime.incoming.resolutionResult.rootComponent.get().id
+        runtime.incoming.resolutionResult.allComponents.each { component ->
+            def identifier = component.id
+            if (identifier instanceof ProjectComponentIdentifier) {
+                if (identifier != rootIdentifier) {
+                    throw new GradleException(
+                            "consumer resolved a dependency project component: ${identifier}")
+                }
+            } else if (identifier instanceof ModuleComponentIdentifier) {
+                if (identifier.group != 'io.github.mundanej') {
+                    throw new GradleException("consumer resolved an external component: ${identifier}")
+                }
+                modules.add("${identifier.group}:${identifier.module}:${identifier.version}")
+            } else {
+                throw new GradleException("consumer resolved an unsupported component: ${identifier}")
+            }
+        }
+        Set<String> expected = [
+            "io.github.mundanej:mundane-map-api:${mapVersion}",
+            "io.github.mundanej:mundane-map-core:${mapVersion}",
+            "io.github.mundanej:mundane-map-awt:${mapVersion}",
+            "io.github.mundanej:mundane-map-io-shapefile:${mapVersion}",
+            "io.github.mundanej:mundane-map-io-image:${mapVersion}"
+        ] as Set
+        if (modules != expected) {
+            throw new GradleException(
+                    "consumer component mismatch: expected ${expected.sort()}, found ${modules.sort()}")
+        }
+    }
+}
+
+tasks.named('run') {
+    dependsOn verifyResolvedComponents
+    jvmArgs '-Djava.awt.headless=true'
+}
+
+tasks.register('smoke') {
+    dependsOn tasks.named('run')
+}

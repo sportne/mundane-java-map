@@ -259,8 +259,13 @@ architectural requirement. Level 1 is complete only when
   observed Level 1 surface. Fixed format-viewer identities, sensitive-path presentation tests, and
   captured WSLg launches cover the release-review checkpoint; final Native Image wording remains
   provisional while G8-001 awaits its required CI evidence.
-- Review publication metadata and staged downstream consumption in G8-003 after both G8 branches
-  join.
+- G8-003 is complete. One exact five-coordinate contract now serializes the real local-repository
+  writes after cleanup, validates snapshot/release POMs, module metadata, reproducible licensed
+  archives, strong checksums, and an immutable artifact manifest, then compiles and runs a fresh
+  offline Java 21 consumer from only the staged artifacts. This independently executable release
+  branch does not satisfy G8-001's pending Linux CI checkpoint.
+- G8-001 and G8-003 are independent evidence branches after G8-002. G8-004 explicitly depends on
+  both and is the only point that may join publication evidence with the pending native checkpoint.
 - Run normal, native, shapefile-corpus, rendering-regression, performance, and
   publication/consumer lanes separately before the release decision.
 - Reconcile every lane against one clean candidate SHA; G8-004 records `GO` or leaves Level 1

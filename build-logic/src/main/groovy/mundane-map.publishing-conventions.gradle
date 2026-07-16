@@ -2,6 +2,15 @@ plugins {
     id 'maven-publish'
 }
 
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    from(rootProject.layout.projectDirectory.file('LICENSE')) {
+        into 'META-INF'
+        rename { 'LICENSE' }
+    }
+}
+
 tasks.withType(Javadoc).configureEach {
     options.encoding = 'UTF-8'
     options.charSet = 'UTF-8'
@@ -35,6 +44,7 @@ publishing {
                     license {
                         name = 'BSD 3-Clause License'
                         url = 'https://opensource.org/license/bsd-3-clause'
+                        distribution = 'repo'
                     }
                 }
                 developers {
@@ -44,6 +54,7 @@ publishing {
                 }
                 scm {
                     url = 'https://github.com/sportne/mundane-java-map'
+                    connection = 'scm:git:https://github.com/sportne/mundane-java-map.git'
                 }
             }
         }

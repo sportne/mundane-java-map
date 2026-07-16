@@ -1,7 +1,7 @@
 # G8-004 — Level 1 release readiness
 
 Status: Proposed
-Depends on: G8-003
+Depends on: G8-001, G8-003
 Gate: G8
 Type: HITL
 

@@ -1,0 +1,35 @@
+import org.gradle.api.initialization.resolve.RepositoriesMode
+
+rootProject.name = 'mundane-map-consumer-smoke'
+
+String configuredRepository = providers.gradleProperty('map.consumerRepository').orNull
+java.nio.file.Path repository = null
+try {
+    if (configuredRepository != null) {
+        repository = java.nio.file.Path.of(configuredRepository)
+    }
+} catch (IllegalArgumentException ignored) {
+    // The common invariant below is intentionally the complete public failure.
+}
+if (repository == null
+        || !repository.isAbsolute()
+        || repository != repository.normalize()
+        || !java.nio.file.Files.isDirectory(repository)) {
+    throw new GradleException(
+            'map.consumerRepository must name an absolute existing directory')
+}
+if (!java.nio.file.Files.isDirectory(repository.resolve('io/github/mundanej'))) {
+    throw new GradleException(
+            'map.consumerRepository must contain the staged io.github.mundanej group')
+}
+String consumerVersion = providers.gradleProperty('map.consumerVersion').orNull
+if (consumerVersion == null || consumerVersion.isBlank()) {
+    throw new GradleException('map.consumerVersion must not be blank')
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        maven { url = repository.toUri() }
+    }
+}
