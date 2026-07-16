@@ -1,6 +1,6 @@
 # G8-004 — Level 1 release readiness
 
-Status: Proposed
+Status: Blocked
 Depends on: G8-001, G8-003
 Gate: G8
 Type: HITL
@@ -119,3 +119,39 @@ external requirement such as Linux CI/tooling, unresolved redistribution rights,
 maintainer approval. Linux x86_64 on the exact G8-001 lane is the required Native Image evidence;
 other platforms remain unverified. After the clean candidate commit, pause until the maintainer
 supplies the exact-SHA remote CI prerequisite; do not push or trigger it from this task.
+
+### Pre-candidate checkpoint
+
+- `candidateVersion`: `0.1.0` selected as the proposed strict release version; the default remains
+  `0.1.0-SNAPSHOT`.
+- `candidateRevision`: not yet selected. The release inputs in this task must first be reviewed and
+  committed, so no earlier SHA is eligible.
+- `decision`: `NO-GO` for this pre-candidate checkpoint. The immutable candidate and required remote
+  evidence do not exist yet; this is not a judgment that the implemented Level 1 surface is
+  unsuitable for release.
+- `externalCiPrerequisite`: `NO_EVIDENCE`. The one authorized final push has not occurred, so there
+  are no exact-candidate Native Image or normal-CI URLs.
+- `supportStatementApproved`: the proposed Java/toolkit/capability/limitation wording is now present
+  in `README.md` and `CHANGELOG.md`; final release approval remains tied to the evidence checkpoint.
+- `licenseProvenanceAudit`: locally reviewed. Published sources use the root BSD-3-Clause license,
+  each publication archive is required by G8-003 to carry its exact bytes, repository-authored G2/
+  G6/native/performance fixtures are identified as BSD-3-Clause, and the G5 corpus manifest maps
+  every component to either the carried BSD-3-Clause text or the carried Natural Earth public-domain
+  dedication. The Apache-2.0 Gradle wrapper and corpus remain source/test inputs rather than Maven
+  runtime contents. No redistributed material currently requires an additional `NOTICE`.
+- `artifactManifest`: not release evidence yet. G8-003 verifies the five-coordinate manifest shape,
+  checksums, metadata, reproducibility, and isolated consumer locally; candidate-version manifests
+  must be regenerated twice on the selected clean SHA.
+- `lanes`: all six are `NO_EVIDENCE` for release-decision purposes until they run independently on
+  the selected clean SHA. Development runs from earlier commits are intentionally not relabelled.
+- `knownLimitations`: Java 21; bounded two-dimensional read-only shapefiles; bounded PNG/JPEG with
+  explicit AWT decoding; EPSG:4326/EPSG:3857 only; no general CRS/raster reprojection; no portable
+  performance guarantee; Native Image claim limited to the exact Ubuntu 24.04 Linux x86_64 GraalVM
+  Java 21 lane; Level 2 capabilities remain excluded.
+- `blockingFindings`: exact-candidate Linux Native Image and normal CI URLs are unavailable before
+  the authorized final push. This is the real external blocker represented by `Status: Blocked`.
+- `taskRemoteActionsPerformed`: none.
+
+The maintainer-approved G8-004 design and proposed `0.1.0` profile are implemented as candidate
+inputs. This record is deliberately not the final evidence record and does not make G8 or Level 1
+complete.

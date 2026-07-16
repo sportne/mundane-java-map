@@ -57,10 +57,24 @@ interpolation invariants rather than byte-identical whole images. `performanceQu
 noncanonical iteration lane; only `performanceEvidence` produces canonical performance evidence.
 The offline lane verifies the complete normal gate from one isolated Maven-layout repository.
 
-Release verification targets GraalVM Java 21 on Ubuntu 24.04 Linux x86_64; Native Image
-compatibility remains unverified until the G8 Linux Native Image release-lane checkpoint is
-approved. Windows, macOS, Linux AArch64, other distributions, and cross-platform compatibility are
-unverified.
+## Level 1 support statement
+
+Published artifacts require Java 21. The Level 1 production runtime is JDK-only, with Swing and
+Java2D confined to `mundane-map-awt`; applications explicitly register renderers, raster decoders,
+and recognized CRS operations. The supported Level 1 surface comprises the bounded symbol/vector,
+interaction/measurement, source/CRS, read-only shapefile, PNG/JPEG/world-file, and evidence-backed
+performance profiles described below and in the [changelog](CHANGELOG.md).
+
+Release verification targets GraalVM Java 21 on Ubuntu 24.04 Linux x86_64. That Native Image claim
+becomes valid only for a release candidate whose exact build-and-run CI evidence is recorded at the
+G8 release checkpoint. Windows, macOS, Linux AArch64, other distributions, and cross-platform Native
+Image compatibility are not claimed without separate evidence.
+
+Binary parsers and image sources enforce explicit limits and return stable structured diagnostics;
+they do not promise recovery of arbitrary malformed input. The performance evidence is tied to its
+recorded scenarios and environment and is not a portable latency or throughput guarantee. General
+CRS transformation, raster reprojection, editing, export, arbitrary SVG, and the additional formats
+and adapters listed under Level 2 are outside the Level 1 support statement.
 
 ## Small example
 
@@ -123,5 +137,6 @@ diagnostics under fixed non-path source identities, and transfer source ownershi
 ## Design and roadmap
 
 - [DESIGN.md](DESIGN.md) indexes the compact architecture and approved decisions.
+- [CHANGELOG.md](CHANGELOG.md) records release capabilities, migrations, limits, and non-claims.
 - [ROADMAP.md](ROADMAP.md) separates the Level 1 release gates from Level 2 work.
 - [tasks/](tasks/) contains implementation-sized vertical slices and exact validation commands.

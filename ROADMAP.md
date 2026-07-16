@@ -266,6 +266,10 @@ architectural requirement. Level 1 is complete only when
   branch does not satisfy G8-001's pending Linux CI checkpoint.
 - G8-001 and G8-003 are independent evidence branches after G8-002. G8-004 explicitly depends on
   both and is the only point that may join publication evidence with the pending native checkpoint.
+- G8-004's proposed `0.1.0` support statement, changelog, limitation profile, and local license/
+  provenance audit are prepared. The task is Blocked—not complete—because the one authorized final
+  push has not yet produced exact-candidate Native Image and normal CI URLs or a six-lane evidence
+  matrix on one immutable SHA.
 - Run normal, native, shapefile-corpus, rendering-regression, performance, and
   publication/consumer lanes separately before the release decision.
 - Reconcile every lane against one clean candidate SHA; G8-004 records `GO` or leaves Level 1
