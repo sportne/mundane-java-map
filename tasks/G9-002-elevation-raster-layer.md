@@ -1,6 +1,6 @@
 # G9-002 — Elevation raster layer
 
-Status: Proposed
+Status: Complete
 Depends on: G9-001
 Gate: G9
 Type: AFK
@@ -86,3 +86,8 @@ git diff --check
 The approved design adds no cache: G9-007 must first show that direct bounded access is insufficient.
 Rendered-color bilinear filtering is not the public numeric position-query policy owned by G9-005.
 See `design/G9-elevation-and-dted.md` for the authoritative contracts and algorithms.
+
+Implemented as the four immutable API style values, one stateless core planner/rasterizer, one direct
+AWT elevation binding variant, and the synthetic viewer. The slice reuses Level 1 raster requests,
+pixels, resampling, limits, conversion, reports, cancellation, and presentation without introducing a
+`RasterSource` adapter, retained derived cache, format module, or DTED claim.

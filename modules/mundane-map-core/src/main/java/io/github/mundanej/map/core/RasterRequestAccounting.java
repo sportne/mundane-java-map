@@ -46,8 +46,23 @@ public final class RasterRequestAccounting {
      */
     public void validateWindow(RasterSourceMetadata metadata, RasterWindow window) {
         Objects.requireNonNull(metadata, "metadata");
+        validateWindow(metadata.width(), metadata.height(), window);
+    }
+
+    /**
+     * Validates that a strict window lies wholly inside explicit grid dimensions.
+     *
+     * @param columnCount authoritative positive grid width
+     * @param rowCount authoritative positive grid height
+     * @param window zero-based grid window to validate
+     * @throws SourceException when the window extends outside the grid
+     */
+    public void validateWindow(int columnCount, int rowCount, RasterWindow window) {
+        if (columnCount <= 0 || rowCount <= 0) {
+            throw new IllegalArgumentException("Grid dimensions must be positive");
+        }
         Objects.requireNonNull(window, "window");
-        if (window.endColumn() > metadata.width() || window.endRow() > metadata.height()) {
+        if (window.endColumn() > columnCount || window.endRow() > rowCount) {
             throw failure(
                     "RASTER_WINDOW_OUT_OF_RANGE",
                     "Raster window is outside source dimensions",
@@ -56,8 +71,8 @@ public final class RasterRequestAccounting {
                             "row", Integer.toString(window.row()),
                             "width", Integer.toString(window.width()),
                             "height", Integer.toString(window.height()),
-                            "rasterWidth", Integer.toString(metadata.width()),
-                            "rasterHeight", Integer.toString(metadata.height())));
+                            "rasterWidth", Integer.toString(columnCount),
+                            "rasterHeight", Integer.toString(rowCount)));
         }
     }
 

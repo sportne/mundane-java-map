@@ -1,11 +1,14 @@
 package io.github.mundanej.map.awt;
 
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.ElevationRasterStyle;
+import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FillSymbol;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MarkerSymbol;
+import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
@@ -23,7 +26,8 @@ public final class MapLayerBinding implements AutoCloseable {
     enum Kind {
         SNAPSHOT,
         FEATURE,
-        RASTER
+        RASTER,
+        ELEVATION
     }
 
     private final Kind kind;
@@ -32,10 +36,13 @@ public final class MapLayerBinding implements AutoCloseable {
     private final Layer layer;
     private final FeatureSource source;
     private final RasterSource rasterSource;
+    private final ElevationSource elevationSource;
     private final MarkerSymbol marker;
     private final LineSymbol line;
     private final FillSymbol fill;
     private final RasterRenderOptions rasterOptions;
+    private final ElevationRasterStyle elevationStyle;
+    private final RasterRequestLimits rasterLimits;
     private final boolean owned;
     private final AtomicReference<Operation> operation = new AtomicReference<>();
     private Object owner;
@@ -48,10 +55,13 @@ public final class MapLayerBinding implements AutoCloseable {
         this.name = requireText(layer.name(), "layer.name");
         this.source = null;
         this.rasterSource = null;
+        this.elevationSource = null;
         this.marker = null;
         this.line = null;
         this.fill = null;
         this.rasterOptions = null;
+        this.elevationStyle = null;
+        this.rasterLimits = null;
         this.owned = false;
     }
 
@@ -76,6 +86,9 @@ public final class MapLayerBinding implements AutoCloseable {
         this.rasterOptions = null;
         this.layer = null;
         this.rasterSource = null;
+        this.elevationSource = null;
+        this.elevationStyle = null;
+        this.rasterLimits = null;
         this.owned = owned;
     }
 
@@ -89,6 +102,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
         this.rasterSource = Objects.requireNonNull(source, "source");
+        this.elevationSource = null;
         if (source.isClosed()) {
             throw new IllegalStateException("source is closed");
         }
@@ -98,6 +112,35 @@ public final class MapLayerBinding implements AutoCloseable {
         this.line = null;
         this.fill = null;
         this.rasterOptions = Objects.requireNonNull(rasterOptions, "rasterOptions");
+        this.elevationStyle = null;
+        this.rasterLimits = null;
+        this.owned = owned;
+    }
+
+    private MapLayerBinding(
+            String id,
+            String name,
+            ElevationSource source,
+            ElevationRasterStyle style,
+            RasterRenderOptions rasterOptions,
+            RasterRequestLimits rasterLimits,
+            boolean owned) {
+        this.kind = Kind.ELEVATION;
+        this.id = requireText(id, "id");
+        this.name = requireText(name, "name");
+        this.elevationSource = Objects.requireNonNull(source, "source");
+        if (source.isClosed()) {
+            throw new IllegalStateException("source is closed");
+        }
+        this.elevationStyle = requireUnit(style, source);
+        this.rasterOptions = Objects.requireNonNull(rasterOptions, "rasterOptions");
+        this.rasterLimits = Objects.requireNonNull(rasterLimits, "rasterLimits");
+        this.layer = null;
+        this.source = null;
+        this.rasterSource = null;
+        this.marker = null;
+        this.line = null;
+        this.fill = null;
         this.owned = owned;
     }
 
@@ -226,6 +269,100 @@ public final class MapLayerBinding implements AutoCloseable {
     }
 
     /**
+     * Creates a caller-owned elevation binding with default raster presentation and limits.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source open caller-owned elevation source
+     * @param style immutable style whose unit matches the source
+     * @return unattached borrowed elevation binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank or the style unit differs
+     * @throws IllegalStateException if {@code source} is already closed
+     */
+    public static MapLayerBinding borrowedElevation(
+            String id, String name, ElevationSource source, ElevationRasterStyle style) {
+        return borrowedElevation(
+                id,
+                name,
+                source,
+                style,
+                RasterRenderOptions.defaults(),
+                RasterRequestLimits.LEVEL_1);
+    }
+
+    /**
+     * Creates a caller-owned elevation binding with explicit presentation and request limits.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source open caller-owned elevation source
+     * @param style immutable style whose unit matches the source
+     * @param options immutable rendered-color interpolation and opacity
+     * @param limits complete operation limits
+     * @return unattached borrowed elevation binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank or the style unit differs
+     * @throws IllegalStateException if {@code source} is already closed
+     */
+    public static MapLayerBinding borrowedElevation(
+            String id,
+            String name,
+            ElevationSource source,
+            ElevationRasterStyle style,
+            RasterRenderOptions options,
+            RasterRequestLimits limits) {
+        return new MapLayerBinding(id, name, source, style, options, limits, false);
+    }
+
+    /**
+     * Creates an owned elevation binding with default raster presentation and limits.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source open elevation source transferred to the binding
+     * @param style immutable style whose unit matches the source
+     * @return unattached owned elevation binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank or the style unit differs
+     * @throws IllegalStateException if {@code source} is already closed
+     */
+    public static MapLayerBinding ownedElevation(
+            String id, String name, ElevationSource source, ElevationRasterStyle style) {
+        return ownedElevation(
+                id,
+                name,
+                source,
+                style,
+                RasterRenderOptions.defaults(),
+                RasterRequestLimits.LEVEL_1);
+    }
+
+    /**
+     * Creates an owned elevation binding with explicit presentation and request limits.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source open elevation source transferred to the binding
+     * @param style immutable style whose unit matches the source
+     * @param options immutable rendered-color interpolation and opacity
+     * @param limits complete operation limits
+     * @return unattached owned elevation binding
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if text is blank or the style unit differs
+     * @throws IllegalStateException if {@code source} is already closed
+     */
+    public static MapLayerBinding ownedElevation(
+            String id,
+            String name,
+            ElevationSource source,
+            ElevationRasterStyle style,
+            RasterRenderOptions options,
+            RasterRequestLimits limits) {
+        return new MapLayerBinding(id, name, source, style, options, limits, true);
+    }
+
+    /**
      * Returns the stable layer identifier.
      *
      * @return non-blank identifier fixed at construction
@@ -276,6 +413,7 @@ public final class MapLayerBinding implements AutoCloseable {
     public void close() {
         FeatureSource closeFeatureSource = null;
         RasterSource closeRasterSource = null;
+        ElevationSource closeElevationSource = null;
         synchronized (this) {
             if (closed) {
                 return;
@@ -287,12 +425,15 @@ public final class MapLayerBinding implements AutoCloseable {
             if (owned) {
                 closeFeatureSource = source;
                 closeRasterSource = rasterSource;
+                closeElevationSource = elevationSource;
             }
         }
         if (closeFeatureSource != null) {
             closeFeatureSource.close();
         } else if (closeRasterSource != null) {
             closeRasterSource.close();
+        } else if (closeElevationSource != null) {
+            closeElevationSource.close();
         }
     }
 
@@ -312,6 +453,10 @@ public final class MapLayerBinding implements AutoCloseable {
         return rasterSource;
     }
 
+    ElevationSource elevationSource() {
+        return elevationSource;
+    }
+
     MarkerSymbol marker() {
         return marker;
     }
@@ -326,6 +471,14 @@ public final class MapLayerBinding implements AutoCloseable {
 
     RasterRenderOptions initialRasterOptions() {
         return rasterOptions;
+    }
+
+    ElevationRasterStyle initialElevationStyle() {
+        return elevationStyle;
+    }
+
+    RasterRequestLimits rasterLimits() {
+        return rasterLimits;
     }
 
     boolean owned() {
@@ -392,6 +545,15 @@ public final class MapLayerBinding implements AutoCloseable {
             throw new IllegalArgumentException(field + " must have role " + role);
         }
         return symbol;
+    }
+
+    private static ElevationRasterStyle requireUnit(
+            ElevationRasterStyle style, ElevationSource source) {
+        Objects.requireNonNull(style, "style");
+        if (style.colorRamp().unit() != source.metadata().elevationUnit()) {
+            throw new IllegalArgumentException("color-ramp unit must equal source elevation unit");
+        }
+        return style;
     }
 
     static final class Operation {

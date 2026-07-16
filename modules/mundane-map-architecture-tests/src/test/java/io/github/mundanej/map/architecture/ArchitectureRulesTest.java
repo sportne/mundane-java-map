@@ -540,8 +540,25 @@ class ArchitectureRulesTest {
         JavaClass metadata = apiClasses.get("io.github.mundanej.map.api.ElevationSourceMetadata");
         JavaClass limits = apiClasses.get("io.github.mundanej.map.api.ElevationSourceLimits");
         JavaClass unit = apiClasses.get("io.github.mundanej.map.api.ElevationUnit");
+        JavaClass stop = apiClasses.get("io.github.mundanej.map.api.ElevationColorStop");
+        JavaClass ramp = apiClasses.get("io.github.mundanej.map.api.ElevationColorRamp");
+        JavaClass hillshade = apiClasses.get("io.github.mundanej.map.api.ElevationHillshade");
+        JavaClass style = apiClasses.get("io.github.mundanej.map.api.ElevationRasterStyle");
         JavaClass packed = coreClasses.get("io.github.mundanej.map.core.PackedElevationGrid");
-        List<JavaClass> elevationTypes = List.of(source, metadata, limits, unit, packed);
+        JavaClass rasterization =
+                coreClasses.get("io.github.mundanej.map.core.ElevationRasterization");
+        List<JavaClass> elevationTypes =
+                List.of(
+                        source,
+                        metadata,
+                        limits,
+                        unit,
+                        stop,
+                        ramp,
+                        hillshade,
+                        style,
+                        packed,
+                        rasterization);
 
         assertFalse(RasterSource.class.isAssignableFrom(ElevationSource.class));
         assertEquals(Object.class.getName(), packed.getRawSuperclass().orElseThrow().getName());
@@ -597,6 +614,24 @@ class ArchitectureRulesTest {
         assertFalse(
                 Files.readString(settings).contains("mundane-map-io-dted"),
                 "G9-001 must not create an empty DTED module");
+        assertTrue(
+                rasterization.getFields().stream()
+                        .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                        .allMatch(field -> field.getModifiers().contains(JavaModifier.FINAL)),
+                "Elevation rasterization must remain stateless");
+        List<String> derivedStorage =
+                rasterization.getFields().stream()
+                        .filter(field -> field.getRawType().isArray())
+                        .map(field -> field.getFullName())
+                        .toList();
+        assertTrue(derivedStorage.isEmpty(), () -> String.join("\n", derivedStorage));
+        Set<String> supportProjects =
+                Set.of(System.getProperty("map.architecture.supportProjects").split(","));
+        assertTrue(supportProjects.contains(":examples:elevation-viewer"));
+        assertTrue(
+                modules.stream()
+                        .noneMatch(module -> module.path().equals(":examples:elevation-viewer")),
+                "The elevation viewer must remain outside the production architecture graph");
     }
 
     @Test

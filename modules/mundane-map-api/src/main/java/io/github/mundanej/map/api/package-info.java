@@ -1,6 +1,7 @@
 /**
  * Toolkit-neutral public contracts for geometry, symbols, interaction, coordinate reference
- * systems, bounded feature/raster/elevation sources, and structured diagnostics.
+ * systems, bounded feature/raster/elevation sources, elevation raster styles, and structured
+ * diagnostics.
  *
  * <p>Public values are immutable and defensively copy mutable arrays and collections. Geometry and
  * source coordinates use explicit x/y order in their declared CRS; logical screen coordinates use

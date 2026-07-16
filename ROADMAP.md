@@ -292,7 +292,11 @@ separately decomposed.
   one final push. The toolkit-neutral source, post-center metadata, typed limits/units, packed finite
   samples, structural no-data mask, diagnostics, and lifecycle are implemented without a format
   module or raster inheritance; this does not make the Level 1 release gate complete.
-- Render the shared elevation model through color ramps and optional hillshading next.
+- G9-002 is complete: immutable caller-supplied color ramps, explicit no-data styling, bounded
+  deterministic projected/geographic hillshading, post-support planning, sample-domain clipping,
+  and nearest/bilinear rendered-color resampling run through direct borrowed/owned AWT elevation
+  bindings and the synthetic no-DTED viewer. Elevation remains distinct from `RasterSource`, and no
+  derived cache or numeric position-query policy is introduced.
 - Add dependency-free `mundane-map-io-dted` support for Levels 0, 1, and 2 with bounded headers,
   dimensions, checksums, signed-magnitude samples, voids, position queries, licensed fixtures,
   memory/read evidence, and Native Image verification.

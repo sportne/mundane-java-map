@@ -10,6 +10,9 @@ import io.github.mundanej.map.api.CrsProblem;
 import io.github.mundanej.map.api.DiagnosticLocation;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.DiagnosticSeverity;
+import io.github.mundanej.map.api.ElevationRasterStyle;
+import io.github.mundanej.map.api.ElevationSource;
+import io.github.mundanej.map.api.ElevationSourceMetadata;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
@@ -71,6 +74,7 @@ import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.ElevationRasterization;
 import io.github.mundanej.map.core.FeatureQueryAccounting;
 import io.github.mundanej.map.core.HatchLayouts;
 import io.github.mundanej.map.core.HatchSegments;
@@ -223,6 +227,10 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     /** Identity-keyed view-owned raster presentation options. */
     private final IdentityHashMap<MapLayerBinding, RasterRenderOptions> rasterRenderOptions =
+            new IdentityHashMap<>();
+
+    /** Identity-keyed view-owned elevation styles. */
+    private final IdentityHashMap<MapLayerBinding, ElevationRasterStyle> elevationRasterStyles =
             new IdentityHashMap<>();
 
     /** Stable source reports keyed by layer identifier. */
@@ -631,10 +639,47 @@ public final class MapView extends JComponent implements AutoCloseable {
         Objects.requireNonNull(layerId, "layerId");
         Objects.requireNonNull(options, "options");
         MapLayerBinding binding = bindingById(bindings, layerId);
-        if (binding == null || binding.kind() != MapLayerBinding.Kind.RASTER) {
-            throw new IllegalArgumentException("layerId must identify an installed raster binding");
+        if (binding == null
+                || (binding.kind() != MapLayerBinding.Kind.RASTER
+                        && binding.kind() != MapLayerBinding.Kind.ELEVATION)) {
+            throw new IllegalArgumentException(
+                    "layerId must identify an installed raster or elevation binding");
         }
         rasterRenderOptions.put(binding, options);
+        repaint();
+    }
+
+    /**
+     * Replaces one installed elevation layer's immutable colorization style and repaints.
+     *
+     * <p>This method follows Swing's event-dispatch-thread mutation contract. It neither replaces
+     * nor closes the binding or source.
+     *
+     * @param layerId installed elevation layer identifier
+     * @param style immutable style whose ramp unit matches the source unit
+     * @throws NullPointerException if an argument is {@code null}
+     * @throws IllegalArgumentException if the identifier is not an installed elevation binding or
+     *     the ramp unit differs from the source unit
+     * @throws IllegalStateException if the view is closed or the caller is not on the
+     *     event-dispatch thread
+     */
+    public void setElevationRasterStyle(String layerId, ElevationRasterStyle style) {
+        requireOpen();
+        if (!EventQueue.isDispatchThread()) {
+            throw new IllegalStateException(
+                    "Elevation raster style must be changed on the event dispatch thread");
+        }
+        Objects.requireNonNull(layerId, "layerId");
+        Objects.requireNonNull(style, "style");
+        MapLayerBinding binding = bindingById(bindings, layerId);
+        if (binding == null || binding.kind() != MapLayerBinding.Kind.ELEVATION) {
+            throw new IllegalArgumentException(
+                    "layerId must identify an installed elevation binding");
+        }
+        if (style.colorRamp().unit() != binding.elevationSource().metadata().elevationUnit()) {
+            throw new IllegalArgumentException("color-ramp unit must equal source elevation unit");
+        }
+        elevationRasterStyles.put(binding, style);
         repaint();
     }
 
@@ -921,6 +966,11 @@ public final class MapView extends JComponent implements AutoCloseable {
                 projected = projected == null ? rasterBounds : projected.union(rasterBounds);
                 continue;
             }
+            if (binding.kind() == MapLayerBinding.Kind.ELEVATION) {
+                Envelope elevationBounds = binding.elevationSource().metadata().sampleBounds();
+                projected = projected == null ? elevationBounds : projected.union(elevationBounds);
+                continue;
+            }
             Optional<Envelope> extent;
             CrsOperation operation;
             if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
@@ -1081,6 +1131,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         bindings = List.of();
         resolvedFeatureBindings = Map.of();
         rasterRenderOptions.clear();
+        elevationRasterStyles.clear();
         if (renderCacheMode.enabled()) {
             try {
                 clearRenderCacheForClose();
@@ -2420,7 +2471,8 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private static void renderRasterLayer(
             Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
-        if (raster.placement().kind() == RasterGridPlacement.Kind.AFFINE) {
+        if (raster.placement().isPresent()
+                && raster.placement().orElseThrow().kind() == RasterGridPlacement.Kind.AFFINE) {
             renderAffineRasterLayer(graphics, raster, viewportSnapshot);
             return;
         }
@@ -2441,6 +2493,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         Graphics2D child = (Graphics2D) graphics.create();
         try {
+            applyRasterClip(child, raster, viewportSnapshot);
             child.setComposite(
                     AlphaComposite.getInstance(
                             AlphaComposite.SRC_OVER, (float) raster.options().opacity()));
@@ -2458,7 +2511,7 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private static void renderAffineRasterLayer(
             Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
-        var transform = raster.placement().affineTransform().orElseThrow();
+        var transform = raster.placement().orElseThrow().affineTransform().orElseThrow();
         RasterWindow window = raster.window();
         double left = window.column() - 0.5;
         double top = window.row() - 0.5;
@@ -2483,6 +2536,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         Graphics2D child = (Graphics2D) graphics.create();
         try {
+            applyRasterClip(child, raster, viewportSnapshot);
             child.setComposite(
                     AlphaComposite.getInstance(
                             AlphaComposite.SRC_OVER, (float) raster.options().opacity()));
@@ -2496,6 +2550,27 @@ public final class MapView extends JComponent implements AutoCloseable {
         } finally {
             child.dispose();
         }
+    }
+
+    private static void applyRasterClip(
+            Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
+        if (raster.clipMapBounds().equals(raster.mapBounds())) {
+            return;
+        }
+        Coordinate topLeft =
+                viewportSnapshot.worldToScreen(
+                        new Coordinate(
+                                raster.clipMapBounds().minX(), raster.clipMapBounds().maxY()));
+        Coordinate bottomRight =
+                viewportSnapshot.worldToScreen(
+                        new Coordinate(
+                                raster.clipMapBounds().maxX(), raster.clipMapBounds().minY()));
+        graphics.clip(
+                new Rectangle2D.Double(
+                        topLeft.x(),
+                        topLeft.y(),
+                        bottomRight.x() - topLeft.x(),
+                        bottomRight.y() - topLeft.y()));
     }
 
     private AwtLogicalPaintPresence legacyPresence(
@@ -4254,6 +4329,14 @@ public final class MapView extends JComponent implements AutoCloseable {
                                                 viewportSnapshot,
                                                 rasterRenderOptions.get(binding))
                                         : emptyRasterSnapshot(binding.id());
+                        case ELEVATION ->
+                                readRasters
+                                        ? captureElevationSource(
+                                                binding,
+                                                viewportSnapshot,
+                                                rasterRenderOptions.get(binding),
+                                                elevationRasterStyles.get(binding))
+                                        : emptyRasterSnapshot(binding.id());
                     });
         }
         return new ViewContentSnapshot(List.copyOf(captured));
@@ -4470,8 +4553,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                             new RasterSnapshot(
                                     image,
                                     RasterGridWindows.mapBounds(metadata, window),
-                                    metadata.gridPlacement().orElseThrow(),
+                                    Optional.of(metadata.gridPlacement().orElseThrow()),
                                     window,
+                                    RasterGridWindows.mapBounds(metadata, window),
                                     options)),
                     false,
                     true);
@@ -4487,6 +4571,110 @@ public final class MapView extends JComponent implements AutoCloseable {
                                     || failure.terminal().code().equals("SOURCE_CANCELLED")
                             ? mergeReports(observed, rasterCancellationReport(source), source)
                             : mergeReports(observed, terminalOnly(failure.report()), source);
+            updateSourceResult(binding.id(), report, false);
+            return emptyRasterSnapshot(binding.id());
+        } catch (RuntimeException | Error failure) {
+            operation.finish(false);
+            throw failure;
+        } finally {
+            binding.endOperation(operation);
+        }
+    }
+
+    private LayerSnapshot captureElevationSource(
+            MapLayerBinding binding,
+            MapViewport viewportSnapshot,
+            RasterRenderOptions options,
+            ElevationRasterStyle style) {
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(style, "style");
+        if (options.opacity() == 0.0) {
+            return emptyRasterSnapshot(binding.id());
+        }
+        ElevationSource source = binding.elevationSource();
+        ElevationSourceMetadata metadata = source.metadata();
+        MapLayerBinding.Operation operation = binding.beginOperation();
+        DiagnosticReport encountered = DiagnosticReport.empty();
+        try {
+            Optional<ElevationRasterization.Plan> planned =
+                    ElevationRasterization.plan(
+                            metadata,
+                            viewportSnapshot.visibleWorldEnvelope(),
+                            viewportSnapshot.worldUnitsPerPixel(),
+                            options.interpolation(),
+                            binding.rasterLimits());
+            if (planned.isEmpty()) {
+                MapLayerBinding.Phase phase = operation.finish(true);
+                if (phase == MapLayerBinding.Phase.CANCELLED) {
+                    updateSourceResult(binding.id(), elevationCancellationReport(source), false);
+                    return emptyRasterSnapshot(binding.id());
+                }
+                updateSourceResult(binding.id(), DiagnosticReport.empty(), true);
+                return emptyRasterSnapshot(binding.id());
+            }
+            ElevationRasterization.Plan plan = planned.orElseThrow();
+            RasterRequest request = plan.request();
+            RasterRequestAccounting accounting =
+                    new RasterRequestAccounting(
+                            metadata.identity().id(), binding.rasterLimits(), operation.token());
+            accounting.checkpoint();
+            accounting.validateWindow(
+                    metadata.columnCount(), metadata.rowCount(), request.sourceWindow());
+            long outputPixels =
+                    accounting.validateOutput(request.outputWidth(), request.outputHeight());
+            accounting.chargeIntermediateBytes(Math.multiplyExact(outputPixels, 8L));
+            accounting.chargePublishedBytes(Math.multiplyExact(outputPixels, 4L));
+            RasterRead read =
+                    ElevationRasterization.rasterize(source, plan, style, operation.token());
+            encountered = read.diagnostics();
+            requireRasterReadShape(request, read);
+            BufferedImage image =
+                    AwtRgbaPixels.toBufferedImage(read.pixels(), accounting::checkpoint);
+            MapLayerBinding.Phase phase = operation.finish(true);
+            if (phase == MapLayerBinding.Phase.CANCELLED) {
+                DiagnosticReport cancelled =
+                        mergeReports(
+                                encountered,
+                                elevationCancellationReport(source),
+                                binding.rasterLimits().retainedWarnings());
+                updateSourceResult(binding.id(), cancelled, false);
+                return emptyRasterSnapshot(binding.id());
+            }
+            updateSourceResult(binding.id(), encountered, true);
+            return new LayerSnapshot(
+                    binding.id(),
+                    List.of(),
+                    Optional.of(
+                            new RasterSnapshot(
+                                    image,
+                                    plan.imageMapBounds(),
+                                    Optional.empty(),
+                                    request.sourceWindow(),
+                                    plan.clipMapBounds(),
+                                    options)),
+                    false,
+                    true);
+        } catch (SourceException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport warnings = withoutTerminal(failure.report());
+            DiagnosticReport observed =
+                    warnings.entries().isEmpty() && warnings.omittedWarningCount() == 0
+                            ? encountered
+                            : mergeReports(
+                                    encountered,
+                                    warnings,
+                                    binding.rasterLimits().retainedWarnings());
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                                    || failure.terminal().code().equals("SOURCE_CANCELLED")
+                            ? mergeReports(
+                                    observed,
+                                    elevationCancellationReport(source),
+                                    binding.rasterLimits().retainedWarnings())
+                            : mergeReports(
+                                    observed,
+                                    terminalOnly(failure.report()),
+                                    binding.rasterLimits().retainedWarnings());
             updateSourceResult(binding.id(), report, false);
             return emptyRasterSnapshot(binding.id());
         } catch (RuntimeException | Error failure) {
@@ -4582,17 +4770,26 @@ public final class MapView extends JComponent implements AutoCloseable {
                 validateSnapshotFeatures(binding);
                 continue;
             }
-            Object source;
-            String sourceId;
-            boolean sourceClosed;
-            if (binding.kind() == MapLayerBinding.Kind.FEATURE) {
-                source = binding.source();
-                sourceId = binding.source().metadata().identity().id();
-                sourceClosed = binding.source().isClosed();
-            } else {
-                source = binding.rasterSource();
-                sourceId = binding.rasterSource().metadata().identity().id();
-                sourceClosed = binding.rasterSource().isClosed();
+            Object source = null;
+            String sourceId = null;
+            boolean sourceClosed = false;
+            switch (binding.kind()) {
+                case FEATURE -> {
+                    source = binding.source();
+                    sourceId = binding.source().metadata().identity().id();
+                    sourceClosed = binding.source().isClosed();
+                }
+                case RASTER -> {
+                    source = binding.rasterSource();
+                    sourceId = binding.rasterSource().metadata().identity().id();
+                    sourceClosed = binding.rasterSource().isClosed();
+                }
+                case ELEVATION -> {
+                    source = binding.elevationSource();
+                    sourceId = binding.elevationSource().metadata().identity().id();
+                    sourceClosed = binding.elevationSource().isClosed();
+                }
+                case SNAPSHOT -> throw new AssertionError("snapshot handled above");
             }
             if (sourceClosed) {
                 throw new IllegalStateException("source is closed: " + binding.id());
@@ -4613,6 +4810,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                 validateRasterAttachment(binding);
                 continue;
             }
+            if (binding.kind() == MapLayerBinding.Kind.ELEVATION) {
+                validateElevationAttachment(binding);
+                continue;
+            }
             FeatureSource featureSource = binding.source();
             CrsOperation sourceToDisplay =
                     crsRegistry.operationFromMetadata(featureSource.metadata().crs(), displayCrs);
@@ -4627,9 +4828,12 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private static boolean sameSource(MapLayerBinding binding, Object source) {
-        return binding.kind() == MapLayerBinding.Kind.FEATURE
-                ? binding.source() == source
-                : binding.kind() == MapLayerBinding.Kind.RASTER && binding.rasterSource() == source;
+        return switch (binding.kind()) {
+            case SNAPSHOT -> false;
+            case FEATURE -> binding.source() == source;
+            case RASTER -> binding.rasterSource() == source;
+            case ELEVATION -> binding.elevationSource() == source;
+        };
     }
 
     private void validateRasterAttachment(MapLayerBinding binding) {
@@ -4652,6 +4856,26 @@ public final class MapView extends JComponent implements AutoCloseable {
                                     "displayCrs", displayCrs.canonicalIdentifier())));
         }
         identity.transformEnvelopeStrict(bounds);
+    }
+
+    private void validateElevationAttachment(MapLayerBinding binding) {
+        ElevationSource source = binding.elevationSource();
+        ElevationSourceMetadata metadata = source.metadata();
+        if (binding.initialElevationStyle().colorRamp().unit() != metadata.elevationUnit()) {
+            throw new IllegalArgumentException("color-ramp unit must equal source elevation unit");
+        }
+        CrsOperation identity =
+                crsRegistry.operationFromMetadata(Optional.of(metadata.crs()), displayCrs);
+        if (!identity.sourceCrs().equals(displayCrs)) {
+            throw new CrsException(
+                    new CrsProblem(
+                            "CRS_RASTER_WARP_UNSUPPORTED",
+                            "Elevation rendering requires the display coordinate reference system",
+                            Map.of(
+                                    "sourceCrs", identity.sourceCrs().canonicalIdentifier(),
+                                    "displayCrs", displayCrs.canonicalIdentifier())));
+        }
+        identity.transformEnvelopeStrict(metadata.sampleBounds());
     }
 
     private static SourceException rasterBoundsMissing(RasterSource source) {
@@ -4748,8 +4972,15 @@ public final class MapView extends JComponent implements AutoCloseable {
         Set<MapLayerBinding> retained = identitySet(candidate);
         rasterRenderOptions.keySet().removeIf(binding -> !retained.contains(binding));
         for (MapLayerBinding binding : candidate) {
-            if (binding.kind() == MapLayerBinding.Kind.RASTER) {
+            if (binding.kind() == MapLayerBinding.Kind.RASTER
+                    || binding.kind() == MapLayerBinding.Kind.ELEVATION) {
                 rasterRenderOptions.putIfAbsent(binding, binding.initialRasterOptions());
+            }
+        }
+        elevationRasterStyles.keySet().removeIf(binding -> !retained.contains(binding));
+        for (MapLayerBinding binding : candidate) {
+            if (binding.kind() == MapLayerBinding.Kind.ELEVATION) {
+                elevationRasterStyles.putIfAbsent(binding, binding.initialElevationStyle());
             }
         }
     }
@@ -4761,9 +4992,12 @@ public final class MapView extends JComponent implements AutoCloseable {
             if (binding.kind() != MapLayerBinding.Kind.SNAPSHOT
                     && !oldIdentities.contains(binding)) {
                 DiagnosticReport opening =
-                        binding.kind() == MapLayerBinding.Kind.FEATURE
-                                ? binding.source().openingDiagnostics()
-                                : binding.rasterSource().openingDiagnostics();
+                        switch (binding.kind()) {
+                            case FEATURE -> binding.source().openingDiagnostics();
+                            case RASTER -> binding.rasterSource().openingDiagnostics();
+                            case ELEVATION -> binding.elevationSource().openingDiagnostics();
+                            case SNAPSHOT -> throw new AssertionError("snapshot excluded above");
+                        };
                 if (!opening.entries().isEmpty()) {
                     transitionSourceReport(binding.id(), Optional.of(opening));
                 }
@@ -4906,6 +5140,18 @@ public final class MapView extends JComponent implements AutoCloseable {
                         source.metadata().identity().id(),
                         Optional.of(DiagnosticLocation.empty()),
                         "Raster request was cancelled",
+                        Map.of("operation", "raster-read"));
+        return new DiagnosticReport(List.of(terminal), 0);
+    }
+
+    private static DiagnosticReport elevationCancellationReport(ElevationSource source) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        "SOURCE_CANCELLED",
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        "Elevation rasterization was cancelled",
                         Map.of("operation", "raster-read"));
         return new DiagnosticReport(List.of(terminal), 0);
     }
@@ -5339,8 +5585,9 @@ public final class MapView extends JComponent implements AutoCloseable {
     private record RasterSnapshot(
             BufferedImage image,
             Envelope mapBounds,
-            RasterGridPlacement placement,
+            Optional<RasterGridPlacement> placement,
             RasterWindow window,
+            Envelope clipMapBounds,
             RasterRenderOptions options) {}
 
     private record ViewContentSnapshot(List<LayerSnapshot> layers) {

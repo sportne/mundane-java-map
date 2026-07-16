@@ -11,6 +11,13 @@ import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.ElevationColorRamp;
+import io.github.mundanej.map.api.ElevationColorStop;
+import io.github.mundanej.map.api.ElevationHillshade;
+import io.github.mundanej.map.api.ElevationRasterStyle;
+import io.github.mundanej.map.api.ElevationSourceMetadata;
+import io.github.mundanej.map.api.ElevationUnit;
+import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.HatchFillSymbol;
 import io.github.mundanej.map.api.HatchPattern;
@@ -45,6 +52,7 @@ import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.PackedElevationGrid;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -54,6 +62,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -135,9 +144,153 @@ class RenderRegressionTest {
                         compositionAndUnitScenarios(),
                         rasterScenarios(),
                         rasterLayerScenarios(),
+                        elevationScenarios(),
                         lineScenarios(),
                         polygonAndHatchScenarios())
                 .flatMap(stream -> stream);
+    }
+
+    private static Stream<RenderScenario> elevationScenarios() {
+        return Stream.of(
+                new RenderScenario(
+                        "elevation-ramp-domain-orientation",
+                        WIDTH,
+                        HEIGHT,
+                        () -> {
+                            ElevationSourceMetadata metadata =
+                                    new ElevationSourceMetadata(
+                                            new SourceIdentity("render-elevation", "Elevation"),
+                                            3,
+                                            3,
+                                            new Envelope(0, 0, 2, 2),
+                                            CrsMetadata.recognized(
+                                                    CrsDefinitions.EPSG_3857,
+                                                    Optional.of("EPSG:3857"),
+                                                    Optional.empty()),
+                                            ElevationUnit.METRE);
+                            PackedElevationGrid source =
+                                    PackedElevationGrid.copyOf(
+                                            metadata,
+                                            new double[] {0, 0, 0, 4, 4, 4, 8, 8, 8},
+                                            new BitSet());
+                            ElevationRasterStyle style =
+                                    ElevationRasterStyle.of(
+                                            new ElevationColorRamp(
+                                                    ElevationUnit.METRE,
+                                                    List.of(
+                                                            new ElevationColorStop(0, RED_RGB),
+                                                            new ElevationColorStop(8, BLUE_RGB))));
+                            MapView view = view(List.of());
+                            view.setLayerBindings(
+                                    List.of(
+                                            MapLayerBinding.borrowedElevation(
+                                                    "terrain", "Terrain", source, style)));
+                            return view;
+                        },
+                        view -> view.setViewport(new MapViewport(WIDTH, HEIGHT, 1, 1, 0.025)),
+                        Optional.empty(),
+                        List.of(
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "north-is-low-elevation-red",
+                                                image,
+                                                new Region(48, 24, 12, 12),
+                                                RED_RGB),
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "south-is-high-elevation-blue",
+                                                image,
+                                                new Region(100, 84, 12, 12),
+                                                BLUE_RGB),
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "outside-sample-domain-west",
+                                                image,
+                                                new Region(18, 48, 10, 20),
+                                                BACKGROUND),
+                                (id, image) ->
+                                        requireMatching(
+                                                id,
+                                                "outside-sample-domain-east",
+                                                image,
+                                                new Region(132, 48, 10, 20),
+                                                BACKGROUND))),
+                new RenderScenario(
+                        "elevation-hillshade-direction-opacity",
+                        WIDTH,
+                        HEIGHT,
+                        () -> {
+                            ElevationSourceMetadata metadata =
+                                    new ElevationSourceMetadata(
+                                            new SourceIdentity("render-hillshade", "Hillshade"),
+                                            5,
+                                            3,
+                                            new Envelope(0, 0, 4, 2),
+                                            CrsMetadata.recognized(
+                                                    CrsDefinitions.EPSG_3857,
+                                                    Optional.of("EPSG:3857"),
+                                                    Optional.empty()),
+                                            ElevationUnit.METRE);
+                            PackedElevationGrid source =
+                                    PackedElevationGrid.copyOf(
+                                            metadata,
+                                            new double[] {
+                                                0, 10, 20, 10, 0,
+                                                0, 10, 20, 10, 0,
+                                                0, 10, 20, 10, 0
+                                            },
+                                            new BitSet());
+                            ElevationRasterStyle style =
+                                    ElevationRasterStyle.of(
+                                                    new ElevationColorRamp(
+                                                            ElevationUnit.METRE,
+                                                            List.of(
+                                                                    new ElevationColorStop(
+                                                                            0,
+                                                                            Rgba.rgb(
+                                                                                    200, 200, 200)),
+                                                                    new ElevationColorStop(
+                                                                            20,
+                                                                            Rgba.rgb(
+                                                                                    200, 200,
+                                                                                    200)))))
+                                            .withHillshade(new ElevationHillshade(270, 45, 1));
+                            MapView view = view(List.of());
+                            view.setLayerBindings(
+                                    List.of(
+                                            MapLayerBinding.borrowedElevation(
+                                                    "terrain", "Terrain", source, style)));
+                            view.setRasterRenderOptions(
+                                    "terrain",
+                                    new RasterRenderOptions(RasterInterpolation.NEAREST, 0.5));
+                            return view;
+                        },
+                        view -> view.setViewport(new MapViewport(WIDTH, HEIGHT, 2, 1, 0.04)),
+                        Optional.empty(),
+                        List.of(
+                                (id, image) -> {
+                                    int west = averageBrightness(image, new Region(44, 48, 12, 20));
+                                    int east =
+                                            averageBrightness(image, new Region(104, 48, 12, 20));
+                                    assertTrue(
+                                            west >= east + 20,
+                                            id
+                                                    + ": west-facing slope should be visibly lighter; "
+                                                    + west
+                                                    + " versus "
+                                                    + east);
+                                },
+                                (id, image) ->
+                                        requireBetween(
+                                                id,
+                                                "half-opacity-dark-slope",
+                                                averageBrightness(
+                                                        image, new Region(104, 48, 12, 20)),
+                                                120,
+                                                245))));
     }
 
     private static Stream<RenderScenario> markerScenarios() {
@@ -1284,6 +1437,17 @@ class RenderRegressionTest {
                 Math.max(
                         Math.abs(first.blue() - second.blue()),
                         Math.abs(first.alpha() - second.alpha())));
+    }
+
+    private static int averageBrightness(BufferedImage image, Region region) {
+        long total = 0;
+        for (int y = region.y(); y < region.y() + region.height(); y++) {
+            for (int x = region.x(); x < region.x() + region.width(); x++) {
+                Rgba color = rgba(image.getRGB(x, y));
+                total += color.red() + color.green() + color.blue();
+            }
+        }
+        return Math.toIntExact(total / (3L * region.pixelCount()));
     }
 
     private static int[] paintedBounds(BufferedImage image) {

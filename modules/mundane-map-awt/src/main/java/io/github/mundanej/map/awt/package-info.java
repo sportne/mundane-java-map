@@ -5,8 +5,9 @@
  * mutated on the Swing event-dispatch thread unless a declaration explicitly says otherwise.
  * Immutable render options may be created on any thread, and {@link
  * io.github.mundanej.map.awt.MapLayerBinding} synchronizes its documented lifecycle and cooperative
- * cancellation operations. Owned bindings transfer source lifecycle to the view; borrowed bindings
- * do not.
+ * cancellation operations. Owned feature, raster, and elevation bindings transfer source lifecycle
+ * to the view; borrowed bindings do not. Elevation colorization reuses bounded raster presentation
+ * without adapting numeric elevation sources into image sources.
  *
  * <p>Applications install symbol renderers and encoded-raster decoders through explicit,
  * instance-owned registries with exact keys and deterministic duplicate diagnostics. The module

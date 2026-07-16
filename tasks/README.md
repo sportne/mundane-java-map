@@ -205,7 +205,7 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G9-001 — Format-neutral elevation model](G9-001-format-neutral-elevation-model.md) | Complete | AFK | G8-004 | Model bounded regularly sampled elevation independently of file format. |
-| [G9-002 — Elevation raster layer](G9-002-elevation-raster-layer.md) | Proposed | AFK | G9-001 | Render synthetic elevation with color ramps and optional hillshading. |
+| [G9-002 — Elevation raster layer](G9-002-elevation-raster-layer.md) | Complete | AFK | G9-001 | Render synthetic elevation with color ramps and optional hillshading. |
 | [G9-003 — DTED levels reader slice](G9-003-dted-levels-reader-slice.md) | Proposed | AFK | G9-001 | Read DTED Levels 0, 1, and 2 into the shared elevation model. |
 | [G9-004 — DTED validation and diagnostics](G9-004-dted-validation-and-diagnostics.md) | Proposed | AFK | G9-003 | Validate headers, dimensions, checksums, samples, voids, and truncation. |
 | [G9-005 — Elevation position-query policy](G9-005-elevation-position-query-policy.md) | Proposed | AFK | G9-001, G9-003 | Provide explicit nearest and bilinear query behavior. |
