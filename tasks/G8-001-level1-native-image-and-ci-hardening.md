@@ -93,3 +93,21 @@ in these Notes with commit/run URL, reviewer/date, OS/architecture, GraalVM and 
 command/sentinel, resources, diagnostics, final G7 disposition, repeat-render result, support wording,
 and outcome. Do not add broad reachability metadata to silence failures; fix explicit construction and
 resource wiring or mark an actual incompatibility Blocked.
+
+Implementation evidence pending the named checkpoint (2026-07-16): the JVM aggregate scenario,
+workflow policy, and configured task-graph isolation are implemented. Focused JVM and architecture
+checks pass with the unchanged exact 12-resource inventory, all required diagnostics, two identical
+final-default paints, tool release/reuse, and two complete sequential smoke invocations. G7's final
+default retains only the private vector-template cache.
+
+The supplemental local no-fallback run used GraalVM CE Java 21.0.2+13.1 / `native-image 21.0.2` on
+Ubuntu 24.04.1 WSL2 Linux x86_64. Image compilation completed in 28.1 seconds, but execution failed
+before the sentinel when that cached toolchain's `SunFontManager` attempted a JNI lookup of
+`sun.font.TrueTypeFont` from the newly reached measurement-label path. No G8 resource, JNI,
+reflection, or reachability metadata was added to work around that toolchain incompatibility. The
+task remains Proposed until the reviewed commit receives a clean required Ubuntu 24.04 CI run and
+the **G8 Linux Native Image release-lane approval** records its URL, exact current tool versions,
+sentinel, resources, diagnostics, repeat-render result, and approval. The permitted support wording
+remains: GraalVM Native Image is verified with Java 21 on Linux x86_64 using the recorded Ubuntu
+24.04 CI environment; Windows, macOS, Linux AArch64, other distributions, and cross-platform Native
+Image compatibility are unverified.

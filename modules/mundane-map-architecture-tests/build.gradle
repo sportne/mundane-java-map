@@ -129,6 +129,19 @@ abstract class TestRuntimeClasspathRule extends DefaultTask {
     }
 }
 
+@DisableCachingByDefault(because = 'Validates the configured Native Image task graph')
+abstract class VerifyNativeLaneIsolation extends DefaultTask {
+    @Input
+    abstract ListProperty<String> getViolations()
+
+    @TaskAction
+    void verifyIsolation() {
+        if (!violations.get().isEmpty()) {
+            throw new GradleException(violations.get().join(System.lineSeparator()))
+        }
+    }
+}
+
 def runtimeVerificationTasks = level1Inventory.collect { entry ->
     def targetProject = project(entry.path)
     targetProject.tasks.register(
@@ -173,6 +186,13 @@ def verifyRuntimeArchitecture = tasks.register('verifyRuntimeArchitecture') {
     dependsOn testRuntimeClasspathRule
 }
 
+def verifyNativeLaneIsolation = tasks.register(
+        'verifyNativeLaneIsolation', VerifyNativeLaneIsolation) {
+            group = 'verification'
+            description = 'Verifies the one-binary Java 21 native lane remains isolated.'
+            violations.convention([])
+        }
+
 def moduleDescriptors = productionInventory.collect { entry ->
     def targetProject = project(entry.path)
     [
@@ -215,6 +235,7 @@ tasks.named('test') {
     inputs.file(performanceProject.file('build.gradle'))
     inputs.file(rootProject.file('build.gradle'))
     inputs.file(rootProject.file('settings.gradle'))
+    inputs.file(rootProject.file('.github/workflows/native-image.yml'))
     systemProperty 'map.architecture.modules', moduleDescriptors
     systemProperty 'map.architecture.supportProjects',
             inventory.findAll { it.category == 'SUPPORT' }
@@ -244,6 +265,169 @@ tasks.named('test') {
             performanceProject.file('build.gradle').absolutePath
     systemProperty 'map.architecture.rootBuild', rootProject.file('build.gradle').absolutePath
     systemProperty 'map.architecture.settings', rootProject.file('settings.gradle').absolutePath
+    systemProperty 'map.architecture.nativeWorkflow',
+            rootProject.file('.github/workflows/native-image.yml').absolutePath
+}
+
+gradle.projectsEvaluated {
+    List<String> violations = []
+    Task nativeRoot = rootProject.tasks.named('nativeSmoke').get()
+    Task nativeRun = nativeSmokeProject.tasks.named('nativeRun').get()
+    def resolveDependencyNotation
+    resolveDependencyNotation = { Task owner, Object notation, Set<Task> resolved ->
+        if (notation == null) {
+            return
+        }
+        if (notation instanceof Task) {
+            resolved.add(notation)
+            return
+        }
+        if (notation instanceof org.gradle.api.tasks.TaskReference) {
+            resolved.add(owner.project.tasks.getByPath(notation.name))
+            return
+        }
+        if (notation instanceof Buildable) {
+            notation.buildDependencies.getDependencies(owner).each { resolved.add(it) }
+            return
+        }
+        if (notation instanceof Provider) {
+            resolveDependencyNotation(owner, notation.get(), resolved)
+            return
+        }
+        if (notation instanceof CharSequence) {
+            resolved.add(owner.project.tasks.getByPath(notation.toString()))
+            return
+        }
+        if (notation instanceof Map) {
+            notation.values().each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation instanceof Iterable) {
+            notation.each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation.getClass().isArray()) {
+            notation.each { resolveDependencyNotation(owner, it, resolved) }
+            return
+        }
+        if (notation instanceof Closure) {
+            Object value = notation.maximumNumberOfParameters == 0
+                    ? notation.call()
+                    : notation.call(owner)
+            resolveDependencyNotation(owner, value, resolved)
+            return
+        }
+        if (notation instanceof java.util.concurrent.Callable) {
+            resolveDependencyNotation(owner, notation.call(), resolved)
+            return
+        }
+        throw new GradleException(
+        "Unsupported task dependency notation on ${owner.path}: "
+        + notation.getClass().name)
+    }
+    def declaredDependencies = { Task owner ->
+        Set<Task> resolved = [] as Set
+        owner.getDependsOn().each { notation ->
+            resolveDependencyNotation(owner, notation, resolved)
+        }
+        resolved
+    }
+    Set<Task> direct = declaredDependencies(nativeRoot)
+    if (direct != ([nativeRun] as Set)) {
+        violations.add(
+                "nativeSmoke must depend only on ${nativeRun.path}; found "
+                + direct.collect { it.path }.sort())
+    }
+
+    def dependencyClosure = { Task root ->
+        Set<Task> visited = [] as Set
+        List<Task> pending = [root]
+        while (!pending.isEmpty()) {
+            Task current = pending.remove(pending.size() - 1)
+            declaredDependencies(current).each { dependency ->
+                if (visited.add(dependency)) {
+                    pending.add(dependency)
+                }
+            }
+        }
+        visited
+    }
+
+    Set<Task> nativeClosure = dependencyClosure(nativeRoot)
+    [
+        'qualityGate',
+        'checkAll',
+        'shapefileCorpus',
+        'renderRegression',
+        'performanceEvidence',
+        'performanceQuick',
+        'publicationDryRun',
+        'consumerSmoke'
+    ].each { taskName ->
+        Task forbiddenRoot = rootProject.tasks.findByName(taskName)
+        if (forbiddenRoot != null && nativeClosure.contains(forbiddenRoot)) {
+            violations.add("${forbiddenRoot.path} leaked into ${nativeRoot.path}")
+        }
+    }
+    Set<String> forbiddenNativePaths = [
+        nativeSmokeProject.tasks.named('nativeTestCompile').get().path,
+        nativeSmokeProject.tasks.named('nativeTest').get().path,
+    ] as Set
+    nativeClosure.each { dependency ->
+        String path = dependency.path
+        String normalized = path.toLowerCase(java.util.Locale.ROOT)
+        if (forbiddenNativePaths.contains(path)
+                || normalized.contains('corpus')
+                || normalized.contains('renderregression')
+                || normalized.contains('performanceevidence')
+                || normalized.contains('publish')
+                || normalized.contains('consumer')) {
+            violations.add("Specialized task ${path} leaked into ${nativeRoot.path}")
+        }
+    }
+
+    Task quality = rootProject.tasks.named('qualityGate').get()
+    Set<Task> qualityClosure = dependencyClosure(quality)
+    [
+        'nativeCompile',
+        'nativeRun',
+        'nativeTestCompile',
+        'nativeTest'
+    ].each { taskName ->
+        Task nativeTask = nativeSmokeProject.tasks.named(taskName).get()
+        if (qualityClosure.contains(nativeTask)) {
+            violations.add("${nativeTask.path} leaked into ${quality.path}")
+        }
+    }
+
+    Set<String> expectedProjects = [
+        ':modules:mundane-map-api',
+        ':modules:mundane-map-core',
+        ':modules:mundane-map-awt',
+        ':modules:mundane-map-io-image',
+        ':modules:mundane-map-io-shapefile',
+    ] as Set
+    Set<String> actualProjects = nativeSmokeProject.configurations.runtimeClasspath.allDependencies
+            .withType(ProjectDependency)
+            .collect { it.path } as Set
+    if (actualProjects != expectedProjects) {
+        violations.add(
+                'Native support project dependencies changed: expected '
+                + "${expectedProjects.sort()}, found ${actualProjects.sort()}")
+    }
+    def languageVersion = nativeSmokeProject.extensions
+            .getByType(org.gradle.api.plugins.JavaPluginExtension)
+            .toolchain.languageVersion.get()
+    if (languageVersion.asInt() != 21) {
+        violations.add("Native support Java toolchain changed to ${languageVersion}")
+    }
+    verifyNativeLaneIsolation.configure {
+        it.violations.set(violations.unique().sort())
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyNativeLaneIsolation
 }
 
 description = 'Architecture and dependency-boundary tests.'

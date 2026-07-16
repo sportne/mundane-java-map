@@ -104,8 +104,10 @@ at `(46,130)`, and marker fill at `(30,65)`. The first committed measurement seg
 exact midpoint `(111,60)`; a strict 3-by-3 majority must be opaque crimson-dominant
 `r>=128 && r-g>=40 && r-b>=40`, avoiding font glyphs and the current-segment label. A 5-by-5 probe
 centered at `(184,148)` remains exact white. Every nonwhite pixel lies inside inclusive screen bounds
-`[0,0,180,136]`, and the nonwhite count is in `[200,10000]`. These broad invariant bounds admit the
-approved G3 casing/text antialiasing while rejecting missing, displaced, or flooded rendering.
+`[0,0,191,136]`, and the nonwhite count is in `[200,10000]`. The right edge deliberately admits the
+existing G3 badge clipped by the component; the fixed blank probe and lower bound still reject a
+displaced or flooded render. These broad invariant bounds admit the approved G3 casing/text
+antialiasing while rejecting missing rendering.
 
 This uses only public `MapView` construction, `InMemoryLayer`, and symbol/tool contracts: no
 performance bridge, optimizer or cache mode, cache counter, or package-private state.

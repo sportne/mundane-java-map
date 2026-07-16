@@ -248,6 +248,11 @@ architectural requirement. Level 1 is complete only when
 ### G8 — Native and release readiness
 
 - Aggregate representative success and diagnostic paths in Linux Native Image CI.
+- G8-001's direct aggregate JVM scenario and pinned single-job workflow are implemented locally, but
+  the task remains Proposed pending the required reviewed-commit Ubuntu 24.04 CI evidence. A
+  supplemental cached GraalVM CE 21.0.2 run compiled the no-fallback image and then failed in the
+  newly reached measurement-label font path; no resource or reachability metadata was widened to
+  treat that older local toolchain as release evidence.
 - Review public APIs, Javadocs, examples, publication metadata, and staged downstream consumption.
 - Run normal, native, shapefile-corpus, rendering-regression, performance, and
   publication/consumer lanes separately before the release decision.

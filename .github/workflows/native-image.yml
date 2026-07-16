@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   native-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: graalvm/setup-graalvm@v1
@@ -21,6 +22,26 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           native-image-job-reports: true
       - uses: gradle/actions/setup-gradle@v4
+      - name: Record native toolchain
+        shell: bash
+        run: |
+          mkdir -p build/native-evidence
+          {
+            java -version
+            native-image --version
+            cat /etc/os-release
+            uname -m
+          } > build/native-evidence/toolchain.txt 2>&1
       - name: Build and run native smoke
-        run: ./gradlew nativeSmoke --console=plain
-
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew nativeSmoke --console=plain 2>&1 | tee build/native-evidence/native-smoke.log
+      - name: Retain native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-image-evidence
+          path: build/native-evidence
+          if-no-files-found: warn
+          retention-days: 14

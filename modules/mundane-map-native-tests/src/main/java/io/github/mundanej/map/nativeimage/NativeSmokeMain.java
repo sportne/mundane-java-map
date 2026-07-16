@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.RepaintManager;
 import javax.swing.SwingUtilities;
 
-/** Native Image entrypoint that exercises symbols, Shapefile, and raster image paths. */
+/** Native Image entrypoint that exercises the complete Level 1 compatibility path. */
 public final class NativeSmokeMain {
     static final int IMAGE_WIDTH = 256;
     static final int IMAGE_HEIGHT = 128;
@@ -43,7 +43,7 @@ public final class NativeSmokeMain {
         System.out.println("mundane-map native smoke: OK");
     }
 
-    /** Runs the exact symbol, Shapefile, and raster scenarios used by the native executable. */
+    /** Runs the exact aggregate Level 1 scenario used by the native executable. */
     public static void runSmoke() {
         runScenario(NativeSymbolSmokeScenario.standard(loadRasterPixels()));
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openShapefile()) {
@@ -52,6 +52,7 @@ public final class NativeSmokeMain {
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openRaster()) {
             NativeRasterSmokeScenario.run(workspace.rasterPaths());
         }
+        NativeLevel1SmokeScenario.run();
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {
