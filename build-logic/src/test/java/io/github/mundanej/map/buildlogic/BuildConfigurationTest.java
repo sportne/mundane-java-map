@@ -12,6 +12,8 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.gradle.testkit.runner.BuildResult;
@@ -27,6 +29,8 @@ class BuildConfigurationTest {
     private static final Path GRADLE_USER_HOME = Path.of(System.getProperty("map.gradleUserHome"));
     private static final Path JAVA_21_HOME = Path.of(System.getProperty("map.java21Home"));
     private static final String TEST_JAVA_VERSION = System.getProperty("map.testJavaVersion");
+    private static final List<PluginMarker> BUILD_LOGIC_PLUGIN_MARKERS =
+            parsePluginMarkers(System.getProperty("map.buildLogicPluginMarkers"));
 
     @TempDir Path temporaryDirectory;
 
@@ -70,6 +74,37 @@ class BuildConfigurationTest {
         processBuilder.environment().put("JAVA_HOME", System.getProperty("java.home"));
         processBuilder.environment().put("MAP_OFFLINE_VERIFICATION_CHILD", "true");
         assertBuildPasses(processBuilder, "isolated offline build");
+    }
+
+    @Test
+    void verifiedRepositoryContainsEveryBuildLogicPluginMarker() throws Exception {
+        Path repository = temporaryDirectory.resolve("plugin-marker-repository");
+
+        writeBuildLogicPluginMarkers(repository);
+
+        assertEquals(
+                Set.of(
+                        "com.diffplug.spotless=com.diffplug.spotless:spotless-plugin-gradle",
+                        "com.github.spotbugs=com.github.spotbugs.snom:spotbugs-gradle-plugin",
+                        "net.ltgt.errorprone=net.ltgt.gradle:gradle-errorprone-plugin",
+                        "org.graalvm.buildtools.native=org.graalvm.buildtools:native-gradle-plugin"),
+                BUILD_LOGIC_PLUGIN_MARKERS.stream()
+                        .map(PluginMarker::implementationMapping)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
+        for (PluginMarker marker : BUILD_LOGIC_PLUGIN_MARKERS) {
+            Path pom = marker.pomPath(repository);
+            assertTrue(Files.isRegularFile(pom), "missing plugin marker " + pom);
+            String contents = Files.readString(pom);
+            assertTrue(contents.contains("<groupId>" + marker.group() + "</groupId>"));
+            assertTrue(contents.contains("<artifactId>" + marker.module() + "</artifactId>"));
+            assertTrue(contents.contains("<version>" + marker.version() + "</version>"));
+            assertTrue(
+                    contents.contains(
+                            "<groupId>" + marker.implementationGroup() + "</groupId>"));
+            assertTrue(
+                    contents.contains(
+                            "<artifactId>" + marker.implementationModule() + "</artifactId>"));
+        }
     }
 
     private static void provisionActualBuildDependencies(Path project) throws Exception {
@@ -523,6 +558,7 @@ class BuildConfigurationTest {
                 }
             }
         }
+        writeBuildLogicPluginMarkers(repository);
         Path marker =
                 repository.resolve(
                         "org/gradle/toolchains/foojay-resolver-convention/"
@@ -560,6 +596,83 @@ class BuildConfigurationTest {
                   <version>1.0.0</version>
                 </project>
                 """);
+    }
+
+    private static void writeBuildLogicPluginMarkers(Path repository) throws IOException {
+        for (PluginMarker marker : BUILD_LOGIC_PLUGIN_MARKERS) {
+            Path pom = marker.pomPath(repository);
+            Files.createDirectories(pom.getParent());
+            Files.writeString(
+                    pom,
+                    """
+                    <project xmlns="http://maven.apache.org/POM/4.0.0">
+                      <modelVersion>4.0.0</modelVersion>
+                      <groupId>%s</groupId>
+                      <artifactId>%s</artifactId>
+                      <version>%s</version>
+                      <packaging>pom</packaging>
+                      <dependencies><dependency>
+                        <groupId>%s</groupId>
+                        <artifactId>%s</artifactId>
+                        <version>%s</version>
+                      </dependency></dependencies>
+                    </project>
+                    """
+                            .formatted(
+                                    marker.group(),
+                                    marker.module(),
+                                    marker.version(),
+                                    marker.implementationGroup(),
+                                    marker.implementationModule(),
+                                    marker.version()));
+        }
+    }
+
+    private static List<PluginMarker> parsePluginMarkers(String configuredMarkers) {
+        assertTrue(configuredMarkers != null && !configuredMarkers.isBlank());
+        return List.of(configuredMarkers.split(",")).stream()
+                .map(
+                        configuredMarker -> {
+                            String[] sides = configuredMarker.split("=", -1);
+                            assertEquals(2, sides.length, "invalid plugin marker manifest entry");
+                            String[] marker = sides[0].split(":", -1);
+                            String[] implementation = sides[1].split(":", -1);
+                            assertEquals(3, marker.length, "invalid plugin marker coordinate");
+                            assertEquals(
+                                    3,
+                                    implementation.length,
+                                    "invalid plugin implementation coordinate");
+                            assertEquals(
+                                    marker[2],
+                                    implementation[2],
+                                    "plugin marker and implementation versions differ");
+                            return new PluginMarker(
+                                    marker[0],
+                                    marker[1],
+                                    marker[2],
+                                    implementation[0],
+                                    implementation[1]);
+                        })
+                .toList();
+    }
+
+    private record PluginMarker(
+            String group,
+            String module,
+            String version,
+            String implementationGroup,
+            String implementationModule) {
+        private Path pomPath(Path repository) {
+            return repository
+                    .resolve(group.replace('.', '/'))
+                    .resolve(module)
+                    .resolve(version)
+                    .resolve(module + "-" + version + ".pom");
+        }
+
+        private String implementationMapping() {
+            return group + "=" + implementationGroup + ":" + implementationModule;
+        }
     }
 
     private static void preprovisionVerifiedWrapper(Path isolatedGradleHome) throws IOException {

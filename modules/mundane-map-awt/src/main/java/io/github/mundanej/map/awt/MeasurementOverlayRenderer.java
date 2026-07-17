@@ -8,7 +8,6 @@ import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.BasicStroke;
 import java.awt.Color;
-import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.Ellipse2D;
@@ -38,6 +37,25 @@ final class MeasurementOverlayRenderer {
                     0f);
     private static final double CLIP_ALLOWANCE = 6.0;
     private static final double VERTEX_RADIUS = 4.0;
+    private static final int BADGE_PADDING = 4;
+    private static final int GLYPH_WIDTH = 5;
+    private static final int GLYPH_HEIGHT = 7;
+    private static final int GLYPH_SCALE = 2;
+    private static final int GLYPH_SPACING = 2;
+
+    private static final long DIGIT_0 = glyph(14, 17, 19, 21, 25, 17, 14);
+    private static final long DIGIT_1 = glyph(4, 12, 4, 4, 4, 4, 14);
+    private static final long DIGIT_2 = glyph(14, 17, 1, 2, 4, 8, 31);
+    private static final long DIGIT_3 = glyph(30, 1, 1, 14, 1, 1, 30);
+    private static final long DIGIT_4 = glyph(2, 6, 10, 18, 31, 2, 2);
+    private static final long DIGIT_5 = glyph(31, 16, 16, 30, 1, 1, 30);
+    private static final long DIGIT_6 = glyph(14, 16, 16, 30, 17, 17, 14);
+    private static final long DIGIT_7 = glyph(31, 1, 2, 4, 8, 8, 8);
+    private static final long DIGIT_8 = glyph(14, 17, 17, 14, 17, 17, 14);
+    private static final long DIGIT_9 = glyph(14, 17, 17, 15, 1, 1, 14);
+    private static final long DECIMAL_POINT = glyph(0, 0, 0, 0, 0, 4, 4);
+    private static final long LETTER_K = glyph(17, 18, 20, 24, 20, 18, 17);
+    private static final long LETTER_M = glyph(0, 27, 21, 21, 21, 21, 21);
 
     private MeasurementOverlayRenderer() {}
 
@@ -178,12 +196,11 @@ final class MeasurementOverlayRenderer {
         graphics.draw(mark);
     }
 
-    private static void drawBadge(
+    static void drawBadge(
             Graphics2D graphics, String text, double x, double y, int width, int height) {
-        FontMetrics metrics = graphics.getFontMetrics();
-        int padding = 4;
-        int badgeWidth = metrics.stringWidth(text) + padding * 2;
-        int badgeHeight = metrics.getHeight() + padding * 2;
+        int textWidth = textWidth(text);
+        int badgeWidth = textWidth + BADGE_PADDING * 2;
+        int badgeHeight = GLYPH_HEIGHT * GLYPH_SCALE + BADGE_PADDING * 2;
         int left = (int) StrictMath.round(x);
         int top = (int) StrictMath.round(y);
         if (left >= width || top >= height || left + badgeWidth <= 0 || top + badgeHeight <= 0) {
@@ -192,7 +209,67 @@ final class MeasurementOverlayRenderer {
         graphics.setColor(TEXT_BACKGROUND);
         graphics.fillRoundRect(left, top, badgeWidth, badgeHeight, 8, 8);
         graphics.setColor(Color.BLACK);
-        graphics.drawString(text, left + padding, top + padding + metrics.getAscent());
+        int glyphX = left + BADGE_PADDING;
+        for (int index = 0; index < text.length(); index++) {
+            drawGlyph(graphics, glyph(text.charAt(index)), glyphX, top + BADGE_PADDING);
+            glyphX += GLYPH_WIDTH * GLYPH_SCALE + GLYPH_SPACING;
+        }
+    }
+
+    private static int textWidth(String text) {
+        if (text.isEmpty()) {
+            return 0;
+        }
+        return text.length() * (GLYPH_WIDTH * GLYPH_SCALE + GLYPH_SPACING) - GLYPH_SPACING;
+    }
+
+    private static void drawGlyph(Graphics2D graphics, long glyph, int x, int y) {
+        for (int row = 0; row < GLYPH_HEIGHT; row++) {
+            int rowBits =
+                    (int)
+                            (glyph >>> ((GLYPH_HEIGHT - row - 1) * GLYPH_WIDTH)
+                                    & ((1 << GLYPH_WIDTH) - 1));
+            for (int column = 0; column < GLYPH_WIDTH; column++) {
+                if ((rowBits & (1 << (GLYPH_WIDTH - column - 1))) != 0) {
+                    graphics.fillRect(
+                            x + column * GLYPH_SCALE,
+                            y + row * GLYPH_SCALE,
+                            GLYPH_SCALE,
+                            GLYPH_SCALE);
+                }
+            }
+        }
+    }
+
+    private static long glyph(char value) {
+        return switch (value) {
+            case '0' -> DIGIT_0;
+            case '1' -> DIGIT_1;
+            case '2' -> DIGIT_2;
+            case '3' -> DIGIT_3;
+            case '4' -> DIGIT_4;
+            case '5' -> DIGIT_5;
+            case '6' -> DIGIT_6;
+            case '7' -> DIGIT_7;
+            case '8' -> DIGIT_8;
+            case '9' -> DIGIT_9;
+            case '.' -> DECIMAL_POINT;
+            case 'k' -> LETTER_K;
+            case 'm' -> LETTER_M;
+            case ' ' -> 0L;
+            default -> throw new IllegalArgumentException("Unsupported badge character: " + value);
+        };
+    }
+
+    private static long glyph(
+            int row0, int row1, int row2, int row3, int row4, int row5, int row6) {
+        return ((((((long) row0 << GLYPH_WIDTH | row1) << GLYPH_WIDTH | row2) << GLYPH_WIDTH | row3)
+                                                        << GLYPH_WIDTH
+                                                | row4)
+                                        << GLYPH_WIDTH
+                                | row5)
+                        << GLYPH_WIDTH
+                | row6;
     }
 
     private static Optional<Coordinate> screen(

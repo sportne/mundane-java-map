@@ -113,6 +113,11 @@ class NativeLevel1SmokeScenarioTest {
         assertInvariant(
                 "measurement-render",
                 () -> NativeLevel1SmokeAssertions.verifyMeasurementProbe(measurement, 192));
+        assertInvariant(
+                "measurement-label-render",
+                () ->
+                        NativeLevel1SmokeAssertions.verifyMeasurementLabelProbe(
+                                measurement, 192, 160));
 
         int[] blank = whitePixels();
         blank[148 * 192 + 184] = 0xff000000;

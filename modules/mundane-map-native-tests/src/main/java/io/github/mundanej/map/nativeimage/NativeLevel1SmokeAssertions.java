@@ -111,6 +111,7 @@ final class NativeLevel1SmokeAssertions {
         verifyLineProbes(first, width, height);
         verifyMarkerProbe(first, width, height);
         verifyMeasurementProbe(first, width);
+        verifyMeasurementLabelProbe(first, width, height);
         verifyBlankProbe(first, width, height);
         return verifyNonWhiteBounds(first, width, height);
     }
@@ -126,6 +127,20 @@ final class NativeLevel1SmokeAssertions {
 
     static void verifyMeasurementProbe(int[] pixels, int width) {
         verifyCrimson(pixels, width, 111, 60);
+    }
+
+    static void verifyMeasurementLabelProbe(int[] pixels, int width, int height) {
+        int blackPixels = 0;
+        int maximumX = Math.min(width, 116);
+        int maximumY = Math.min(height, 30);
+        for (int y = 8; y < maximumY; y++) {
+            for (int x = 8; x < maximumX; x++) {
+                if (pixels[y * width + x] == 0xff000000) {
+                    blackPixels++;
+                }
+            }
+        }
+        require(blackPixels >= 50, "measurement-label-render", "measurement label changed");
     }
 
     static void verifyBlankProbe(int[] pixels, int width, int height) {

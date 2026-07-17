@@ -86,6 +86,12 @@ description = 'Non-published deterministic performance-evidence support.'
 def java21Launcher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(21)
 }
+tasks.withType(Test).configureEach {
+    // EvidenceConfiguration intentionally rejects other runtimes. Keep the support module's
+    // verification JVM fixed even when the compatibility lane runs Gradle and ordinary tests
+    // with a newer JDK through -Pmap.testJavaVersion.
+    javaLauncher = java21Launcher
+}
 def evidenceJvmArguments = [
     '-Xms512m',
     '-Xmx512m',
@@ -814,6 +820,13 @@ def verifyPerformanceLaneIsolation = tasks.register(
 
 gradle.projectsEvaluated {
     def violations = []
+    tasks.withType(Test).each { testTask ->
+        int languageVersion = testTask.javaLauncher.get().metadata.languageVersion.asInt()
+        if (languageVersion != 21) {
+            violations.add(
+                    "Performance test ${testTask.path} must launch on Java 21; found ${languageVersion}")
+        }
+    }
     Task full = runPerformanceEvidence.get()
     Task quick = runQuickPerformanceEvidence.get()
     Task jfr = tasks.named('performanceJfr').get()

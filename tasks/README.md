@@ -4,6 +4,9 @@ Tasks are reviewable vertical capabilities, verification gates, or decisions tha
 working slice. The [roadmap](../ROADMAP.md) summarizes capability gates; this index is the
 authoritative task set.
 
+Incomplete task cards remain directly in `tasks/`. A task moves to `tasks/closed/` only when its
+status becomes `Complete`; proposed and blocked cards must never be archived there.
+
 ## Status vocabulary
 
 - `Proposed`: scoped and ready once its dependencies are complete.
@@ -12,9 +15,8 @@ authoritative task set.
 - `Complete`: every acceptance criterion is implemented, required validation has passed, and the
   result is supported by current source and test evidence.
 
-The initial source implements much of G1, but it remains proposed until its required evidence is
-rerun. G0-001 has repaired and verified the build baseline; later tasks remain governed by their own
-dependencies and evidence.
+G0 through G7 are complete from current source and test evidence. Later tasks remain governed by
+their own dependencies and evidence; a task is never archived merely because implementation exists.
 
 ## Type vocabulary
 
@@ -109,86 +111,86 @@ Level 1 is complete only when G8-004 is complete.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G0-001 — Current baseline verification](G0-001-current-baseline-verification.md) | Complete | AFK | None | Restore the Java 21 Gradle baseline and prove normal/publication staging. |
-| [G0-002 — Architecture boundary hardening](G0-002-architecture-boundary-hardening.md) | Complete | AFK | G0-001 | Mechanically enforce production, AWT, I/O, dependency, and native boundaries. |
+| [G0-001 — Current baseline verification](closed/G0-001-current-baseline-verification.md) | Complete | AFK | None | Restore the Java 21 Gradle baseline and prove normal/publication staging. |
+| [G0-002 — Architecture boundary hardening](closed/G0-002-architecture-boundary-hardening.md) | Complete | AFK | G0-001 | Mechanically enforce production, AWT, I/O, dependency, and native boundaries. |
 
 ### G1 — First map slice
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G1-001 — First map slice verification](G1-001-first-map-slice-verification.md) | Complete | HITL | G0-002 | Verify and harden the implemented end-to-end Swing slice and native smoke. |
+| [G1-001 — First map slice verification](closed/G1-001-first-map-slice-verification.md) | Complete | HITL | G0-002 | Verify and harden the implemented end-to-end Swing slice and native smoke. |
 
 ### G2 — Symbols and vector graphics
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G2-001 — Symbol contract and placement profile](G2-001-symbol-contract-and-placement-profile.md) | Complete | HITL | G1-001 | Lock symbol contracts, units, placement, rotation, and style migration. |
-| [G2-002 — Toolkit-neutral vector paths and markers](G2-002-toolkit-neutral-vector-path-and-markers.md) | Complete | AFK | G2-001 | Render immutable vector paths and the built-in marker set. |
-| [G2-003 — Symbol placement and composition](G2-003-symbol-placement-and-composition.md) | Complete | AFK | G2-002 | Render anchored, offset, rotated, scaled, opaque, and composite symbols. |
-| [G2-004 — Line endpoints and hatch fills](G2-004-line-endpoints-and-hatch-fills.md) | Complete | AFK | G2-003 | Render endpoint markers, arrowheads, and bounded hatch fills. |
-| [G2-005 — Raster icons, catalogs, and renderer registration](G2-005-raster-icons-catalogs-and-renderer-registration.md) | Complete | AFK | G2-004 | Add bounded icons, immutable catalogs, and explicit render registration. |
-| [G2-006 — Symbol gallery and rendering regression](G2-006-symbol-gallery-and-render-regression.md) | Complete | HITL | G2-004, G2-005 | Deliver the gallery and create the tolerant rendering-regression lane. |
-| [G2-007 — Native symbol resource smoke](G2-007-native-symbol-resource-smoke.md) | Complete | HITL | G2-006 | Exercise vector, catalog, registry, and explicit icon-resource paths natively. |
+| [G2-001 — Symbol contract and placement profile](closed/G2-001-symbol-contract-and-placement-profile.md) | Complete | HITL | G1-001 | Lock symbol contracts, units, placement, rotation, and style migration. |
+| [G2-002 — Toolkit-neutral vector paths and markers](closed/G2-002-toolkit-neutral-vector-path-and-markers.md) | Complete | AFK | G2-001 | Render immutable vector paths and the built-in marker set. |
+| [G2-003 — Symbol placement and composition](closed/G2-003-symbol-placement-and-composition.md) | Complete | AFK | G2-002 | Render anchored, offset, rotated, scaled, opaque, and composite symbols. |
+| [G2-004 — Line endpoints and hatch fills](closed/G2-004-line-endpoints-and-hatch-fills.md) | Complete | AFK | G2-003 | Render endpoint markers, arrowheads, and bounded hatch fills. |
+| [G2-005 — Raster icons, catalogs, and renderer registration](closed/G2-005-raster-icons-catalogs-and-renderer-registration.md) | Complete | AFK | G2-004 | Add bounded icons, immutable catalogs, and explicit render registration. |
+| [G2-006 — Symbol gallery and rendering regression](closed/G2-006-symbol-gallery-and-render-regression.md) | Complete | HITL | G2-004, G2-005 | Deliver the gallery and create the tolerant rendering-regression lane. |
+| [G2-007 — Native symbol resource smoke](closed/G2-007-native-symbol-resource-smoke.md) | Complete | HITL | G2-006 | Exercise vector, catalog, registry, and explicit icon-resource paths natively. |
 
 ### G3 — Interaction and measurement
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G3-001 — Tool lifecycle and navigation routing](G3-001-tool-lifecycle-and-navigation-routing.md) | Complete | AFK | G4-002 | Add deterministic active-tool and pointer routing without breaking navigation. |
-| [G3-002 — Symbol-aware hit testing and selection](G3-002-symbol-aware-hit-testing-and-selection.md) | Complete | AFK | G3-001, G2-005 | Select the deterministic topmost feature with pixel-tolerant geometry tests. |
-| [G3-003 — Hover and selection rendering](G3-003-hover-and-selection-rendering.md) | Complete | AFK | G3-002 | Add stable hover/selection state and non-destructive visual feedback. |
-| [G3-004 — Distance strategies and measurement tool](G3-004-distance-strategies-and-measurement-tool.md) | Complete | AFK | G3-003, G4-002 | Measure planar or recognized-geographic paths through an interactive tool. |
+| [G3-001 — Tool lifecycle and navigation routing](closed/G3-001-tool-lifecycle-and-navigation-routing.md) | Complete | AFK | G4-002 | Add deterministic active-tool and pointer routing without breaking navigation. |
+| [G3-002 — Symbol-aware hit testing and selection](closed/G3-002-symbol-aware-hit-testing-and-selection.md) | Complete | AFK | G3-001, G2-005 | Select the deterministic topmost feature with pixel-tolerant geometry tests. |
+| [G3-003 — Hover and selection rendering](closed/G3-003-hover-and-selection-rendering.md) | Complete | AFK | G3-002 | Add stable hover/selection state and non-destructive visual feedback. |
+| [G3-004 — Distance strategies and measurement tool](closed/G3-004-distance-strategies-and-measurement-tool.md) | Complete | AFK | G3-003, G4-002 | Measure planar or recognized-geographic paths through an interactive tool. |
 
 ### G4 — Source contracts and CRS boundaries
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G4-001 — Source contract and diagnostic profile](G4-001-source-contract-and-diagnostic-profile.md) | Complete | HITL | G1-001 | Lock vector/raster query, lifecycle, limits, attributes, and diagnostics contracts. |
-| [G4-002 — CRS boundary and projection hardening](G4-002-crs-boundary-and-projection-hardening.md) | Complete | AFK | G4-001 | Add explicit CRS metadata/registration and harden Web Mercator boundaries. |
-| [G4-003 — Feature source query rendering slice](G4-003-feature-source-query-rendering-slice.md) | Complete | AFK | G2-005, G3-003, G3-004, G4-001, G4-002 | Render bounded viewport queries, including multipoint and multipart geometry. |
-| [G4-004 — Raster source window rendering slice](G4-004-raster-source-window-rendering-slice.md) | Complete | AFK | G4-003 | Render synthetic toolkit-neutral raster windows with lifecycle and cancellation. |
+| [G4-001 — Source contract and diagnostic profile](closed/G4-001-source-contract-and-diagnostic-profile.md) | Complete | HITL | G1-001 | Lock vector/raster query, lifecycle, limits, attributes, and diagnostics contracts. |
+| [G4-002 — CRS boundary and projection hardening](closed/G4-002-crs-boundary-and-projection-hardening.md) | Complete | AFK | G4-001 | Add explicit CRS metadata/registration and harden Web Mercator boundaries. |
+| [G4-003 — Feature source query rendering slice](closed/G4-003-feature-source-query-rendering-slice.md) | Complete | AFK | G2-005, G3-003, G3-004, G4-001, G4-002 | Render bounded viewport queries, including multipoint and multipart geometry. |
+| [G4-004 — Raster source window rendering slice](closed/G4-004-raster-source-window-rendering-slice.md) | Complete | AFK | G4-003 | Render synthetic toolkit-neutral raster windows with lifecycle and cancellation. |
 
 ### G5 — Read-only shapefile support
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G5-001 — Shapefile supported-profile decision](G5-001-shapefile-supported-profile-decision.md) | Complete | HITL | G4-002, G4-003 | Lock the supported 2D shape, sidecar, encoding, mismatch, and limits profile. |
-| [G5-002 — SHP point/multipoint sequential slice](G5-002-shp-point-multipoint-sequential-slice.md) | Complete | AFK | G5-001 | Read and render null, point, and multipoint records from a new working adapter. |
-| [G5-003 — SHX indexed access](G5-003-shx-indexed-access.md) | Complete | AFK | G5-002 | Add validated indexed access and deterministic fallback behavior. |
-| [G5-004 — Polyline multipart slice](G5-004-polyline-multipart-slice.md) | Complete | AFK | G5-002 | Read and render bounded single- and multipart polylines. |
-| [G5-005 — Polygon holes and multipart slice](G5-005-polygon-holes-multipart-slice.md) | Complete | AFK | G5-004 | Read and render multipart polygons and holes predictably. |
-| [G5-006 — DBF/CPG attributes and encoding](G5-006-dbf-cpg-attributes-and-encoding.md) | Complete | AFK | G5-002 | Expose bounded DBF attributes with explicit CPG/fallback behavior. |
-| [G5-007 — PRJ retention and recognized CRS](G5-007-prj-retention-and-recognized-crs.md) | Complete | AFK | G5-002, G4-002 | Retain PRJ text and recognize only explicitly registered CRS definitions. |
-| [G5-008 — Shapefile bounds, diagnostics, and fuzzing](G5-008-shapefile-bounds-diagnostics-and-fuzzing.md) | Complete | AFK | G5-003, G5-005, G5-006, G5-007 | Bound hostile input and prove stable failures with deterministic fuzzing. |
-| [G5-009 — Shapefile corpus and viewer completion](G5-009-shapefile-corpus-and-viewer-completion.md) | Complete | HITL | G5-008 | Create the corpus lane, approve fixture provenance, and finish the viewer. |
-| [G5-010 — Native shapefile smoke](G5-010-native-shapefile-smoke.md) | Complete | HITL | G5-009 | Read/query/render fixed valid and malformed resources under the exact native inventory policy. |
+| [G5-001 — Shapefile supported-profile decision](closed/G5-001-shapefile-supported-profile-decision.md) | Complete | HITL | G4-002, G4-003 | Lock the supported 2D shape, sidecar, encoding, mismatch, and limits profile. |
+| [G5-002 — SHP point/multipoint sequential slice](closed/G5-002-shp-point-multipoint-sequential-slice.md) | Complete | AFK | G5-001 | Read and render null, point, and multipoint records from a new working adapter. |
+| [G5-003 — SHX indexed access](closed/G5-003-shx-indexed-access.md) | Complete | AFK | G5-002 | Add validated indexed access and deterministic fallback behavior. |
+| [G5-004 — Polyline multipart slice](closed/G5-004-polyline-multipart-slice.md) | Complete | AFK | G5-002 | Read and render bounded single- and multipart polylines. |
+| [G5-005 — Polygon holes and multipart slice](closed/G5-005-polygon-holes-multipart-slice.md) | Complete | AFK | G5-004 | Read and render multipart polygons and holes predictably. |
+| [G5-006 — DBF/CPG attributes and encoding](closed/G5-006-dbf-cpg-attributes-and-encoding.md) | Complete | AFK | G5-002 | Expose bounded DBF attributes with explicit CPG/fallback behavior. |
+| [G5-007 — PRJ retention and recognized CRS](closed/G5-007-prj-retention-and-recognized-crs.md) | Complete | AFK | G5-002, G4-002 | Retain PRJ text and recognize only explicitly registered CRS definitions. |
+| [G5-008 — Shapefile bounds, diagnostics, and fuzzing](closed/G5-008-shapefile-bounds-diagnostics-and-fuzzing.md) | Complete | AFK | G5-003, G5-005, G5-006, G5-007 | Bound hostile input and prove stable failures with deterministic fuzzing. |
+| [G5-009 — Shapefile corpus and viewer completion](closed/G5-009-shapefile-corpus-and-viewer-completion.md) | Complete | HITL | G5-008 | Create the corpus lane, approve fixture provenance, and finish the viewer. |
+| [G5-010 — Native shapefile smoke](closed/G5-010-native-shapefile-smoke.md) | Complete | HITL | G5-009 | Read/query/render fixed valid and malformed resources under the exact native inventory policy. |
 
 ### G6 — Bounded PNG/JPEG raster support
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G6-001 — Bounded PNG/JPEG raster source](G6-001-bounded-png-jpeg-raster-source.md) | Complete | AFK | G4-002, G4-004 | Add an AWT-free image adapter plus explicitly registered AWT decode path. |
-| [G6-002 — World-file affine georeferencing](G6-002-world-file-affine-georeferencing.md) | Complete | AFK | G6-001 | Apply bounded world-file affine georeferencing and CRS metadata. |
-| [G6-003 — Raster requests and rendering controls](G6-003-raster-requests-and-rendering-controls.md) | Complete | AFK | G6-002, G2-006 | Add windowing, resampling, opacity, interpolation, and affine rendering. |
-| [G6-004 — Raster cache, lifecycle, and hardening](G6-004-raster-cache-lifecycle-and-hardening.md) | Complete | AFK | G6-003 | Bound caches and malformed inputs while honoring close and cancellation. |
-| [G6-005 — Native Image raster smoke](G6-005-native-image-raster-smoke.md) | Complete | HITL | G2-007, G5-010, G6-004 | Decode and render PNG/JPEG with affine metadata under Native Image. |
+| [G6-001 — Bounded PNG/JPEG raster source](closed/G6-001-bounded-png-jpeg-raster-source.md) | Complete | AFK | G4-002, G4-004 | Add an AWT-free image adapter plus explicitly registered AWT decode path. |
+| [G6-002 — World-file affine georeferencing](closed/G6-002-world-file-affine-georeferencing.md) | Complete | AFK | G6-001 | Apply bounded world-file affine georeferencing and CRS metadata. |
+| [G6-003 — Raster requests and rendering controls](closed/G6-003-raster-requests-and-rendering-controls.md) | Complete | AFK | G6-002, G2-006 | Add windowing, resampling, opacity, interpolation, and affine rendering. |
+| [G6-004 — Raster cache, lifecycle, and hardening](closed/G6-004-raster-cache-lifecycle-and-hardening.md) | Complete | AFK | G6-003 | Bound caches and malformed inputs while honoring close and cancellation. |
+| [G6-005 — Native Image raster smoke](closed/G6-005-native-image-raster-smoke.md) | Complete | HITL | G2-007, G5-010, G6-004 | Decode and render PNG/JPEG with affine metadata under Native Image. |
 
 ### G7 — Performance evidence and optimization
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G7-001 — Performance evidence baseline](G7-001-performance-evidence-baseline.md) | Complete | AFK | G2-006, G3-003, G5-009, G6-004 | Create repeatable large-data/JFR evidence before optimization. |
-| [G7-002 — Packed spatial index and viewport query](G7-002-packed-spatial-index-and-viewport-query.md) | Complete | AFK | G7-001, G4-003 | Replace linear viewport scans with a correctness-proven packed index. |
-| [G7-003 — Clipping and simplification](G7-003-clipping-and-simplification.md) | Complete | AFK | G7-002 | Clip and simplify at view scale without corrupting geometry. |
-| [G7-004 — Render cache and performance acceptance](G7-004-render-cache-and-performance-acceptance.md) | Complete | AFK | G7-003, G6-004 | Retain the qualified vector-template cache, remove the rejected screen cache, and record the Level 1 envelope. |
+| [G7-001 — Performance evidence baseline](closed/G7-001-performance-evidence-baseline.md) | Complete | AFK | G2-006, G3-003, G5-009, G6-004 | Create repeatable large-data/JFR evidence before optimization. |
+| [G7-002 — Packed spatial index and viewport query](closed/G7-002-packed-spatial-index-and-viewport-query.md) | Complete | AFK | G7-001, G4-003 | Replace linear viewport scans with a correctness-proven packed index. |
+| [G7-003 — Clipping and simplification](closed/G7-003-clipping-and-simplification.md) | Complete | AFK | G7-002 | Clip and simplify at view scale without corrupting geometry. |
+| [G7-004 — Render cache and performance acceptance](closed/G7-004-render-cache-and-performance-acceptance.md) | Complete | AFK | G7-003, G6-004 | Retain the qualified vector-template cache, remove the rejected screen cache, and record the Level 1 envelope. |
 
 ### G8 — Native and Level 1 release readiness
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G8-001 — Level 1 Native Image and CI hardening](G8-001-level1-native-image-and-ci-hardening.md) | Proposed | HITL | G2-007, G3-004, G5-010, G6-005, G7-004 | Pin one aggregate Ubuntu x86_64 native lane and its release evidence. |
-| [G8-002 — Public API, Javadocs, and examples review](G8-002-public-api-javadocs-and-examples-review.md) | Complete | HITL | G2-006, G3-004, G5-009, G6-004, G7-004 | Approve five public modules, strict Javadocs, and five Level 1 examples. |
-| [G8-003 — Publication and consumer smoke](G8-003-publication-and-consumer-smoke.md) | Complete | AFK | G8-002 | Validate five staged artifacts through one clean offline Java 21 consumer. |
+| [G8-002 — Public API, Javadocs, and examples review](closed/G8-002-public-api-javadocs-and-examples-review.md) | Complete | HITL | G2-006, G3-004, G5-009, G6-004, G7-004 | Approve five public modules, strict Javadocs, and five Level 1 examples. |
+| [G8-003 — Publication and consumer smoke](closed/G8-003-publication-and-consumer-smoke.md) | Complete | AFK | G8-002 | Validate five staged artifacts through one clean offline Java 21 consumer. |
 | [G8-004 — Level 1 release readiness](G8-004-level1-release-readiness.md) | Blocked | HITL | G8-001, G8-003 | Candidate support/license inputs are prepared; exact-SHA Native Image and normal CI evidence await the one final push. |
 
 ## Level 2 backlog
@@ -204,13 +206,13 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G9-001 — Format-neutral elevation model](G9-001-format-neutral-elevation-model.md) | Complete | AFK | G8-004 | Model bounded regularly sampled elevation independently of file format. |
-| [G9-002 — Elevation raster layer](G9-002-elevation-raster-layer.md) | Complete | AFK | G9-001 | Render synthetic elevation with color ramps and optional hillshading. |
-| [G9-003 — DTED levels reader slice](G9-003-dted-levels-reader-slice.md) | Complete | AFK | G9-001 | Read DTED Levels 0, 1, and 2 into the shared elevation model. |
-| [G9-004 — DTED validation and diagnostics](G9-004-dted-validation-and-diagnostics.md) | Complete | AFK | G9-003 | Validate headers, dimensions, checksums, samples, voids, and truncation. |
-| [G9-005 — Elevation position-query policy](G9-005-elevation-position-query-policy.md) | Complete | AFK | G9-001, G9-003 | Provide explicit nearest and bilinear query behavior. |
-| [G9-006 — Legally redistributable DTED corpus](G9-006-legally-redistributable-dted-corpus.md) | Complete | HITL | G9-004 | Approve and verify an isolated Level 0/1/2 independent-writer corpus. |
-| [G9-007 — DTED memory and read performance](G9-007-dted-memory-and-read-performance.md) | Complete | AFK | G9-004, G9-005, G9-006 | Retain eager DTED access from maximum-cell memory/read evidence. |
+| [G9-001 — Format-neutral elevation model](closed/G9-001-format-neutral-elevation-model.md) | Complete | AFK | G8-004 | Model bounded regularly sampled elevation independently of file format. |
+| [G9-002 — Elevation raster layer](closed/G9-002-elevation-raster-layer.md) | Complete | AFK | G9-001 | Render synthetic elevation with color ramps and optional hillshading. |
+| [G9-003 — DTED levels reader slice](closed/G9-003-dted-levels-reader-slice.md) | Complete | AFK | G9-001 | Read DTED Levels 0, 1, and 2 into the shared elevation model. |
+| [G9-004 — DTED validation and diagnostics](closed/G9-004-dted-validation-and-diagnostics.md) | Complete | AFK | G9-003 | Validate headers, dimensions, checksums, samples, voids, and truncation. |
+| [G9-005 — Elevation position-query policy](closed/G9-005-elevation-position-query-policy.md) | Complete | AFK | G9-001, G9-003 | Provide explicit nearest and bilinear query behavior. |
+| [G9-006 — Legally redistributable DTED corpus](closed/G9-006-legally-redistributable-dted-corpus.md) | Complete | HITL | G9-004 | Approve and verify an isolated Level 0/1/2 independent-writer corpus. |
+| [G9-007 — DTED memory and read performance](closed/G9-007-dted-memory-and-read-performance.md) | Complete | AFK | G9-004, G9-005, G9-006 | Retain eager DTED access from maximum-cell memory/read evidence. |
 | [G9-008 — Native Image DTED smoke](G9-008-native-image-dted-smoke.md) | Blocked | HITL | G9-002, G9-005, G9-007 | Run one representative Level 0 path in the existing native executable; authoritative Linux execution is pending. |
 
 ### G10 — Additional formats, tiles, and projections

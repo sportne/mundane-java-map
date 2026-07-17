@@ -126,14 +126,14 @@ architectural requirement. Level 1 is complete only when
 ### G0 — Verified baseline
 
 - Restore and verify the Java 21 Gradle baseline and publication staging in
-  [G0-001](tasks/G0-001-current-baseline-verification.md).
+  [G0-001](tasks/closed/G0-001-current-baseline-verification.md).
 - Mechanically enforce dependency, toolkit, I/O, and native-target boundaries in
-  [G0-002](tasks/G0-002-architecture-boundary-hardening.md).
+  [G0-002](tasks/closed/G0-002-architecture-boundary-hardening.md).
 
 ### G1 — First map slice
 
 - Verify and harden the existing geometry, viewport, Swing interaction/rendering, viewer, and
-  native-smoke slice in [G1-001](tasks/G1-001-first-map-slice-verification.md).
+  native-smoke slice in [G1-001](tasks/closed/G1-001-first-map-slice-verification.md).
 
 ### G2 — Symbols and vector graphics
 

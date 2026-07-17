@@ -6,13 +6,21 @@ def java21Launcher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(21)
 }
 
+def buildLogicPluginMarkers = [
+    [id: 'com.diffplug.spotless', version: libs.versions.spotlessPlugin.get(),
+        implementation: 'com.diffplug.spotless:spotless-plugin-gradle'],
+    [id: 'com.github.spotbugs', version: libs.versions.spotbugsPlugin.get(),
+        implementation: 'com.github.spotbugs.snom:spotbugs-gradle-plugin'],
+    [id: 'net.ltgt.errorprone', version: libs.versions.errorpronePlugin.get(),
+        implementation: 'net.ltgt.gradle:gradle-errorprone-plugin'],
+    [id: 'org.graalvm.buildtools.native', version: libs.versions.graalvmNativePlugin.get(),
+        implementation: 'org.graalvm.buildtools:native-gradle-plugin']
+]
+
 dependencies {
-    implementation "com.diffplug.spotless:com.diffplug.spotless.gradle.plugin:${libs.versions.spotlessPlugin.get()}"
-    implementation "com.github.spotbugs:com.github.spotbugs.gradle.plugin:${libs.versions.spotbugsPlugin.get()}"
-    implementation "net.ltgt.errorprone:net.ltgt.errorprone.gradle.plugin:${libs.versions.errorpronePlugin.get()}"
-    implementation(
-        "org.graalvm.buildtools.native:org.graalvm.buildtools.native.gradle.plugin:${libs.versions.graalvmNativePlugin.get()}"
-    )
+    buildLogicPluginMarkers.each { marker ->
+        implementation "${marker.id}:${marker.id}.gradle.plugin:${marker.version}"
+    }
     testImplementation gradleTestKit()
     testImplementation platform(libs.junit.bom)
     testImplementation libs.junit.jupiter
@@ -27,6 +35,12 @@ tasks.withType(Test).configureEach {
             java21Launcher.get().metadata.installationPath.asFile.absolutePath
     systemProperty 'map.testJavaVersion',
             providers.gradleProperty('map.testJavaVersion').getOrElse('21')
+    systemProperty(
+        'map.buildLogicPluginMarkers',
+        buildLogicPluginMarkers.collect { marker ->
+            "${marker.id}:${marker.id}.gradle.plugin:${marker.version}=${marker.implementation}:${marker.version}"
+        }.join(',')
+    )
     testLogging {
         events 'failed'
         exceptionFormat = 'full'

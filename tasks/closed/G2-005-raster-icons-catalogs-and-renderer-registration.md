@@ -13,7 +13,7 @@ renderers through an explicit registry with stable failure diagnostics.
 ## Context
 
 G2-002 through G2-004 provide vector symbols, placement, lines, and fills. The
-[G2 design](../design/G2-symbols-and-vector-graphics.md) forbids runtime discovery and confines
+[G2 design](../../design/G2-symbols-and-vector-graphics.md) forbids runtime discovery and confines
 Java2D to `mundane-map-awt`. Raster icons therefore need an immutable primitive pixel form at the
 public boundary, while Java2D conversion and renderer implementations stay in AWT.
 
