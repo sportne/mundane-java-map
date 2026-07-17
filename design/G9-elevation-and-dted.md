@@ -1853,9 +1853,10 @@ exact normalized JSON and processed-resource-tree tests require the 13-entry tas
 the prior icon, six shapefile, five image, and one DTED file. If another approved append-only Level 2
 native scenario has already landed, G9-008 retains and enumerates that addition in the authoritative
 complete manifest rather than resetting a historical count; its invariant remains those 13 required
-entries plus every approved addendum. Wildcards, directories, bundles, services,
+entries plus every approved addendum. Wildcards, directories, bundles, services, new or broadened
 reflection/proxy/JNI/serialization metadata, tracing output, metadata-repository entries, and
-class-initialization flags remain forbidden.
+class-initialization flags remain forbidden. The executable retains the exact reviewed AWT/ImageIO
+compatibility metadata from earlier native slices; G9 adds only its literal DTED resource.
 
 `NativeFixtureWorkspace.openDted()` uses literal `Class.getResourceAsStream`, reads at most 8,763
 bytes, and rejects absent, short, long, or wrong-hash content with bounded invariant token
@@ -1980,6 +1981,15 @@ Focused JVM and architecture checks pass. GraalVM CE 21.0.2+13.1 on local Linux 
 46.32-MiB image successfully, but execution stopped in the pre-existing Level 1 measurement-overlay
 font path at `SunFontManager.initIDs` because JNI lookup could not find `sun/font/TrueTypeFont`.
 Because the required execution order correctly prevents bypassing that historical scenario, the DTED
-scenario was not reached locally. The implementation remains Blocked pending authoritative Ubuntu
-24.04 Linux x86_64 Java 21 CI execution through the sentinel; no metadata workaround or weakened
-claim is justified by this task.
+scenario was not reached locally. At that point the implementation remained Blocked pending
+authoritative Ubuntu 24.04 Linux x86_64 Java 21 CI execution through the sentinel; no metadata
+workaround or weakened claim was justified by this task.
+
+The checkpoint completed on 2026-07-17 for candidate
+`a5d10791d6cf811b438cb72504ff8b00b2ab8d75`. The required
+[Ubuntu 24.04 x86-64 job](https://github.com/sportne/mundane-java-map/actions/runs/29578220777/job/87877476971)
+used Oracle GraalVM Java 21.0.11+9.1 and Native Image 21.0.11, ran the complete six-dependency,
+13-resource executable, and printed `mundane-map native smoke: OK`. Because the sentinel follows the
+DTED scenario and cleanup, the exact read/query/colorize/hillshade/render/malformed-length assertions
+all completed. The approved claim remains the representative Level 0 wording above; no broader DTED
+or platform claim follows from this evidence.

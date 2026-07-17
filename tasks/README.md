@@ -213,7 +213,7 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | [G9-005 — Elevation position-query policy](closed/G9-005-elevation-position-query-policy.md) | Complete | AFK | G9-001, G9-003 | Provide explicit nearest and bilinear query behavior. |
 | [G9-006 — Legally redistributable DTED corpus](closed/G9-006-legally-redistributable-dted-corpus.md) | Complete | HITL | G9-004 | Approve and verify an isolated Level 0/1/2 independent-writer corpus. |
 | [G9-007 — DTED memory and read performance](closed/G9-007-dted-memory-and-read-performance.md) | Complete | AFK | G9-004, G9-005, G9-006 | Retain eager DTED access from maximum-cell memory/read evidence. |
-| [G9-008 — Native Image DTED smoke](G9-008-native-image-dted-smoke.md) | Blocked | HITL | G9-002, G9-005, G9-007 | Run one representative Level 0 path in the existing native executable; authoritative Linux execution is pending. |
+| [G9-008 — Native Image DTED smoke](closed/G9-008-native-image-dted-smoke.md) | Complete | HITL | G9-002, G9-005, G9-007 | Verify one representative Level 0 path in the existing native executable. |
 
 ### G10 — Additional formats, tiles, and projections
 

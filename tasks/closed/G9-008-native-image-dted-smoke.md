@@ -1,6 +1,6 @@
 # G9-008 — Native Image DTED smoke
 
-Status: Blocked
+Status: Complete
 Depends on: G9-002, G9-005, G9-007
 Gate: G9
 Type: HITL
@@ -81,11 +81,37 @@ entries. The copied 8,762-byte BSD-3-Clause synthetic corpus resource has SHA-25
 `9b0f2d2d0b1fdeefb2e551fee98c4fac2da88141dc0fd02e712840fc9508c802`; its producer remains the
 approved GDAL 3.13.0 acquisition recipe, not a runtime dependency. G9-007 retained eager access.
 
-The focused JVM/native-support and architecture checks pass locally. An explicit GraalVM CE
+The focused JVM/native-support and architecture checks passed locally. An explicit GraalVM CE
 21.0.2+13.1 Linux amd64 run built the 46.32-MiB image successfully in 26.6 seconds, including the
 DTED module and resource, but the historical Level 1 scenario failed before reaching DTED at
 `SunFontManager.initIDs` with missing JNI class `sun/font/TrueTypeFont`. No metadata workaround was
-added because that pre-existing Java2D/font issue is outside this task's approved design. Status is
-Blocked until the required clean Ubuntu 24.04 Linux x86_64 Java 21 CI lane runs the executable through
-the sentinel and the preapproved maintainer checkpoint can be recorded against that evidence. No
+added because that pre-existing Java2D/font issue is outside this task's approved design. At that
+point status was Blocked until the required clean Ubuntu 24.04 Linux x86_64 Java 21 CI lane ran the
+executable through the sentinel and the preapproved maintainer checkpoint could be recorded. No
 Level 1/2, Windows, macOS, Linux AArch64, or general DTED Native Image claim is made.
+
+### Completion checkpoint — 2026-07-17
+
+- Candidate revision: `a5d10791d6cf811b438cb72504ff8b00b2ab8d75`.
+- Authoritative evidence: [Native Image run](https://github.com/sportne/mundane-java-map/actions/runs/29578220777)
+  and [native-smoke job](https://github.com/sportne/mundane-java-map/actions/runs/29578220777/job/87877476971).
+- Runner and tools: GitHub-hosted Ubuntu 24.04.4 LTS x86-64, runner image `ubuntu-24.04`
+  version `20260714.240`, Oracle GraalVM Java `21.0.11+9.1`, Native Image
+  `native-image 21.0.11 2026-04-21`, and JVMCI `23.1-b92`.
+- Command and result: `./gradlew nativeSmoke --console=plain` built and ran the no-fallback
+  executable and printed `mundane-map native smoke: OK`.
+- Access policy: G9-007 retained the eager source after its largest-standard-cell memory and read
+  evidence; no windowed-source follow-up is required.
+- Fixture authority: the literal
+  `io/github/mundanej/map/nativeimage/dted/zone-v-l0-smoke.dt0` resource is the approved
+  8,762-byte BSD-3-Clause synthetic GDAL 3.13.0 fixture with SHA-256
+  `9b0f2d2d0b1fdeefb2e551fee98c4fac2da88141dc0fd02e712840fc9508c802`.
+- The six-dependency, 13-resource executable passed exact DTED metadata, nearest/bilinear query,
+  unshaded colorization/render, material default-hillshade change, malformed-length diagnostic, and
+  deterministic cleanup assertions before the sentinel.
+- Approval: the maintainer pre-approved every qualifying HITL task in this execution sequence. The
+  exact-SHA evidence satisfies the named **G9 native DTED approval**.
+- Approved support wording: a representative DTED Level 0 read, query, colorize, hillshade, render,
+  and malformed-length path is verified with GraalVM Native Image Java 21 on the recorded Ubuntu
+  24.04 Linux x86-64 lane. DTED Levels 1 and 2 are JVM/corpus-verified, not Native Image-verified.
+  Windows, macOS, Linux AArch64, other environments, and general terrain workloads remain unclaimed.
