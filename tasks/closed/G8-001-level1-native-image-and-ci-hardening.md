@@ -1,6 +1,6 @@
 # G8-001 — Level 1 Native Image and CI hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G2-007, G3-004, G5-010, G6-005, G7-004
 Gate: G8
 Type: HITL
@@ -104,10 +104,37 @@ The supplemental local no-fallback run used GraalVM CE Java 21.0.2+13.1 / `nativ
 Ubuntu 24.04.1 WSL2 Linux x86_64. Image compilation completed in 28.1 seconds, but execution failed
 before the sentinel when that cached toolchain's `SunFontManager` attempted a JNI lookup of
 `sun.font.TrueTypeFont` from the newly reached measurement-label path. No G8 resource, JNI,
-reflection, or reachability metadata was added to work around that toolchain incompatibility. The
-task remains Proposed until the reviewed commit receives a clean required Ubuntu 24.04 CI run and
-the **G8 Linux Native Image release-lane approval** records its URL, exact current tool versions,
+reflection, or reachability metadata was added to work around that toolchain incompatibility. At
+that point, the task remained Proposed until the reviewed commit received a clean required Ubuntu
+24.04 CI run and the **G8 Linux Native Image release-lane approval** recorded its URL and exact tools,
 sentinel, resources, diagnostics, repeat-render result, and approval. The permitted support wording
 remains: GraalVM Native Image is verified with Java 21 on Linux x86_64 using the recorded Ubuntu
 24.04 CI environment; Windows, macOS, Linux AArch64, other distributions, and cross-platform Native
 Image compatibility are unverified.
+
+### Completion checkpoint — 2026-07-17
+
+- Candidate revision: `a5d10791d6cf811b438cb72504ff8b00b2ab8d75`.
+- Required workflow evidence: [Native Image run](https://github.com/sportne/mundane-java-map/actions/runs/29578220777)
+  and [native-smoke job](https://github.com/sportne/mundane-java-map/actions/runs/29578220777/job/87877476971).
+  The independent [normal CI run](https://github.com/sportne/mundane-java-map/actions/runs/29578220793)
+  also passed for the exact candidate revision.
+- Runner and tools: GitHub-hosted Ubuntu 24.04.4 LTS x86-64, runner image `ubuntu-24.04`
+  version `20260714.240`, Oracle GraalVM Java `21.0.11+9.1`, Native Image
+  `native-image 21.0.11 2026-04-21`, and JVMCI `23.1-b92`.
+- Command and result: `./gradlew nativeSmoke --console=plain` built the no-fallback executable in
+  2 minutes 50 seconds, ran it successfully, printed `mundane-map native smoke: OK`, and completed
+  the Gradle invocation in 3 minutes 10 seconds.
+- Inventory: the reviewed G8 Level 1 snapshot remains five production dependencies and 12 explicit
+  resources. The current descendant executable's sixth production dependency and thirteenth
+  resource belong to G9 DTED and do not widen the Level 1 checkpoint.
+- Required diagnostic paths passed for duplicate symbol-renderer registration, the stable malformed
+  shapefile record, and the stable malformed PNG; catalog-missing remains additional coverage.
+- The two final-default paints were semantically identical. Tool claim release/reuse, cleanup, and
+  repeated complete smoke invocation were verified. G7 retains only its private bounded
+  vector-template cache; it adds no screen cache or native acceleration.
+- Approval: the maintainer pre-approved every qualifying HITL task in this execution sequence. The
+  exact-SHA evidence above satisfies the named **G8 Linux Native Image release-lane approval**.
+- Approved support wording: GraalVM Native Image is verified with Java 21 on Linux x86-64 using the
+  recorded Ubuntu 24.04 CI environment. Windows, macOS, Linux AArch64, other distributions, and
+  cross-platform Native Image compatibility are unverified.

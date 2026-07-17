@@ -141,9 +141,10 @@ G8 adds no resource. The one Java 21
 `META-INF/native-image/io.github.mundanej/mundane-map-native-tests/resource-config.json` remains
 exactly 12 individually quoted literal entries: one G2 raw RGBA icon, six G5 shapefile files, and five
 G6 raster/world-file files. JVM tests compare the normalized exact JSON and complete processed main-
-resource tree. No wildcard, directory, bundle, service, reflection/proxy/JNI/serialization metadata,
-tracing-agent output, metadata-repository entry, provider registration, or class-initialization flag
-is permitted.
+resource tree. G8 adds no wildcard, directory, bundle, service, reflection/proxy/JNI/serialization
+metadata, tracing-agent output, metadata-repository entry, provider registration, or
+class-initialization flag. The executable retains the exact reviewed AWT/ImageIO compatibility
+metadata introduced by the earlier owning slices; G8 neither broadens nor duplicates it.
 
 If explicit Java 21 construction cannot build/run on the selected GraalVM, the implementation task
 is Blocked rather than widened to a prohibited mechanism. A necessary compatibility correction stays
@@ -221,6 +222,13 @@ CI job are sufficient. There is no native test framework, scenario/plugin regist
 corpus, broad metadata, private cache instrumentation, native benchmark, or platform matrix. This is
 the smallest final Native Image boundary that proves all Level 1 dependencies coexist and leaves a
 reviewable release claim.
+
+The checkpoint completed on 2026-07-17 for candidate
+`a5d10791d6cf811b438cb72504ff8b00b2ab8d75`. The required
+[Ubuntu 24.04 x86-64 job](https://github.com/sportne/mundane-java-map/actions/runs/29578220777/job/87877476971)
+used Oracle GraalVM Java 21.0.11+9.1, built and ran the no-fallback executable, and printed
+`mundane-map native smoke: OK`. Its reviewed Level 1 record remains the five-production-dependency,
+12-resource snapshot; the later G9 DTED extension does not alter that approval or support claim.
 
 The five production dependencies and 12 resources above are the immutable G8 Level 1 checkpoint
 snapshot. G9-008 later appends the already-published DTED module and one approved Level 0 resource to

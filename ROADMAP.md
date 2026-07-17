@@ -248,28 +248,26 @@ architectural requirement. Level 1 is complete only when
 ### G8 — Native and release readiness
 
 - Aggregate representative success and diagnostic paths in Linux Native Image CI.
-- G8-001's direct aggregate JVM scenario and pinned single-job workflow are implemented locally, but
-  the task remains Proposed pending the required reviewed-commit Ubuntu 24.04 CI evidence. A
-  supplemental cached GraalVM CE 21.0.2 run compiled the no-fallback image and then failed in the
-  newly reached measurement-label font path; no resource or reachability metadata was widened to
-  treat that older local toolchain as release evidence.
+- G8-001 is complete. Candidate `a5d10791d6cf811b438cb72504ff8b00b2ab8d75` passed the required
+  Ubuntu 24.04 x86-64 lane with Oracle GraalVM Java 21.0.11+9.1, built the no-fallback image, ran the
+  aggregate semantic and diagnostic scenarios, and printed `mundane-map native smoke: OK`. The
+  approved claim remains limited to the recorded Java 21 Ubuntu 24.04 Linux x86-64 environment.
 - G8-002 is complete. The five published modules now have strict offline Java 21 Javadocs and a
   published-only public-API documentation check; their immutable/toolkit/dependency boundaries were
   reviewed without incompatible API changes. README and all five examples describe and exercise the
   observed Level 1 surface. Fixed format-viewer identities, sensitive-path presentation tests, and
-  captured WSLg launches cover the release-review checkpoint; final Native Image wording remains
-  provisional while G8-001 awaits its required CI evidence.
+  captured WSLg launches cover the release-review checkpoint. G8-001's completed evidence supplies
+  the final narrow Native Image wording.
 - G8-003 is complete. One exact five-coordinate contract now serializes the real local-repository
   writes after cleanup, validates snapshot/release POMs, module metadata, reproducible licensed
   archives, strong checksums, and an immutable artifact manifest, then compiles and runs a fresh
   offline Java 21 consumer from only the staged artifacts. This independently executable release
-  branch does not satisfy G8-001's pending Linux CI checkpoint.
+  branch remains independent from G8-001's completed Linux CI checkpoint.
 - G8-001 and G8-003 are independent evidence branches after G8-002. G8-004 explicitly depends on
-  both and is the only point that may join publication evidence with the pending native checkpoint.
+  both and is the only point that may join publication evidence with the completed native checkpoint.
 - G8-004's proposed `0.1.0` support statement, changelog, limitation profile, and local license/
-  provenance audit are prepared. The task is Blocked—not complete—because the one authorized final
-  push has not yet produced exact-candidate Native Image and normal CI URLs or a six-lane evidence
-  matrix on one immutable SHA.
+  provenance audit are prepared. Exact-candidate Native Image and normal CI evidence now exist, so
+  the remaining work is the six-lane evidence matrix and final go/no-go decision.
 - Run normal, native, shapefile-corpus, rendering-regression, performance, and
   publication/consumer lanes separately before the release decision.
 - Reconcile every lane against one clean candidate SHA; G8-004 records `GO` or leaves Level 1

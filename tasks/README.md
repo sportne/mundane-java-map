@@ -188,10 +188,10 @@ Level 1 is complete only when G8-004 is complete.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G8-001 — Level 1 Native Image and CI hardening](G8-001-level1-native-image-and-ci-hardening.md) | Proposed | HITL | G2-007, G3-004, G5-010, G6-005, G7-004 | Pin one aggregate Ubuntu x86_64 native lane and its release evidence. |
+| [G8-001 — Level 1 Native Image and CI hardening](closed/G8-001-level1-native-image-and-ci-hardening.md) | Complete | HITL | G2-007, G3-004, G5-010, G6-005, G7-004 | Verify the aggregate Level 1 native path on the pinned Ubuntu x86_64 release lane. |
 | [G8-002 — Public API, Javadocs, and examples review](closed/G8-002-public-api-javadocs-and-examples-review.md) | Complete | HITL | G2-006, G3-004, G5-009, G6-004, G7-004 | Approve five public modules, strict Javadocs, and five Level 1 examples. |
 | [G8-003 — Publication and consumer smoke](closed/G8-003-publication-and-consumer-smoke.md) | Complete | AFK | G8-002 | Validate five staged artifacts through one clean offline Java 21 consumer. |
-| [G8-004 — Level 1 release readiness](G8-004-level1-release-readiness.md) | Blocked | HITL | G8-001, G8-003 | Candidate support/license inputs are prepared; exact-SHA Native Image and normal CI evidence await the one final push. |
+| [G8-004 — Level 1 release readiness](G8-004-level1-release-readiness.md) | Proposed | HITL | G8-001, G8-003 | Reconcile the prepared candidate and exact-SHA CI evidence across all six release lanes. |
 
 ## Level 2 backlog
 
