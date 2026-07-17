@@ -145,6 +145,12 @@ class NativeSmokeMainTest {
                           "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
                         },
                         "pattern": "\\\\Qio/github/mundanej/map/nativeimage/raster/malformed-idat-crc.png\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/dted/zone-v-l0-smoke.dt0\\\\E"
                       }
                     ]
                   }

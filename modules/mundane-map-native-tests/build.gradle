@@ -9,6 +9,7 @@ dependencies {
     implementation project(':modules:mundane-map-awt')
     implementation project(':modules:mundane-map-io-image')
     implementation project(':modules:mundane-map-io-shapefile')
+    implementation project(':modules:mundane-map-io-dted')
 }
 
 def shapefileCorpusRoot = project(':modules:mundane-map-io-shapefile').layout.projectDirectory.dir(

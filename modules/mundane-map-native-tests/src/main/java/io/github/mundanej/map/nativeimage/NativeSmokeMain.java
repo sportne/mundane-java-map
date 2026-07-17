@@ -53,6 +53,9 @@ public final class NativeSmokeMain {
             NativeRasterSmokeScenario.run(workspace.rasterPaths());
         }
         NativeLevel1SmokeScenario.run();
+        try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openDted()) {
+            NativeDtedSmokeScenario.run(workspace.dtedPaths());
+        }
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {

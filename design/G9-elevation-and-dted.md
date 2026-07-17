@@ -1966,3 +1966,20 @@ empty module, lazy/source hierarchy, terrain framework, native parser, resource 
 GIS abstraction is justified by G9. Focused native-support/architecture JVM checks run before the
 separate real `nativeSmoke`, then `qualityGate` and whitespace; corpus, performance, rendering,
 publication, and consumer lanes do not rerun here.
+
+### G9-008 implementation status
+
+The 2026-07-17 implementation follows this design without adding another executable, format API,
+resource registry, discovery path, parser strategy, or native workaround. It copies the approved
+Level 0 corpus cell byte-for-byte, appends the package-private DTED scenario after the unchanged
+Level 1 scenario, and pins the six explicit dependencies and 13 literal resources. Shared JVM/native
+assertions cover the exact metadata, nearest and bilinear queries, tolerant color and footprint
+rendering, default hillshade change, malformed-length report, ownership, and workspace cleanup.
+
+Focused JVM and architecture checks pass. GraalVM CE 21.0.2+13.1 on local Linux amd64 built the
+46.32-MiB image successfully, but execution stopped in the pre-existing Level 1 measurement-overlay
+font path at `SunFontManager.initIDs` because JNI lookup could not find `sun/font/TrueTypeFont`.
+Because the required execution order correctly prevents bypassing that historical scenario, the DTED
+scenario was not reached locally. The implementation remains Blocked pending authoritative Ubuntu
+24.04 Linux x86_64 Java 21 CI execution through the sentinel; no metadata workaround or weakened
+claim is justified by this task.

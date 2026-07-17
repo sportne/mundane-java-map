@@ -330,6 +330,13 @@ separately decomposed.
   105,358,512 retained bytes with a 210,726,938-byte open peak. Frozen semantics, the 9.14-second
   quick loop, the 115.99-second canonical lane, and JFR CPU/allocation evidence retain eager access;
   no fallible windowed-source task or production/API/parser change is warranted.
+- G9-008 is implemented but Blocked on authoritative Native Image execution. The existing single
+  executable now appends a hash-pinned representative Level 0 read/query/colorize/hillshade/render/
+  malformed-length scenario, with exact explicit dependency and 13-resource inventories. Focused JVM
+  and architecture checks pass, and local GraalVM CE 21.0.2 produced the image, but the unchanged
+  earlier Level 1 scenario still stops in the known `SunFontManager`/`TrueTypeFont` JNI path before
+  DTED runs. G9 remains open until the required Ubuntu 24.04 Linux x86_64 Java 21 CI lane reaches the
+  sentinel; no DTED Native Image support claim is made meanwhile.
 - DTED is elevation data, not a generic image format. It remains separate from GeoTIFF while both
   may produce the same elevation model. See the
   [G9 task set](tasks/README.md#g9--elevation-and-dted).

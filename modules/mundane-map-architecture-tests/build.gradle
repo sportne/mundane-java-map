@@ -230,6 +230,7 @@ tasks.named('test') {
     inputs.dir(new File(project(':modules:mundane-map-io-image').projectDir, 'src/main/java'))
     inputs.dir(new File(nativeSmokeProject.projectDir, 'src/main/resources'))
     inputs.dir(nativeSmokeProject.layout.buildDirectory.dir('resources/main'))
+    inputs.file(nativeSmokeProject.file('build.gradle'))
     inputs.dir(new File(performanceProject.projectDir, 'src/main/java'))
     inputs.dir(new File(performanceProject.projectDir, 'src/main/resources'))
     inputs.file(performanceProject.file('build.gradle'))
@@ -257,6 +258,8 @@ tasks.named('test') {
                 new File(nativeSmokeProject.projectDir, 'src/main/resources').absolutePath,
                 nativeSmokeProject.layout.buildDirectory.dir('resources/main').get().asFile.absolutePath,
             ].join(File.pathSeparator)
+    systemProperty 'map.architecture.nativeSupportBuild',
+            nativeSmokeProject.file('build.gradle').absolutePath
     systemProperty 'map.architecture.performanceSources',
             new File(performanceProject.projectDir, 'src/main/java').absolutePath
     systemProperty 'map.architecture.performanceResources',
@@ -404,6 +407,7 @@ gradle.projectsEvaluated {
         ':modules:mundane-map-api',
         ':modules:mundane-map-core',
         ':modules:mundane-map-awt',
+        ':modules:mundane-map-io-dted',
         ':modules:mundane-map-io-image',
         ':modules:mundane-map-io-shapefile',
     ] as Set

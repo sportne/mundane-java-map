@@ -19,10 +19,24 @@ interface NativeFixtureResource {
             int length,
             String sha256,
             String kind) {
+        validate(resourceName, directory, localName, localName, length, sha256, kind);
+    }
+
+    static void validate(
+            String resourceName,
+            String directory,
+            String resourceLocalName,
+            String localName,
+            int length,
+            String sha256,
+            String kind) {
         Objects.requireNonNull(resourceName, "resourceName");
+        Objects.requireNonNull(resourceLocalName, "resourceLocalName");
         Objects.requireNonNull(localName, "localName");
         Objects.requireNonNull(sha256, "sha256");
-        if (!resourceName.equals(directory + localName)
+        if (!resourceName.equals(directory + resourceLocalName)
+                || resourceLocalName.contains("/")
+                || resourceLocalName.contains("\\")
                 || localName.contains("/")
                 || localName.contains("\\")
                 || length <= 0

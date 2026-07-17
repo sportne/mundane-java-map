@@ -45,6 +45,8 @@ class ArchitectureRulesTest {
                     NATIVE_RESOURCE_DIRECTORY + "raster/jpeg-affine-smoke.jpg",
                     NATIVE_RESOURCE_DIRECTORY + "raster/jpeg-affine-smoke.jgw",
                     NATIVE_RESOURCE_DIRECTORY + "raster/malformed-idat-crc.png");
+    private static final Set<String> NATIVE_DTED_RESOURCES =
+            Set.of(NATIVE_RESOURCE_DIRECTORY + "dted/zone-v-l0-smoke.dt0");
 
     private static List<ModuleDescriptor> modules;
     private static Map<ModuleDescriptor, JavaClasses> classesByModule;
@@ -52,6 +54,7 @@ class ArchitectureRulesTest {
     private static JavaClasses nativeSupportClasses;
     private static Path nativeSupportSources;
     private static List<Path> nativeSupportResources;
+    private static Path nativeSupportBuild;
     private static Path performanceSources;
     private static Path performanceResources;
     private static Path performanceBuild;
@@ -83,6 +86,7 @@ class ArchitectureRulesTest {
                         .stream()
                         .map(Path::of)
                         .toList();
+        nativeSupportBuild = Path.of(System.getProperty("map.architecture.nativeSupportBuild"));
         performanceSources = Path.of(System.getProperty("map.architecture.performanceSources"));
         performanceResources = Path.of(System.getProperty("map.architecture.performanceResources"));
         performanceBuild = Path.of(System.getProperty("map.architecture.performanceBuild"));
@@ -1092,7 +1096,7 @@ class ArchitectureRulesTest {
 
         assertEquals("JDK_RUNTIME", dted.category());
         assertEquals(2, dted.releaseLevel());
-        assertFalse(dted.nativeTarget());
+        assertTrue(dted.nativeTarget());
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 dted.allowedRuntimeProjects());
@@ -1100,7 +1104,7 @@ class ArchitectureRulesTest {
         assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
         assertTrue(
                 ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty(),
-                "DTED production must avoid prohibited native-targeted mechanisms before G9-008");
+                "DTED production must remain compatible with its native-targeted boundary");
         assertEquals(Set.of("DtedFiles", "DtedLimits", "DtedOpenOptions"), publicTypes);
         assertTrue(
                 apiClasses.stream().noneMatch(type -> type.getSimpleName().contains("Dted")),
@@ -1113,6 +1117,33 @@ class ArchitectureRulesTest {
                 ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);
 
         assertTrue(violations.isEmpty(), () -> String.join("\n", violations));
+    }
+
+    @Test
+    void nativeSmokeHasTheExactSixExplicitProductionDependencies() throws IOException {
+        Set<String> expected =
+                Set.of(
+                        ":modules:mundane-map-api",
+                        ":modules:mundane-map-core",
+                        ":modules:mundane-map-awt",
+                        ":modules:mundane-map-io-image",
+                        ":modules:mundane-map-io-shapefile",
+                        ":modules:mundane-map-io-dted");
+        Set<String> actual =
+                Files.readAllLines(nativeSupportBuild).stream()
+                        .map(String::trim)
+                        .filter(line -> line.startsWith("implementation project('"))
+                        .map(
+                                line ->
+                                        line.substring(
+                                                "implementation project('".length(),
+                                                line.indexOf("')")))
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals(expected, actual);
+        String build = Files.readString(nativeSupportBuild);
+        assertFalse(build.contains("dtedCorpus"));
+        assertFalse(build.contains("src/dtedCorpusTest"));
     }
 
     @Test
@@ -1188,7 +1219,8 @@ class ArchitectureRulesTest {
                                                 + "symbol-smoke-4x2.rgba.provenance.txt",
                                         NATIVE_RESOURCE_DIRECTORY
                                                 + "shapefile/malformed-record.shp"),
-                                NATIVE_RASTER_RESOURCES)
+                                NATIVE_RASTER_RESOURCES,
+                                NATIVE_DTED_RESOURCES)
                         .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
         Set<String> processed =
@@ -1215,7 +1247,9 @@ class ArchitectureRulesTest {
                                         .stream(),
                                 java.util.stream.Stream.concat(
                                         NATIVE_SHAPEFILE_RESOURCES.stream(),
-                                        NATIVE_RASTER_RESOURCES.stream()))
+                                        java.util.stream.Stream.concat(
+                                                NATIVE_RASTER_RESOURCES.stream(),
+                                                NATIVE_DTED_RESOURCES.stream())))
                         .collect(Collectors.toUnmodifiableSet());
         List<String> violations =
                 ArchitecturePolicy.explicitResourceConfigViolations(

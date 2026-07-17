@@ -1,6 +1,6 @@
 # G9-008 — Native Image DTED smoke
 
-Status: Proposed
+Status: Blocked
 Depends on: G9-002, G9-005, G9-007
 Gate: G9
 Type: HITL
@@ -70,3 +70,22 @@ The 13-resource and six-dependency counts are the task-required G8-baseline subs
 approved append-only Level 2 native scenario lands first, retain its entries and update the one
 complete authoritative manifest; shared native files make those tasks dependency-parallel but not
 path-safe.
+
+Implementation evidence (2026-07-17, worktree based on `3a8ea27`): the existing executable now runs
+one package-private DTED scenario after the unchanged Level 1 scenario. The shared JVM/native path
+materializes the approved `gdal-zone-v-l0-complete` bytes as `s81.dt0`, derives the 8,761-byte
+truncation, verifies exact metadata and nearest/bilinear queries, paints tolerant unshaded/default-
+hillshade views, checks the stable malformed-length diagnostic, and closes/deletes owned resources.
+The native support runtime now has exactly six explicit project dependencies and 13 literal resource
+entries. The copied 8,762-byte BSD-3-Clause synthetic corpus resource has SHA-256
+`9b0f2d2d0b1fdeefb2e551fee98c4fac2da88141dc0fd02e712840fc9508c802`; its producer remains the
+approved GDAL 3.13.0 acquisition recipe, not a runtime dependency. G9-007 retained eager access.
+
+The focused JVM/native-support and architecture checks pass locally. An explicit GraalVM CE
+21.0.2+13.1 Linux amd64 run built the 46.32-MiB image successfully in 26.6 seconds, including the
+DTED module and resource, but the historical Level 1 scenario failed before reaching DTED at
+`SunFontManager.initIDs` with missing JNI class `sun/font/TrueTypeFont`. No metadata workaround was
+added because that pre-existing Java2D/font issue is outside this task's approved design. Status is
+Blocked until the required clean Ubuntu 24.04 Linux x86_64 Java 21 CI lane runs the executable through
+the sentinel and the preapproved maintainer checkpoint can be recorded against that evidence. No
+Level 1/2, Windows, macOS, Linux AArch64, or general DTED Native Image claim is made.
