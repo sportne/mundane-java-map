@@ -234,7 +234,9 @@ public final class MundaneMapConsumerSmoke {
 
     private static void testDted(Path directory) throws IOException {
         Path path = directory.resolve("consumer.dt0");
-        Files.write(path, levelZeroDted());
+        byte[] fixture = levelZeroDted();
+        verifyLevelZeroDtedHeader(fixture);
+        Files.write(path, fixture);
         ElevationSource source =
                 DtedFiles.open(
                         new SourceIdentity("consumer-dted", "Consumer DTED"),
@@ -262,10 +264,37 @@ public final class MundaneMapConsumerSmoke {
         putAscii(bytes, 80, "DSI");
         bytes[83] = 'U';
         putAscii(bytes, 139, "DTED0");
+        putAscii(bytes, 144, "MUNDANE-CONS   ");
+        putAscii(bytes, 167, "01");
+        bytes[169] = 'A';
+        putAscii(bytes, 170, "0000");
+        putAscii(bytes, 174, "0000");
+        putAscii(bytes, 178, "0000");
+        putAscii(bytes, 182, "MUN     ");
         putAscii(bytes, 206, "PRF89020B");
+        putAscii(bytes, 215, "00");
+        putAscii(bytes, 217, "0000");
         putAscii(bytes, 221, "MSLWGS84");
-        putAscii(bytes, 265, "800000.0N0000000.0E800000N0000000E810000N0000000E810000N0010000E800000N0010000E0000000.0030018000121002100");
+        putAscii(bytes, 229, "CONSUMER  ");
+        putAscii(bytes, 239, "0000");
+        putAscii(bytes, 265, "800000.0N");
+        putAscii(bytes, 274, "0000000.0E");
+        putAscii(bytes, 284, "800000N");
+        putAscii(bytes, 291, "0000000E");
+        putAscii(bytes, 299, "810000N");
+        putAscii(bytes, 306, "0000000E");
+        putAscii(bytes, 314, "810000N");
+        putAscii(bytes, 321, "0010000E");
+        putAscii(bytes, 329, "800000N");
+        putAscii(bytes, 336, "0010000E");
+        putAscii(bytes, 344, "0000000.0");
+        putAscii(bytes, 353, "0300");
+        putAscii(bytes, 357, "1800");
+        putAscii(bytes, 361, "0121");
+        putAscii(bytes, 365, "0021");
+        putAscii(bytes, 369, "00");
         putAscii(bytes, 728, "ACC");
+        putAscii(bytes, 731, "NA  NA  NA  NA  ");
         putAscii(bytes, 783, "00");
         int position = 3_428;
         for (int profile = 0; profile < 21; profile++) {
@@ -282,6 +311,39 @@ public final class MundaneMapConsumerSmoke {
             position += 254;
         }
         return bytes;
+    }
+
+    private static void verifyLevelZeroDtedHeader(byte[] bytes) {
+        require(bytes.length == 8_762, "independent DTED fixture length changed");
+        requireAscii(bytes, 0, "UHL1", "UHL sentinel");
+        requireAscii(bytes, 80, "DSIU", "DSI sentinel/classification");
+        requireAscii(bytes, 139, "DTED0", "DTED series");
+        requireAscii(bytes, 167, "01A000000000000", "DSI edition/date profile");
+        requireAscii(bytes, 182, "MUN     ", "DSI producer");
+        requireAscii(
+                bytes,
+                206,
+                "PRF89020B000000MSLWGS84CONSUMER  0000",
+                "DSI product profile");
+        requireAscii(
+                bytes,
+                265,
+                "800000.0N0000000.0E800000N0000000E"
+                        + "810000N0000000E810000N0010000E"
+                        + "800000N0010000E0000000.0030018000121002100",
+                "DSI grid profile");
+        requireAscii(bytes, 728, "ACCNA  NA  NA  NA  ", "ACC profile");
+        requireAscii(bytes, 783, "00", "ACC subregion count");
+    }
+
+    private static void requireAscii(byte[] bytes, int offset, String expected, String field) {
+        String actual =
+                new String(
+                        bytes,
+                        offset,
+                        expected.length(),
+                        java.nio.charset.StandardCharsets.US_ASCII);
+        require(actual.equals(expected), "independent DTED " + field + " changed");
     }
 
     private static void putAscii(byte[] bytes, int offset, String value) {
