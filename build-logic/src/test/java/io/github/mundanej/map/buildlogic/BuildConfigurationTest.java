@@ -1,6 +1,7 @@
 package io.github.mundanej.map.buildlogic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,6 +106,37 @@ class BuildConfigurationTest {
                     contents.contains(
                             "<artifactId>" + marker.implementationModule() + "</artifactId>"));
         }
+    }
+
+    @Test
+    void syntheticPomDefersToAvailableGradleModuleMetadata() throws Exception {
+        Path pom = temporaryDirectory.resolve("example-1.0.0.pom");
+
+        writeSyntheticPom(pom, "example.group", "example", "1.0.0", true);
+
+        String contents = Files.readString(pom);
+        assertTrue(contents.contains("do_not_remove: published-with-gradle-metadata"));
+    }
+
+    @Test
+    void syntheticPomDoesNotClaimMissingGradleModuleMetadata() throws Exception {
+        Path pom = temporaryDirectory.resolve("example-1.0.0.pom");
+
+        writeSyntheticPom(pom, "example.group", "example", "1.0.0", false);
+
+        String contents = Files.readString(pom);
+        assertFalse(contents.contains("published-with-gradle-metadata"));
+    }
+
+    @Test
+    void realCachedPomIsNotReplacedBySyntheticMetadata() throws Exception {
+        Path pom = temporaryDirectory.resolve("example-1.0.0.pom");
+        String realPom = "<project><packaging>gradle-plugin</packaging></project>";
+        Files.writeString(pom, realPom);
+
+        writeSyntheticPomIfMissing(pom, "example.group", "example", "1.0.0", true);
+
+        assertEquals(realPom, Files.readString(pom));
     }
 
     private static void provisionActualBuildDependencies(Path project) throws Exception {
@@ -529,35 +561,28 @@ class BuildConfigurationTest {
                         expectedSha1,
                         sha1(artifact).replaceFirst("^0+(?!$)", ""),
                         "unverified cached artifact " + artifact);
+                String module = relative.getName(1).toString();
+                String version = relative.getName(2).toString();
+                String artifactName = relative.getName(4).toString();
+                boolean hasGradleModuleMetadata =
+                        hasGradleModuleMetadata(artifact.getParent().getParent(), module, version);
                 Path target =
                         repository
                                 .resolve(relative.getName(0).toString().replace('.', '/'))
-                                .resolve(relative.getName(1))
-                                .resolve(relative.getName(2))
-                                .resolve(relative.getName(4));
+                                .resolve(module)
+                                .resolve(version)
+                                .resolve(artifactName);
                 Files.createDirectories(target.getParent());
                 Files.copy(artifact, target, StandardCopyOption.REPLACE_EXISTING);
-                if (artifact.getFileName().toString().endsWith(".jar")) {
+                if (artifactName.endsWith(".jar") || artifactName.endsWith(".module")) {
                     String group = relative.getName(0).toString();
-                    String module = relative.getName(1).toString();
-                    String version = relative.getName(2).toString();
                     Path pom = target.getParent().resolve(module + "-" + version + ".pom");
-                    if (!Files.exists(pom)) {
-                        Files.writeString(
-                                pom,
-                                """
-                                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                                  <modelVersion>4.0.0</modelVersion>
-                                  <groupId>%s</groupId>
-                                  <artifactId>%s</artifactId>
-                                  <version>%s</version>
-                                </project>
-                                """
-                                        .formatted(group, module, version));
-                    }
+                    writeSyntheticPomIfMissing(
+                            pom, group, module, version, hasGradleModuleMetadata);
                 }
             }
         }
+        simulateSparseBuildLogicPluginMetadata(repository);
         writeBuildLogicPluginMarkers(repository);
         Path marker =
                 repository.resolve(
@@ -596,6 +621,68 @@ class BuildConfigurationTest {
                   <version>1.0.0</version>
                 </project>
                 """);
+    }
+
+    private static boolean hasGradleModuleMetadata(
+            Path versionCache, String module, String version) throws IOException {
+        String moduleFileName = module + "-" + version + ".module";
+        try (var paths = Files.walk(versionCache, 2)) {
+            return paths.anyMatch(
+                    path ->
+                            Files.isRegularFile(path)
+                                    && path.getFileName().toString().equals(moduleFileName));
+        }
+    }
+
+    private static void simulateSparseBuildLogicPluginMetadata(Path repository) throws IOException {
+        for (PluginMarker marker : BUILD_LOGIC_PLUGIN_MARKERS) {
+            Path module = marker.implementationModulePath(repository);
+            assertTrue(Files.isRegularFile(module), "missing implementation metadata " + module);
+            writeSyntheticPom(
+                    marker.implementationPomPath(repository),
+                    marker.implementationGroup(),
+                    marker.implementationModule(),
+                    marker.version(),
+                    true);
+        }
+    }
+
+    private static void writeSyntheticPomIfMissing(
+            Path pom,
+            String group,
+            String module,
+            String version,
+            boolean hasGradleModuleMetadata)
+            throws IOException {
+        if (!Files.exists(pom)) {
+            writeSyntheticPom(pom, group, module, version, hasGradleModuleMetadata);
+        }
+    }
+
+    private static void writeSyntheticPom(
+            Path pom,
+            String group,
+            String module,
+            String version,
+            boolean hasGradleModuleMetadata)
+            throws IOException {
+        Files.writeString(
+                pom,
+                """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                %s  <modelVersion>4.0.0</modelVersion>
+                  <groupId>%s</groupId>
+                  <artifactId>%s</artifactId>
+                  <version>%s</version>
+                </project>
+                """
+                        .formatted(
+                                hasGradleModuleMetadata
+                                        ? "  <!-- do_not_remove: published-with-gradle-metadata -->\n"
+                                        : "",
+                                group,
+                                module,
+                                version));
     }
 
     private static void writeBuildLogicPluginMarkers(Path repository) throws IOException {
@@ -668,6 +755,23 @@ class BuildConfigurationTest {
                     .resolve(module)
                     .resolve(version)
                     .resolve(module + "-" + version + ".pom");
+        }
+
+        private Path implementationPomPath(Path repository) {
+            return implementationDirectory(repository)
+                    .resolve(implementationModule + "-" + version + ".pom");
+        }
+
+        private Path implementationModulePath(Path repository) {
+            return implementationDirectory(repository)
+                    .resolve(implementationModule + "-" + version + ".module");
+        }
+
+        private Path implementationDirectory(Path repository) {
+            return repository
+                    .resolve(implementationGroup.replace('.', '/'))
+                    .resolve(implementationModule)
+                    .resolve(version);
         }
 
         private String implementationMapping() {
