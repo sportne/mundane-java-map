@@ -120,8 +120,9 @@ real-world corpus lane owned by G5-009.
 
 Level 1 keeps production runtime modules JDK-only, uses Java 21, confines Swing and Java2D to
 `mundane-map-awt`, adds format modules only with working behavior, and treats Native Image as an
-architectural requirement. Level 1 is complete only when
-[G8-004](tasks/G8-004-level1-release-readiness.md) is complete.
+architectural requirement. Level 1 completed at
+[G8-004](tasks/closed/G8-004-level1-release-readiness.md) for candidate
+`a5d10791d6cf811b438cb72504ff8b00b2ab8d75` and the bounded `0.1.0` support statement.
 
 ### G0 — Verified baseline
 
@@ -258,20 +259,21 @@ architectural requirement. Level 1 is complete only when
   observed Level 1 surface. Fixed format-viewer identities, sensitive-path presentation tests, and
   captured WSLg launches cover the release-review checkpoint. G8-001's completed evidence supplies
   the final narrow Native Image wording.
-- G8-003 is complete. One exact five-coordinate contract now serializes the real local-repository
+- G8-003 is complete. One exact five-coordinate Level 1 contract serializes the real local-repository
   writes after cleanup, validates snapshot/release POMs, module metadata, reproducible licensed
   archives, strong checksums, and an immutable artifact manifest, then compiles and runs a fresh
   offline Java 21 consumer from only the staged artifacts. This independently executable release
-  branch remains independent from G8-001's completed Linux CI checkpoint.
+  branch remains independent from G8-001's completed Linux CI checkpoint. The approved G9 sequencing
+  exception later added DTED as a sixth current publication coordinate without widening Level 1.
 - G8-001 and G8-003 are independent evidence branches after G8-002. G8-004 explicitly depends on
   both and is the only point that may join publication evidence with the completed native checkpoint.
-- G8-004's proposed `0.1.0` support statement, changelog, limitation profile, and local license/
-  provenance audit are prepared. Exact-candidate Native Image and normal CI evidence now exist, so
-  the remaining work is the six-lane evidence matrix and final go/no-go decision.
-- Run normal, native, shapefile-corpus, rendering-regression, performance, and
-  publication/consumer lanes separately before the release decision.
-- Reconcile every lane against one clean candidate SHA; G8-004 records `GO` or leaves Level 1
-  unclaimed. A later evidence-record commit never changes which artifact revision was tested.
+- G8-004 and Level 1 are complete. Candidate `a5d10791d6cf811b438cb72504ff8b00b2ab8d75`
+  received `GO` for version `0.1.0` after normal, native, shapefile-corpus, rendering-regression,
+  performance, and publication/consumer lanes passed independently. Two fresh publication stagings
+  produced byte-identical manifests and the isolated consumer passed. The six-coordinate current
+  manifest contains the immutable five-coordinate Level 1 subset plus DTED as a Level 2 addendum.
+- The evidence-record commit does not change or relabel the tested artifact revision, publish it,
+  create a tag, or authorize a broader support statement.
 - A successful Ubuntu 24.04 Linux x86_64 GraalVM Java 21 run is required; missing or failing evidence
   blocks Level 1 release. Windows, macOS, Linux AArch64, and other-distribution evidence is required
   before making broader Native Image claims, but does not block the narrowly supported release.
@@ -286,10 +288,10 @@ separately decomposed.
 
 ### G9 — Elevation and DTED
 
-- G9-001 is complete under the maintainer's explicit sequencing exception while G8-004 awaits the
-  one final push. The toolkit-neutral source, post-center metadata, typed limits/units, packed finite
+- G9-001 completed under the maintainer's explicit sequencing exception before the final G8-004
+  evidence record. The toolkit-neutral source, post-center metadata, typed limits/units, packed finite
   samples, structural no-data mask, diagnostics, and lifecycle are implemented without a format
-  module or raster inheritance; this does not make the Level 1 release gate complete.
+  module or raster inheritance; it did not widen the later Level 1 release decision.
 - G9-002 is complete: immutable caller-supplied color ramps, explicit no-data styling, bounded
   deterministic projected/geographic hillshading, post-support planning, sample-domain clipping,
   and nearest/bilinear rendered-color resampling run through direct borrowed/owned AWT elevation

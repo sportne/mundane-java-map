@@ -1,6 +1,6 @@
 # G8-004 — Level 1 release readiness
 
-Status: Proposed
+Status: Complete
 Depends on: G8-001, G8-003
 Gate: G8
 Type: HITL
@@ -155,3 +155,60 @@ supplies the exact-SHA remote CI prerequisite; do not push or trigger it from th
 The maintainer-approved G8-004 design and proposed `0.1.0` profile are implemented as candidate
 inputs. This record is deliberately not the final evidence record and does not make G8 or Level 1
 complete.
+
+### Level 1 release readiness approval — 2026-07-17
+
+- `candidateVersion`: `0.1.0`; the default development version remains `0.1.0-SNAPSHOT`.
+- `candidateRevision`: `a5d10791d6cf811b438cb72504ff8b00b2ab8d75`.
+- `decision`: **GO** for the named candidate's Level 1 support statement. This record-only closeout
+  commit is not the artifact revision and does not authorize publication, tagging, or a GitHub
+  Release.
+- `reviewer / reviewDate`: maintainer preapproval for all qualifying HITL tasks / 2026-07-17.
+- `externalCiPrerequisite`: the prior maintainer-authorized CI-repair sequence, outside this task,
+  pushed `main` and triggered the exact candidate on 2026-07-17. The
+  [Native Image run](https://github.com/sportne/mundane-java-map/actions/runs/29578220777),
+  [native job](https://github.com/sportne/mundane-java-map/actions/runs/29578220777/job/87877476971),
+  and [normal CI run](https://github.com/sportne/mundane-java-map/actions/runs/29578220793) passed.
+  The normal matrix includes successful [Java 21](https://github.com/sportne/mundane-java-map/actions/runs/29578220793/job/87877477180)
+  and [Java 25](https://github.com/sportne/mundane-java-map/actions/runs/29578220793/job/87877477157)
+  quality jobs for the exact SHA.
+- `supportStatementApproved`: PASS. Java 21, JDK-only Level 1 runtime, the Swing/Java2D boundary,
+  bounded G2–G7 capabilities, stable limits/diagnostics, environment-specific performance evidence,
+  and Ubuntu 24.04 Linux x86-64 Oracle GraalVM Java 21.0.11 Native Image support are approved exactly
+  as stated in the candidate README/CHANGELOG. DTED and all other Level 2 capabilities remain outside
+  the Level 1 claim.
+- `licenseProvenanceAudit`: PASS. The root BSD-3-Clause license, archive copies, authored fixtures,
+  Natural Earth public-domain corpus material, GDAL-generated synthetic DTED evidence, and Apache-2.0
+  source/test-only Gradle inputs are accounted for. No redistributed release material requires an
+  additional `NOTICE`.
+- `artifactManifest`: `build/release-evidence/artifact-manifest.tsv`, SHA-256
+  `bffb3405f4f2e0671ceb4897ad041c60caf2f74ba2019b7bd56fa5e0db3e9172`; both fresh stagings produced
+  the same 150-row current manifest with 30 primary files and 2,401,450 primary bytes. The immutable
+  Level 1 subset is five coordinates, 125 rows, 25 primary files, and 2,255,006 primary bytes. The
+  sixth coordinate is the previously approved G9 DTED addendum and does not widen this decision.
+- `lanes`:
+  - `nativeSmoke`: PASS. The authoritative job above built and ran the no-fallback executable through
+    `mundane-map native smoke: OK`; a supplemental clean `/tmp` candidate run with GraalVM CE
+    21.0.2+13.1 also compiled from scratch in 25.0 seconds and passed.
+  - `shapefileCorpus`: PASS on Ubuntu OpenJDK 21.0.11/Linux x86-64. Nine datasets and 36 components
+    passed; manifest SHA-256 is
+    `4975e0616511a1f4387d48d70d8bcba92266a2f98e7e611516f678741aaad90b`.
+  - `renderRegression`: PASS on Ubuntu OpenJDK 21.0.11/Linux x86-64 in headless mode; 42 semantic and
+    tolerance tests completed with zero failures/errors.
+  - `performanceEvidence`: PASS in 2 minutes 2 seconds with the exact candidate revision, Java
+    21.0.11, 32 processors, 512 MiB G1 heap, and `/tmp` working data. Report SHA-256 values are
+    `d765eebb87c209dac80a3798aa6708dad03c6c80baead829dd33dff379e5c6c6` (JSON) and
+    `38eb0604850d1e80700b6ff10f071543faaa4ae9956c28f7c9948eb0b61ade3c` (Markdown). Semantic/counter
+    checks passed; the private vector-template cache remains retained and eager DTED remains accepted.
+  - `publicationDryRun` / `consumerSmoke`: PASS. Fresh runs completed in 46 seconds and 1 minute
+    6 seconds; manifests were byte-identical and the second staging printed
+    `mundane-map consumer smoke: OK` using only staged `0.1.0` artifacts and the offline mirror.
+  - `qualityGate`: PASS locally on Ubuntu OpenJDK 21.0.11 in 17 seconds and remotely in the exact-SHA
+    Java 21/25 jobs linked above.
+- `knownLimitations`: only EPSG:4326/EPSG:3857 operations; bounded 2D read-only shapefiles; bounded
+  PNG/JPEG/world files through explicit AWT decoding; no general CRS/raster reprojection; no portable
+  performance guarantee; Native Image claim limited to the recorded Ubuntu lane; Level 2 remains
+  outside the Level 1 release claim.
+- `blockingFindings`: none.
+- `taskRemoteActionsPerformed`: none. Candidate validation used a clean detached `/tmp` worktree;
+  this task did not push, dispatch workflows, publish, tag, sign, or access credentials.

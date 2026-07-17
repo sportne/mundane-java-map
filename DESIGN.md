@@ -143,6 +143,7 @@ organizational only unless the same change explicitly records a new decision and
 | 2026-07-13 | Persist only portable local map configuration in one strict XML v1 workspace. | Canonical bytes, guarded relative paths, application-owned source/catalog registries, and atomic replacement reopen a useful Level 1 map without coupling the workspace module to format adapters or serializing runtime state, secrets, format data, or arbitrary objects. |
 | 2026-07-13 | Accept only the two evidenced Xerial SQLite format adapters and defer JTS, PROJ, and GDAL. | Exact classifiers, private JDBC/native boundaries, and a Linux JVM-only claim serve concrete GeoPackage/MBTiles profiles; the other libraries have no demonstrated gap and therefore create no speculative framework, dependency, module, or task. |
 | 2026-07-13 | Export one detached viewport snapshot as canonical static SVG 1.1 through the existing SVG module. | An API-owned immutable vector-export handoff, AWT-owned synchronous capture, exact built-in vector profile, core algorithm reuse, and bounded atomic writer preserve visible map order without a scene graph, renderer callback, raster fallback, or new module. |
+| 2026-07-17 | Approve `0.1.0` candidate `a5d10791d6cf811b438cb72504ff8b00b2ab8d75` for the bounded Level 1 support statement. | Six independent exact-revision lanes, byte-identical publication manifests, clean consumer evidence, and narrow Linux Native Image wording satisfy the release gate without release automation or a broader platform/capability claim. |
 
 ## Task design traceability
 

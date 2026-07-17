@@ -835,3 +835,14 @@ One candidate record, six independent lanes, one five-artifact manifest, and one
 are sufficient release governance. G8 therefore keeps the library as simple as possible but no
 simpler than its lifecycle, hostile-input, Native Image, interoperability, and downstream-consumer
 evidence require.
+
+The **Level 1 release readiness approval** completed on 2026-07-17 with `GO` for `0.1.0` candidate
+`a5d10791d6cf811b438cb72504ff8b00b2ab8d75`. All six independent lanes passed, including the exact-SHA
+Ubuntu Native Image and Java 21/25 CI jobs. The candidate's later, specific G9-003 amendment and
+maintainer sequencing exception had already extended the authoritative current publication/consumer
+inventory to six coordinates while preserving the five-coordinate Level 1 subset. Accordingly, two
+fresh current-inventory stagings produced the same 150-row manifest, and the recorded 125-row subset
+satisfies the unchanged five-coordinate Level 1 criterion; DTED remains outside the Level 1 claim.
+This dated paragraph reconciles those already-committed rules rather than changing the historical
+contract. No production, build, workflow, fixture, license, README, or changelog input changed after
+evidence; the closeout is a decision record only and makes no release action or Level 2 support claim.
