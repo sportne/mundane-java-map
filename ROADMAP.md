@@ -302,9 +302,15 @@ separately decomposed.
   latitude-zone dimensions, decodes signed-magnitude samples and declared Level 2 voids into the
   shared elevation source, closes file I/O before publication, and is covered by independent
   generated fixtures, architecture rules, staged artifacts, and a clean Java 21 consumer. This is a
-  JVM reader slice only; checksum enforcement, exhaustive hostile-input validation, licensed corpus,
-  coordinate queries, performance/lazy-access evidence, and Native Image verification remain in
-  G9-004 through G9-008.
+  JVM reader slice only; licensed corpus, coordinate queries, performance/lazy-access evidence, and
+  Native Image verification remain in G9-005 through G9-008.
+- G9-004 is complete: immutable DTED-specific limits precede shared elevation limits and
+  prospectively charge all project-owned primitive storage; every reached fixed-header byte is
+  classified and cross-checked; exact framing, mandatory checksums, signed-magnitude ranges, void
+  policy, final-size races, cleanup, and the closed diagnostic vocabulary are enforced. Boundary and
+  truncation tables plus a deterministic bounded 64-case public-facade mutation sequence provide
+  hostile-input evidence without adding corpus, query, rendering, performance, or Native Image
+  scope.
 - DTED is elevation data, not a generic image format. It remains separate from GeoTIFF while both
   may produce the same elevation model. See the
   [G9 task set](tasks/README.md#g9--elevation-and-dted).

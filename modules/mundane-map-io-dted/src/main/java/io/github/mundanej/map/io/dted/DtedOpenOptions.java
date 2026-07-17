@@ -6,13 +6,15 @@ import java.util.Objects;
 /** Immutable options captured for one synchronous DTED open transaction. */
 public final class DtedOpenOptions {
     private static final DtedOpenOptions DEFAULTS =
-            new DtedOpenOptions(ElevationSourceLimits.DEFAULTS);
+            new DtedOpenOptions(ElevationSourceLimits.DEFAULTS, DtedLimits.defaults());
 
     private final ElevationSourceLimits elevationSourceLimits;
+    private final DtedLimits dtedLimits;
 
-    private DtedOpenOptions(ElevationSourceLimits elevationSourceLimits) {
+    private DtedOpenOptions(ElevationSourceLimits elevationSourceLimits, DtedLimits dtedLimits) {
         this.elevationSourceLimits =
                 Objects.requireNonNull(elevationSourceLimits, "elevationSourceLimits");
+        this.dtedLimits = Objects.requireNonNull(dtedLimits, "dtedLimits");
     }
 
     /**
@@ -40,23 +42,47 @@ public final class DtedOpenOptions {
      * @return immutable updated options
      */
     public DtedOpenOptions withElevationSourceLimits(ElevationSourceLimits limits) {
-        return new DtedOpenOptions(Objects.requireNonNull(limits, "limits"));
+        return new DtedOpenOptions(Objects.requireNonNull(limits, "limits"), dtedLimits);
+    }
+
+    /**
+     * Returns the effective DTED parser limits.
+     *
+     * @return immutable DTED limits
+     */
+    public DtedLimits dtedLimits() {
+        return dtedLimits;
+    }
+
+    /**
+     * Returns a copy using the requested DTED parser limits.
+     *
+     * @param limits effective DTED limits
+     * @return immutable updated options
+     */
+    public DtedOpenOptions withDtedLimits(DtedLimits limits) {
+        return new DtedOpenOptions(elevationSourceLimits, Objects.requireNonNull(limits, "limits"));
     }
 
     @Override
     public boolean equals(Object other) {
         return this == other
                 || (other instanceof DtedOpenOptions options
-                        && elevationSourceLimits.equals(options.elevationSourceLimits));
+                        && elevationSourceLimits.equals(options.elevationSourceLimits)
+                        && dtedLimits.equals(options.dtedLimits));
     }
 
     @Override
     public int hashCode() {
-        return elevationSourceLimits.hashCode();
+        return 31 * elevationSourceLimits.hashCode() + dtedLimits.hashCode();
     }
 
     @Override
     public String toString() {
-        return "DtedOpenOptions[elevationSourceLimits=" + elevationSourceLimits + "]";
+        return "DtedOpenOptions[elevationSourceLimits="
+                + elevationSourceLimits
+                + ", dtedLimits="
+                + dtedLimits
+                + "]";
     }
 }

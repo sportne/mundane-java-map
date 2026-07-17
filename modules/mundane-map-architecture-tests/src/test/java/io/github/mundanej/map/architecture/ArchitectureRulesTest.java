@@ -1049,7 +1049,7 @@ class ArchitectureRulesTest {
         assertTrue(
                 ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty(),
                 "DTED production must avoid prohibited native-targeted mechanisms before G9-008");
-        assertEquals(Set.of("DtedFiles", "DtedOpenOptions"), publicTypes);
+        assertEquals(Set.of("DtedFiles", "DtedLimits", "DtedOpenOptions"), publicTypes);
         assertTrue(
                 apiClasses.stream().noneMatch(type -> type.getSimpleName().contains("Dted")),
                 "DTED-specific types must not leak into mundane-map-api");

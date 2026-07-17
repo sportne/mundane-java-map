@@ -185,6 +185,8 @@ class DtedFilesTest {
                                                 .withElevationSourceLimits(limits)));
         assertEquals("SOURCE_LIMIT_EXCEEDED", limited.terminal().code());
         assertEquals("columns", limited.terminal().context().get("limit"));
+        assertEquals("elevationOpen", limited.terminal().context().get("scope"));
+        assertTrue(limited.terminal().location().isEmpty());
 
         Path absent = temporaryDirectory.resolve("absent.dt0");
         SourceException cancelled =
@@ -314,6 +316,7 @@ class DtedFilesTest {
         byte[] voidInComplete = valid.clone();
         voidInComplete[3_436] = (byte) 0xff;
         voidInComplete[3_437] = (byte) 0xff;
+        repairFirstRecordChecksum(voidInComplete, 121);
         SourceException voidFailure = openFailure(voidInComplete);
         assertEquals("DTED_DATA_RECORD_INVALID", voidFailure.terminal().code());
         assertEquals("sample", voidFailure.terminal().context().get("field"));
@@ -352,10 +355,25 @@ class DtedFilesTest {
         SourceException failure = openFailure(changed);
         assertEquals("DTED_DATA_RECORD_INVALID", failure.terminal().code());
         assertEquals(expectedField, failure.terminal().context().get("field"));
-        assertEquals("mismatch", failure.terminal().context().get("reason"));
+        assertEquals(
+                expectedField.equals("sentinel") ? "literal" : "mismatch",
+                failure.terminal().context().get("reason"));
         assertEquals(expectedActual, failure.terminal().context().get("actual"));
         assertEquals(expectedExpected, failure.terminal().context().get("expected"));
         assertEquals(1, failure.terminal().location().orElseThrow().recordNumber().orElseThrow());
+    }
+
+    private static void repairFirstRecordChecksum(byte[] bytes, int rows) {
+        int recordBytes = 12 + 2 * rows;
+        long checksum = 0;
+        for (int index = DtedFixtures.HEADER_BYTES;
+                index < DtedFixtures.HEADER_BYTES + recordBytes - 4;
+                index++) {
+            checksum += bytes[index] & 0xffL;
+        }
+        ByteBuffer.wrap(bytes, DtedFixtures.HEADER_BYTES + recordBytes - 4, 4)
+                .order(ByteOrder.BIG_ENDIAN)
+                .putInt((int) checksum);
     }
 
     private static void put(byte[] target, int offset, String value) {

@@ -7,7 +7,6 @@ import io.github.mundanej.map.api.ElevationSourceLimits;
 import io.github.mundanej.map.api.ElevationSourceMetadata;
 import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
-import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
@@ -104,7 +103,12 @@ public final class PackedElevationGrid implements ElevationSource {
 
         double[] ownedElevations = new double[rowMajorElevations.length];
         int maskWordCount = Math.toIntExact(maskWordCount(sampleCount));
-        long[] ownedMask = Arrays.copyOf(noDataCells.toLongArray(), maskWordCount);
+        long[] ownedMask = new long[maskWordCount];
+        for (int index = noDataCells.nextSetBit(0);
+                index >= 0;
+                index = noDataCells.nextSetBit(index + 1)) {
+            ownedMask[index >>> 6] |= 1L << (index & 63);
+        }
         for (int index = 0; index < ownedElevations.length; index++) {
             if (isMasked(ownedMask, index)) {
                 ownedElevations[index] = 0.0;

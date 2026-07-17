@@ -14,6 +14,7 @@ class DtedOpenOptionsTest {
     void defaultsAndWitherAreImmutableValues() {
         DtedOpenOptions defaults = DtedOpenOptions.defaults();
         assertSame(ElevationSourceLimits.DEFAULTS, defaults.elevationSourceLimits());
+        assertSame(DtedLimits.defaults(), defaults.dtedLimits());
         ElevationSourceLimits limits =
                 new ElevationSourceLimits(601, 3_601, 3_000_000, 30_000_000, 1);
         DtedOpenOptions changed = defaults.withElevationSourceLimits(limits);
@@ -22,8 +23,20 @@ class DtedOpenOptionsTest {
         assertEquals(changed.hashCode(), defaults.withElevationSourceLimits(limits).hashCode());
         assertNotEquals(defaults, changed);
         assertTrue(changed.toString().contains("elevationSourceLimits="));
-        assertThrows(
-                NullPointerException.class,
-                () -> assertEquals(defaults, defaults.withElevationSourceLimits(null)));
+        DtedLimits dtedLimits = DtedLimits.defaults().withMaximumProfiles(21);
+        DtedOpenOptions changedDted = defaults.withDtedLimits(dtedLimits);
+        assertEquals(dtedLimits, changedDted.dtedLimits());
+        assertEquals(changedDted, defaults.withDtedLimits(dtedLimits));
+        assertTrue(changedDted.toString().contains("dtedLimits="));
+        NullPointerException elevationFailure =
+                assertThrows(
+                        NullPointerException.class,
+                        () -> assertEquals(defaults, defaults.withElevationSourceLimits(null)));
+        assertEquals("limits", elevationFailure.getMessage());
+        NullPointerException dtedFailure =
+                assertThrows(
+                        NullPointerException.class,
+                        () -> assertEquals(defaults, defaults.withDtedLimits(null)));
+        assertEquals("limits", dtedFailure.getMessage());
     }
 }

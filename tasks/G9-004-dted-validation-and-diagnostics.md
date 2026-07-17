@@ -1,6 +1,6 @@
 # G9-004 — DTED validation and diagnostics
 
-Status: Proposed
+Status: Complete
 Depends on: G9-003
 Gate: G9
 Type: AFK
@@ -81,3 +81,11 @@ with the paired left-justified `SRTM` and ACC `X` markers is not rejected solely
 but the pair enables no profile behavior; a mismatched pair is terminal header inconsistency.
 Never allocate directly from an untrusted DTED count. Do not run publication, corpus, rendering,
 performance, or Native Image lanes in this task.
+
+Implemented with immutable six-ceiling `DtedLimits`, format-before-elevation limit enforcement,
+prospective accounting for every project-owned primitive allocation/copy, complete fixed-header
+grammar and cross-header reconciliation, exact record framing and unsigned-byte checksums, strict
+signed-magnitude/void handling, initial/final size-race detection, stable bounded diagnostics, and
+deterministic cleanup. Table-driven boundary cases and a repeatable 64-case public-facade mutation
+sequence cover malformed and hostile input without adding corpus, query, rendering, performance,
+native, cache, dependency, or public parser-model scope.
