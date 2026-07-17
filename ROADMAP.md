@@ -317,6 +317,13 @@ separately decomposed.
   positive-weight bilinear interpolation with deterministic overflow-safe `Math.fma` evaluation.
   Level 0/1/2 DTED tests use the format-neutral utility; no reprojection, format-specific query API,
   cache, cancellation, diagnostics, limits, or ownership transfer was introduced.
+- G9-006 is complete: exactly three project-owned synthetic zone-V cells emitted by pinned GDAL
+  3.13.0 cover complete Level 0/1 and partial Level 2 through a hash-pinned, licensed, size-capped
+  inventory and finite public-reader oracle. The separate offline Java 21 corpus lane has no network
+  or process API, normal/publication task graphs reject all six corpus tasks, and staged artifacts
+  remain corpus-free. The evidence also narrowed optional fixed-field compatibility to ASCII text
+  with GDAL NUL termination/padding; numeric discriminators and the one structural profile did not
+  expand.
 - DTED is elevation data, not a generic image format. It remains separate from GeoTIFF while both
   may produce the same elevation model. See the
   [G9 task set](tasks/README.md#g9--elevation-and-dted).

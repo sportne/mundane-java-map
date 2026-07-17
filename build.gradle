@@ -1800,6 +1800,80 @@ tasks.register('primeShapefileCorpusDependencies') {
     dependsOn ':modules:mundane-map-io-shapefile:primeShapefileCorpusDependenciesInternal'
 }
 
+def dtedCorpusProject = project(':modules:mundane-map-io-dted')
+def dtedCorpusOwnedTasks = [
+    'compileDtedCorpusTestJava',
+    'processDtedCorpusTestResources',
+    'dtedCorpusTestClasses',
+    'dtedCorpusTest',
+    'checkstyleDtedCorpusTest',
+    'spotbugsDtedCorpusTest'
+] as Set
+
+tasks.register('dtedCorpus') {
+    group = 'verification'
+    description = 'Runs the separate checked-in DTED interoperability corpus lane.'
+    dependsOn ':modules:mundane-map-io-dted:dtedCorpusTest'
+    dependsOn ':modules:mundane-map-io-dted:checkstyleDtedCorpusTest'
+    dependsOn ':modules:mundane-map-io-dted:spotbugsDtedCorpusTest'
+    dependsOn tasks.named('verifyDtedCorpusIsolation')
+}
+
+def verifyDtedCorpusIsolation = tasks.register(
+        'verifyDtedCorpusIsolation', VerifyShapefileCorpusIsolation) {
+    group = 'verification'
+    description = 'Proves normal quality and publication roots do not execute the DTED corpus lane.'
+    violations.convention([])
+}
+
+gradle.taskGraph.whenReady { graph ->
+    Set<String> ownedPaths = dtedCorpusOwnedTasks.collect {
+        "${dtedCorpusProject.path}:${it}".toString()
+    } as Set
+    Set<String> auditedRootPaths = [] as Set
+    ['check', 'checkAll', 'qualityGate', 'publicationDryRun', 'stageReleaseDryRun',
+            'verifyPublicationDryRun'].each { taskName ->
+        Task candidate = rootProject.tasks.findByName(taskName)
+        if (candidate != null) auditedRootPaths.add(candidate.path)
+    }
+    checkedProjects.collect { project(it) }.each { auditedProject ->
+        ['check', 'spotlessCheck', 'javadoc'].each { taskName ->
+            Task candidate = auditedProject.tasks.findByName(taskName)
+            if (candidate != null) auditedRootPaths.add(candidate.path)
+        }
+        auditedProject.tasks.matching { task -> task.group == 'publishing' }.each {
+            auditedRootPaths.add(it.path)
+        }
+    }
+
+    Set<String> graphPaths = graph.allTasks.collect { it.path } as Set
+    List<String> violations = []
+    if (graphPaths.contains(tasks.named('dtedCorpus').get().path)
+            && !graphPaths.containsAll(ownedPaths)) {
+        violations.add(
+                "DTED corpus task-graph calibration failed: ${graphPaths.intersect(ownedPaths).sort()}")
+    }
+    Set<String> reachedAuditedRoots = graphPaths.intersect(auditedRootPaths)
+    Set<String> reachedOwnedTasks = graphPaths.intersect(ownedPaths)
+    if (!reachedAuditedRoots.isEmpty() && !reachedOwnedTasks.isEmpty()) {
+        reachedAuditedRoots.each { rootPath ->
+            violations.add("DTED corpus tasks ${reachedOwnedTasks.sort()} leaked into ${rootPath}")
+        }
+    }
+    if (!violations.isEmpty()) {
+        throw new GradleException(violations.unique().sort().join(System.lineSeparator()))
+    }
+    verifyDtedCorpusIsolation.configure {
+        it.violations.set([])
+    }
+}
+
+tasks.register('primeDtedCorpusDependencies') {
+    group = 'build setup'
+    description = 'Resolves every dependency needed by the offline DTED corpus lane.'
+    dependsOn ':modules:mundane-map-io-dted:primeDtedCorpusDependenciesInternal'
+}
+
 tasks.register('cleanReleaseDryRun', Delete) {
     group = 'publishing'
     delete layout.buildDirectory.dir('release-dry-run')

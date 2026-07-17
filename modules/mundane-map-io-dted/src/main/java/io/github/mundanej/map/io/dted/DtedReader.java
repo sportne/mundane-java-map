@@ -873,8 +873,8 @@ final class DtedReader {
             String field) {
         if (bytes[offset] == 'N'
                 && bytes[offset + 1] == 'A'
-                && bytes[offset + 2] == ' '
-                && bytes[offset + 3] == ' ') {
+                && isPadding(bytes[offset + 2])
+                && isPadding(bytes[offset + 3])) {
             return;
         }
         for (int index = 0; index < 4; index++) {
@@ -925,9 +925,12 @@ final class DtedReader {
             int offset,
             int length,
             String field) {
+        boolean terminated = false;
         for (int index = 0; index < length; index++) {
             int value = bytes[offset + index] & 0xff;
-            if (value < 0x20 || value > 0x7e) {
+            if (value == 0) {
+                terminated = true;
+            } else if ((terminated && value != ' ') || value < 0x20 || value > 0x7e) {
                 throw DtedFailures.field(
                         sourceId, code, component, absoluteOffset, field, "grammar");
             }
@@ -945,7 +948,7 @@ final class DtedReader {
             String field,
             String reason) {
         for (int index = 0; index < length; index++) {
-            if (bytes[offset + index] != ' ') {
+            if (!isPadding(bytes[offset + index])) {
                 throw DtedFailures.field(sourceId, code, component, absoluteOffset, field, reason);
             }
         }
@@ -1019,15 +1022,24 @@ final class DtedReader {
             int offset,
             int length,
             String field) {
+        boolean terminated = false;
         for (int index = 0; index < length; index++) {
             byte value = bytes[offset + index];
-            if (!((value >= 'A' && value <= 'Z')
-                    || (value >= '0' && value <= '9')
-                    || value == ' ')) {
+            if (value == 0) {
+                terminated = true;
+            } else if (terminated
+                    ? value != ' '
+                    : !((value >= 'A' && value <= 'Z')
+                            || (value >= '0' && value <= '9')
+                            || value == ' ')) {
                 throw DtedFailures.field(
                         sourceId, code, component, absoluteOffset, field, "grammar");
             }
         }
+    }
+
+    private static boolean isPadding(byte value) {
+        return value == 0 || value == ' ';
     }
 
     private static boolean matches(byte[] bytes, int offset, String expected) {

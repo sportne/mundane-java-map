@@ -121,6 +121,58 @@ class DtedFilesTest {
     }
 
     @Test
+    void acceptsNulPaddingUsedByIndependentGdalDtedOutput() throws Exception {
+        Path path = temporaryDirectory.resolve("gdal-padding.dt0");
+        DtedFixtures.Fixture fixture = DtedFixtures.write(path, 0);
+        byte[] bytes = Files.readAllBytes(path);
+        nulTerminate(bytes, 35, 12);
+        nulTerminate(bytes, 182, 8);
+        nulTerminate(bytes, 229, 10);
+        for (int offset : new int[] {56, 84, 159, 371, 733, 737, 741, 745, 785}) {
+            bytes[offset] = 0;
+        }
+        Files.write(path, bytes);
+
+        try (ElevationSource source =
+                DtedFiles.open(
+                        new SourceIdentity("gdal-padding", "GDAL padding"),
+                        path,
+                        DtedOpenOptions.defaults())) {
+            assertEquals(fixture.columns(), source.metadata().columnCount());
+            assertEquals(fixture.rows(), source.metadata().rowCount());
+            assertTrue(source.openingDiagnostics().entries().isEmpty());
+        }
+    }
+
+    private static void nulTerminate(byte[] bytes, int offset, int length) {
+        java.util.Arrays.fill(bytes, offset, offset + length, (byte) ' ');
+        bytes[offset] = 0;
+    }
+
+    @Test
+    void rejectsEmbeddedNulFollowedByNonPaddingHeaderText() throws Exception {
+        Path path = temporaryDirectory.resolve("embedded-nul.dt0");
+        DtedFixtures.write(path, 0);
+        byte[] bytes = Files.readAllBytes(path);
+        bytes[35] = 'A';
+        bytes[36] = 0;
+        bytes[37] = 'B';
+        Files.write(path, bytes);
+
+        SourceException failure =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                DtedFiles.open(
+                                        new SourceIdentity("embedded-nul", "Embedded NUL"),
+                                        path,
+                                        DtedOpenOptions.defaults()));
+        assertEquals("DTED_UHL_INVALID", failure.terminal().code());
+        assertEquals("uniqueReference", failure.terminal().context().get("field"));
+        assertEquals("grammar", failure.terminal().context().get("reason"));
+    }
+
+    @Test
     void acceptsEveryLatitudeZoneAtNorthernAndSouthernBoundariesForEveryLevel() {
         int[] origins = {
             -89, -81, -80, -76, -75, -71, -70, -51, -50, -1, 0, 49, 50, 69, 70, 74, 75, 79, 80, 88

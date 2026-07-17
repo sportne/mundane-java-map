@@ -806,9 +806,10 @@ ways:
 
 - a consumed field has the exact literal, numeric, coordinate, date, or enumerated grammar below and
   contributes to the supported-profile or cross-header checks;
-- a required-blank field contains only ASCII space;
-- a free-text field contains only printable ASCII `0x20..0x7e`, is never retained, and has no effect
-  on acceptance beyond that byte grammar; or
+- a required-padding field contains only ASCII space or NUL;
+- a free-text field contains printable ASCII `0x20..0x7e` up to an optional first NUL, after which
+  every byte is ASCII space or NUL; it is never retained and has no effect on acceptance beyond that
+  byte grammar; or
 - a well-formed discriminator outside the supported profile produces `DTED_PROFILE_UNSUPPORTED`
   rather than being mislabeled malformed.
 
@@ -822,8 +823,16 @@ No whole-record `String`, regex, default charset, locale, Unicode normalization,
 security interpretation is used. Fixed slices are checked directly as bytes. A field that combines
 digits and a suffix is parsed only after every position has passed its ASCII grammar. Dates are
 `0000` where the format permits an unused value, or `YYMM` with month `01..12`; no century or calendar
-date is inferred. Accuracy is exactly four digits or left-justified `NA` followed by two spaces.
+date is inferred. Accuracy is exactly four digits or left-justified `NA` followed by two padding
+bytes, each ASCII space or NUL.
 Coordinates retain G9-003's integral tenths-of-arc-second representation and full-degree cell rules.
+
+The NUL rule is a narrow producer-compatibility correction established by the pinned GDAL 3.13.0
+corpus: it treats NUL only as fixed-field termination or padding, never as an arbitrary embedded
+character. A printable byte after termination is malformed. Numeric, coordinate, date, sentinel,
+count, and discriminator fields retain their exact ASCII grammar; in particular UHL
+`multipleAccuracy` remains literal ASCII `0|1`. This does not admit a second DTED structural profile,
+different dimensions, subregions, alternate record framing, or repair behavior.
 
 ### One format-specific immutable limit value
 
@@ -916,42 +925,42 @@ the sole early semantic termination.
 UHL validation covers every byte:
 
 - `UHL1`, full-degree longitude and latitude origins, positive four-digit tenths-of-arc-second
-  intervals, four-digit-or-`NA  ` absolute vertical accuracy, and a left-justified `S|C|U|R`
+  intervals, four-digit-or-`NA` plus two padding bytes for absolute vertical accuracy, and a left-justified `S|C|U|R`
   security code padded to three bytes are consumed grammar;
-- the 12-byte producer reference is printable free text, longitude/latitude counts are four digits,
-  and the multiple-accuracy flag is `0|1`; and
-- the final 24 reserved bytes are spaces. A syntactically valid flag `1` is outside the supported
+- the 12-byte producer reference is free text, longitude/latitude counts are four digits,
+  and the multiple-accuracy flag is ASCII `0|1`; and
+- the final 24 reserved bytes are padding. A syntactically valid flag `1` is outside the supported
   no-subregion profile and is classified only after the remaining header grammar is established.
 
 DSI validation likewise covers all 648 bytes:
 
-- `DSI`, security classification `S|C|U|R`, two printable ASCII control/release bytes, 27 printable
-  handling bytes, and 26 required spaces precede series grammar `DTED` plus one digit; levels `0..2`
+- `DSI`, security classification `S|C|U|R`, two free-text control/release bytes, 27 free-text
+  handling bytes, and 26 required padding bytes precede series grammar `DTED` plus one digit; levels `0..2`
   are supported and `3..9` are well-formed unsupported discriminators;
-- the producer reference is printable, the following eight reserved bytes are spaces, edition is
+- the producer reference is free text, the following eight reserved bytes are padding, edition is
   `01..99`, match/merge version is `A..Z`, date fields follow the fixed date grammar, maintenance
   description is `0000` or one byte `A..Z` plus three digits, and producer code is uppercase ASCII
-  alphanumeric/space without an external FIPS lookup;
-- 16 reserved bytes are spaces; the nine-byte product specification is ASCII alphanumeric, its
+  alphanumeric/space with optional NUL termination and without an external FIPS lookup;
+- 16 reserved bytes are padding; the nine-byte product specification is ASCII alphanumeric, its
   amendment/change is two digits, and its date follows the fixed date grammar. The supported profile
   requires `PRF89020B`; another well-formed product token is unsupported rather than malformed;
 - vertical datum is three uppercase ASCII alphanumeric bytes, horizontal datum is five uppercase
   ASCII alphanumeric bytes, the ten-byte digitizing/collection field is printable free text,
-  compilation date follows the fixed date grammar, and the next 22 bytes are spaces; `MSL|E96` and
+  compilation date follows the fixed date grammar, and the next 22 bytes are padding; `MSL|E96` and
   `WGS84` are the supported datum values;
 - origin, SW/NW/NE/SE corners, zero-or-well-formed orientation, intervals, row/column counts, and
   `00..99` partial indicator use their exact fixed grammars; and
-- the final 101 NIMA-use, 100 producing-nation, and 156 comment bytes are printable free text and are
+- the final 101 NIMA-use, 100 producing-nation, and 156 comment bytes are free text and are
   discarded.
 
 ACC validation covers all 2,700 bytes on the supported path and reaches its discriminator on every
 path:
 
 - `ACC` and the four overall accuracy fields use their exact literal/accuracy grammars;
-- bytes 20 through 23 and 25 through 55 are spaces; byte 24 is either space or the documented SRTM
+- bytes 20 through 23 and 25 through 55 are padding; byte 24 is either space or the documented SRTM
   marker `X` and has no independent behavior;
 - multiple-accuracy outline flag is `00` or `02..09`; only `00` is supported; and
-- under supported `00`, all nine 284-byte subregion slots and the final reserved areas are spaces.
+- under supported `00`, all nine 284-byte subregion slots and final reserved areas are padding.
   Populated bytes under `00` are `DTED_ACC_INVALID` with `reason=unexpectedSubregionData`.
 
 Before inspecting bytes after the ACC flag, the reader compares the normalized UHL/ACC
@@ -1449,16 +1458,14 @@ image-manifest digest.
 `MIT`/`licenses/GDAL-MIT.txt` tool license in fixed machine-checked `TOOL_LICENSE_ID` and
 `TOOL_LICENSE_PATH` header assignments. Every row has one distinct expectation ID.
 
-The closed role model also keeps future additions honest:
-
-- `CURATED` is an unchanged independently produced file with `derivation=none` and exact original
-  source name/URL/date/digest;
-- `GENERATED` is purpose-built from project-owned input with `derivation=generate:<safe recipe path>`;
-  and
-- `DERIVED` changes a different already-approved manifest dataset, requires its non-empty `parentId`,
-  inherits that parent's data license, and uses `derivation=derive:<safe recipe path>`. Parent cycles
-  are forbidden. Cropping, downsampling, or reheadering is never labeled curated; a cropped cell that
-  no longer meets strict one-degree dimensions is not admitted at all.
+The initial closed role vocabulary accepts only `GENERATED`: every admitted file is purpose-built
+from project-owned input, has an empty `parentId`, and uses
+`derivation=generate:<safe recipe path>`. `CURATED` and `DERIVED` remain reserved labels and are
+rejected rather than supported by speculative conventions. A later task that needs either role must
+first add exact manifest fields and validation for original source name/URL/date/digest, inherited
+licenses, parent existence, and cycle rejection. Cropping, downsampling, or reheadering is never
+silently labeled curated; a cropped cell that no longer meets strict one-degree dimensions is not
+admitted at all.
 
 The initial coverage-tag vocabulary is the sorted unique subset of `checksum`, `complete`, `level0`,
 `level1`, `level2`, `negative-elevation`, `partial`, `positive-elevation`, `southern-cell`, `void`,
@@ -1469,9 +1476,9 @@ replace literal assertions. Exact stored sets are:
 - Level 1: `checksum,complete,level1,negative-elevation,positive-elevation,southern-cell,western-cell,zero-elevation,zone-v`; and
 - Level 2: `checksum,level2,negative-elevation,partial,positive-elevation,southern-cell,void,western-cell,zero-elevation,zone-v`.
 
-Each list occupies one manifest field. The manifest test rejects duplicates, unsafe paths, unsorted rows, unknown
-roles/tags, inconsistent role fields, missing recipe/license/expectation references, byte/hash
-changes, derived-parent cycles, and any unreferenced data/license/recipe file. Manifest and the finite
+Each list occupies one manifest field. The manifest test rejects duplicates, unsafe paths, unsorted
+rows, unknown roles/tags, inconsistent generated-role fields, missing recipe/license/expectation
+references, byte/hash changes, and any unreferenced data/license/recipe file. The manifest and finite
 Java expectation inventory are the only self-listing exemptions.
 
 Caps are enforced before opening any DTED file: at most six datasets, at most 5,242,880 bytes per data
@@ -1519,9 +1526,10 @@ spotbugsDtedCorpusTest
 
 Root `dtedCorpus` is created here and depends on the test, Checkstyle, and SpotBugs tasks. The custom
 source set extends only main output and normal JUnit/test-analysis dependencies. The module detaches
-custom Checkstyle/SpotBugs lifecycle wiring from normal `check`; root verification mechanically walks
-the dependency closures of `check`, `checkAll`, `qualityGate`, every checked project's normal roots,
-and publication tasks and rejects all six corpus-owned tasks. The shared `spotlessJavaCheck` is the
+custom Checkstyle/SpotBugs lifecycle wiring from normal `check`; a resolved-task-graph guard rejects
+all six corpus-owned tasks whenever `check`, `checkAll`, `qualityGate`, a checked project's normal
+root, or a publication task is present, and positively calibrates that `dtedCorpus` reaches all six.
+The shared `spotlessJavaCheck` is the
 declared formatting-only exception: it may inspect corpus Java under `src/**/*.java` but does not read
 resources or compile/run the source. Conversely `dtedCorpus` executes every
 manifest/public-oracle/static-analysis check exactly once.

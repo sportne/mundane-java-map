@@ -8,4 +8,76 @@ dependencies {
     implementation project(':modules:mundane-map-core')
 }
 
+sourceSets {
+    dtedCorpusTest {
+        java.setSrcDirs(['src/dtedCorpusTest/java'])
+        resources.setSrcDirs([
+            'src/dtedCorpusTest/resources'
+        ])
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    dtedCorpusTestImplementation.extendsFrom testImplementation
+    dtedCorpusTestRuntimeOnly.extendsFrom testRuntimeOnly
+    dtedCorpusTestErrorprone {
+        canBeConsumed = false
+        canBeResolved = true
+        extendsFrom errorprone
+    }
+}
+
+def dtedCorpusRoot = layout.projectDirectory.dir(
+        'src/dtedCorpusTest/resources/dted-corpus')
+
+tasks.register('dtedCorpusTest', Test) {
+    group = 'verification'
+    description = 'Runs the checked-in DTED interoperability corpus.'
+    testClassesDirs = sourceSets.dtedCorpusTest.output.classesDirs
+    classpath = sourceSets.dtedCorpusTest.runtimeClasspath
+    workingDir rootProject.projectDir
+    inputs.dir(dtedCorpusRoot).withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty 'mundane.map.dted.corpus.root',
+            rootProject.relativePath(dtedCorpusRoot.asFile)
+    systemProperty 'file.encoding', 'UTF-8'
+    systemProperty 'user.language', 'en'
+    systemProperty 'user.country', 'US'
+    systemProperty 'user.timezone', 'UTC'
+    systemProperty 'junit.jupiter.execution.parallel.enabled', 'false'
+    maxParallelForks = 1
+    useJUnitPlatform()
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.register('primeDtedCorpusDependenciesInternal') {
+    group = 'build setup'
+    description = 'Resolves the dependency closure used by the offline DTED corpus lane.'
+    inputs.files([
+        configurations.named('dtedCorpusTestCompileClasspath'),
+        configurations.named('dtedCorpusTestRuntimeClasspath'),
+        configurations.named('dtedCorpusTestAnnotationProcessor'),
+        configurations.named('dtedCorpusTestErrorprone'),
+        configurations.named('checkstyle'),
+        configurations.named('spotbugs'),
+        configurations.named('spotbugsPlugins'),
+        configurations.named('spotbugsSlf4j'),
+        configurations.named('jacocoAgent')
+    ])
+}
+
+afterEvaluate {
+    def checkTask = tasks.named('check').get()
+    def corpusLifecycleTasks = [
+        tasks.named('checkstyleDtedCorpusTest').get(),
+        tasks.named('spotbugsDtedCorpusTest').get()
+    ] as Set
+    def normalDependencies =
+            checkTask.taskDependencies.getDependencies(checkTask).findAll {
+                !corpusLifecycleTasks.contains(it)
+            }
+    checkTask.setDependsOn(normalDependencies)
+}
+
 description = 'JDK-only read-only DTED elevation support.'
