@@ -93,6 +93,7 @@ final class IndependentProfileOracle {
                     "symbol-heavy-render-template-cache-cold", result.get("symbol-heavy-render"));
             result.put(
                     "symbol-heavy-render-template-cache-warm", result.get("symbol-heavy-render"));
+            result.putAll(IndependentDtedOracle.derive(profile));
             return Map.copyOf(result);
         }
     }

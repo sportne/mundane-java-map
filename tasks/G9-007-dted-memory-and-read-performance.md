@@ -1,6 +1,6 @@
 # G9-007 — DTED memory and read performance
 
-Status: Proposed
+Status: Complete
 Depends on: G9-004, G9-005, G9-006
 Gate: G9
 Type: AFK
@@ -70,3 +70,35 @@ git diff --check
 Durations and JVM observations remain evidence with an environment, not universal guarantees. The
 AFK rubric uses exact semantics/logical bytes and the canonical heap only. A custom native library
 would require a separate decision after pure Java failed a documented caller target.
+
+Implementation evidence (2026-07-16, worktree based on `bed57ba`): all benchmark runtime classes,
+generated fixtures, staged corpus files, workspaces, Java temporary files, measured report writes,
+and JFR recording/inspection ran beneath invocation-unique `/tmp` directories. Only completed bounded
+reports and JFR artifacts were copied to `build/performance-evidence`. `performanceQuick` completed in
+9.14 seconds; the final canonical 5-warmup/20-measurement lane completed in 115.99 seconds after the
+harness was corrected to release each open-once source at scenario completion.
+
+The generated hashes are
+`99bd897d6d4af55ffe1092be7a3ee8051d1fbfff1613d6f008fbfb447c46fad5` (Level 0 smoke) and
+`2e1e3adcb1f65d41d93ad5d31c63211522ca830bd8f2716415070e3ae8b72330` (maximum Level 2).
+Canonical medians were 18.65 ms for the three-file corpus open, 90.40 ms for maximum eager open,
+193.86 ms for 12,967,201 row-major samples, and 15.54 ms for 65,536 position queries. The probe on
+OpenJDK 21.0.11/Linux amd64 observed 232,805,464 heap bytes after publication and 251,360,456
+current-thread allocated bytes; these are labelled environment observations, not retained-size
+claims. Exact logical storage is 105,358,512 published bytes and 210,726,938 open-peak bytes.
+
+The final JFR investigation completed in 6.68 seconds and recorded 22 execution samples, 240 allocation
+samples, and 11 garbage collections. Execution samples were in fixture authoring and DTED
+`readProfiles`/`unsigned16`; no `FileRead` or `FileWrite` events crossed the recording threshold.
+This supports CPU/allocation work in the parser and publication copies—not `/mnt/d` benchmark I/O—as
+the maximum-cell long pole. The canonical evidence JSON/Markdown hashes were
+`c30871fc690753308d804b6486ae5fe3d98c845f04aaa8fad06c37e1d36dfb6e` and
+`6cc7b7383b518e5735e7cfe7810be2411b4943c52c3c9620e913c93854d24962`; the probe hash was
+`7e367238203398117681deef1a43a8f8eb48935b1c990dccceaf662dc6b62b57`, and the JFR hash was
+`5fa8bbd77486e2756f97f5dd397b466c2c898cdf6b72c0137e3665400904373a`.
+
+Decision: **retain eager access**. All four frozen semantics passed in the canonical 512-MiB fork,
+the maximum cell published, and both logical ceilings passed. The analytical 1/64/256-profile LRU
+results matched the designed local/scattered hit, miss, read-byte, and retained-byte values. No
+windowed-source follow-up, public contract change, native library, memory mapping, or parser change is
+justified by this evidence.

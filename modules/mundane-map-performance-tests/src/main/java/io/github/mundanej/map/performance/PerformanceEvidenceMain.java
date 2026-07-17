@@ -13,18 +13,32 @@ public final class PerformanceEvidenceMain {
     /**
      * Builds deterministic fixtures, executes selected scenarios, and writes schema-v1 reports.
      *
-     * @param arguments must be empty
+     * @param arguments empty for evidence, or exactly {@code --dted-memory-probe}
      * @throws Exception when configuration, fixture, scenario, cleanup, or report work fails
      */
     public static void main(String[] arguments) throws Exception {
+        if (arguments.length == 1 && arguments[0].equals("--dted-memory-probe")) {
+            Path output = outputDirectory();
+            Files.createDirectories(output);
+            DtedMemoryProbe.run(output);
+            return;
+        }
         if (arguments.length != 0) {
-            throw new IllegalArgumentException("Performance evidence accepts no command arguments");
+            throw new IllegalArgumentException("Unknown performance evidence command argument");
         }
         List<String> ids = ScenarioRegistry.ids();
-        if (ids.size() != 41 || new HashSet<>(ids).size() != ids.size()) {
+        if (ids.size() != 45 || new HashSet<>(ids).size() != ids.size()) {
             throw new IllegalStateException("Performance scenario registry is invalid");
         }
         EvidenceConfiguration configuration = EvidenceConfiguration.system(ids);
+        if (configuration.profile() == EvidenceConfiguration.Profile.BASELINE
+                && configuration.scenario().isEmpty()) {
+            String probe = System.getProperty("performanceDtedProbe");
+            if (probe == null) {
+                throw new IllegalStateException("performanceDtedProbe is required for BASELINE");
+            }
+            DtedMemoryProbe.validate(Path.of(probe));
+        }
         Path output = outputDirectory();
         Files.createDirectories(output);
         Path workspace = output.resolve("fixtures");

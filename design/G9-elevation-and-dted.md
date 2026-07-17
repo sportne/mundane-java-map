@@ -1602,8 +1602,8 @@ Three versioned fixture families are sufficient:
 | `dted-zone-i-l2-v1` | One generated complete standard zone-I Level 2 cell, 3,601×3,601, 12,967,201 samples, and exactly 25,981,042 bytes | Replaced by `dted-zone-i-l0-smoke-v1` |
 | `dted-zone-i-l0-smoke-v1` | Not used | One generated complete 121×121 Level 0 cell, exactly 34,162 bytes; used by all four reduced scenarios |
 
-The generated fixtures are streamed into distinct runner/probe workspaces beneath the performance
-project's `build/` directory before any snapshot or timer. A package-private support writer owns its
+The generated fixtures are streamed into distinct runner/probe workspaces beneath an
+invocation-unique `/tmp` directory before any snapshot or timer. A package-private support writer owns its
 fixed UHL/DSI/ACC bytes, records, checksums, and value formula; it shares no production parser constant,
 writer, fixture helper, or G9-003/G9-006 test output. Generation and deletion are untimed. It is not a
 corpus candidate or published resource.
@@ -1772,6 +1772,20 @@ to authenticate inputs but is not a task dependency of `performanceEvidence`; th
 run, targeted optional JFR workflow, normal quality gate, and whitespace run. Corpus acquisition,
 native smoke, render regression, publication, and consumer lanes remain separate. Four scenarios, one
 fresh memory probe, one analytical model, and one decision record are sufficient.
+
+Implementation evidence completed on 2026-07-16 with one operational refinement: every benchmark
+runtime/classpath, generated fixture, staged corpus file, workspace, temporary file, measured report
+write, and JFR recording/inspection lives beneath an invocation-unique `/tmp` tree. Only completed
+bounded evidence and JFR artifacts cross back to the repository build directory. This makes the
+filesystem boundary explicit and keeps the 9.14-second SMOKE iteration lane distinct from the
+115.99-second canonical lane.
+
+The maximum fixture published in the 512-MiB fork. Its exact 105,358,512-byte logical retained charge
+and 210,726,938-byte logical open peak pass the rubric. Canonical medians were 90.40 ms for eager open,
+193.86 ms for the full scan, and 15.54 ms for the fixed query trace. JFR samples attribute the large
+workload to DTED decoding/publication allocation and CPU work; no file-I/O event crossed the recording
+threshold. The decision is therefore **eager retained**. No windowed-source follow-up or production
+contract/parser change is added.
 
 ## Native Image DTED smoke and G9 closeout (G9-008)
 

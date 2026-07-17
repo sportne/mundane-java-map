@@ -78,6 +78,7 @@ dependencies {
     implementation project(':modules:mundane-map-awt')
     implementation project(':modules:mundane-map-io-shapefile')
     implementation project(':modules:mundane-map-io-image')
+    implementation project(':modules:mundane-map-io-dted')
 }
 
 description = 'Non-published deterministic performance-evidence support.'
@@ -99,6 +100,20 @@ def evidenceDirectory = rootProject.layout.buildDirectory.dir('performance-evide
 def quickEvidenceDirectory = rootProject.layout.buildDirectory.dir('performance-quick')
 def rootBuildPath = rootProject.layout.buildDirectory.get().asFile.toPath()
         .toAbsolutePath().normalize()
+def dtedCorpusFiles = [
+    l0: [
+        path: rootProject.file('modules/mundane-map-io-dted/src/dtedCorpusTest/resources/dted-corpus/data/gdal-zone-v-l0-complete/w001/s81.dt0'),
+        length: 8762L,
+        sha256: '9b0f2d2d0b1fdeefb2e551fee98c4fac2da88141dc0fd02e712840fc9508c802'],
+    l1: [
+        path: rootProject.file('modules/mundane-map-io-dted/src/dtedCorpusTest/resources/dted-corpus/data/gdal-zone-v-l1-complete/w001/s81.dt1'),
+        length: 488642L,
+        sha256: 'ba2b8033ee4942989ec9acb916f95fffc88f054c3e9917145b4e613978db5c4f'],
+    l2: [
+        path: rootProject.file('modules/mundane-map-io-dted/src/dtedCorpusTest/resources/dted-corpus/data/gdal-zone-v-l2-partial/w001/s81.dt2'),
+        length: 4339042L,
+        sha256: '4d0511dd1551b05449ee9a60a4849e3baf132bcff64438f242aebfbaf126e58d']
+].asImmutable()
 def evidenceScenarioIds = [
     'memory-query-full',
     'memory-query-window',
@@ -141,6 +156,14 @@ def evidenceScenarioIds = [
     'vector-zoom-sequence-optimized',
     'symbol-heavy-render-template-cache-cold',
     'symbol-heavy-render-template-cache-warm'
+    ,
+    'dted-corpus-open'
+    ,
+    'dted-eager-open'
+    ,
+    'dted-sequential-scan'
+    ,
+    'dted-position-query'
 ].asImmutable()
 
 def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
@@ -156,6 +179,8 @@ def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
                 'io.github.mundanej.map.performance.ScreenGeometryWorkOracleTest.baselineFrozenWorkCountersMatchTheIndependentReference')
         includeTestsMatching(
                 'io.github.mundanej.map.performance.ScreenGeometryWorkOracleTest.baselineProductionCaptureMatchesTheFrozenWorkCounters')
+        includeTestsMatching(
+                'io.github.mundanej.map.performance.DtedBaselineFixtureTest.maximumFixtureHasPinnedHeadersRecordsAndPublicReaderBehavior')
     }
     systemProperty 'performanceBaselineOracle', 'true'
     systemProperty 'performanceProfile', 'BASELINE'
@@ -199,7 +224,12 @@ def quickEvidenceProperties = [
     // Explicit defaults make the report investigative, so it can never decide cache retention.
     performanceWarmups: '1',
     performanceMeasurements: '2'
-].asImmutable()
+]
+if (providers.gradleProperty('performanceScenario').isPresent()) {
+    quickEvidenceProperties.performanceScenario =
+            providers.gradleProperty('performanceScenario').get()
+}
+quickEvidenceProperties = quickEvidenceProperties.asImmutable()
 
 def runQuickPerformanceEvidence = tasks.register('runQuickPerformanceEvidence', Exec) {
     group = 'verification'
@@ -396,6 +426,11 @@ def configureNativeEvidenceExecution = { TaskProvider<Exec> provider, Provider<o
                 .withPathSensitivity(PathSensitivity.RELATIVE)
         inputs.properties(evidenceProperties)
         inputs.property('performanceJvmArguments', evidenceJvmArguments)
+        if (label == 'full') {
+            inputs.files(dtedCorpusFiles.values().collect { it.path })
+            .withPropertyName('dtedCorpusInputs')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        }
         outputs.files(
                 destination.map { it.file('evidence-v1.json') },
                 destination.map { it.file('evidence-v1.md') })
@@ -433,6 +468,37 @@ def configureNativeEvidenceExecution = { TaskProvider<Exec> provider, Provider<o
             }
             javaArguments.add("-DperformanceOutput=${output}")
             javaArguments.add("-Djava.io.tmpdir=${temporary}")
+            if (label == 'full') {
+                java.nio.file.Path corpus = java.nio.file.Files.createDirectory(scratch.resolve('dted-corpus'))
+                dtedCorpusFiles.each { String level, Map fact ->
+                    java.nio.file.Path source = fact.path.toPath().toAbsolutePath().normalize()
+                    if (java.nio.file.Files.size(source) != fact.length) {
+                        throw new GradleException("DTED corpus length changed: ${level}")
+                    }
+                    def digest = java.security.MessageDigest.getInstance('SHA-256')
+                    source.toFile().withInputStream { input ->
+                        byte[] buffer = new byte[65536]
+                        for (int count; (count = input.read(buffer)) >= 0;) {
+                            digest.update(buffer, 0, count)
+                        }
+                    }
+                    String actual = java.util.HexFormat.of().formatHex(digest.digest())
+                    if (actual != fact.sha256) {
+                        throw new GradleException("DTED corpus hash changed: ${level}")
+                    }
+                    java.nio.file.Path staged = corpus.resolve("${level}.dt${level.substring(1)}")
+                    java.nio.file.Files.copy(source, staged)
+                    javaArguments.add("-DperformanceDtedCorpus.${level}=${staged}")
+                }
+                java.nio.file.Path durableProbe = evidenceDirectory.get().asFile.toPath()
+                        .resolve('dted-memory-probe-v1.json')
+                if (!java.nio.file.Files.isRegularFile(durableProbe)) {
+                    throw new GradleException('DTED memory probe report is missing')
+                }
+                java.nio.file.Path stagedProbe = scratch.resolve('dted-memory-probe-v1.json')
+                java.nio.file.Files.copy(durableProbe, stagedProbe)
+                javaArguments.add("-DperformanceDtedProbe=${stagedProbe}")
+            }
             javaArguments.add('-cp')
             javaArguments.add(stagedClasspath.collect { it.absolutePath }.join(File.pathSeparator))
             javaArguments.add('io.github.mundanej.map.performance.PerformanceEvidenceMain')
@@ -470,6 +536,80 @@ configureNativeEvidenceExecution(
         runPerformanceEvidence, evidenceDirectory, 'full', fullEvidenceProperties)
 configureNativeEvidenceExecution(
         runQuickPerformanceEvidence, quickEvidenceDirectory, 'quick', quickEvidenceProperties)
+
+def runDtedMemoryProbe = tasks.register('runDtedMemoryProbe', Exec) {
+    group = 'verification'
+    description = 'Captures labelled JVM observations for maximum eager DTED publication.'
+    dependsOn tasks.named('classes')
+    def originalClasspath = sourceSets.main.runtimeClasspath
+    def scratchService = gradle.sharedServices.registerIfAbsent(
+            'mundaneMapPerformanceScratch', PerformanceScratchService) {}
+    ext.performanceScratch = null
+    usesService scratchService
+    inputs.files(originalClasspath)
+            .withPropertyName('dtedProbeUnstagedRuntimeClasspath')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property('performanceJvmArguments', evidenceJvmArguments)
+    outputs.file(evidenceDirectory.map { it.file('dted-memory-probe-v1.json') })
+    outputs.upToDateWhen { false }
+    doFirst {
+        java.nio.file.Path root = java.nio.file.Path.of('/tmp').toRealPath(
+                java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        java.nio.file.Path scratch = java.nio.file.Files.createTempDirectory(
+                root, 'mundane-map-dted-probe-').toRealPath(
+                java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        ext.performanceScratch = scratch
+        scratchService.get().register(scratch)
+        java.nio.file.Path runtime = scratch.resolve('runtime')
+        List<File> stagedClasspath = stageRuntimeClasspath(runtime, originalClasspath.files)
+        java.nio.file.Path work = java.nio.file.Files.createDirectory(scratch.resolve('work'))
+        java.nio.file.Path output = java.nio.file.Files.createDirectory(scratch.resolve('output'))
+        java.nio.file.Path temporary = java.nio.file.Files.createDirectory(scratch.resolve('tmp'))
+        executable = java21Launcher.get().executablePath.asFile
+        args = new ArrayList<>(evidenceJvmArguments) + [
+            "-DperformanceOutput=${output}",
+            "-Djava.io.tmpdir=${temporary}",
+            '-cp',
+            stagedClasspath.collect { it.absolutePath }.join(File.pathSeparator),
+            'io.github.mundanej.map.performance.PerformanceEvidenceMain',
+            '--dted-memory-probe'
+        ]
+        workingDir work.toFile()
+    }
+    doLast {
+        java.nio.file.Path scratch = ext.performanceScratch
+        Throwable primary = null
+        try {
+            java.nio.file.Path source = scratch.resolve('output/dted-memory-probe-v1.json')
+            if (!java.nio.file.Files.isRegularFile(source)
+                    || java.nio.file.Files.size(source) <= 0
+                    || java.nio.file.Files.size(source) > 65536L) {
+                throw new GradleException('DTED memory probe report is missing or unsafe')
+            }
+            java.nio.file.Path destination = evidenceDirectory.get().asFile.toPath()
+            java.nio.file.Files.createDirectories(destination)
+            java.nio.file.Files.copy(
+                    source,
+                    destination.resolve('dted-memory-probe-v1.json'),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } catch (Throwable failure) {
+            primary = failure
+            throw failure
+        } finally {
+            try {
+                scratchService.get().cleanup(scratch)
+                ext.performanceScratch = null
+            } catch (Throwable cleanupFailure) {
+                if (primary == null) throw cleanupFailure
+                primary.addSuppressed(cleanupFailure)
+            }
+        }
+    }
+}
+
+runPerformanceEvidence.configure {
+    dependsOn runDtedMemoryProbe
+}
 
 def verifyPerformanceScratchBoundaries = tasks.register('verifyPerformanceScratchBoundaries') {
     group = 'verification'
@@ -538,80 +678,111 @@ tasks.named('check') {
     dependsOn verifyPerformanceScratchBoundaries
 }
 
-def performanceJfr = tasks.register('performanceJfr', JavaExec) {
+def selectedJfrScenario = providers.gradleProperty('performanceScenario')
+def performanceJfr = tasks.register('performanceJfr', Exec) {
     group = 'verification'
     description = 'Records one selected evidence scenario with the matching Java 21 JFR.'
     dependsOn tasks.named('classes')
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'io.github.mundanej.map.performance.PerformanceEvidenceMain'
-    javaLauncher = java21Launcher
-    minHeapSize = '512m'
-    maxHeapSize = '512m'
-    notCompatibleWithConfigurationCache('Invokes the matching toolchain jfr executable after recording')
+    def originalClasspath = sourceSets.main.runtimeClasspath
+    def scratchService = gradle.sharedServices.registerIfAbsent(
+            'mundaneMapPerformanceScratch', PerformanceScratchService) {}
+    ext.performanceScratch = null
+    usesService scratchService
+    inputs.files(originalClasspath)
+            .withPropertyName('jfrUnstagedRuntimeClasspath')
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    outputs.upToDateWhen { false }
     doFirst {
-        String scenario = providers.gradleProperty('performanceScenario').orNull
+        String scenario = selectedJfrScenario.orNull
         if (scenario == null || !evidenceScenarioIds.contains(scenario)) {
             throw new GradleException('performanceScenario must name one exact scenario')
         }
-        File output = evidenceDirectory.get().dir("jfr/${scenario}").asFile
-        delete output
-        output.mkdirs()
-        systemProperty 'performanceScenario', scenario
-        systemProperty 'performanceOutput', output.absolutePath
-        jvmArgs '-XX:+UseG1GC', '-Djava.awt.headless=true', '-Dfile.encoding=UTF-8',
-                '-Duser.language=en', '-Duser.country=US', '-Duser.timezone=UTC',
-                "-XX:StartFlightRecording=filename=${new File(output, scenario + '.jfr')},settings=profile,dumponexit=true,disk=true,maxsize=512m,jdk.ObjectAllocationSample#enabled=true"
-    }
-    systemProperty 'performanceProfile', 'BASELINE'
-    systemProperty 'performanceWarmups', '1'
-    systemProperty 'performanceMeasurements', '2'
-}
-
-def performanceJfrSummary = tasks.register('performanceJfrSummary', Exec) {
-    group = 'verification'
-    description = 'Writes the selected performance recording summary.'
-    notCompatibleWithConfigurationCache('Holds the summary output stream for the exec action')
-    doFirst {
-        String scenario = providers.gradleProperty('performanceScenario').get()
-        File output = evidenceDirectory.get().dir("jfr/${scenario}").asFile
-        File recording = new File(output, scenario + '.jfr')
-        File jfr = java21Launcher.get().metadata.installationPath.file(
-                System.getProperty('os.name').startsWith('Windows') ? 'bin/jfr.exe' : 'bin/jfr').asFile
-        ext.outputStream = new FileOutputStream(new File(output, 'summary.txt'))
-        commandLine jfr, 'summary', recording
-        standardOutput = ext.outputStream
+        java.nio.file.Path root = java.nio.file.Path.of('/tmp').toRealPath(
+                java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        java.nio.file.Path scratch = java.nio.file.Files.createTempDirectory(
+                root, 'mundane-map-jfr-').toRealPath(java.nio.file.LinkOption.NOFOLLOW_LINKS)
+        ext.performanceScratch = scratch
+        scratchService.get().register(scratch)
+        java.nio.file.Path runtime = scratch.resolve('runtime')
+        List<File> stagedClasspath = stageRuntimeClasspath(runtime, originalClasspath.files)
+        java.nio.file.Path work = java.nio.file.Files.createDirectory(scratch.resolve('work'))
+        java.nio.file.Path output = java.nio.file.Files.createDirectory(scratch.resolve('output'))
+        java.nio.file.Path temporary = java.nio.file.Files.createDirectory(scratch.resolve('tmp'))
+        java.nio.file.Path recording = output.resolve(scenario + '.jfr')
+        executable = java21Launcher.get().executablePath.asFile
+        args = new ArrayList<>(evidenceJvmArguments) + [
+            '-DperformanceProfile=BASELINE',
+            '-DperformanceWarmups=1',
+            '-DperformanceMeasurements=2',
+            "-DperformanceScenario=${scenario}",
+            "-DperformanceOutput=${output}",
+            "-Djava.io.tmpdir=${temporary}",
+            "-XX:StartFlightRecording=filename=${recording},settings=profile,dumponexit=true,disk=true,maxsize=512m,jdk.ObjectAllocationSample#enabled=true",
+            '-cp',
+            stagedClasspath.collect { it.absolutePath }.join(File.pathSeparator),
+            'io.github.mundanej.map.performance.PerformanceEvidenceMain'
+        ]
+        workingDir work.toFile()
     }
     doLast {
-        ext.outputStream.close()
-    }
-}
-
-def performanceJfrEvents = tasks.register('performanceJfrEvents', Exec) {
-    group = 'verification'
-    description = 'Writes selected event families from the performance recording.'
-    notCompatibleWithConfigurationCache('Holds the event output stream for the exec action')
-    doFirst {
-        String scenario = providers.gradleProperty('performanceScenario').get()
-        File output = evidenceDirectory.get().dir("jfr/${scenario}").asFile
-        File recording = new File(output, scenario + '.jfr')
+        java.nio.file.Path scratch = ext.performanceScratch
+        String scenario = selectedJfrScenario.get()
+        java.nio.file.Path output = scratch.resolve('output')
+        java.nio.file.Path recording = output.resolve(scenario + '.jfr')
         File jfr = java21Launcher.get().metadata.installationPath.file(
                 System.getProperty('os.name').startsWith('Windows') ? 'bin/jfr.exe' : 'bin/jfr').asFile
-        ext.outputStream = new FileOutputStream(new File(output, 'events.txt'))
-        commandLine jfr, 'print', '--events',
+        def runJfr = { List<String> command, java.nio.file.Path destination ->
+            Process process = new ProcessBuilder(command)
+                    .directory(scratch.resolve('work').toFile())
+                    .redirectOutput(destination.toFile())
+                    .redirectError(ProcessBuilder.Redirect.INHERIT)
+                    .start()
+            if (process.waitFor() != 0) {
+                throw new GradleException("JFR inspection failed: ${command[1]}")
+            }
+        }
+        Throwable primary = null
+        try {
+            runJfr([
+                jfr.absolutePath,
+                'summary',
+                recording.toString()
+            ], output.resolve('summary.txt'))
+            runJfr([
+                jfr.absolutePath,
+                'print',
+                '--events',
                 'jdk.ExecutionSample,jdk.ObjectAllocationSample,jdk.ObjectAllocationInNewTLAB,jdk.ObjectAllocationOutsideTLAB,jdk.FileRead,jdk.FileWrite',
-                recording
-        standardOutput = ext.outputStream
+                recording.toString()
+            ], output.resolve('events.txt'))
+            java.nio.file.Path destination = evidenceDirectory.get().dir("jfr/${scenario}").asFile.toPath()
+            if (java.nio.file.Files.exists(destination)) {
+                def existing = java.nio.file.Files.walk(destination)
+                try {
+                    existing.sorted(java.util.Comparator.reverseOrder()).forEach {
+                        java.nio.file.Files.deleteIfExists(it)
+                    }
+                } finally {
+                    existing.close()
+                }
+            }
+            java.nio.file.Files.createDirectories(destination)
+            for (java.nio.file.Path source : java.nio.file.Files.list(output).toList()) {
+                java.nio.file.Files.copy(source, destination.resolve(source.fileName))
+            }
+        } catch (Throwable failure) {
+            primary = failure
+            throw failure
+        } finally {
+            try {
+                scratchService.get().cleanup(scratch)
+                ext.performanceScratch = null
+            } catch (Throwable cleanupFailure) {
+                if (primary == null) throw cleanupFailure
+                primary.addSuppressed(cleanupFailure)
+            }
+        }
     }
-    doLast {
-        ext.outputStream.close()
-    }
-}
-
-performanceJfr.configure {
-    finalizedBy performanceJfrSummary
-}
-performanceJfrSummary.configure {
-    finalizedBy performanceJfrEvents
 }
 
 tasks.named('test') {
@@ -652,8 +823,7 @@ gradle.projectsEvaluated {
                 quick,
                 verifyBaselineOracle.get(),
                 jfr,
-                performanceJfrSummary.get(),
-                performanceJfrEvents.get()
+                runDtedMemoryProbe.get()
             ] as Set
     def resolveDependencyNotation
     resolveDependencyNotation = { owner, notation, resolved ->

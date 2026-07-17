@@ -209,6 +209,11 @@ final class ScenarioRegistry {
         appendIndexScenarios(result, profile, selected);
         appendScreenGeometryScenarios(result, profile, selected);
         appendRenderCacheScenarios(result, profile, selected);
+        try {
+            DtedEvidenceScenarios.append(result, profile, selected, workspace);
+        } catch (Exception failure) {
+            throw new IllegalStateException("Cannot create DTED evidence scenarios", failure);
+        }
     }
 
     private static void appendRenderCacheScenarios(
@@ -435,6 +440,10 @@ final class ScenarioRegistry {
         result.add("vector-zoom-sequence-optimized");
         result.add("symbol-heavy-render-template-cache-cold");
         result.add("symbol-heavy-render-template-cache-warm");
+        result.add("dted-corpus-open");
+        result.add("dted-eager-open");
+        result.add("dted-sequential-scan");
+        result.add("dted-position-query");
         return List.copyOf(result);
     }
 

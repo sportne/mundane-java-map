@@ -111,6 +111,17 @@ class ArchitectureRulesTest {
         assertTrue(moduleBuild.contains("performanceMeasurements: '2'"));
         assertTrue(moduleBuild.contains("outputs.upToDateWhen { false }"));
         assertTrue(moduleBuild.contains("performanceJfr"));
+        assertTrue(moduleBuild.contains("runDtedMemoryProbe"));
+        assertTrue(moduleBuild.contains("implementation project(':modules:mundane-map-io-dted')"));
+        assertTrue(moduleBuild.contains("performanceDtedCorpus"));
+        assertTrue(moduleBuild.contains("mundane-map-jfr-"));
+        String profileModel =
+                Files.readString(
+                        performanceSources.resolve(
+                                "io/github/mundanej/map/performance/DtedProfileCacheModel.java"));
+        assertFalse(profileModel.contains("java.io"));
+        assertFalse(profileModel.contains("java.nio"));
+        assertFalse(profileModel.contains("DtedFiles"));
         String root = Files.readString(rootBuild);
         assertTrue(root.contains("tasks.register('performanceEvidence')"));
         assertTrue(

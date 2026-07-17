@@ -324,6 +324,12 @@ separately decomposed.
   remain corpus-free. The evidence also narrowed optional fixed-field compatibility to ASCII text
   with GDAL NUL termination/padding; numeric discriminators and the one structural profile did not
   expand.
+- G9-007 is complete: four append-only DTED scenarios, a fresh-JVM memory probe, and an analytical
+  profile-cache model run wholly from `/tmp` and retain only durable evidence reports. A complete
+  3,601-by-3,601 zone-I cell publishes in the canonical 512-MiB fork; exact logical storage is
+  105,358,512 retained bytes with a 210,726,938-byte open peak. Frozen semantics, the 9.14-second
+  quick loop, the 115.99-second canonical lane, and JFR CPU/allocation evidence retain eager access;
+  no fallible windowed-source task or production/API/parser change is warranted.
 - DTED is elevation data, not a generic image format. It remains separate from GeoTIFF while both
   may produce the same elevation model. See the
   [G9 task set](tasks/README.md#g9--elevation-and-dted).

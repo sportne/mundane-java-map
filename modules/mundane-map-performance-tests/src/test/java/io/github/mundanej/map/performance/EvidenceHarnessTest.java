@@ -62,7 +62,7 @@ class EvidenceHarnessTest {
             EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             String json = new String(report.json(), StandardCharsets.UTF_8);
             String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
-            assertEquals(48, count(json, "\"id\": \""));
+            assertEquals(53, count(json, "\"id\": \""));
             assertTrue(json.startsWith("{\n  \"schemaVersion\""));
             assertTrue(json.endsWith("\n"));
             assertTrue(markdown.contains("Durations are environment-specific evidence"));
@@ -89,7 +89,7 @@ class EvidenceHarnessTest {
                 assertTrue(markdown.contains("`" + id + "`"));
             }
             assertEquals(4, count(json, "\"vectorPathState\": \"LEVEL1_OPERATION_LOCAL\""));
-            assertEquals(37, count(json, "\"vectorPathState\": \"DISABLED\""));
+            assertEquals(41, count(json, "\"vectorPathState\": \"DISABLED\""));
             assertEquals(
                     List.of(
                             "small-vector-render-unoptimized",
@@ -298,7 +298,7 @@ class EvidenceHarnessTest {
         List<EvidenceReport.FixtureFact> second =
                 FixtureCatalog.facts(EvidenceConfiguration.Profile.SMOKE);
         assertEquals(first, second);
-        assertEquals(7, first.size());
+        assertEquals(8, first.size());
         assertEquals(1_024, first.getFirst().count());
         assertEquals(2_080, first.get(1).count());
         assertEquals(
@@ -317,7 +317,7 @@ class EvidenceHarnessTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new EvidenceObservation(1, Map.of("bad", -1L)));
-        assertEquals(84, ScenarioOracleV1.frozenDigests().size());
+        assertEquals(92, ScenarioOracleV1.frozenDigests().size());
         assertEquals(
                 "56d246ef2d1394ce",
                 ScenarioOracleV1.frozenDigests().get("SMOKE/vector-zoom-sequence"));

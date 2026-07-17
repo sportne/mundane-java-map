@@ -33,6 +33,8 @@ interface EvidenceScenario extends AutoCloseable {
 
     default void finishSample() throws Exception {}
 
+    default void finishScenario() throws Exception {}
+
     ScenarioOracle oracle();
 
     @Override

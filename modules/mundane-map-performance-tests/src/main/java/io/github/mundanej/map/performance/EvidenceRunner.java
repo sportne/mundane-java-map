@@ -20,7 +20,11 @@ final class EvidenceRunner {
         Throwable primary = null;
         try {
             for (EvidenceScenario scenario : selected) {
-                samples.add(runScenario(configuration, scenario));
+                try {
+                    samples.add(runScenario(configuration, scenario));
+                } finally {
+                    scenario.finishScenario();
+                }
             }
             samples = addObservedCrossover(configuration, samples);
             report = EvidenceReport.capture(configuration, selected, samples);

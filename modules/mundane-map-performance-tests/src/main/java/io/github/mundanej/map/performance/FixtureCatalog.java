@@ -69,16 +69,59 @@ final class FixtureCatalog {
         int shapefileColumns = profile == EvidenceConfiguration.Profile.BASELINE ? 500 : 50;
         int shapefileRows = profile == EvidenceConfiguration.Profile.BASELINE ? 100 : 10;
         long shapefileRecords = Math.multiplyExact(shapefileColumns, shapefileRows);
-        return List.of(
-                factFromRecords("feature-grid-v1", featureGrid),
-                factFromFeatures("vector-path-v1", vectorCoordinates, vectors.features()),
-                factFromLayers("symbol-field-v1", symbolCount, symbols),
-                hitFact(profile, hitProbes),
-                shapefileFact(profile, shapefileColumns, shapefileRows, shapefileRecords),
-                rasterFact(),
-                factFromRecords(
-                        "index-comparison-v1",
-                        IndexComparisonFixture.records(IndexComparisonFixture.SIZES.getLast())));
+        List<EvidenceReport.FixtureFact> result =
+                new ArrayList<>(
+                        List.of(
+                                factFromRecords("feature-grid-v1", featureGrid),
+                                factFromFeatures(
+                                        "vector-path-v1", vectorCoordinates, vectors.features()),
+                                factFromLayers("symbol-field-v1", symbolCount, symbols),
+                                hitFact(profile, hitProbes),
+                                shapefileFact(
+                                        profile, shapefileColumns, shapefileRows, shapefileRecords),
+                                rasterFact(),
+                                factFromRecords(
+                                        "index-comparison-v1",
+                                        IndexComparisonFixture.records(
+                                                IndexComparisonFixture.SIZES.getLast()))));
+        if (profile == EvidenceConfiguration.Profile.BASELINE) {
+            FnvOracle corpus = new FnvOracle(EvidenceConfiguration.SEED).add("dted-corpus-v1");
+            Map<String, String> files =
+                    Map.of(
+                            "level0",
+                                    "8762:9b0f2d2d0b1fdeefb2e551fee98c4fac2da88141dc0fd02e712840fc9508c802",
+                            "level1",
+                                    "488642:ba2b8033ee4942989ec9acb916f95fffc88f054c3e9917145b4e613978db5c4f",
+                            "level2",
+                                    "4339042:4d0511dd1551b05449ee9a60a4849e3baf132bcff64438f242aebfbaf126e58d");
+            files.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> corpus.add(entry.getKey()).add(entry.getValue()));
+            result.add(
+                    new EvidenceReport.FixtureFact(
+                            "dted-corpus-v1", 2_408_143L, corpus.value(), files));
+            result.add(dtedGeneratedFact(DtedEvidenceFixture.MAXIMUM));
+        } else {
+            result.add(dtedGeneratedFact(DtedEvidenceFixture.SMOKE));
+        }
+        return List.copyOf(result);
+    }
+
+    private static EvidenceReport.FixtureFact dtedGeneratedFact(
+            DtedEvidenceFixture.Fixture fixture) {
+        FnvOracle digest =
+                new FnvOracle(EvidenceConfiguration.SEED)
+                        .add(fixture.id())
+                        .add(fixture.level())
+                        .add(fixture.posts())
+                        .add(fixture.samples())
+                        .add(fixture.bytes())
+                        .add(fixture.sha256());
+        return new EvidenceReport.FixtureFact(
+                fixture.id(),
+                fixture.samples(),
+                digest.value(),
+                Map.of("generated.dt" + fixture.level(), fixture.bytes() + ":" + fixture.sha256()));
     }
 
     static List<FeatureRecord> featureGrid(EvidenceConfiguration.Profile profile) {

@@ -36,6 +36,10 @@ final class ScenarioOracleV1 {
                     entry("BASELINE", "index-query-str16-32768", "51a12946d23765bd"),
                     entry("BASELINE", "index-query-linear-131072", "9d02d7e8c1b39abc"),
                     entry("BASELINE", "index-query-str16-131072", "95d3705013070a13"),
+                    entry("BASELINE", "dted-corpus-open", "e999a7ef02c490e8"),
+                    entry("BASELINE", "dted-eager-open", "df14fb58fdc22951"),
+                    entry("BASELINE", "dted-sequential-scan", "9ebf8c8cdf36ca71"),
+                    entry("BASELINE", "dted-position-query", "c75f108ddc6e5639"),
                     entry("SMOKE", "memory-query-full", "ac5d092e34ba63eb"),
                     entry("SMOKE", "memory-query-window", "93b262ceb74391da"),
                     entry("SMOKE", "dense-vector-render", "c0516beaa147bdf3"),
@@ -65,7 +69,11 @@ final class ScenarioOracleV1 {
                     entry("SMOKE", "index-query-linear-32768", "98fc26ae129f37c9"),
                     entry("SMOKE", "index-query-str16-32768", "9473e8aa535d5d3a"),
                     entry("SMOKE", "index-query-linear-131072", "01bb4dce2d2c818c"),
-                    entry("SMOKE", "index-query-str16-131072", "20ef892eccb890f3"));
+                    entry("SMOKE", "index-query-str16-131072", "20ef892eccb890f3"),
+                    entry("SMOKE", "dted-corpus-open", "7a613d534af75689"),
+                    entry("SMOKE", "dted-eager-open", "a12b243ca7331c4b"),
+                    entry("SMOKE", "dted-sequential-scan", "a264206af4fda390"),
+                    entry("SMOKE", "dted-position-query", "011cf6747c7a03d9"));
 
     private ScenarioOracleV1() {}
 
