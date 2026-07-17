@@ -148,6 +148,7 @@ class BuildConfigurationTest {
                                 "--console=plain",
                                 "--no-daemon",
                                 "--no-build-cache",
+                                "--refresh-dependencies",
                                 "-Pmap.testJavaVersion=" + TEST_JAVA_VERSION)
                         .directory(project.toFile())
                         .redirectErrorStream(true);
