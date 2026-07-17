@@ -297,9 +297,14 @@ separately decomposed.
   and nearest/bilinear rendered-color resampling run through direct borrowed/owned AWT elevation
   bindings and the synthetic no-DTED viewer. Elevation remains distinct from `RasterSource`, and no
   derived cache or numeric position-query policy is introduced.
-- Add dependency-free `mundane-map-io-dted` support for Levels 0, 1, and 2 with bounded headers,
-  dimensions, checksums, signed-magnitude samples, voids, position queries, licensed fixtures,
-  memory/read evidence, and Native Image verification.
+- G9-003 is complete: the published dependency-free `mundane-map-io-dted` module strictly opens the
+  approved eager WGS84 one-degree Level 0/1/2 profile, reconciles bounded fixed headers and exact
+  latitude-zone dimensions, decodes signed-magnitude samples and declared Level 2 voids into the
+  shared elevation source, closes file I/O before publication, and is covered by independent
+  generated fixtures, architecture rules, staged artifacts, and a clean Java 21 consumer. This is a
+  JVM reader slice only; checksum enforcement, exhaustive hostile-input validation, licensed corpus,
+  coordinate queries, performance/lazy-access evidence, and Native Image verification remain in
+  G9-004 through G9-008.
 - DTED is elevation data, not a generic image format. It remains separate from GeoTIFF while both
   may produce the same elevation model. See the
   [G9 task set](tasks/README.md#g9--elevation-and-dted).

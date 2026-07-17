@@ -1,6 +1,6 @@
 # G9-003 — DTED Levels 0, 1, and 2 reader slice
 
-Status: Proposed
+Status: Complete
 Depends on: G9-001
 Gate: G9
 Type: AFK
@@ -93,3 +93,13 @@ supported profile, transaction, diagnostics, fixtures, and publication boundary.
 If another approved Level 2 publication task lands first, retain its artifact/consumer entries and
 reconcile the complete authoritative manifest; the six-artifact count is this task's G8-baseline
 required subset, not a reset instruction.
+
+Implemented as the published JDK-only, AWT-free `mundane-map-io-dted` module with only `DtedFiles`
+and `DtedOpenOptions` public. Its strict eager transaction reads and reconciles the fixed
+MIL-PRF-89020B UHL/DSI/ACC profile, derives exact Level 0/1/2 latitude-zone grids, applies elevation
+limits before allocation, decodes signed-magnitude posts into the shared packed elevation source,
+and closes file I/O before publication. Independent generated complete Level 0/1 and partial Level 2
+fixtures, boundary/profile/diagnostic/cancellation/lifecycle tests, architecture enforcement, staged
+publication, and a clean Java 21 consumer query cover the delivered slice. Checksum enforcement,
+exhaustive malformed-input hardening, corpus evidence, position queries, performance decisions, and
+Native Image claims remain with G9-004 through G9-008.

@@ -612,8 +612,8 @@ class ArchitectureRulesTest {
                         .toList();
         assertTrue(misplacedTypes.isEmpty(), () -> String.join("\n", misplacedTypes));
         assertFalse(
-                Files.readString(settings).contains("mundane-map-io-dted"),
-                "G9-001 must not create an empty DTED module");
+                classesByModule.get(moduleEndingWith("mundane-map-io-dted")).isEmpty(),
+                "G9-003 must provide working DTED production behavior");
         assertTrue(
                 rasterization.getFields().stream()
                         .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
@@ -1003,6 +1003,56 @@ class ArchitectureRulesTest {
                 modules.stream()
                         .noneMatch(module -> module.path().equals(":examples:shapefile-viewer")),
                 "The viewer must remain outside the production architecture graph");
+    }
+
+    @Test
+    void dtedModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndDoesNotLeakIntoApi() {
+        ModuleDescriptor dted = moduleEndingWith("mundane-map-io-dted");
+        JavaClasses formatClasses = classesByModule.get(dted);
+        List<String> toolkitDependencies =
+                formatClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                formatClasses.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.dted"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+
+        assertEquals("JDK_RUNTIME", dted.category());
+        assertEquals(2, dted.releaseLevel());
+        assertFalse(dted.nativeTarget());
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                dted.allowedRuntimeProjects());
+        assertFalse(formatClasses.isEmpty(), "Expected the working DTED format module");
+        assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
+        assertTrue(
+                ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty(),
+                "DTED production must avoid prohibited native-targeted mechanisms before G9-008");
+        assertEquals(Set.of("DtedFiles", "DtedOpenOptions"), publicTypes);
+        assertTrue(
+                apiClasses.stream().noneMatch(type -> type.getSimpleName().contains("Dted")),
+                "DTED-specific types must not leak into mundane-map-api");
     }
 
     @Test

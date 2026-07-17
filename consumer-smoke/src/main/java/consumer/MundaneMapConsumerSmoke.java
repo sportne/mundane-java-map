@@ -8,6 +8,7 @@ import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterSource;
@@ -24,6 +25,8 @@ import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.RasterImages;
+import io.github.mundanej.map.io.dted.DtedFiles;
+import io.github.mundanej.map.io.dted.DtedOpenOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import java.awt.Graphics2D;
@@ -40,7 +43,7 @@ import java.util.Optional;
 import javax.imageio.ImageIO;
 import javax.swing.SwingUtilities;
 
-/** Public-artifact-only Level 1 consumer smoke. */
+/** Public-artifact-only consumer smoke for the published map modules. */
 public final class MundaneMapConsumerSmoke {
     private MundaneMapConsumerSmoke() {}
 
@@ -56,6 +59,7 @@ public final class MundaneMapConsumerSmoke {
             testShapefile(directory);
             testMalformedShapefile(directory);
             testImages(directory, decoders);
+            testDted(directory);
         } finally {
             try (var paths = Files.walk(directory)) {
                 paths.sorted(Comparator.reverseOrder()).forEach(MundaneMapConsumerSmoke::delete);
@@ -226,6 +230,63 @@ public final class MundaneMapConsumerSmoke {
                             && Math.abs(blue - 0x80) <= 16,
                     "JPEG sample outside tolerance");
         }
+    }
+
+    private static void testDted(Path directory) throws IOException {
+        Path path = directory.resolve("consumer.dt0");
+        Files.write(path, levelZeroDted());
+        ElevationSource source =
+                DtedFiles.open(
+                        new SourceIdentity("consumer-dted", "Consumer DTED"),
+                        path,
+                        DtedOpenOptions.defaults());
+        var metadata = source.metadata();
+        require(metadata.columnCount() == 21, "unexpected DTED columns");
+        require(metadata.rowCount() == 121, "unexpected DTED rows");
+        require(metadata.sampleBounds().equals(new io.github.mundanej.map.api.Envelope(0, 80, 1, 81)),
+                "unexpected DTED bounds");
+        require(source.sample(0, 0).orElseThrow() == 120, "unexpected DTED north sample");
+        require(source.sample(0, 120).orElseThrow() == 0, "unexpected DTED south sample");
+        require(source.openingDiagnostics().entries().isEmpty(), "unexpected DTED diagnostics");
+        source.close();
+        source.close();
+        require(source.isClosed(), "DTED source did not close");
+        require(source.metadata().equals(metadata), "DTED metadata changed after close");
+    }
+
+    private static byte[] levelZeroDted() {
+        byte[] bytes = new byte[8_762];
+        java.util.Arrays.fill(bytes, (byte) ' ');
+        putAscii(bytes, 0, "UHL1");
+        putAscii(bytes, 4, "0000000E0800000N18000300NA  U  MUNDANE-CONS002101210");
+        putAscii(bytes, 80, "DSI");
+        bytes[83] = 'U';
+        putAscii(bytes, 139, "DTED0");
+        putAscii(bytes, 206, "PRF89020B");
+        putAscii(bytes, 221, "MSLWGS84");
+        putAscii(bytes, 265, "800000.0N0000000.0E800000N0000000E810000N0000000E810000N0010000E800000N0010000E0000000.0030018000121002100");
+        putAscii(bytes, 728, "ACC");
+        putAscii(bytes, 783, "00");
+        int position = 3_428;
+        for (int profile = 0; profile < 21; profile++) {
+            ByteBuffer record = ByteBuffer.wrap(bytes, position, 254).slice().order(ByteOrder.BIG_ENDIAN);
+            record.put((byte) 0xaa);
+            record.put((byte) 0).put((byte) 0).put((byte) profile);
+            record.putShort((short) profile).putShort((short) 0);
+            for (int sample = 0; sample < 121; sample++) {
+                record.putShort((short) (profile * 10 + sample));
+            }
+            long checksum = 0;
+            for (int index = 0; index < 250; index++) checksum += bytes[position + index] & 0xffL;
+            record.putInt((int) checksum);
+            position += 254;
+        }
+        return bytes;
+    }
+
+    private static void putAscii(byte[] bytes, int offset, String value) {
+        byte[] encoded = value.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        System.arraycopy(encoded, 0, bytes, offset, encoded.length);
     }
 
     private static byte[] pointShp(double x, double y) {
