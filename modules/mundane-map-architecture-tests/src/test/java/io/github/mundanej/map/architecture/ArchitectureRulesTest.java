@@ -544,9 +544,12 @@ class ArchitectureRulesTest {
         JavaClass ramp = apiClasses.get("io.github.mundanej.map.api.ElevationColorRamp");
         JavaClass hillshade = apiClasses.get("io.github.mundanej.map.api.ElevationHillshade");
         JavaClass style = apiClasses.get("io.github.mundanej.map.api.ElevationRasterStyle");
+        JavaClass queryMode = apiClasses.get("io.github.mundanej.map.api.ElevationQueryMode");
+        JavaClass value = apiClasses.get("io.github.mundanej.map.api.ElevationValue");
         JavaClass packed = coreClasses.get("io.github.mundanej.map.core.PackedElevationGrid");
         JavaClass rasterization =
                 coreClasses.get("io.github.mundanej.map.core.ElevationRasterization");
+        JavaClass queries = coreClasses.get("io.github.mundanej.map.core.ElevationQueries");
         List<JavaClass> elevationTypes =
                 List.of(
                         source,
@@ -557,8 +560,11 @@ class ArchitectureRulesTest {
                         ramp,
                         hillshade,
                         style,
+                        queryMode,
+                        value,
                         packed,
-                        rasterization);
+                        rasterization,
+                        queries);
 
         assertFalse(RasterSource.class.isAssignableFrom(ElevationSource.class));
         assertEquals(Object.class.getName(), packed.getRawSuperclass().orElseThrow().getName());
@@ -594,6 +600,7 @@ class ArchitectureRulesTest {
                                                 || target.equals("java.lang.Thread")
                                                 || target.contains(".io.image.")
                                                 || target.contains(".io.shapefile.")
+                                                || target.contains(".io.dted.")
                                                 || target.endsWith("RasterSource"))
                         .distinct()
                         .sorted()
@@ -619,6 +626,40 @@ class ArchitectureRulesTest {
                         .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
                         .allMatch(field -> field.getModifiers().contains(JavaModifier.FINAL)),
                 "Elevation rasterization must remain stateless");
+        assertTrue(
+                queries.getFields().stream()
+                        .filter(field -> field.getModifiers().contains(JavaModifier.STATIC))
+                        .allMatch(field -> field.getModifiers().contains(JavaModifier.FINAL)),
+                "Elevation queries must remain stateless");
+        List<String> queryLeakage =
+                queries.getDirectDependenciesFromSelf().stream()
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.contains(".io.")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.api.CancellationToken")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.api.DiagnosticReport")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.api.ElevationSourceLimits")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.core.CrsOperation")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.core.CrsRegistry")
+                                                || target.endsWith("RasterInterpolation")
+                                                || target.endsWith("RasterSource"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        assertTrue(queryLeakage.isEmpty(), () -> String.join("\n", queryLeakage));
         List<String> derivedStorage =
                 rasterization.getFields().stream()
                         .filter(field -> field.getRawType().isArray())

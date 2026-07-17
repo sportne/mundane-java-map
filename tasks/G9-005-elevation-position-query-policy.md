@@ -1,6 +1,6 @@
 # G9-005 — Elevation position-query policy
 
-Status: Proposed
+Status: Complete
 Depends on: G9-001, G9-003
 Gate: G9
 Type: AFK
@@ -77,3 +77,11 @@ Do not silently choose interpolation based on zoom or source format. The DTED or
 MIL-PRF-89020B sections 3.10.1, 3.10.4, and 3.10.5; G9-003 already owns the sole transpose. If another
 no-data policy is later needed, design a separate typed policy rather than overloading interpolation
 mode. Native, corpus, rendering, performance, and publication lanes do not run in this task.
+
+Implemented as the exact two-value API mode, finite/unit-bearing API result, and one stateless core
+query utility. Queries assert the caller-supplied source CRS, validate CRS domains before inclusive
+grid bounds, binary-search exact metadata post coordinates, use lower-index nearest ties, and visit
+only distinct positive-weight bilinear contributors in deterministic order. Overflow-safe convex
+`Math.fma` evaluation, no-data short-circuiting, contract/lifecycle checks, near-maximum indexes, and
+Level 0/1/2 DTED integration are covered without adding reprojection, caches, format production
+changes, cancellation, reports, limits, or ownership transfer.
