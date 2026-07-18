@@ -1,6 +1,6 @@
 # G10-023 — GeoJSON hostile-input and writer hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G10-022
 Gate: G10
 Type: AFK

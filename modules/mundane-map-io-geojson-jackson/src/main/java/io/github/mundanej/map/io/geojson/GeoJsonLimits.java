@@ -79,6 +79,41 @@ public record GeoJsonLimits(
                 || maximumScalarCharacters > maximumAggregateCharacters) {
             throw new IllegalArgumentException("GeoJSON per-value limits must fit total limits");
         }
+        long propertyContainers =
+                Math.floorDiv(
+                        Math.addExact(
+                                (long) maximumTotalProperties, maximumPropertiesPerFeature - 1L),
+                        maximumPropertiesPerFeature);
+        if (propertyContainers > maximumPhysicalFeatures) {
+            throw new IllegalArgumentException(
+                    "maximumPhysicalFeatures cannot expose maximumTotalProperties");
+        }
+        long propertyMembers =
+                propertyContainers <= 1
+                        ? Math.addExact((long) maximumTotalProperties, 3L)
+                        : Math.addExact(
+                                Math.addExact(
+                                        maximumTotalProperties,
+                                        Math.multiplyExact(3L, propertyContainers)),
+                                2L);
+        long physicalMembers =
+                maximumPhysicalFeatures <= 1
+                        ? 3L
+                        : Math.addExact(Math.multiplyExact(3L, maximumPhysicalFeatures), 2L);
+        if (propertyMembers > maximumObjectMembers || physicalMembers > maximumObjectMembers) {
+            throw new IllegalArgumentException(
+                    "maximumObjectMembers cannot expose the configured feature/property ceilings");
+        }
+        long minimumTokens =
+                Math.addExact(
+                        Math.addExact(
+                                Math.multiplyExact(4L, maximumTotalPositions),
+                                Math.multiplyExact(2L, maximumObjectMembers)),
+                        32L);
+        if (maximumTokens < minimumTokens) {
+            throw new IllegalArgumentException(
+                    "maximumTokens cannot expose the configured position/member ceilings");
+        }
         long minimumOwned =
                 Math.addExact(
                         maximumInputBytes,

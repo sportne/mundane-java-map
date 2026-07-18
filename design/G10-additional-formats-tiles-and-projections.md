@@ -754,6 +754,14 @@ members, plus rejection tables for duplicates, invalid Unicode/JSON/numbers, Z/M
 geometry, nested properties, legacy CRS, exact/one-over limits, and cancellation. It also records the
 pinned dependency graph/license and direct-construction/native risk analysis.
 
+G10-023 closes the implemented security envelope with constructor reachability invariants, explicit
+UTF-16/UTF-32 BOM rejection, the nested-collection outcome, canonical diagnostic context evidence,
+warning omission accounting, caller/file snapshot isolation, and fixed-seed bounded mutation runs.
+Reader structural counters and every writer counter have isolated equality/one-over evidence; the
+adversarial writer source covers every borrowed-call phase, cancellation transitions, primary failure
+precedence, cursor cleanup, suppressed cleanup failures, and old-target preservation. The harness is
+deterministic and remains in the ordinary module test lane.
+
 ### Deterministic bounded FeatureSource writer
 
 The same optional adapter writes one caller-owned `FeatureSource` as a strict RFC 7946

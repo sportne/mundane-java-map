@@ -365,9 +365,11 @@ separately decomposed.
   outcomes, tolerant source-backed rendering, architecture, offline publication, and consumer
   evidence. G10-022 is also complete: its writer borrows one canonical EPSG:4326 FeatureSource,
   rejects silent data loss, produces bounded deterministic UTF-8, and performs same-directory atomic
-  local replacement with stable failure and cleanup behavior. Hardening, fixture/viewer, and native
-  work remains serially decomposed as G10-023 through G10-025; generic JSON serialization remains
-  outside scope.
+  local replacement with stable failure and cleanup behavior. G10-023 completes the hostile-input
+  envelope with exact reader/writer ceilings, stable closed diagnostics, bounded deterministic
+  mutation, cancellation-transition, lifecycle, cleanup-precedence, and atomic-target evidence.
+  Fixture/viewer/consumer and native closeout remain serially decomposed as G10-024 and G10-025;
+  generic JSON serialization remains outside scope.
 - G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
   boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only

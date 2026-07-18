@@ -57,6 +57,7 @@ final class GeoJsonReader {
         if (bytes.length > limits.maximumInputBytes()) {
             throw limit(identity.id(), "inputBytes", bytes.length, limits.maximumInputBytes());
         }
+        rejectUnsupportedBom(bytes, identity.id());
         validateUtf8(bytes, identity.id());
         WarningCollector warnings = new WarningCollector(identity.id(), limits.retainedWarnings());
         int offset = bomOffset(bytes);
@@ -405,6 +406,9 @@ final class GeoJsonReader {
         }
         if ("GeometryCollection".equals(type)) {
             unsupported(state.sourceId, "geometryCollection");
+        }
+        if ("FeatureCollection".equals(type)) {
+            unsupported(state.sourceId, "nestedCollection");
         }
         if (!fields.coordinatesSeen) {
             invalid(state.sourceId, "coordinates", "missing");
@@ -884,6 +888,30 @@ final class GeoJsonReader {
                 : 0;
     }
 
+    private static void rejectUnsupportedBom(byte[] bytes, String sourceId) {
+        boolean utf16 =
+                bytes.length >= 2
+                        && (((bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xfe)
+                                || ((bytes[0] & 0xff) == 0xfe && (bytes[1] & 0xff) == 0xff));
+        boolean utf32 =
+                bytes.length >= 4
+                        && (((bytes[0] & 0xff) == 0x00
+                                        && (bytes[1] & 0xff) == 0x00
+                                        && (bytes[2] & 0xff) == 0xfe
+                                        && (bytes[3] & 0xff) == 0xff)
+                                || ((bytes[0] & 0xff) == 0xff
+                                        && (bytes[1] & 0xff) == 0xfe
+                                        && (bytes[2] & 0xff) == 0x00
+                                        && (bytes[3] & 0xff) == 0x00));
+        if (utf16 || utf32) {
+            throw failure(
+                    sourceId,
+                    "GEOJSON_ENCODING_INVALID",
+                    "GeoJSON encoding is unsupported",
+                    Map.of("reason", "unsupportedBom"));
+        }
+    }
+
     private static void validateUtf8(byte[] bytes, String sourceId) {
         try {
             StandardCharsets.UTF_8
@@ -936,7 +964,12 @@ final class GeoJsonReader {
     }
 
     private static String jacksonReason(JacksonException failure) {
-        return failure.getClass().getSimpleName().contains("Dup") ? "duplicateMember" : "syntax";
+        String message = failure.getMessage();
+        return failure.getClass().getSimpleName().contains("Dup")
+                        || (message != null
+                                && message.toLowerCase(java.util.Locale.ROOT).contains("duplicate"))
+                ? "duplicateMember"
+                : "syntax";
     }
 
     private static SourceException constraintFailure(
@@ -995,7 +1028,7 @@ final class GeoJsonReader {
                 sourceId,
                 "GEOJSON_VALUE_INVALID",
                 "GeoJSON value is invalid",
-                Map.of("field", field, "reason", reason));
+                context("field", field, "reason", reason));
     }
 
     private static void unsupported(String sourceId, String construct) {
@@ -1011,7 +1044,7 @@ final class GeoJsonReader {
                 sourceId,
                 "SOURCE_LIMIT_EXCEEDED",
                 "GeoJSON opening limit exceeded",
-                Map.of(
+                context(
                         "scope",
                         "geojsonOpen",
                         "limit",
@@ -1030,6 +1063,14 @@ final class GeoJsonReader {
                     "GeoJSON operation was cancelled",
                     Map.of("operation", "geojson-open"));
         }
+    }
+
+    private static Map<String, String> context(String... entries) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        for (int index = 0; index < entries.length; index += 2) {
+            context.put(entries[index], entries[index + 1]);
+        }
+        return context;
     }
 
     static SourceException failure(
@@ -1325,7 +1366,7 @@ final class GeoJsonReader {
                         sourceId,
                         "SOURCE_DUPLICATE_FEATURE_ID",
                         "Source feature IDs must be unique",
-                        Map.of(
+                        context(
                                 "firstIndex",
                                 Integer.toString(firstIndex),
                                 "duplicateIndex",

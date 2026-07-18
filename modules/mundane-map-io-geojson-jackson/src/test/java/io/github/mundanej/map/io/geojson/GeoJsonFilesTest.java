@@ -313,7 +313,7 @@ class GeoJsonFilesTest {
                 () -> new GeoJsonOpenOptions(null, FeatureSourceLimits.LEVEL_1));
 
         GeoJsonLimits tiny =
-                new GeoJsonLimits(8, 8, 100, 100, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 200, 1);
+                new GeoJsonLimits(8, 8, 272, 100, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 200, 1);
         SourceException tooLarge =
                 assertThrows(
                         SourceException.class,
@@ -328,10 +328,7 @@ class GeoJsonFilesTest {
 
     @Test
     void mapsParserCeilingsToStableProjectLimits() {
-        assertLimit(
-                "{\"type\":\"Point\",\"coordinates\":[0,0]}",
-                limits(8, 5, 30, 30, 30, 10),
-                "tokens");
+        assertLimit(tokenHeavyDocument(), limits(8, 92, 30, 30, 30, 10), "tokens");
         assertLimit(
                 "{\"type\":\"Point\",\"coordinates\":[0,0]}",
                 limits(1, 100, 30, 30, 30, 10),
@@ -562,7 +559,7 @@ class GeoJsonFilesTest {
     private static GeoJsonLimits limits(
             int depth, long tokens, int names, int scalar, int aggregate, int number) {
         return new GeoJsonLimits(
-                1_000, depth, tokens, 100, 10, 10, 10, 10, 10, 10, names, scalar, aggregate, number,
+                1_000, depth, tokens, 10, 1, 10, 10, 10, 1, 1, names, scalar, aggregate, number,
                 5_000, 10);
     }
 
@@ -577,5 +574,14 @@ class GeoJsonFilesTest {
 
     private static byte[] json(String value) {
         return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String tokenHeavyDocument() {
+        StringBuilder document =
+                new StringBuilder("{\"type\":\"Point\",\"coordinates\":[0,0],\"foreign\":[");
+        for (int index = 0; index < 100; index++) {
+            document.append("0,");
+        }
+        return document.append("0]}").toString();
     }
 }

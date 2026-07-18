@@ -10,6 +10,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -135,7 +136,7 @@ public final class GeoJsonFiles {
                         identity.id(),
                         "SOURCE_LIMIT_EXCEEDED",
                         "GeoJSON opening limit exceeded",
-                        Map.of(
+                        context(
                                 "scope",
                                 "geojsonOpen",
                                 "limit",
@@ -169,7 +170,7 @@ public final class GeoJsonFiles {
                                 identity.id(),
                                 "SOURCE_LIMIT_EXCEEDED",
                                 "GeoJSON opening limit exceeded",
-                                Map.of(
+                                context(
                                         "scope",
                                         "geojsonOpen",
                                         "limit",
@@ -208,7 +209,15 @@ public final class GeoJsonFiles {
                 identity.id(),
                 "GEOJSON_IO_FAILED",
                 "GeoJSON local I/O failed",
-                Map.of("operation", operation, "reason", reason),
+                context("operation", operation, "reason", reason),
                 cause);
+    }
+
+    private static Map<String, String> context(String... entries) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        for (int index = 0; index < entries.length; index += 2) {
+            context.put(entries[index], entries[index + 1]);
+        }
+        return context;
     }
 }

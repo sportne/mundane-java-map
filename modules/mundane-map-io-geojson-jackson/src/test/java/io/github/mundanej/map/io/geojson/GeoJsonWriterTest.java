@@ -42,11 +42,13 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -433,6 +435,213 @@ class GeoJsonWriterTest {
         source.close();
     }
 
+    @Test
+    void isolatesEveryWriterCounterAndAcceptsTheExactOutputBoundary() throws Exception {
+        assertWriteSucceeds(
+                "features-exact",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteLimit(
+                "features",
+                () -> source(record("a", point(0, 0)), record("b", point(1, 1))),
+                writeLimits(2_000, 8, 1, 2, 2, 2, 1, 1, 10, 10, 16));
+        assertWriteSucceeds(
+                "coordinates-exact",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteLimit(
+                "coordinates",
+                () ->
+                        source(
+                                record(
+                                        "a",
+                                        new MultiPointGeometry(CoordinateSequence.of(0, 0, 1, 1)))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteSucceeds(
+                "geometry-coordinates-exact",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteLimit(
+                "geometryCoordinates",
+                () ->
+                        source(
+                                record(
+                                        "a",
+                                        new MultiPointGeometry(CoordinateSequence.of(0, 0, 1, 1)))),
+                writeLimits(2_000, 8, 1, 2, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteSucceeds(
+                "parts-exact",
+                () ->
+                        source(
+                                record(
+                                        "a",
+                                        MultiLineStringGeometry.ofParts(
+                                                List.of(CoordinateSequence.of(0, 0, 1, 1))))),
+                writeLimits(2_000, 8, 1, 2, 2, 1, 1, 1, 10, 10, 16));
+        assertWriteLimit(
+                "parts",
+                () ->
+                        source(
+                                record(
+                                        "a",
+                                        MultiLineStringGeometry.ofParts(
+                                                List.of(
+                                                        CoordinateSequence.of(0, 0, 1, 1),
+                                                        CoordinateSequence.of(2, 2, 3, 3))))),
+                writeLimits(2_000, 8, 1, 4, 4, 1, 1, 1, 10, 10, 16));
+        assertWriteSucceeds(
+                "feature-properties-exact",
+                () -> source(new FeatureRecord("a", "", point(0, 0), Map.of("a", 1L))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteLimit(
+                "featureProperties",
+                () -> source(new FeatureRecord("a", "", point(0, 0), Map.of("a", 1L, "b", 2L))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 2, 10, 10, 16));
+        assertWriteSucceeds(
+                "properties-exact",
+                () -> source(new FeatureRecord("a", "", point(0, 0), Map.of("a", 1L))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+        assertWriteLimit(
+                "properties",
+                () ->
+                        source(
+                                new FeatureRecord("a", "", point(0, 0), Map.of("a", 1L)),
+                                new FeatureRecord("b", "", point(1, 1), Map.of("b", 2L))),
+                writeLimits(2_000, 8, 2, 2, 2, 1, 1, 1, 10, 10, 16));
+        assertWriteSucceeds(
+                "scalar-characters-exact",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 1, 1, 16));
+        assertWriteLimit(
+                "scalarCharacters",
+                () -> source(record("aa", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 1, 2, 16));
+        assertWriteSucceeds(
+                "aggregate-characters-exact",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 1, 1, 16));
+        assertWriteLimit(
+                "aggregateCharacters",
+                () -> source(new FeatureRecord("a", "", point(0, 0), Map.of("b", 1L))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 1, 1, 16));
+        assertWriteSucceeds(
+                "number-characters-exact",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 3));
+        assertWriteLimit(
+                "numberCharacters",
+                () -> source(record("a", point(100, 0))),
+                writeLimits(2_000, 8, 1, 1, 1, 1, 1, 1, 10, 10, 4));
+
+        GeoJsonWriteLimits exactOwned =
+                new GeoJsonWriteLimits(500, 592, 8, 1, 4, 4, 1, 1, 1, 1, 2, 16);
+        CoordinateSequence ring = CoordinateSequence.of(0, 0, 1, 0, 1, 1, 0, 0);
+        assertWriteSucceeds(
+                "owned-bytes-exact",
+                () ->
+                        source(
+                                new FeatureRecord(
+                                        "a", "", new PolygonGeometry(ring), Map.of("b", 1L))),
+                exactOwned);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new GeoJsonWriteLimits(500, 591, 8, 1, 4, 4, 1, 1, 1, 1, 2, 16));
+
+        FeatureSource baseline = source(record("a", point(0, 0)));
+        Path baselineTarget = temporaryDirectory.resolve("output-baseline.geojson");
+        GeoJsonFiles.write(
+                baselineTarget, baseline, GeoJsonWriteLimits.defaults(), CancellationToken.none());
+        long exactBytes = Files.size(baselineTarget);
+        baseline.close();
+        GeoJsonWriteLimits exact = writeLimits(exactBytes, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16);
+        FeatureSource exactSource = source(record("a", point(0, 0)));
+        GeoJsonFiles.write(
+                temporaryDirectory.resolve("output-exact.geojson"),
+                exactSource,
+                exact,
+                CancellationToken.none());
+        exactSource.close();
+        assertWriteLimit(
+                "outputBytes",
+                () -> source(record("a", point(0, 0))),
+                writeLimits(exactBytes - 1, 8, 1, 1, 1, 1, 1, 1, 10, 10, 16));
+    }
+
+    @Test
+    void cancellationAtEveryPublicationTransitionPreservesTheOldTarget() throws Exception {
+        for (String phase : List.of("temporary", "write", "move")) {
+            Path target = temporaryDirectory.resolve("cancel-" + phase + ".geojson");
+            Files.writeString(target, "old", StandardCharsets.UTF_8);
+            CancellationSource cancellation = new CancellationSource();
+            CancellingSource source =
+                    new CancellingSource(source(record("a", point(0, 0))), "close");
+            GeoJsonWriter.FileOperations files = new PhaseCancellingFiles(phase, cancellation);
+
+            GeoJsonWriteException failure =
+                    assertThrows(
+                            GeoJsonWriteException.class,
+                            () ->
+                                    GeoJsonWriter.write(
+                                            target,
+                                            source,
+                                            GeoJsonWriteLimits.defaults(),
+                                            phase.equals("temporary")
+                                                    ? source.cancellation.token()
+                                                    : cancellation.token(),
+                                            files));
+
+            assertEquals("GEOJSON_WRITE_CANCELLED", failure.problem().code());
+            assertEquals(Map.of("phase", phase), failure.problem().context());
+            assertEquals("old", Files.readString(target, StandardCharsets.UTF_8));
+            source.close();
+        }
+    }
+
+    @Test
+    void mapsEverySourcePhaseAndSuppressesCursorCleanupDeterministically() throws Exception {
+        for (String phase :
+                List.of("metadata", "cursorOpen", "advance", "current", "cursorClose")) {
+            Path target = temporaryDirectory.resolve("source-" + phase + ".geojson");
+            Files.writeString(target, "old", StandardCharsets.UTF_8);
+            PhaseFailingSource source =
+                    new PhaseFailingSource(source(record("a", point(0, 0))), phase, false);
+            GeoJsonWriteException failure =
+                    assertThrows(
+                            GeoJsonWriteException.class,
+                            () ->
+                                    GeoJsonFiles.write(
+                                            target,
+                                            source,
+                                            GeoJsonWriteLimits.defaults(),
+                                            CancellationToken.none()));
+            assertEquals("GEOJSON_WRITE_SOURCE_FAILED", failure.problem().code());
+            assertEquals(Map.of("phase", phase), failure.problem().context());
+            assertTrue(failure.sourceReport().isPresent());
+            assertEquals("old", Files.readString(target, StandardCharsets.UTF_8));
+            source.close();
+        }
+
+        Path target = temporaryDirectory.resolve("source-suppressed.geojson");
+        Files.writeString(target, "old", StandardCharsets.UTF_8);
+        PhaseFailingSource source =
+                new PhaseFailingSource(source(record("a", point(0, 0))), "advance", true);
+        GeoJsonWriteException failure =
+                assertThrows(
+                        GeoJsonWriteException.class,
+                        () ->
+                                GeoJsonFiles.write(
+                                        target,
+                                        source,
+                                        GeoJsonWriteLimits.defaults(),
+                                        CancellationToken.none()));
+        assertEquals(Map.of("phase", "advance"), failure.problem().context());
+        assertEquals(1, failure.getSuppressed().length);
+        GeoJsonWriteException cleanup =
+                assertInstanceOf(GeoJsonWriteException.class, failure.getSuppressed()[0]);
+        assertEquals(Map.of("phase", "cursorClose"), cleanup.problem().context());
+        source.close();
+    }
+
     private static FeatureSource source(FeatureRecord... records) {
         return InMemoryFeatureSource.open(
                 IDENTITY,
@@ -478,6 +687,75 @@ class GeoJsonWriterTest {
     private static GeoJsonWriteLimits limits(long bytes, int parts, int nesting) {
         return new GeoJsonWriteLimits(
                 bytes, 20_000, nesting, 10, 20, 20, parts, 10, 10, 100, 200, 32);
+    }
+
+    private void assertWriteLimit(
+            String expected, Supplier<FeatureSource> sourceFactory, GeoJsonWriteLimits limits) {
+        FeatureSource source = sourceFactory.get();
+        try {
+            GeoJsonWriteException failure =
+                    assertThrows(
+                            GeoJsonWriteException.class,
+                            () ->
+                                    GeoJsonFiles.write(
+                                            temporaryDirectory.resolve(expected + ".geojson"),
+                                            source,
+                                            limits,
+                                            CancellationToken.none()));
+            assertEquals("GEOJSON_WRITE_LIMIT_EXCEEDED", failure.problem().code());
+            assertEquals(expected, failure.problem().context().get("limit"));
+            assertEquals(
+                    List.of("limit", "requested", "maximum"),
+                    List.copyOf(failure.problem().context().keySet()));
+        } finally {
+            source.close();
+        }
+    }
+
+    private void assertWriteSucceeds(
+            String name, Supplier<FeatureSource> sourceFactory, GeoJsonWriteLimits limits) {
+        FeatureSource source = sourceFactory.get();
+        try {
+            GeoJsonFiles.write(
+                    temporaryDirectory.resolve(name + ".geojson"),
+                    source,
+                    limits,
+                    CancellationToken.none());
+        } finally {
+            source.close();
+        }
+    }
+
+    private static GeoJsonWriteLimits writeLimits(
+            long output,
+            int nesting,
+            int features,
+            int totalCoordinates,
+            int geometryCoordinates,
+            int parts,
+            int featureProperties,
+            int properties,
+            int scalar,
+            int aggregate,
+            int number) {
+        long owned =
+                output
+                        + 16L * totalCoordinates
+                        + 8L * (features + parts + properties)
+                        + 2L * aggregate;
+        return new GeoJsonWriteLimits(
+                output,
+                owned,
+                nesting,
+                features,
+                totalCoordinates,
+                geometryCoordinates,
+                parts,
+                featureProperties,
+                properties,
+                scalar,
+                aggregate,
+                number);
     }
 
     private static final class TestFiles implements GeoJsonWriter.FileOperations {
@@ -627,6 +905,61 @@ class GeoJsonWriterTest {
         }
     }
 
+    private static final class PhaseCancellingFiles implements GeoJsonWriter.FileOperations {
+        private final String phase;
+        private final CancellationSource cancellation;
+        private Path temporary;
+
+        private PhaseCancellingFiles(String phase, CancellationSource cancellation) {
+            this.phase = phase;
+            this.cancellation = cancellation;
+        }
+
+        @Override
+        public Path createTemporary(Path parent) throws IOException {
+            temporary = Files.createTempFile(parent, ".cancel-", ".tmp");
+            if (phase.equals("write")) {
+                cancellation.cancel();
+            }
+            return temporary;
+        }
+
+        @Override
+        public BasicFileAttributes attributes(Path path) throws IOException {
+            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        }
+
+        @Override
+        public void write(Path path, GeoJsonWriter.Encoded encoded, CancellationToken token)
+                throws IOException {
+            Files.write(path, Arrays.copyOf(encoded.bytes(), encoded.length()));
+        }
+
+        @Override
+        public void force(Path path) {
+            if (phase.equals("move")) {
+                cancellation.cancel();
+            }
+        }
+
+        @Override
+        public void move(Path source, Path target) throws IOException {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+            temporary = null;
+        }
+
+        @Override
+        public void delete(Path path) throws IOException {
+            Files.deleteIfExists(path);
+            temporary = null;
+        }
+
+        @Override
+        public String failurePhase() {
+            return phase;
+        }
+    }
+
     private static final class CancellingSource implements FeatureSource {
         private final FeatureSource delegate;
         private final String callback;
@@ -696,6 +1029,7 @@ class GeoJsonWriterTest {
                 public void close() {
                     cursorClosed = true;
                     cursor.close();
+                    cancel("close");
                 }
             };
         }
@@ -719,6 +1053,92 @@ class GeoJsonWriterTest {
         private static io.github.mundanej.map.api.SourceException sourceCancellation() {
             return GeoJsonReader.failure(
                     "writer", "SOURCE_CANCELLED", "Injected source cancellation", Map.of());
+        }
+    }
+
+    private static final class PhaseFailingSource implements FeatureSource {
+        private final FeatureSource delegate;
+        private final String phase;
+        private final boolean cleanupAlsoFails;
+
+        private PhaseFailingSource(FeatureSource delegate, String phase, boolean cleanupAlsoFails) {
+            this.delegate = delegate;
+            this.phase = phase;
+            this.cleanupAlsoFails = cleanupAlsoFails;
+        }
+
+        @Override
+        public FeatureSourceMetadata metadata() {
+            fail("metadata");
+            return delegate.metadata();
+        }
+
+        @Override
+        public FeatureSourceLimits limits() {
+            return delegate.limits();
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return delegate.openingDiagnostics();
+        }
+
+        @Override
+        public FeatureCursor openCursor(FeatureQuery query, CancellationToken cancellation) {
+            fail("cursorOpen");
+            FeatureCursor cursor = delegate.openCursor(query, cancellation);
+            return new FeatureCursor() {
+                @Override
+                public boolean advance() {
+                    fail("advance");
+                    return cursor.advance();
+                }
+
+                @Override
+                public FeatureRecord current() {
+                    fail("current");
+                    return cursor.current();
+                }
+
+                @Override
+                public DiagnosticReport diagnostics() {
+                    return cursor.diagnostics();
+                }
+
+                @Override
+                public boolean isClosed() {
+                    return cursor.isClosed();
+                }
+
+                @Override
+                public void close() {
+                    cursor.close();
+                    if (phase.equals("cursorClose") || cleanupAlsoFails) {
+                        throw sourceFailure();
+                    }
+                }
+            };
+        }
+
+        @Override
+        public boolean isClosed() {
+            return delegate.isClosed();
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+
+        private void fail(String current) {
+            if (phase.equals(current)) {
+                throw sourceFailure();
+            }
+        }
+
+        private static io.github.mundanej.map.api.SourceException sourceFailure() {
+            return GeoJsonReader.failure(
+                    "writer", "SOURCE_TEST_FAILURE", "Injected source failure", Map.of());
         }
     }
 }
