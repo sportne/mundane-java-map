@@ -1,6 +1,6 @@
 # G10-005 — GPX and KML source profiles
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G10
 Type: HITL
@@ -68,3 +68,8 @@ git diff --check
 HITL checkpoint: **G10 GPX/KML source profile approval**. Approval covers both exact subsets, warned
 data loss, strict UTF-8/direct JDK StAX boundary, two module/lifecycle designs, stable diagnostics,
 Native Image expectations, and eight later task cards. Unapproved behavior remains backlog work.
+
+The maintainer approved the checkpoint on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. The design records both closed profiles and their separate follow-up
+graphs without creating a module, changing production code, or adding a dependency. The focused API
+check, `qualityGate`, and `git diff --check` passed before closure.

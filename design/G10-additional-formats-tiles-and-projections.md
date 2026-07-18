@@ -2106,6 +2106,11 @@ logically parallel after G10-005, but their first cards are not path-safe while 
 architecture inventories, publication, consumer, native inventory, task index, and roadmap files.
 One integration owner serializes those shared changes. No module is created by this profile card.
 
+Decision record (2026-07-17): **G10 GPX/KML source profile approval** is approved through the
+maintainer's advance HITL authorization for dependency-free remaining tasks. Approval accepts both
+independent secure StAX profiles, their explicit warned data loss, and G10-050 through G10-057 exactly
+as specified above. It does not create either module, a shared XML abstraction, or production code.
+
 ## Remote XYZ tile acquisition (G10-006)
 
 ### Explicit acquisition, not a live network source

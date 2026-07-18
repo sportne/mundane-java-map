@@ -346,6 +346,8 @@ separately decomposed.
   Native Image, publication, and consumer paths. General SVG is not promised.
 - G10-003 is complete as a profile decision only: it approves a strict JDK-only Classic TIFF reader,
   explicit raster/elevation routes, and nine later vertical slices. No GeoTIFF module exists yet.
+- G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
+  separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - GeoJSON through one bounded optional Jackson Core adapter; a strict JDK-only Classic GeoTIFF reader
   with explicit raster/elevation entry points; separate strict GeoPackage 1.4.0 and raster MBTiles 1.3
   adapters; separate JDK-only GPX 1.1 waypoint/track and static KML 2.2 geometry sources; remote tile
