@@ -69,17 +69,4 @@ tasks.register('primeShapefileCorpusDependenciesInternal') {
     ])
 }
 
-afterEvaluate {
-    def checkTask = tasks.named('check').get()
-    def corpusLifecycleTasks = [
-        tasks.named('checkstyleShapefileCorpusTest').get(),
-        tasks.named('spotbugsShapefileCorpusTest').get()
-    ] as Set
-    def normalDependencies =
-            checkTask.taskDependencies.getDependencies(checkTask).findAll {
-                !corpusLifecycleTasks.contains(it)
-            }
-    checkTask.setDependsOn(normalDependencies)
-}
-
 description = 'JDK-only read-only ESRI Shapefile support.'

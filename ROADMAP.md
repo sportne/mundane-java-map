@@ -130,6 +130,11 @@ architectural requirement. Level 1 completed at
   [G0-001](tasks/closed/G0-001-current-baseline-verification.md).
 - Mechanically enforce dependency, toolkit, I/O, and native-target boundaries in
   [G0-002](tasks/closed/G0-002-architecture-boundary-hardening.md).
+- Materialize one reusable exact offline Maven repository and prove it with one clean offline build
+  in [G0-003](tasks/closed/G0-003-persistent-offline-repository-simplification.md).
+- Keep coverage and specialized lanes explicit while removing task-graph interpreters and
+  post-evaluation dependency rewrites in
+  [G0-004](tasks/closed/G0-004-declarative-gradle-verification-wiring.md).
 
 ### G1 — First map slice
 
@@ -243,6 +248,9 @@ architectural requirement. Level 1 completed at
   and 18.39 ms warm, with nine retained entries/4,869 logical bytes and zero eviction/bypass, so the
   private AWT partition is retained at 512 entries, 4 MiB total, and 256 KiB per entry. No cache API,
   tuning switch, raster duplication, or native acceleration was added. G7 is complete.
+- G7-005 keeps the same Java 21 `/tmp` evidence, quick/full profiles, DTED probe, and optional JFR
+  while replacing the nearly thousand-line Gradle harness with one typed runner and explicit task
+  dependencies. See [G7-005](tasks/closed/G7-005-lean-performance-build-harness.md).
 - Do not add a custom native performance library without separate benchmark evidence and a new
   decision. See the [G7 task set](tasks/README.md#g7--performance-evidence-and-optimization).
 
@@ -272,6 +280,9 @@ architectural requirement. Level 1 completed at
   performance, and publication/consumer lanes passed independently. Two fresh publication stagings
   produced byte-identical manifests and the isolated consumer passed. The six-coordinate current
   manifest contains the immutable five-coordinate Level 1 subset plus DTED as a Level 2 addendum.
+- G8-005 preserves the staged Maven repository and one clean Java 21 consumer while narrowing the
+  verifier to project-specific artifact, checksum, license, package, and dependency invariants. See
+  [G8-005](tasks/closed/G8-005-lean-publication-and-consumer-verification.md).
 - The evidence-record commit does not change or relabel the tested artifact revision, publish it,
   create a tag, or authorize a broader support statement.
 - A successful Ubuntu 24.04 Linux x86_64 GraalVM Java 21 run is required; missing or failing evidence

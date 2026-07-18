@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -104,12 +105,9 @@ class ArchitectureRulesTest {
                         "[path: ':modules:mundane-map-performance-tests', category: 'SUPPORT'"));
         String moduleBuild = Files.readString(performanceBuild);
         assertFalse(moduleBuild.contains("mundane-map.publishing-conventions"));
-        assertTrue(moduleBuild.contains("verifyPerformanceLaneIsolation"));
         assertTrue(moduleBuild.contains("runPerformanceEvidence"));
         assertTrue(moduleBuild.contains("runQuickPerformanceEvidence"));
-        assertTrue(moduleBuild.contains("configureNativeEvidenceExecution"));
-        assertTrue(moduleBuild.contains("stageRuntimeClasspath"));
-        assertTrue(moduleBuild.contains("Path.of('/tmp')"));
+        assertTrue(moduleBuild.contains("RunPerformanceEvidence"));
         assertTrue(moduleBuild.contains("performanceProfile: 'SMOKE'"));
         assertTrue(moduleBuild.contains("performanceWarmups: '1'"));
         assertTrue(moduleBuild.contains("performanceMeasurements: '2'"));
@@ -118,7 +116,15 @@ class ArchitectureRulesTest {
         assertTrue(moduleBuild.contains("runDtedMemoryProbe"));
         assertTrue(moduleBuild.contains("implementation project(':modules:mundane-map-io-dted')"));
         assertTrue(moduleBuild.contains("performanceDtedCorpus"));
-        assertTrue(moduleBuild.contains("mundane-map-jfr-"));
+        assertTrue(moduleBuild.contains("recordPerformanceJfr"));
+        String evidenceTask =
+                Files.readString(
+                        Objects.requireNonNull(rootBuild.getParent())
+                                .resolve(
+                                        "build-logic/src/main/java/io/github/mundanej/map/"
+                                                + "buildlogic/RunPerformanceEvidence.java"));
+        assertTrue(evidenceTask.contains("Path.of(\"/tmp\")"));
+        assertTrue(evidenceTask.contains("stageClasspath"));
         String profileModel =
                 Files.readString(
                         performanceSources.resolve(

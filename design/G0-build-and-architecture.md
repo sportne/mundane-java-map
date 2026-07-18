@@ -34,18 +34,23 @@ There are two explicit modes:
 The root and included build consume the same checked-in version catalog. An incomplete offline
 repository fails through normal Gradle resolution with the missing coordinate and repository path;
 the build does not obscure that evidence with a custom fallback or machine-specific cache lookup.
-Offline verification first completes an explicit provisioning build of a copied repository so the
-full actual quality-gate dependency set is known independent of outer task order. The harness
-validates the content-addressed cache digest for every provisioned artifact while copying it into a
-temporary Maven-layout repository; the offline child never consumes the ambient cache directly. It
-uses a second fresh source copy and an isolated temporary `GRADLE_USER_HOME` containing only a
-checksum-verified, pre-provisioned Gradle wrapper distribution. It then runs with Gradle offline
-mode, the resolved local Java 21 compiler plus the current test JDK declared explicitly, automatic
-toolchain discovery/download disabled, and the temporary repository as the sole resolution source.
-This deliberately cold proof is exposed as the separate `offlineRepositoryVerification` task. It is
-not part of `test`, `check`, `checkAll`, or `qualityGate`; CI runs it once on Java 21 when Gradle
-dependency or repository-policy inputs change. Fast repository-selection, invalid-path, and
-missing-coordinate tests remain in the normal gate.
+`assembleOfflineRepository` resolves each root, module, example, and included-build configuration
+without running tests. Each project records the selected external components and their selected
+dependency edges. One typed build-logic task copies only artifact-cache payloads for that exact set,
+writes minimal Maven POMs from the resolved edges when Gradle module metadata is unavailable, adds
+the explicit plugin-marker POMs, and writes a SHA-256 manifest beneath
+`build/offline-repository/maven`. The result is a persistent Maven-layout repository that can be
+reused to build the project; it is not an ephemeral transformation of every coordinate in the
+developer cache.
+
+`offlineRepositoryVerification` depends on that assembly, copies sources into native `/tmp`, and
+runs `qualityGate` once with an empty Gradle home, the checksum-verified cached wrapper distribution,
+`--offline`, automatic toolchain discovery/download disabled, and the persistent repository as the
+sole plugin/dependency source. It is not part of `test`, `check`, `checkAll`, or `qualityGate`; CI
+runs it only when dependency or repository-policy inputs change. Fast repository-selection,
+invalid-path, and missing-coordinate tests remain in the normal gate. This removes the former online
+provisioning `qualityGate` plus second offline `qualityGate` cycle while retaining the stronger clean
+consumer proof.
 
 ### Normal quality gate
 
@@ -66,6 +71,12 @@ independent so their environmental cost and evidence are visible. A project is a
 project list in the same change that adds working behavior; there is no empty-module exemption from
 the gate.
 
+Lane ownership is expressed by direct lifecycle dependencies. The build does not interpret arbitrary
+Gradle task-dependency notation or walk the realized task graph to rediscover those declarations.
+Corpus analysis tasks are enabled only for their explicitly requested corpus lifecycle; normal
+checks neither rewrite `check.dependsOn` after evaluation nor execute corpus analysis. JaCoCo report
+and coverage-verification tasks both depend directly on the test execution whose data they consume.
+
 CI runs the normal gate on Java 21 and at least one supported newer JDK, always targeting release
 21. The two legs are compatibility evidence for one artifact baseline, not separate supported
 language levels.
@@ -77,12 +88,11 @@ For each public runtime module it stages the POM, Gradle module metadata, binary
 and Javadoc JAR at the declared project version. The list of published projects is explicit; test,
 native-smoke, architecture-test, performance, and example projects are never published.
 
-Staging ends with a deterministic layout assertion generated from that explicit project list. For
-the initial baseline it requires exactly the API, core, and AWT coordinates and their POM, module
-metadata, binary, sources, and Javadoc artifacts; it rejects missing classifiers, stale versions,
-and artifacts for internal projects. The assertion checks the staged repository structure and
-metadata presence, while downstream dependency resolution and API use remain deferred to the
-consumer smoke lane.
+Staging ends with a targeted typed verifier driven by the explicit release contract. It requires the
+exact published coordinates and one POM, Gradle module metadata file, binary JAR, sources JAR, and
+Javadoc JAR per coordinate; recomputes their SHA-256 sidecars; checks BSD license/package roots; and
+checks public project dependency scopes. Gradle metadata semantics are then exercised by the clean
+downstream consumer instead of being independently reimplemented in the build.
 
 Staging performs no remote upload, signing, credential lookup, or package-registry access. It proves
 artifact construction only; isolated downstream consumption is a separate release-hardening concern.

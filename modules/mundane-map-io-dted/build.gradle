@@ -67,17 +67,4 @@ tasks.register('primeDtedCorpusDependenciesInternal') {
     ])
 }
 
-afterEvaluate {
-    def checkTask = tasks.named('check').get()
-    def corpusLifecycleTasks = [
-        tasks.named('checkstyleDtedCorpusTest').get(),
-        tasks.named('spotbugsDtedCorpusTest').get()
-    ] as Set
-    def normalDependencies =
-            checkTask.taskDependencies.getDependencies(checkTask).findAll {
-                !corpusLifecycleTasks.contains(it)
-            }
-    checkTask.setDependsOn(normalDependencies)
-}
-
 description = 'JDK-only read-only DTED elevation support.'

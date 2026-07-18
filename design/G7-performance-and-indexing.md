@@ -26,17 +26,16 @@ production package may depend on this project or its fixture code.
 
 The module task `runPerformanceEvidence` and root task `performanceEvidence` are introduced here. The
 root task depends only on that execution, uses a Java 21 launcher even when Gradle runs newer, and
-supplies exact defaults `-Xms512m`, `-Xmx512m`, G1, headless AWT, UTF-8, `en-US`, and UTC. Before the
-Java process starts, the module task copies its ordered runtime classpath into an atomically created,
-invocation-unique real directory directly beneath `/tmp`; the process working directory,
-`java.io.tmpdir`, generated fixtures, and provisional reports all remain below the same scratch root.
-Classpath staging rejects symbolic links and non-regular entries, preserves classpath order, and
-never follows a staged path outside its assigned root. An invocation-scoped cleanup service deletes
-the scratch tree after success or failure. On success only the two checked regular reports are copied
-under a destination lock and individually atomically replaced as
+supplies exact defaults `-Xms512m`, `-Xmx512m`, G1, headless AWT, UTF-8, `en-US`, and UTC. A typed
+build-logic task copies the ordered runtime classpath and declared DTED inputs into an
+invocation-unique directory directly beneath `/tmp`; the process working directory,
+`java.io.tmpdir`, generated fixtures, and provisional reports all remain below that scratch root.
+A `finally` cleanup removes the tree on success or ordinary failure. On success only the declared,
+nonempty reports are copied as
 `build/performance-evidence/evidence-v1.json`
-and `evidence-v1.md`. Concurrent Gradle invocations therefore cannot share scratch state or publish
-partial files. The profile, harness, scenario order, oracles, and report bytes other than measured
+and `evidence-v1.md`. Invocation-unique scratch state prevents cross-run measurement contamination;
+the durable report directory remains normal Gradle output. The profile, harness, scenario order,
+oracles, and report bytes other than measured
 durations are unchanged. `check`, `checkAll`, and `qualityGate` must not depend on the full run.
 G9-007 later makes `runPerformanceEvidence` depend on one fresh-JVM DTED memory probe; the root still
 has this sole direct dependency and the canonical output remains these two reports.
@@ -46,8 +45,8 @@ depends only on that module execution. It uses the same native `/tmp` classpath/
 same Java settings, every current scenario, and the existing `SMOKE` fixture/oracle profile with one
 warmup and two measurements. Supplying those counts explicitly makes its report
 `investigation=true`, so every retention decision is `NOT_EVALUATED`; it cannot accept or reject
-production code. It skips the independent full-cardinality BASELINE oracle, accepts no scenario,
-count, or revision override, publishes only to `build/performance-quick/`, and remains outside every
+production code. It skips the independent full-cardinality BASELINE oracle, publishes only to
+`build/performance-quick/`, and remains outside every
 other verification lane. Its purpose is a complete semantic/timing iteration signal that is measured
 under five minutes on the reference WSL workspace, not a portable duration gate or replacement for
 canonical evidence.
@@ -61,6 +60,12 @@ Gradle dependency resolution is build setup; once the runner begins, scenario co
 network, process launch, home-directory lookup, download, or external-data access. The job fails on
 configuration, fixture, semantic, cleanup, or report errors, never because a duration is high. It is
 evidence, not a required portable speed claim.
+
+The build deliberately does not implement a hostile-filesystem security model for these trusted
+build inputs. Symlink component policing, report locks, negative scratch attacks, and live Gradle
+task-notation traversal added orchestration cost without changing evidence semantics and were
+removed in G7-005. Explicit task dependencies keep full, quick, probe, and optional JFR work outside
+the normal quality lane.
 
 ### One small sequential harness
 

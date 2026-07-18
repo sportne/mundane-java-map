@@ -57,6 +57,7 @@ tasks.withType(Test).configureEach {
 checkstyle {
     toolVersion = libs.versions.checkstyle.get()
     configDirectory = rootProject.file('config/checkstyle')
+    sourceSets = [sourceSets.main, sourceSets.test]
 }
 
 spotless {
@@ -77,6 +78,12 @@ spotless {
 spotbugs {
     toolVersion = libs.versions.spotbugs.get()
     excludeFilter = rootProject.file('config/spotbugs/exclude.xml')
+    runOnCheck = false
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('spotbugsMain')
+    dependsOn tasks.named('spotbugsTest')
 }
 
 jacoco {
@@ -88,6 +95,7 @@ tasks.named('test') {
 }
 
 tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
     reports {
         xml.required = true
         html.required = true
@@ -95,6 +103,7 @@ tasks.named('jacocoTestReport') {
 }
 
 tasks.named('jacocoTestCoverageVerification') {
+    dependsOn tasks.named('test')
     violationRules {
         rule {
             limit {

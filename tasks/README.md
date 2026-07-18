@@ -113,6 +113,8 @@ Level 1 is complete only when G8-004 is complete.
 | --- | --- | --- | --- | --- |
 | [G0-001 — Current baseline verification](closed/G0-001-current-baseline-verification.md) | Complete | AFK | None | Restore the Java 21 Gradle baseline and prove normal/publication staging. |
 | [G0-002 — Architecture boundary hardening](closed/G0-002-architecture-boundary-hardening.md) | Complete | AFK | G0-001 | Mechanically enforce production, AWT, I/O, dependency, and native boundaries. |
+| [G0-003 — Persistent offline repository simplification](closed/G0-003-persistent-offline-repository-simplification.md) | Complete | AFK | G0-002 | Produce and verify one reusable exact offline Maven repository without a duplicate quality build. |
+| [G0-004 — Declarative Gradle verification wiring](closed/G0-004-declarative-gradle-verification-wiring.md) | Complete | AFK | G0-003, G7-005, G8-005 | Replace task-graph machinery with explicit lane and coverage wiring. |
 
 ### G1 — First map slice
 
@@ -183,6 +185,7 @@ Level 1 is complete only when G8-004 is complete.
 | [G7-002 — Packed spatial index and viewport query](closed/G7-002-packed-spatial-index-and-viewport-query.md) | Complete | AFK | G7-001, G4-003 | Replace linear viewport scans with a correctness-proven packed index. |
 | [G7-003 — Clipping and simplification](closed/G7-003-clipping-and-simplification.md) | Complete | AFK | G7-002 | Clip and simplify at view scale without corrupting geometry. |
 | [G7-004 — Render cache and performance acceptance](closed/G7-004-render-cache-and-performance-acceptance.md) | Complete | AFK | G7-003, G6-004 | Retain the qualified vector-template cache, remove the rejected screen cache, and record the Level 1 envelope. |
+| [G7-005 — Lean performance build harness](closed/G7-005-lean-performance-build-harness.md) | Complete | AFK | G7-004, G9-007 | Preserve Java 21 `/tmp` evidence while deleting unnecessary build security and graph machinery. |
 
 ### G8 — Native and Level 1 release readiness
 
@@ -192,6 +195,7 @@ Level 1 is complete only when G8-004 is complete.
 | [G8-002 — Public API, Javadocs, and examples review](closed/G8-002-public-api-javadocs-and-examples-review.md) | Complete | HITL | G2-006, G3-004, G5-009, G6-004, G7-004 | Approve five public modules, strict Javadocs, and five Level 1 examples. |
 | [G8-003 — Publication and consumer smoke](closed/G8-003-publication-and-consumer-smoke.md) | Complete | AFK | G8-002 | Validate five staged artifacts through one clean offline Java 21 consumer. |
 | [G8-004 — Level 1 release readiness](closed/G8-004-level1-release-readiness.md) | Complete | HITL | G8-001, G8-003 | Approve candidate `a5d1079` for the bounded Level 1 `0.1.0` support statement. |
+| [G8-005 — Lean publication and consumer verification](closed/G8-005-lean-publication-and-consumer-verification.md) | Complete | AFK | G8-003 | Preserve the staged Maven repository and positive consumer with targeted verification. |
 
 ## Level 2 backlog
 

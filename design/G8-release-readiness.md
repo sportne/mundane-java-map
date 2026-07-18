@@ -2,6 +2,29 @@
 
 Project index: [DESIGN.md](../DESIGN.md).
 
+## Build-infrastructure simplification amendment (G8-005)
+
+The current implementation preserves the release evidence promised by G8-003 while retiring its
+temporary exhaustive build framework. Where the older G8-003 implementation detail below conflicts
+with this amendment, this section is normative.
+
+`publicationDryRun` cleans and stages the explicit published-project inventory, then one typed
+build-logic verifier checks exact coordinates, the five primary payloads per coordinate, SHA-256
+sidecars, BSD license/package roots, and project dependency scopes. It intentionally does not parse
+the complete Gradle module schema, reproduce Maven snapshot semantics, mutate dozens of repository
+trees, or launch repeated publication builds. Successful resolution by the standalone consumer is
+the authoritative check of generated Maven/Gradle metadata.
+
+`consumerSmoke` uses ordinary `Sync`, `Delete`, and `Exec` tasks to run one fresh Java 21 consumer
+with an empty Gradle home, `--offline`, and only `build/release-dry-run/maven`. The checked consumer
+still rejects project/external substitutions, resolves every published map module, and exercises the
+public runtime behavior. The former missing-property and wrong-repository child builds tested the
+consumer fixture rather than the published product and are no longer part of every smoke run.
+
+The staged Maven repository remains a deliberate build product suitable for downstream builds. The
+cleanup reduces verification to product invariants plus one real consumer; it does not remove Maven
+publication, sources/Javadocs, checksums, or the release manifest.
+
 ## Level 1 Native Image and CI hardening (G8-001)
 
 ### One final aggregate executable

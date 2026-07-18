@@ -2,10 +2,6 @@ plugins {
     id 'groovy-gradle-plugin'
 }
 
-def java21Launcher = javaToolchains.launcherFor {
-    languageVersion = JavaLanguageVersion.of(21)
-}
-
 def buildLogicPluginMarkers = [
     [id: 'com.diffplug.spotless', version: libs.versions.spotlessPlugin.get(),
         implementation: 'com.diffplug.spotless:spotless-plugin-gradle'],
@@ -30,38 +26,45 @@ dependencies {
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
     systemProperty 'map.rootDir', rootDir.parentFile.absolutePath
-    systemProperty 'map.gradleUserHome', gradle.gradleUserHomeDir.absolutePath
-    systemProperty 'map.java21Home',
-            java21Launcher.get().metadata.installationPath.asFile.absolutePath
-    systemProperty 'map.testJavaVersion',
-            providers.gradleProperty('map.testJavaVersion').getOrElse('21')
-    systemProperty(
-        'map.buildLogicPluginMarkers',
-        buildLogicPluginMarkers.collect { marker ->
-            "${marker.id}:${marker.id}.gradle.plugin:${marker.version}=${marker.implementation}:${marker.version}"
-        }.join(',')
-    )
     testLogging {
         events 'failed'
         exceptionFormat = 'full'
     }
 }
 
-tasks.named('test', Test) {
-    useJUnitPlatform {
-        excludeTags 'offline-repository-verification'
+def resolvedCoordinates = providers.provider {
+    Map<String, Set<String>> coordinates = [:].withDefault { [] as Set }
+    configurations.matching { it.canBeResolved }.each { configuration ->
+        configuration.incoming.resolutionResult.allComponents.each { component ->
+            if (component.id instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
+                String owner =
+                        "${component.id.group}:${component.id.module}:${component.id.version}"
+                component.dependencies.each { dependency ->
+                    if (dependency instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult
+                            && dependency.selected.id instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
+                        def selected = dependency.selected.id
+                        coordinates[owner].add(
+                                "${selected.group}:${selected.module}:${selected.version}")
+                    }
+                }
+                coordinates[owner]
+            }
+        }
     }
+    coordinates.collect { coordinate, dependencies ->
+        "${coordinate}|${dependencies.sort().join(',')}"
+    }.sort()
 }
 
-tasks.register('offlineRepositoryVerification', Test) {
-    group = 'verification'
-    description = 'Proves the full build works from one isolated offline Maven repository.'
-    dependsOn tasks.named('testClasses')
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform {
-        includeTags 'offline-repository-verification'
+tasks.register('writeOfflineRepositoryCoordinates') {
+    group = 'build setup'
+    description = 'Writes the exact external component set resolved by build-logic.'
+    def output = layout.buildDirectory.file('offline-repository/coordinates.txt')
+    inputs.property('coordinates', resolvedCoordinates)
+    outputs.file(output)
+    doLast {
+        File target = output.get().asFile
+        target.parentFile.mkdirs()
+        target.setText(resolvedCoordinates.get().join('\n') + '\n', 'UTF-8')
     }
-    outputs.upToDateWhen { false }
-    outputs.doNotCacheIf('Always verifies the current isolated repository state') { true }
 }

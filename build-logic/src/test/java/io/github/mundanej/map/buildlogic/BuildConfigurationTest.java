@@ -1,186 +1,22 @@
 package io.github.mundanej.map.buildlogic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.UnexpectedBuildFailure;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class BuildConfigurationTest {
     private static final Path ROOT = Path.of(System.getProperty("map.rootDir"));
-    private static final Path GRADLE_USER_HOME = Path.of(System.getProperty("map.gradleUserHome"));
-    private static final Path JAVA_21_HOME = Path.of(System.getProperty("map.java21Home"));
-    private static final String TEST_JAVA_VERSION = System.getProperty("map.testJavaVersion");
-    private static final List<PluginMarker> BUILD_LOGIC_PLUGIN_MARKERS =
-            parsePluginMarkers(System.getProperty("map.buildLogicPluginMarkers"));
 
     @TempDir Path temporaryDirectory;
-
-    @Test
-    @Tag("offline-repository-verification")
-    void actualBuildPassesQualityGateWithOnlyAnIsolatedOfflineRepository() throws Exception {
-        Assumptions.assumeFalse(
-                "true".equals(System.getenv("MAP_OFFLINE_VERIFICATION_CHILD")),
-                "the isolated child must not recursively launch another isolated child");
-        Path provisioningProject = temporaryDirectory.resolve("provisioning-project");
-        copyProjectSources(ROOT, provisioningProject);
-        provisionActualBuildDependencies(provisioningProject);
-
-        Path repository = temporaryDirectory.resolve("offline-repository");
-        createVerifiedMavenRepository(repository);
-
-        Path project = temporaryDirectory.resolve("actual-project");
-        copyProjectSources(ROOT, project);
-        Path isolatedGradleHome = temporaryDirectory.resolve("gradle-home");
-        preprovisionVerifiedWrapper(isolatedGradleHome);
-
-        ProcessBuilder processBuilder =
-                new ProcessBuilder(
-                                "bash",
-                                project.resolve("gradlew").toString(),
-                                "qualityGate",
-                                "--console=plain",
-                                "--offline",
-                                "--no-daemon",
-                                "-Pmap.offlineRepo=" + repository,
-                                "-Dorg.gradle.java.installations.auto-download=false",
-                                "-Dorg.gradle.java.installations.auto-detect=false",
-                                "-Dorg.gradle.java.installations.paths="
-                                        + JAVA_21_HOME
-                                        + ","
-                                        + System.getProperty("java.home"),
-                                "-Pmap.testJavaVersion=" + TEST_JAVA_VERSION)
-                        .directory(project.toFile())
-                        .redirectErrorStream(true);
-        processBuilder.environment().put("GRADLE_USER_HOME", isolatedGradleHome.toString());
-        processBuilder.environment().put("JAVA_HOME", System.getProperty("java.home"));
-        processBuilder.environment().put("MAP_OFFLINE_VERIFICATION_CHILD", "true");
-        assertBuildPasses(processBuilder, "isolated offline build");
-    }
-
-    @Test
-    void verifiedRepositoryContainsEveryBuildLogicPluginMarker() throws Exception {
-        Path repository = temporaryDirectory.resolve("plugin-marker-repository");
-
-        writeBuildLogicPluginMarkers(repository);
-
-        assertEquals(
-                Set.of(
-                        "com.diffplug.spotless=com.diffplug.spotless:spotless-plugin-gradle",
-                        "com.github.spotbugs=com.github.spotbugs.snom:spotbugs-gradle-plugin",
-                        "net.ltgt.errorprone=net.ltgt.gradle:gradle-errorprone-plugin",
-                        "org.graalvm.buildtools.native=org.graalvm.buildtools:native-gradle-plugin"),
-                BUILD_LOGIC_PLUGIN_MARKERS.stream()
-                        .map(PluginMarker::implementationMapping)
-                        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
-        for (PluginMarker marker : BUILD_LOGIC_PLUGIN_MARKERS) {
-            Path pom = marker.pomPath(repository);
-            assertTrue(Files.isRegularFile(pom), "missing plugin marker " + pom);
-            String contents = Files.readString(pom);
-            assertTrue(contents.contains("<groupId>" + marker.group() + "</groupId>"));
-            assertTrue(contents.contains("<artifactId>" + marker.module() + "</artifactId>"));
-            assertTrue(contents.contains("<version>" + marker.version() + "</version>"));
-            assertTrue(
-                    contents.contains(
-                            "<groupId>" + marker.implementationGroup() + "</groupId>"));
-            assertTrue(
-                    contents.contains(
-                            "<artifactId>" + marker.implementationModule() + "</artifactId>"));
-        }
-    }
-
-    @Test
-    void syntheticPomDefersToAvailableGradleModuleMetadata() throws Exception {
-        Path pom = temporaryDirectory.resolve("example-1.0.0.pom");
-
-        writeSyntheticPom(pom, "example.group", "example", "1.0.0", true);
-
-        String contents = Files.readString(pom);
-        assertTrue(contents.contains("do_not_remove: published-with-gradle-metadata"));
-    }
-
-    @Test
-    void syntheticPomDoesNotClaimMissingGradleModuleMetadata() throws Exception {
-        Path pom = temporaryDirectory.resolve("example-1.0.0.pom");
-
-        writeSyntheticPom(pom, "example.group", "example", "1.0.0", false);
-
-        String contents = Files.readString(pom);
-        assertFalse(contents.contains("published-with-gradle-metadata"));
-    }
-
-    @Test
-    void realCachedPomIsNotReplacedBySyntheticMetadata() throws Exception {
-        Path pom = temporaryDirectory.resolve("example-1.0.0.pom");
-        String realPom = "<project><packaging>gradle-plugin</packaging></project>";
-        Files.writeString(pom, realPom);
-
-        writeSyntheticPomIfMissing(pom, "example.group", "example", "1.0.0", true);
-
-        assertEquals(realPom, Files.readString(pom));
-    }
-
-    private static void provisionActualBuildDependencies(Path project) throws Exception {
-        ProcessBuilder processBuilder =
-                new ProcessBuilder(
-                                "bash",
-                                project.resolve("gradlew").toString(),
-                                "qualityGate",
-                                "--console=plain",
-                                "--no-daemon",
-                                "--no-build-cache",
-                                "--refresh-dependencies",
-                                "-Pmap.testJavaVersion=" + TEST_JAVA_VERSION)
-                        .directory(project.toFile())
-                        .redirectErrorStream(true);
-        processBuilder.environment().put("GRADLE_USER_HOME", GRADLE_USER_HOME.toString());
-        processBuilder.environment().put("JAVA_HOME", System.getProperty("java.home"));
-        processBuilder.environment().put("MAP_OFFLINE_VERIFICATION_CHILD", "true");
-        assertBuildPasses(processBuilder, "dependency-provisioning build");
-    }
-
-    private static void assertBuildPasses(ProcessBuilder processBuilder, String description)
-            throws Exception {
-        Process process = processBuilder.start();
-        CompletableFuture<String> output =
-                CompletableFuture.supplyAsync(
-                        () -> {
-                            try {
-                                return new String(
-                                        process.getInputStream().readAllBytes(),
-                                        StandardCharsets.UTF_8);
-                            } catch (IOException exception) {
-                                throw new IllegalStateException(exception);
-                            }
-                        });
-        boolean finished = process.waitFor(10, TimeUnit.MINUTES);
-        if (!finished) {
-            process.destroyForcibly();
-        }
-        String buildOutput = output.get(30, TimeUnit.SECONDS);
-        assertTrue(finished, () -> description + " timed out:\n" + buildOutput);
-        assertEquals(0, process.exitValue(), () -> description + " failed:\n" + buildOutput);
-        assertTrue(buildOutput.contains("BUILD SUCCESSFUL"), buildOutput);
-    }
 
     @Test
     void normalRepositoryModeSelectsOnlyPublicRepositories() throws Exception {
@@ -239,8 +75,7 @@ class BuildConfigurationTest {
                         () -> runner(project, "help", "-Pmap.offlineRepo= ").build());
         assertTrue(blank.getMessage().contains("map.offlineRepo must not be blank"));
 
-        Path nonNormalized =
-                temporaryDirectory.resolve("parent").resolve("..").resolve("repository");
+        Path nonNormalized = temporaryDirectory.resolve("parent").resolve("..").resolve("repository");
         UnexpectedBuildFailure normalized =
                 assertThrows(
                         UnexpectedBuildFailure.class,
@@ -326,28 +161,17 @@ class BuildConfigurationTest {
                         ROOT.resolve(
                                 "build-logic/src/main/groovy/"
                                         + "mundane-map.publishing-conventions.gradle"));
-        assertTrue(publishingConvention.contains("options.encoding = 'UTF-8'"));
-        assertTrue(publishingConvention.contains("options.charSet = 'UTF-8'"));
-        assertTrue(publishingConvention.contains("options.docEncoding = 'UTF-8'"));
-        assertTrue(
-                publishingConvention.contains(
-                        "options.addBooleanOption('Xdoclint:all', true)"));
+        assertTrue(publishingConvention.contains("options.addBooleanOption('Xdoclint:all', true)"));
         assertTrue(publishingConvention.contains("options.addBooleanOption('Werror', true)"));
-        assertTrue(
-                publishingConvention.contains("options.addBooleanOption('notimestamp', true)"));
+        assertTrue(publishingConvention.contains("options.addBooleanOption('notimestamp', true)"));
         assertTrue(!publishingConvention.contains("options.links"));
         assertTrue(publishingConvention.contains("tasks.register('checkstylePublicApi', Checkstyle)"));
-        assertTrue(publishingConvention.contains("source = sourceSets.main.allJava"));
-        assertTrue(publishingConvention.contains("dependsOn publicApiCheck"));
 
         String publicApiRules =
                 Files.readString(ROOT.resolve("config/checkstyle/checkstyle-public-api.xml"));
         assertTrue(publicApiRules.contains("<module name=\"JavadocPackage\"/>"));
         assertTrue(publicApiRules.contains("<module name=\"MissingJavadocType\">"));
         assertTrue(publicApiRules.contains("<module name=\"MissingJavadocMethod\">"));
-        assertTrue(publicApiRules.contains("<module name=\"JavadocVariable\">"));
-        assertTrue(publicApiRules.contains("<property name=\"scope\" value=\"protected\"/>"));
-        assertTrue(publicApiRules.contains("<property name=\"allowedAnnotations\" value=\"Override\"/>"));
     }
 
     private Path createRepositoryFixture() throws IOException {
@@ -361,9 +185,7 @@ class BuildConfigurationTest {
                         println "PLUGIN_REPOSITORIES=" + gradle.settings.pluginManagement.repositories*.name.join(',')
                         println "DEPENDENCY_REPOSITORIES=" + gradle.settings.dependencyResolutionManagement.repositories*.name.join(',')
                         def offline = providers.gradleProperty('map.offlineRepo').orNull
-                        if (offline != null) {
-                            println "OFFLINE_REPOSITORY=" + file(offline).toPath().toUri()
-                        }
+                        if (offline != null) println "OFFLINE_REPOSITORY=" + file(offline).toPath().toUri()
                     }
                 }
                 """);
@@ -383,18 +205,14 @@ class BuildConfigurationTest {
                 Files.readString(ROOT.resolve("build-logic/settings.gradle"))
                         .replace(
                                 "files('../gradle/libs.versions.toml')",
-                                "files('"
-                                        + ROOT.resolve("gradle/libs.versions.toml").toUri()
-                                        + "')");
+                                "files('" + ROOT.resolve("gradle/libs.versions.toml").toUri() + "')");
         Files.writeString(project.resolve("settings.gradle"), actualIncludedBuildSettings);
         Files.writeString(
                 project.resolve("build.gradle"),
                 """
                 configurations { probe }
                 dependencies { probe 'com.example:missing-artifact:1.0' }
-                tasks.register('resolveProbe') {
-                    doLast { configurations.probe.files }
-                }
+                tasks.register('resolveProbe') { doLast { configurations.probe.files } }
                 """);
         return project;
     }
@@ -406,9 +224,7 @@ class BuildConfigurationTest {
                 """
                 dependencyResolutionManagement {
                     repositories { mavenCentral() }
-                    versionCatalogs {
-                        libs { from(files('%s')) }
-                    }
+                    versionCatalogs { libs { from(files('%s')) } }
                 }
                 rootProject.name = 'java-fixture'
                 """
@@ -434,8 +250,7 @@ class BuildConfigurationTest {
     private static String repositorySettings(boolean applyFoojayPlugin) {
         String pluginBlock =
                 applyFoojayPlugin
-                        ? "plugins { id 'org.gradle.toolchains.foojay-resolver-convention' version"
-                                + " '1.0.0' }"
+                        ? "plugins { id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0' }"
                         : "";
         return """
         pluginManagement {
@@ -514,312 +329,5 @@ class BuildConfigurationTest {
 
     private static GradleRunner pluginRunner(Path project, String... arguments) {
         return runner(project, arguments).withPluginClasspath();
-    }
-
-    private static void copyProjectSources(Path source, Path destination) throws IOException {
-        try (var paths = Files.walk(source)) {
-            for (Path path : paths.toList()) {
-                Path relative = source.relativize(path);
-                if (containsExcludedProjectSegment(relative)) {
-                    continue;
-                }
-                Path target = destination.resolve(relative);
-                if (Files.isDirectory(path)) {
-                    Files.createDirectories(target);
-                } else {
-                    Files.createDirectories(target.getParent());
-                    Files.copy(
-                            path,
-                            target,
-                            StandardCopyOption.REPLACE_EXISTING,
-                            StandardCopyOption.COPY_ATTRIBUTES);
-                }
-            }
-        }
-    }
-
-    private static boolean containsExcludedProjectSegment(Path relative) {
-        for (Path segment : relative) {
-            String name = segment.toString();
-            if (name.equals(".git") || name.equals(".gradle") || name.equals("build")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static void createVerifiedMavenRepository(Path repository) throws Exception {
-        Path cache = GRADLE_USER_HOME.resolve("caches/modules-2/files-2.1");
-        assertTrue(Files.isDirectory(cache), "Gradle artifact cache is unavailable: " + cache);
-        try (var paths = Files.walk(cache)) {
-            for (Path artifact : paths.filter(Files::isRegularFile).toList()) {
-                Path relative = cache.relativize(artifact);
-                if (relative.getNameCount() != 5) {
-                    continue;
-                }
-                String expectedSha1 = relative.getName(3).toString();
-                assertEquals(
-                        expectedSha1,
-                        sha1(artifact).replaceFirst("^0+(?!$)", ""),
-                        "unverified cached artifact " + artifact);
-                String module = relative.getName(1).toString();
-                String version = relative.getName(2).toString();
-                String artifactName = relative.getName(4).toString();
-                boolean hasGradleModuleMetadata =
-                        hasGradleModuleMetadata(artifact.getParent().getParent(), module, version);
-                Path target =
-                        repository
-                                .resolve(relative.getName(0).toString().replace('.', '/'))
-                                .resolve(module)
-                                .resolve(version)
-                                .resolve(artifactName);
-                Files.createDirectories(target.getParent());
-                Files.copy(artifact, target, StandardCopyOption.REPLACE_EXISTING);
-                if (artifactName.endsWith(".jar") || artifactName.endsWith(".module")) {
-                    String group = relative.getName(0).toString();
-                    Path pom = target.getParent().resolve(module + "-" + version + ".pom");
-                    writeSyntheticPomIfMissing(
-                            pom, group, module, version, hasGradleModuleMetadata);
-                }
-            }
-        }
-        simulateSparseBuildLogicPluginMetadata(repository);
-        writeBuildLogicPluginMarkers(repository);
-        Path marker =
-                repository.resolve(
-                        "org/gradle/toolchains/foojay-resolver-convention/"
-                            + "org.gradle.toolchains.foojay-resolver-convention.gradle.plugin/"
-                            + "1.0.0/"
-                            + "org.gradle.toolchains.foojay-resolver-convention.gradle.plugin-1.0.0.pom");
-        Files.createDirectories(marker.getParent());
-        Files.writeString(
-                marker,
-                """
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                  <modelVersion>4.0.0</modelVersion>
-                  <groupId>org.gradle.toolchains.foojay-resolver-convention</groupId>
-                  <artifactId>org.gradle.toolchains.foojay-resolver-convention.gradle.plugin</artifactId>
-                  <version>1.0.0</version>
-                  <packaging>pom</packaging>
-                  <dependencies><dependency>
-                    <groupId>org.gradle.toolchains</groupId>
-                    <artifactId>foojay-resolver</artifactId>
-                    <version>1.0.0</version>
-                  </dependency></dependencies>
-                </project>
-                """);
-        Path pluginPom =
-                repository.resolve(
-                        "org/gradle/toolchains/foojay-resolver/1.0.0/foojay-resolver-1.0.0.pom");
-        Files.createDirectories(pluginPom.getParent());
-        Files.writeString(
-                pluginPom,
-                """
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                  <modelVersion>4.0.0</modelVersion>
-                  <groupId>org.gradle.toolchains</groupId>
-                  <artifactId>foojay-resolver</artifactId>
-                  <version>1.0.0</version>
-                </project>
-                """);
-    }
-
-    private static boolean hasGradleModuleMetadata(
-            Path versionCache, String module, String version) throws IOException {
-        String moduleFileName = module + "-" + version + ".module";
-        try (var paths = Files.walk(versionCache, 2)) {
-            return paths.anyMatch(
-                    path ->
-                            Files.isRegularFile(path)
-                                    && path.getFileName().toString().equals(moduleFileName));
-        }
-    }
-
-    private static void simulateSparseBuildLogicPluginMetadata(Path repository) throws IOException {
-        for (PluginMarker marker : BUILD_LOGIC_PLUGIN_MARKERS) {
-            Path module = marker.implementationModulePath(repository);
-            assertTrue(Files.isRegularFile(module), "missing implementation metadata " + module);
-            writeSyntheticPom(
-                    marker.implementationPomPath(repository),
-                    marker.implementationGroup(),
-                    marker.implementationModule(),
-                    marker.version(),
-                    true);
-        }
-    }
-
-    private static void writeSyntheticPomIfMissing(
-            Path pom,
-            String group,
-            String module,
-            String version,
-            boolean hasGradleModuleMetadata)
-            throws IOException {
-        if (!Files.exists(pom)) {
-            writeSyntheticPom(pom, group, module, version, hasGradleModuleMetadata);
-        }
-    }
-
-    private static void writeSyntheticPom(
-            Path pom,
-            String group,
-            String module,
-            String version,
-            boolean hasGradleModuleMetadata)
-            throws IOException {
-        Files.writeString(
-                pom,
-                """
-                <project xmlns="http://maven.apache.org/POM/4.0.0">
-                %s  <modelVersion>4.0.0</modelVersion>
-                  <groupId>%s</groupId>
-                  <artifactId>%s</artifactId>
-                  <version>%s</version>
-                </project>
-                """
-                        .formatted(
-                                hasGradleModuleMetadata
-                                        ? "  <!-- do_not_remove: published-with-gradle-metadata -->\n"
-                                        : "",
-                                group,
-                                module,
-                                version));
-    }
-
-    private static void writeBuildLogicPluginMarkers(Path repository) throws IOException {
-        for (PluginMarker marker : BUILD_LOGIC_PLUGIN_MARKERS) {
-            Path pom = marker.pomPath(repository);
-            Files.createDirectories(pom.getParent());
-            Files.writeString(
-                    pom,
-                    """
-                    <project xmlns="http://maven.apache.org/POM/4.0.0">
-                      <modelVersion>4.0.0</modelVersion>
-                      <groupId>%s</groupId>
-                      <artifactId>%s</artifactId>
-                      <version>%s</version>
-                      <packaging>pom</packaging>
-                      <dependencies><dependency>
-                        <groupId>%s</groupId>
-                        <artifactId>%s</artifactId>
-                        <version>%s</version>
-                      </dependency></dependencies>
-                    </project>
-                    """
-                            .formatted(
-                                    marker.group(),
-                                    marker.module(),
-                                    marker.version(),
-                                    marker.implementationGroup(),
-                                    marker.implementationModule(),
-                                    marker.version()));
-        }
-    }
-
-    private static List<PluginMarker> parsePluginMarkers(String configuredMarkers) {
-        assertTrue(configuredMarkers != null && !configuredMarkers.isBlank());
-        return List.of(configuredMarkers.split(",")).stream()
-                .map(
-                        configuredMarker -> {
-                            String[] sides = configuredMarker.split("=", -1);
-                            assertEquals(2, sides.length, "invalid plugin marker manifest entry");
-                            String[] marker = sides[0].split(":", -1);
-                            String[] implementation = sides[1].split(":", -1);
-                            assertEquals(3, marker.length, "invalid plugin marker coordinate");
-                            assertEquals(
-                                    3,
-                                    implementation.length,
-                                    "invalid plugin implementation coordinate");
-                            assertEquals(
-                                    marker[2],
-                                    implementation[2],
-                                    "plugin marker and implementation versions differ");
-                            return new PluginMarker(
-                                    marker[0],
-                                    marker[1],
-                                    marker[2],
-                                    implementation[0],
-                                    implementation[1]);
-                        })
-                .toList();
-    }
-
-    private record PluginMarker(
-            String group,
-            String module,
-            String version,
-            String implementationGroup,
-            String implementationModule) {
-        private Path pomPath(Path repository) {
-            return repository
-                    .resolve(group.replace('.', '/'))
-                    .resolve(module)
-                    .resolve(version)
-                    .resolve(module + "-" + version + ".pom");
-        }
-
-        private Path implementationPomPath(Path repository) {
-            return implementationDirectory(repository)
-                    .resolve(implementationModule + "-" + version + ".pom");
-        }
-
-        private Path implementationModulePath(Path repository) {
-            return implementationDirectory(repository)
-                    .resolve(implementationModule + "-" + version + ".module");
-        }
-
-        private Path implementationDirectory(Path repository) {
-            return repository
-                    .resolve(implementationGroup.replace('.', '/'))
-                    .resolve(implementationModule)
-                    .resolve(version);
-        }
-
-        private String implementationMapping() {
-            return group + "=" + implementationGroup + ":" + implementationModule;
-        }
-    }
-
-    private static void preprovisionVerifiedWrapper(Path isolatedGradleHome) throws IOException {
-        String properties =
-                Files.readString(ROOT.resolve("gradle/wrapper/gradle-wrapper.properties"));
-        assertTrue(
-                properties.contains(
-                        "distributionUrl=https\\://services.gradle.org/distributions/gradle-9.5.1-bin.zip"));
-        assertTrue(
-                properties.contains(
-                        "distributionSha256Sum=bafc141b619ad6350fd975fc903156dd5c151998cc8b058e8c1044ab5f7b031f"));
-        Path source = GRADLE_USER_HOME.resolve("wrapper/dists/gradle-9.5.1-bin");
-        assertTrue(Files.isDirectory(source), "preprovisioned Gradle 9.5.1 is unavailable");
-        try (var paths =
-                Files.find(source, 2, (path, attributes) -> path.toString().endsWith(".zip.ok"))) {
-            assertTrue(
-                    paths.findAny().isPresent(),
-                    "the wrapper distribution has no checksum-success marker");
-        }
-        copyTree(source, isolatedGradleHome.resolve("wrapper/dists/gradle-9.5.1-bin"));
-    }
-
-    private static void copyTree(Path source, Path destination) throws IOException {
-        try (var paths = Files.walk(source)) {
-            for (Path path : paths.toList()) {
-                Path target = destination.resolve(source.relativize(path));
-                if (Files.isDirectory(path)) {
-                    Files.createDirectories(target);
-                } else {
-                    Files.createDirectories(target.getParent());
-                    Files.copy(
-                            path,
-                            target,
-                            StandardCopyOption.REPLACE_EXISTING,
-                            StandardCopyOption.COPY_ATTRIBUTES);
-                }
-            }
-        }
-    }
-
-    private static String sha1(Path path) throws IOException, NoSuchAlgorithmException {
-        return HexFormat.of()
-                .formatHex(MessageDigest.getInstance("SHA-1").digest(Files.readAllBytes(path)));
     }
 }

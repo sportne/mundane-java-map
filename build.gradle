@@ -1,1612 +1,71 @@
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RegularFileProperty
-import org.gradle.api.provider.ListProperty
-import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputDirectory
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
-import org.gradle.work.DisableCachingByDefault
-import groovy.json.JsonSlurper
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
-import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
-import java.util.zip.ZipOutputStream
-import javax.xml.XMLConstants
-import javax.xml.parsers.DocumentBuilderFactory
+import io.github.mundanej.map.buildlogic.AssembleOfflineRepository
+import io.github.mundanej.map.buildlogic.OfflineBuildVerification
+import io.github.mundanej.map.buildlogic.VerifyPublicationRepository
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 
 plugins {
-    id 'base'
+    id 'mundane-map.root-conventions'
 }
 
 group = 'io.github.mundanej'
 version = providers.gradleProperty('map.version').getOrElse('0.1.0-SNAPSHOT')
 
-allprojects {
+def projectCoordinateManifests = []
+def projectCoordinateTasks = []
+allprojects { candidate ->
     group = rootProject.group
     version = rootProject.version
-}
-
-@DisableCachingByDefault(because = 'Verification reads a freshly staged local repository')
-abstract class VerifyPublicationDryRun extends DefaultTask {
-    @InputDirectory
-    @PathSensitive(PathSensitivity.RELATIVE)
-    abstract DirectoryProperty getRepositoryDirectory()
-
-    @Input
-    abstract ListProperty<String> getReleaseContract()
-
-    @Input
-    abstract Property<String> getPublicationVersion()
-
-    @InputFile
-    @PathSensitive(PathSensitivity.RELATIVE)
-    abstract RegularFileProperty getLicenseFile()
-
-    @OutputFile
-    abstract RegularFileProperty getArtifactManifest()
-
-    @TaskAction
-    void verifyRepository() {
-        List<String> rows = verifyDirectory(
-                repositoryDirectory.get().asFile,
-                releaseContract.get(),
-                publicationVersion.get(),
-                licenseFile.get().asFile.bytes)
-        File manifest = artifactManifest.get().asFile
-        manifest.parentFile.mkdirs()
-        manifest.setText(rows.join('\n') + '\n', 'UTF-8')
-    }
-
-    static List<String> verifyDirectory(
-            File repository, Collection<String> contractRows, String version, byte[] license) {
-        Map<String, Map<String, Object>> contract = parseContract(contractRows)
-        verifyExactChildren(repository, ['io'])
-        verifyExactChildren(new File(repository, 'io'), ['github'])
-        verifyExactChildren(new File(repository, 'io/github'), ['mundanej'])
-        File groupDirectory = new File(repository, 'io/github/mundanej')
-        Set<String> expectedModules = contract.keySet()
-        Set<String> actualModules = childNames(groupDirectory)
-        if (actualModules != expectedModules) {
-            fail('UNEXPECTED_COORDINATE', groupDirectory,
-                    "expected ${expectedModules.sort()}, found ${actualModules.sort()}")
-        }
-
-        List<String> manifestRows = []
-        for (String moduleName : contract.keySet()) {
-            File moduleDirectory = new File(groupDirectory, moduleName)
-            verifyFilesAndChecksums(moduleDirectory, ['maven-metadata.xml'], [version])
-            verifyModuleMetadata(
-                    new File(moduleDirectory, 'maven-metadata.xml'), moduleName, version)
-
-            File versionDirectory = new File(moduleDirectory, version)
-            Map<String, String> payloadByKind = primaryPayloads(versionDirectory, moduleName, version)
-            Set<String> payloads = payloadByKind.values() as Set
-            Set<String> otherPayloads = version.endsWith('-SNAPSHOT')
-                    ? ['maven-metadata.xml'] as Set : [] as Set
-            verifyFilesAndChecksums(versionDirectory, payloads + otherPayloads, [])
-
-            Map<String, Object> row = contract.get(moduleName)
-            File pom = new File(versionDirectory, payloadByKind.pom)
-            File module = new File(versionDirectory, payloadByKind.module)
-            verifyPom(pom, moduleName, version, row)
-            verifyArchive(new File(versionDirectory, payloadByKind.binary), moduleName, 'binary',
-                    row.packageRoot as String, license)
-            verifyArchive(new File(versionDirectory, payloadByKind.sources), moduleName, 'sources',
-                    row.packageRoot as String, license)
-            verifyArchive(new File(versionDirectory, payloadByKind.javadoc), moduleName, 'javadoc',
-                    row.packageRoot as String, license)
-            verifyGradleModule(module, versionDirectory, payloadByKind, moduleName, version, row)
-
-            payloads.sort().each { payloadName ->
-                [payloadName, "${payloadName}.md5", "${payloadName}.sha1",
-                        "${payloadName}.sha256", "${payloadName}.sha512"].each { fileName ->
-                    File artifact = new File(versionDirectory, fileName)
-                    String relative = repository.toPath().relativize(artifact.toPath())
-                            .toString().replace(File.separatorChar, '/' as char)
-                    manifestRows.add("${relative}\t${artifact.length()}\t${digest(artifact, 'SHA-256')}")
-                }
-            }
-        }
-        manifestRows.sort()
-    }
-
-    private static Map<String, Map<String, Object>> parseContract(Collection<String> rows) {
-        Map<String, Map<String, Object>> parsed = new LinkedHashMap<>()
-        rows.each { row ->
-            String[] fields = row.split('\\|', -1)
-            if (fields.length != 5 || parsed.containsKey(fields[0])) {
-                fail('INVALID_CONTRACT', new File('.'), row)
-            }
-            parsed.put(fields[0], [
-                compile: splitValues(fields[1]),
-                runtime: splitValues(fields[2]),
-                packageRoot: fields[3],
-                description: fields[4]
-            ])
-        }
-        parsed
-    }
-
-    private static List<String> splitValues(String value) {
-        value.isEmpty() ? [] : value.split(',').toList()
-    }
-
-    private static Set<String> childNames(File parent) {
-        File[] children = parent.listFiles()
-        return children == null ? [] as Set : children.collect { it.name } as Set
-    }
-
-    private static void verifyExactChildren(File parent, Collection<String> expectedNames) {
-        Set<String> expected = expectedNames as Set
-        Set<String> actual = childNames(parent)
-        if (actual != expected) {
-            fail('UNEXPECTED_STAGED_FILE', parent,
-                    "expected ${expected.sort()}, found ${actual.sort()}")
-        }
-    }
-
-    private static void verifyModuleMetadata(
-            File metadata, String moduleName, String version) {
-        def document = parseMetadata(metadata)
-        def versionNodes = document.getElementsByTagName('version')
-        Set<String> versions = [] as Set
-        for (int index = 0; index < versionNodes.length; index++) {
-            versions.add(versionNodes.item(index).textContent.trim())
-        }
-        if (text(document, 'groupId') != 'io.github.mundanej'
-                || text(document, 'artifactId') != moduleName
-                || text(document, 'latest') != version
-                || versions != ([version] as Set)) {
-            fail('VERSION_MISMATCH', metadata, 'incorrect repository metadata identity')
-        }
-    }
-
-    private static Map<String, String> primaryPayloads(
-            File directory, String module, String version) {
-        if (!version.endsWith('-SNAPSHOT')) {
-            return [binary: "${module}-${version}.jar", sources: "${module}-${version}-sources.jar",
-                    javadoc: "${module}-${version}-javadoc.jar", pom: "${module}-${version}.pom",
-                    module: "${module}-${version}.module"]
-        }
-        File metadata = new File(directory, 'maven-metadata.xml')
-        Map<String, String> snapshots = snapshotValues(metadata, module, version)
-        Map<String, String> result = [
-            binary: "${module}-${snapshots.get('|jar')}.jar",
-            sources: "${module}-${snapshots.get('sources|jar')}-sources.jar",
-            javadoc: "${module}-${snapshots.get('javadoc|jar')}-javadoc.jar",
-            pom: "${module}-${snapshots.get('|pom')}.pom",
-            module: "${module}-${snapshots.get('|module')}.module"
-        ]
-        result
-    }
-
-    private static Map<String, String> snapshotValues(
-            File metadata, String moduleName, String version) {
-        def document = parseMetadata(metadata)
-        if (text(document, 'groupId') != 'io.github.mundanej'
-                || text(document, 'artifactId') != moduleName
-                || text(document, 'version') != version) {
-            fail('VERSION_MISMATCH', metadata, 'incorrect snapshot metadata identity')
-        }
-        String timestamp = text(document, 'timestamp')
-        String build = text(document, 'buildNumber')
-        if (!(timestamp ==~ /[0-9]{8}\.[0-9]{6}/)
-                || !(build ==~ /[1-9][0-9]*/)) {
-            fail('INVALID_METADATA', metadata, 'snapshot timestamp/buildNumber')
-        }
-        String base = version.substring(0, version.length() - '-SNAPSHOT'.length())
-        String expectedValue = "${base}-${timestamp}-${build}"
-        Set<String> expectedTuples = [
-            '|jar', 'sources|jar', 'javadoc|jar', '|pom', '|module'
-        ] as Set
-        Map<String, String> values = new LinkedHashMap<>()
-        def entries = document.getElementsByTagName('snapshotVersion')
-        for (int index = 0; index < entries.length; index++) {
-            def entry = entries.item(index)
-            String classifier = childText(entry, 'classifier')
-            String extension = childText(entry, 'extension')
-            String value = childText(entry, 'value')
-            String tuple = "${classifier}|${extension}"
-            if (!expectedTuples.contains(tuple) || values.containsKey(tuple)
-                    || value != expectedValue) {
-                fail('INCOHERENT_SNAPSHOT', metadata,
-                        "tuple=${tuple}, value=${value}, expected=${expectedValue}")
-            }
-            String updated = childText(entry, 'updated')
-            if (updated && updated != timestamp.replace('.', '')) {
-                fail('INCOHERENT_SNAPSHOT', metadata, "updated=${updated}")
-            }
-            values.put(tuple, value)
-        }
-        if (values.keySet() != expectedTuples) {
-            fail('UNEXPECTED_CLASSIFIER', metadata,
-                    "expected ${expectedTuples.sort()}, found ${values.keySet().sort()}")
-        }
-        values
-    }
-
-    private static def parseMetadata(File metadata) {
-        if (!metadata.isFile()) {
-            fail('MISSING_ARTIFACT', metadata, 'snapshot metadata')
-        }
-        try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance()
-            factory.setNamespaceAware(true)
-            factory.setFeature('http://apache.org/xml/features/disallow-doctype-decl', true)
-            factory.setFeature('http://xml.org/sax/features/external-general-entities', false)
-            factory.setFeature('http://xml.org/sax/features/external-parameter-entities', false)
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, '')
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, '')
-            return factory.newDocumentBuilder().parse(metadata)
-        } catch (Exception exception) {
-            throw new GradleException("[INVALID_METADATA] ${metadata}", exception)
-        }
-    }
-
-    private static String text(def document, String name) {
-        def nodes = document.getElementsByTagName(name)
-        return nodes.length == 0 ? '' : nodes.item(0).textContent.trim()
-    }
-
-    private static String childText(def element, String name) {
-        def children = element.getElementsByTagName(name)
-        return children.length == 0 ? '' : children.item(0).textContent.trim()
-    }
-
-    private static List directElements(def element, String expectedName = null) {
-        List result = []
-        def children = element.childNodes
-        for (int index = 0; index < children.length; index++) {
-            def child = children.item(index)
-            if (child.nodeType == org.w3c.dom.Node.ELEMENT_NODE
-                    && (expectedName == null || elementName(child) == expectedName)) {
-                result.add(child)
-            }
-        }
-        result
-    }
-
-    private static def directElement(def element, String name) {
-        List matches = directElements(element, name)
-        if (matches.size() != 1) {
-            throw new GradleException("[INVALID_METADATA] expected one direct ${name}")
-        }
-        matches.first()
-    }
-
-    private static String directText(def element, String name) {
-        directElement(element, name).textContent.trim()
-    }
-
-    private static Set<String> directElementNames(def element) {
-        directElements(element).collect { elementName(it) } as Set
-    }
-
-    private static String elementName(def element) {
-        element.localName ?: element.nodeName
-    }
-
-    private static void verifyFilesAndChecksums(
-            File directory,
-            Collection<String> baseNames,
-            Collection<String> expectedDirectories) {
-        Set<String> expected = expectedDirectories as Set
-        baseNames.each { name ->
-            expected.add(name)
-            ['md5', 'sha1', 'sha256', 'sha512'].each { expected.add("${name}.${it}") }
-        }
-        Set<String> actual = directory.listFiles() == null
-                ? [] as Set
-                : directory.listFiles().collect { it.name } as Set
-        if (actual != expected) {
-            Set<String> extra = actual - expected
-            fail(extra.isEmpty() ? 'MISSING_ARTIFACT' : 'UNEXPECTED_STAGED_FILE', directory,
-                    "expected ${expected.sort()}, found ${actual.sort()}")
-        }
-        baseNames.each { name ->
-            File payload = new File(directory, name)
-            [md5: 'MD5', sha1: 'SHA-1', sha256: 'SHA-256', sha512: 'SHA-512'].each {
-                suffix, algorithm ->
-                    String expectedDigest = new File(directory, "${name}.${suffix}").text.trim()
-                    String actualDigest = digest(payload, algorithm)
-                    if (actualDigest != expectedDigest) {
-                        fail('CHECKSUM_MISMATCH', payload, algorithm)
+    def coordinates = candidate.providers.provider {
+        Map<String, Set<String>> resolved = [:].withDefault { [] as Set }
+        candidate.configurations.matching { it.canBeResolved }.each { configuration ->
+            configuration.incoming.resolutionResult.allComponents.each { component ->
+                if (component.id instanceof ModuleComponentIdentifier) {
+                    String owner =
+                            "${component.id.group}:${component.id.module}:${component.id.version}"
+                    component.dependencies.each { dependency ->
+                        if (dependency instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult
+                                && dependency.selected.id instanceof ModuleComponentIdentifier) {
+                            def selected = dependency.selected.id
+                            resolved[owner].add(
+                                    "${selected.group}:${selected.module}:${selected.version}")
+                        }
                     }
-            }
-        }
-    }
-
-    private static void verifyPom(
-            File pom, String module, String version, Map<String, Object> row) {
-        String xml = pom.getText('UTF-8')
-        if (forbiddenText(xml) || xml.contains('${')) {
-            fail('UNEXPECTED_REPOSITORY', pom, 'forbidden metadata content')
-        }
-        def document = parseMetadata(pom)
-        def projectElement = document.documentElement
-        String pomNamespace = 'http://maven.apache.org/POM/4.0.0'
-        String pomSchema = (pomNamespace
-                + ' https://maven.apache.org/xsd/maven-4.0.0.xsd')
-        if (elementName(projectElement) != 'project'
-                || projectElement.namespaceURI != pomNamespace
-                || projectElement.getAttributeNS(
-                        XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI, 'schemaLocation') != pomSchema) {
-            fail('INVALID_METADATA', pom, 'Maven project namespace/schema')
-        }
-        def pomElements = document.getElementsByTagName('*')
-        for (int index = 0; index < pomElements.length; index++) {
-            if (pomElements.item(index).namespaceURI != pomNamespace) {
-                fail('INVALID_METADATA', pom, 'Maven contract element namespace')
-            }
-        }
-        Set<String> expectedRoot = [
-            'modelVersion', 'groupId', 'artifactId', 'version', 'name', 'description', 'url',
-            'licenses', 'developers', 'scm'
-        ] as Set
-        if (!(row.compile as List).isEmpty() || !(row.runtime as List).isEmpty()) {
-            expectedRoot.add('dependencies')
-        }
-        if ((directElements(projectElement).collect { elementName(it) } as Set) != expectedRoot
-                || directElements(projectElement).size() != expectedRoot.size()) {
-            fail('INVALID_METADATA', pom, 'unexpected or duplicate project element')
-        }
-        Map<String, String> required = [modelVersion: '4.0.0', groupId: 'io.github.mundanej',
-                artifactId: module, version: version, name: module,
-                url: 'https://github.com/sportne/mundane-java-map']
-        required.each { name, expected ->
-            if (directText(projectElement, name) != expected) {
-                fail('VERSION_MISMATCH', pom, "${name}=${directText(projectElement, name)}")
-            }
-        }
-        if (directText(projectElement, 'description') != row.description) {
-            fail('INVALID_METADATA', pom, 'required project metadata')
-        }
-        def licensesContainer = directElement(projectElement, 'licenses')
-        List licenses = directElements(licensesContainer, 'license')
-        if (directElementNames(licensesContainer) != ['license'] as Set
-                || directElements(licensesContainer).size() != 1 || licenses.size() != 1
-                || directElementNames(licenses.first()) != ['name', 'url', 'distribution'] as Set
-                || directText(licenses.first(), 'name') != 'BSD 3-Clause License'
-                || directText(licenses.first(), 'url')
-                        != 'https://opensource.org/license/bsd-3-clause'
-                || directText(licenses.first(), 'distribution') != 'repo') {
-            fail('INVALID_METADATA', pom, 'license')
-        }
-        def developers = directElement(projectElement, 'developers')
-        List developerEntries = directElements(developers, 'developer')
-        if (directElementNames(developers) != ['developer'] as Set
-                || directElements(developers).size() != 1 || developerEntries.size() != 1
-                || directElementNames(developerEntries.first()) != ['id'] as Set
-                || directText(developerEntries.first(), 'id') != 'sportne') {
-            fail('INVALID_METADATA', pom, 'developer')
-        }
-        def scm = directElement(projectElement, 'scm')
-        if (directElementNames(scm) != ['connection', 'url'] as Set
-                || directText(scm, 'connection')
-                        != 'scm:git:https://github.com/sportne/mundane-java-map.git'
-                || directText(scm, 'url') != 'https://github.com/sportne/mundane-java-map') {
-            fail('INVALID_METADATA', pom, 'scm')
-        }
-        Set<String> expected = []
-        (row.compile as List<String>).each { expected.add("${it}|compile|${version}") }
-        (row.runtime as List<String>).each { expected.add("${it}|runtime|${version}") }
-        Set<String> actual = []
-        def dependenciesContainer = expected.isEmpty()
-                ? null : directElement(projectElement, 'dependencies')
-        List dependencies = expected.isEmpty()
-                ? [] : directElements(dependenciesContainer, 'dependency')
-        if (dependenciesContainer != null
-                && (directElementNames(dependenciesContainer) != ['dependency'] as Set
-                        || directElements(dependenciesContainer).size() != dependencies.size())) {
-            fail('UNEXPECTED_DEPENDENCY', pom, 'unexpected dependency container semantics')
-        }
-        dependencies.each { dependency ->
-            if (directElementNames(dependency)
-                    != ['groupId', 'artifactId', 'version', 'scope'] as Set) {
-                fail('UNEXPECTED_DEPENDENCY', pom, 'unexpected dependency semantics')
-            }
-            String group = directText(dependency, 'groupId')
-            String artifact = directText(dependency, 'artifactId')
-            String dependencyVersion = directText(dependency, 'version')
-            String scope = directText(dependency, 'scope')
-            if (group != 'io.github.mundanej'
-                    || dependencyVersion.contains('[') || dependencyVersion.contains('(')) {
-                fail('UNEXPECTED_DEPENDENCY', pom, "${group}:${artifact}:${dependencyVersion}")
-            }
-            actual.add("${artifact}|${scope}|${dependencyVersion}")
-        }
-        if (actual != expected || actual.size() != dependencies.size()) {
-            fail('UNEXPECTED_DEPENDENCY', pom, "expected ${expected.sort()}, found ${actual.sort()}")
-        }
-    }
-
-    private static void verifyGradleModule(
-            File moduleFile, File directory, Map<String, String> payloads, String module,
-            String version, Map<String, Object> row) {
-        def model
-        try {
-            model = new JsonSlurper().parse(moduleFile)
-        } catch (Exception exception) {
-            throw new GradleException("[INVALID_METADATA] ${moduleFile}", exception)
-        }
-        if (forbiddenText(moduleFile.getText('UTF-8'))) {
-            fail('UNEXPECTED_REPOSITORY', moduleFile, 'forbidden metadata content')
-        }
-        if (model.formatVersion != '1.1') {
-            fail('INVALID_METADATA', moduleFile, "formatVersion ${model.formatVersion}")
-        }
-        if (model.component.group != 'io.github.mundanej' || model.component.module != module
-                || model.component.version != version) {
-            fail('VERSION_MISMATCH', moduleFile, 'component identity')
-        }
-        List variantList = model.variants ?: []
-        Set<String> expectedVariantNames = [
-            'apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'
-        ] as Set
-        List<String> variantNames = variantList.collect { it.name as String }
-        if ((variantNames as Set) != expectedVariantNames
-                || variantNames.size() != expectedVariantNames.size()) {
-            fail('INVALID_METADATA', moduleFile, "variants ${variantNames.sort()}")
-        }
-        Map variants = variantList.collectEntries { [(it.name): it] }
-        Map<String, Object> apiAttributes = [
-            'org.gradle.category': 'library',
-            'org.gradle.dependency.bundling': 'external',
-            'org.gradle.jvm.version': 21,
-            'org.gradle.libraryelements': 'jar',
-            'org.gradle.usage': 'java-api'
-        ]
-        Map<String, Object> runtimeAttributes = new LinkedHashMap<>(apiAttributes)
-        runtimeAttributes.'org.gradle.usage' = 'java-runtime'
-        Map<String, Object> sourcesAttributes = [
-            'org.gradle.category': 'documentation',
-            'org.gradle.dependency.bundling': 'external',
-            'org.gradle.docstype': 'sources',
-            'org.gradle.usage': 'java-runtime'
-        ]
-        Map<String, Object> javadocAttributes = new LinkedHashMap<>(sourcesAttributes)
-        javadocAttributes.'org.gradle.docstype' = 'javadoc'
-        verifyVariant(moduleFile, variants.apiElements, apiAttributes,
-                row.compile as List<String>, version)
-        verifyVariant(moduleFile, variants.runtimeElements, runtimeAttributes,
-                ((row.compile as List<String>) + (row.runtime as List<String>)).unique(), version)
-        verifyVariant(moduleFile, variants.sourcesElements, sourcesAttributes, [], version)
-        verifyVariant(moduleFile, variants.javadocElements, javadocAttributes, [], version)
-        String binaryName = "${module}-${version}.jar"
-        verifyModuleFile(moduleFile, variants.apiElements,
-                new File(directory, payloads.binary), binaryName)
-        verifyModuleFile(moduleFile, variants.runtimeElements,
-                new File(directory, payloads.binary), binaryName)
-        verifyModuleFile(moduleFile, variants.sourcesElements,
-                new File(directory, payloads.sources), "${module}-${version}-sources.jar")
-        verifyModuleFile(moduleFile, variants.javadocElements,
-                new File(directory, payloads.javadoc), "${module}-${version}-javadoc.jar")
-    }
-
-    private static void verifyVariant(
-            File file, def variant, Map<String, Object> expectedAttributes,
-            List<String> expectedModules, String version) {
-        Set<String> baseKeys = ['name', 'attributes', 'files'] as Set
-        Set<String> actualKeys = variant.keySet() as Set
-        if (!actualKeys.containsAll(baseKeys)
-                || !(actualKeys - baseKeys - ['dependencies']).isEmpty()
-                || variant.attributes != expectedAttributes
-                || (actualKeys.contains('dependencies')
-                        && (variant.dependencies ?: []).isEmpty() && expectedModules.isEmpty())) {
-            fail('INVALID_METADATA', file, "variant semantics for ${variant.name}")
-        }
-        List dependencies = variant.dependencies ?: []
-        Set<String> actual = dependencies.collect { dependency ->
-            if ((dependency.keySet() as Set) != ['group', 'module', 'version'] as Set
-                    || dependency.group != 'io.github.mundanej'
-                    || dependency.version?.requires != version || dependency.version.size() != 1) {
-                fail('UNEXPECTED_DEPENDENCY', file, dependency.toString())
-            }
-            dependency.module as String
-        } as Set
-        if (actual != (expectedModules as Set) || actual.size() != dependencies.size()) {
-            fail('UNEXPECTED_DEPENDENCY', file,
-                    "expected ${expectedModules.sort()}, found ${actual.sort()}")
-        }
-    }
-
-    private static void verifyModuleFile(
-            File metadata, def variant, File artifact, String expectedLogicalName) {
-        if (variant.files == null || variant.files.size() != 1) {
-            fail('INVALID_METADATA', metadata, "files for ${variant.name}")
-        }
-        def declared = variant.files.first()
-        Set<String> expectedKeys = ['name', 'url', 'size', 'sha512', 'sha256', 'sha1', 'md5'] as Set
-        if ((declared.keySet() as Set) != expectedKeys
-                || declared.name != expectedLogicalName
-                || declared.url != expectedLogicalName) {
-            fail('INVALID_METADATA', metadata, "file identity for ${variant.name}")
-        }
-        if (declared.size != artifact.length()
-                || declared.sha256 != digest(artifact, 'SHA-256')
-                || declared.sha512 != digest(artifact, 'SHA-512')
-                || declared.sha1 != digest(artifact, 'SHA-1')
-                || declared.md5 != digest(artifact, 'MD5')) {
-            fail('CHECKSUM_MISMATCH', metadata, variant.name as String)
-        }
-    }
-
-    private static void verifyArchive(
-            File archive, String module, String kind, String packageRoot, byte[] license) {
-        Set<String> names = []
-        ZipFile zip = new ZipFile(archive)
-        try {
-            def entries = zip.entries().toList()
-            List<String> entryNames = entries.collect { it.name }
-            if ((entryNames as Set).size() != entryNames.size()) {
-                fail('FORBIDDEN_ENTRY', archive, 'duplicate ZIP entry')
-            }
-            entries.each { entry ->
-                String name = entry.name
-                names.add(name)
-                validateEntryName(archive, entry)
-                if (name.startsWith('META-INF/services/')
-                        || name.contains('/nativeimage/') || name =~ /(?i)(test|fixture|corpus|example)/) {
-                    fail('FORBIDDEN_ENTRY', archive, name)
-                }
-                if (kind == 'binary'
-                        && !allowedCodeArchiveEntry(name, entry.directory, packageRoot, '.class')) {
-                    fail('FORBIDDEN_ENTRY', archive, "unexpected binary root ${name}")
-                }
-                if (kind == 'sources'
-                        && !allowedCodeArchiveEntry(name, entry.directory, packageRoot, '.java')) {
-                    fail('FORBIDDEN_ENTRY', archive, "unexpected source root ${name}")
+                    resolved[owner]
                 }
             }
-            def licenseEntry = zip.getEntry('META-INF/LICENSE')
-            if (licenseEntry == null || !Arrays.equals(zip.getInputStream(licenseEntry).bytes, license)) {
-                fail('LICENSE_MISMATCH', archive, 'META-INF/LICENSE')
-            }
-            def manifestEntry = zip.getEntry('META-INF/MANIFEST.MF')
-            if (manifestEntry == null) {
-                fail('FORBIDDEN_ENTRY', archive, 'missing META-INF/MANIFEST.MF')
-            }
-            String manifest = new String(
-                    zip.getInputStream(manifestEntry).bytes, StandardCharsets.UTF_8)
-            if (forbiddenManifestText(manifest)) {
-                fail('UNEXPECTED_REPOSITORY', archive, 'forbidden manifest content')
-            }
-            if (kind == 'binary' && !names.any { it.startsWith(packageRoot) && it.endsWith('.class') }) {
-                fail('FORBIDDEN_ENTRY', archive, "missing package ${packageRoot}")
-            }
-            if (kind == 'sources' && !names.any { it.startsWith(packageRoot) && it.endsWith('.java') }) {
-                fail('FORBIDDEN_ENTRY', archive, "missing sources ${packageRoot}")
-            }
-            if (kind == 'javadoc'
-                    && (!names.contains('index.html')
-                            || !names.any { it.startsWith(packageRoot) && it.endsWith('.html') })) {
-                fail('FORBIDDEN_ENTRY', archive, "incomplete Javadocs ${packageRoot}")
-            }
-        } finally {
-            zip.close()
         }
+        resolved.collect { coordinate, dependencies ->
+            "${coordinate}|${dependencies.sort().join(',')}"
+        }.sort()
     }
-
-    private static boolean allowedCodeArchiveEntry(
-            String name, boolean directory, String packageRoot, String suffix) {
-        if (name == 'META-INF/' || name == 'META-INF/MANIFEST.MF'
-                || name == 'META-INF/LICENSE') {
-            return true
+    def manifest = candidate.layout.buildDirectory.file(
+            'offline-repository/coordinates.txt')
+    projectCoordinateManifests.add(manifest)
+    projectCoordinateTasks.add(candidate.tasks.register('writeOfflineRepositoryCoordinates') {
+        group = 'build setup'
+        description = 'Writes this project external component set for offline staging.'
+        inputs.property('coordinates', coordinates)
+        outputs.file(manifest)
+        doLast {
+            File target = manifest.get().asFile
+            target.parentFile.mkdirs()
+            target.setText(coordinates.get().join('\n') + '\n', 'UTF-8')
         }
-        if (directory) return packageRoot.startsWith(name)
-        if (!name.startsWith(packageRoot) || !name.endsWith(suffix)) return false
-        !name.substring(packageRoot.length()).contains('/')
-    }
-
-    private static void validateEntryName(File archive, ZipEntry entry) {
-        String name = entry.name
-        if (name.isEmpty() || name.contains('\\') || name.startsWith('/') || name.startsWith('~')
-                || name ==~ /[A-Za-z][A-Za-z0-9+.-]*:.*/
-                || (!entry.directory && name.endsWith('/'))
-                || (entry.directory && !name.endsWith('/'))) {
-            fail('FORBIDDEN_ENTRY', archive, "unsafe ZIP path ${name}")
-        }
-        String segmented = entry.directory ? name.substring(0, name.length() - 1) : name
-        List<String> segments = segmented.split('/', -1).toList()
-        if (segments.isEmpty() || segments.any { it.isEmpty() || it == '.' || it == '..' }) {
-            fail('FORBIDDEN_ENTRY', archive, "unsafe ZIP segment ${name}")
-        }
-    }
-
-    private static String digest(File file, String algorithm) {
-        MessageDigest value = MessageDigest.getInstance(algorithm)
-        file.withInputStream { input ->
-            byte[] buffer = new byte[16 * 1024]
-            int count
-            while ((count = input.read(buffer)) >= 0) {
-                if (count > 0) value.update(buffer, 0, count)
-            }
-        }
-        value.digest().collect { String.format('%02x', it & 0xff) }.join()
-    }
-
-    private static boolean forbiddenText(String text) {
-        containsWindowsAbsolutePath(text) || java.util.regex.Pattern.compile(
-                '(?i)<repositories|<distributionManagement|password|credential|secret|file:'
-                        + '|project\\(|/mnt/|/home/|/tmp/|/workspace/')
-                .matcher(text).find()
-    }
-
-    private static boolean containsWindowsAbsolutePath(String text) {
-        for (int index = 0; index + 2 < text.length(); index++) {
-            char drive = text.charAt(index)
-            char separator = text.charAt(index + 2)
-            boolean driveBoundary = index == 0
-                    || !Character.isLetterOrDigit(text.charAt(index - 1))
-            if (driveBoundary && Character.isLetter(drive) && text.charAt(index + 1) == ':'
-                    && (separator == '\\' as char || separator == '/' as char)) {
-                return true
-            }
-        }
-        false
-    }
-
-    private static boolean forbiddenManifestText(String text) {
-        forbiddenText(text) || text.contains('${')
-                || java.util.regex.Pattern.compile(
-                        '(?im)^(repository|repositories|distributionmanagement|'
-                                + 'distribution-management)\\s*[:=]')
-                        .matcher(text).find()
-    }
-
-    private static void fail(String tag, File file, String detail) {
-        throw new GradleException("[${tag}] ${file}: ${detail}")
-    }
+    })
 }
 
-@DisableCachingByDefault(because = 'Exercises the staged repository verifier against mutations')
-abstract class TestPublicationDryRunVerifier extends DefaultTask {
-    @InputDirectory
-    @PathSensitive(PathSensitivity.RELATIVE)
-    abstract DirectoryProperty getRepositoryDirectory()
-
-    @Input
-    abstract ListProperty<String> getReleaseContract()
-
-    @Input
-    abstract Property<String> getPublicationVersion()
-
-    @InputFile
-    @PathSensitive(PathSensitivity.RELATIVE)
-    abstract RegularFileProperty getLicenseFile()
-
-    @TaskAction
-    void testMutations() {
-        File source = repositoryDirectory.get().asFile
-        List<String> contract = releaseContract.get()
-        String firstModule = contract.first().split('\\|', -1)[0]
-        String dependencyModule = 'mundane-map-core'
-        File wrongName = new File(temporaryDir, 'wrong-name')
-        copyTree(source, wrongName)
-        File versionDirectory = new File(
-                wrongName,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}")
-        File payload = versionDirectory.listFiles().find {
-            it.isFile() && it.name.endsWith('.jar') && !(it.name =~ /-(sources|javadoc)\.jar$/)
-        }
-        Files.move(
-                payload.toPath(),
-                payload.toPath().resolveSibling("stale-${payload.name}"),
-                StandardCopyOption.REPLACE_EXISTING)
-        expectFailure(wrongName, 'wrong snapshot filename', 'UNEXPECTED_STAGED_FILE')
-
-        File unexpected = new File(temporaryDir, 'unexpected')
-        copyTree(source, unexpected)
-        File unexpectedVersion = new File(
-                unexpected,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}")
-        new File(unexpectedVersion, 'unexpected-directory').mkdir()
-        expectFailure(unexpected, 'unexpected staged directory', 'UNEXPECTED_STAGED_FILE')
-
-        File missingModuleMetadata = new File(temporaryDir, 'missing-module-metadata')
-        copyTree(source, missingModuleMetadata)
-        new File(
-                missingModuleMetadata,
-                "io/github/mundanej/${firstModule}/maven-metadata.xml").delete()
-        expectFailure(missingModuleMetadata, 'missing module metadata', 'MISSING_ARTIFACT')
-
-        File checksum = new File(temporaryDir, 'checksum')
-        copyTree(source, checksum)
-        File checksumPayload = new File(checksum,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}/${payload.name}")
-        checksumPayload << new byte[] {0}
-        expectFailure(checksum, 'changed payload', 'CHECKSUM_MISMATCH')
-
-        File dependency = new File(temporaryDir, 'dependency')
-        copyTree(source, dependency)
-        File pom = mutationPrimary(dependency, dependencyModule, '.pom')
-        pom.setText(pom.getText('UTF-8').replace('<dependencies>',
-                '<dependencies><dependency><groupId>bad</groupId><artifactId>bad</artifactId>'
-                        + '<version>1</version><scope>compile</scope></dependency>'), 'UTF-8')
-        rewriteChecksums(pom)
-        expectFailure(dependency, 'unexpected dependency', 'UNEXPECTED_DEPENDENCY')
-
-        File metadata = new File(temporaryDir, 'metadata')
-        copyTree(source, metadata)
-        File metadataVersion = new File(metadata,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}")
-        File metadataPom = metadataVersion.listFiles().find { it.name.endsWith('.pom') }
-        metadataPom.setText(metadataPom.getText('UTF-8').replace(
-                'https://github.com/sportne/mundane-java-map', 'https://invalid.example/map'),
-                'UTF-8')
-        rewriteChecksums(metadataPom)
-        expectFailure(metadata, 'changed project metadata', 'VERSION_MISMATCH')
-
-        File developerMetadata = new File(temporaryDir, 'developer-metadata')
-        copyTree(source, developerMetadata)
-        File developerPom = mutationPrimary(developerMetadata, firstModule, '.pom')
-        developerPom.setText(developerPom.getText('UTF-8').replace(
-                '<id>sportne</id>', '<id>someone-else</id>'), 'UTF-8')
-        rewriteChecksums(developerPom)
-        expectFailure(developerMetadata, 'changed developer id', 'INVALID_METADATA')
-
-        File scmMetadata = new File(temporaryDir, 'scm-metadata')
-        copyTree(source, scmMetadata)
-        File scmPom = mutationPrimary(scmMetadata, firstModule, '.pom')
-        scmPom.setText(scmPom.getText('UTF-8').replace(
-                'scm:git:https://github.com/sportne/mundane-java-map.git',
-                'scm:git:https://invalid.example/map.git'), 'UTF-8')
-        rewriteChecksums(scmPom)
-        expectFailure(scmMetadata, 'changed SCM connection', 'INVALID_METADATA')
-
-        Map<String, List<String>> pomRootMutations = [
-            'pom-root-element': ['<project ', '<notProject '],
-            'pom-namespace': ['xmlns="http://maven.apache.org/POM/4.0.0"',
-                'xmlns="https://invalid.example/POM/4.0.0"'],
-            'pom-child-namespace': ["<name>${firstModule}</name>",
-                "<name xmlns=\"\">${firstModule}</name>"],
-            'pom-schema': ['https://maven.apache.org/xsd/maven-4.0.0.xsd',
-                'https://invalid.example/maven-4.0.0.xsd']
-        ]
-        pomRootMutations.each { scenario, mutation ->
-            File mutated = new File(temporaryDir, scenario)
-            this.copyTree(source, mutated)
-            File mutatedPom = this.mutationPrimary(mutated, firstModule, '.pom')
-            String xml = mutatedPom.getText('UTF-8').replace(mutation[0], mutation[1])
-            if (scenario == 'pom-root-element') xml = xml.replace('</project>', '</notProject>')
-            mutatedPom.setText(xml, 'UTF-8')
-            this.rewriteChecksums(mutatedPom)
-            this.expectFailure(mutated, scenario, 'INVALID_METADATA')
-        }
-
-        File unresolvedMetadata = new File(temporaryDir, 'unresolved-metadata')
-        copyTree(source, unresolvedMetadata)
-        File unresolvedPom = mutationPrimary(unresolvedMetadata, firstModule, '.pom')
-        unresolvedPom.setText(unresolvedPom.getText('UTF-8').replaceFirst(
-                /<description>[^<]*<\/description>/,
-                java.util.regex.Matcher.quoteReplacement(
-                        '<description>${unresolved}</description>')), 'UTF-8')
-        rewriteChecksums(unresolvedPom)
-        expectFailure(unresolvedMetadata, 'unresolved POM property', 'UNEXPECTED_REPOSITORY')
-
-        File optionalDependency = new File(temporaryDir, 'optional-dependency')
-        copyTree(source, optionalDependency)
-        File optionalPom = mutationPrimary(optionalDependency, dependencyModule, '.pom')
-        optionalPom.setText(optionalPom.getText('UTF-8').replaceFirst(
-                '</dependency>', '<optional>true</optional></dependency>'), 'UTF-8')
-        rewriteChecksums(optionalPom)
-        expectFailure(optionalDependency, 'optional dependency semantics', 'UNEXPECTED_DEPENDENCY')
-
-        File repository = new File(temporaryDir, 'repository')
-        copyTree(source, repository)
-        File repositoryVersion = new File(repository,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}")
-        File repositoryPom = repositoryVersion.listFiles().find { it.name.endsWith('.pom') }
-        repositoryPom.setText(repositoryPom.getText('UTF-8').replace('</project>',
-                '<repositories><repository><id>bad</id><url>https://invalid.example</url>'
-                        + '</repository></repositories></project>'), 'UTF-8')
-        rewriteChecksums(repositoryPom)
-        expectFailure(repository, 'embedded repository', 'UNEXPECTED_REPOSITORY')
-
-        File license = new File(temporaryDir, 'license')
-        copyTree(source, license)
-        File licenseVersion = new File(license,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}")
-        File licenseJar = licenseVersion.listFiles().find {
-            it.name.endsWith('.jar') && !it.name.contains('-sources')
-                    && !it.name.contains('-javadoc')
-        }
-        rewriteZip(licenseJar, 'META-INF/LICENSE', 'changed'.bytes, null)
-        rewriteChecksums(licenseJar)
-        expectFailure(license, 'changed archive license', 'LICENSE_MISMATCH')
-
-        File unsafe = new File(temporaryDir, 'unsafe')
-        copyTree(source, unsafe)
-        File unsafeVersion = new File(unsafe,
-                "io/github/mundanej/${firstModule}/${publicationVersion.get()}")
-        File unsafeJar = unsafeVersion.listFiles().find {
-            it.name.endsWith('.jar') && !it.name.contains('-sources')
-                    && !it.name.contains('-javadoc')
-        }
-        rewriteZip(unsafeJar, null, null, 'META-INF/services/forbidden')
-        rewriteChecksums(unsafeJar)
-        expectFailure(unsafe, 'unsafe archive entry', 'FORBIDDEN_ENTRY')
-
-        File unexpectedBinaryRoot = new File(temporaryDir, 'unexpected-binary-root')
-        copyTree(source, unexpectedBinaryRoot)
-        File unexpectedBinaryJar = binaryJar(unexpectedBinaryRoot, firstModule)
-        rewriteZip(unexpectedBinaryJar, null, null, 'unexpected/Unexpected.class')
-        rewriteChecksums(unexpectedBinaryJar)
-        expectFailure(unexpectedBinaryRoot, 'unexpected binary root', 'FORBIDDEN_ENTRY')
-
-        File unexpectedSourceRoot = new File(temporaryDir, 'unexpected-source-root')
-        copyTree(source, unexpectedSourceRoot)
-        File unexpectedSourceJar = mutationVersionDirectory(unexpectedSourceRoot, firstModule)
-                .listFiles().find { it.name.endsWith('-sources.jar') }
-        rewriteZip(unexpectedSourceJar, null, null, 'unexpected/Unexpected.java')
-        rewriteChecksums(unexpectedSourceJar)
-        expectFailure(unexpectedSourceRoot, 'unexpected source root', 'FORBIDDEN_ENTRY')
-
-        Map<String, String> forbiddenManifests = [
-            'manifest-build-path': 'Build-Path: /mnt/private/build',
-            'manifest-windows-backslash-path': 'Build-Path: C:\\work\\module',
-            'manifest-windows-forward-path': 'Build-Path: C:/work/module',
-            'manifest-credential': 'Password: secret',
-            'manifest-repository': 'Repository: https://invalid.example/maven',
-            'manifest-placeholder': 'Implementation-Version: ${project.version}'
-        ]
-        forbiddenManifests.each { scenario, declaration ->
-            File manifestRepository = new File(temporaryDir, scenario)
-            this.copyTree(source, manifestRepository)
-            File manifestJar = this.binaryJar(manifestRepository, firstModule)
-            byte[] manifestBytes = ("Manifest-Version: 1.0\n${declaration}\n\n")
-                    .getBytes(StandardCharsets.UTF_8)
-            this.rewriteZip(manifestJar, 'META-INF/MANIFEST.MF', manifestBytes, null)
-            this.rewriteChecksums(manifestJar)
-            this.expectFailure(manifestRepository, scenario, 'UNEXPECTED_REPOSITORY')
-        }
-
-        Map<String, String> unsafePaths = [
-            'absolute-entry': '/absolute.class',
-            'backslash-entry': 'bad\\entry.class',
-            'dot-entry': 'bad/./entry.class',
-            'terminal-dotdot-entry': 'bad/entry/..',
-            'drive-entry': 'C:/entry.class',
-            'uri-entry': 'file:entry.class'
-        ]
-        unsafePaths.each { scenarioName, entryName ->
-            File unsafePath = new File(temporaryDir, scenarioName)
-            this.copyTree(source, unsafePath)
-            File unsafePathJar = this.binaryJar(unsafePath, firstModule)
-            this.rewriteZip(unsafePathJar, null, null, entryName)
-            this.rewriteChecksums(unsafePathJar)
-            this.expectFailure(unsafePath, scenarioName, 'FORBIDDEN_ENTRY')
-        }
-
-        File duplicateZip = new File(temporaryDir, 'duplicate-zip-entry')
-        copyTree(source, duplicateZip)
-        File duplicateZipJar = binaryJar(duplicateZip, firstModule)
-        writeDuplicateZip(duplicateZipJar, 'duplicate.class', 'same'.bytes)
-        rewriteChecksums(duplicateZipJar)
-        expectFailure(duplicateZip, 'duplicate ZIP entry', 'FORBIDDEN_ENTRY')
-
-        File extraArtifact = new File(temporaryDir, 'extra-artifact')
-        copyTree(source, extraArtifact)
-        File extraVersion = mutationVersionDirectory(extraArtifact, firstModule)
-        new File(extraVersion, 'unexpected-classifier.jar').bytes = new byte[] {1}
-        expectFailure(extraArtifact, 'extra classifier artifact', 'UNEXPECTED_STAGED_FILE')
-
-        File missingSources = new File(temporaryDir, 'missing-sources')
-        copyTree(source, missingSources)
-        File missingSourcesVersion = mutationVersionDirectory(missingSources, firstModule)
-        File sourcesJar = missingSourcesVersion.listFiles().find { it.name.endsWith('-sources.jar') }
-        sourcesJar.delete()
-        expectFailure(missingSources, 'missing sources artifact', 'MISSING_ARTIFACT')
-
-        testMissingPrimary(source, firstModule, 'binary')
-        testMissingPrimary(source, firstModule, 'javadoc')
-        testMissingPrimary(source, firstModule, 'pom')
-        testMissingPrimary(source, firstModule, 'module')
-
-        File duplicateDependency = new File(temporaryDir, 'duplicate-dependency')
-        copyTree(source, duplicateDependency)
-        File duplicatePom = mutationPrimary(duplicateDependency, dependencyModule, '.pom')
-        String duplicate = ('<dependency><groupId>io.github.mundanej</groupId>'
-                + '<artifactId>mundane-map-api</artifactId>'
-                + "<version>${publicationVersion.get()}</version><scope>compile</scope></dependency>")
-        duplicatePom.setText(duplicatePom.getText('UTF-8').replace(
-                '</dependencies>', "${duplicate}</dependencies>"), 'UTF-8')
-        rewriteChecksums(duplicatePom)
-        expectFailure(duplicateDependency, 'duplicate dependency', 'UNEXPECTED_DEPENDENCY')
-
-        File rangedDependency = new File(temporaryDir, 'ranged-dependency')
-        copyTree(source, rangedDependency)
-        File rangedPom = mutationPrimary(rangedDependency, dependencyModule, '.pom')
-        rangedPom.setText(rangedPom.getText('UTF-8').replace(
-                "<artifactId>mundane-map-api</artifactId>\n      <version>${publicationVersion.get()}</version>",
-                '<artifactId>mundane-map-api</artifactId>\n      <version>[1,2)</version>'), 'UTF-8')
-        rewriteChecksums(rangedPom)
-        expectFailure(rangedDependency, 'ranged dependency', 'UNEXPECTED_DEPENDENCY')
-
-        ['sources', 'javadoc'].each { classifier ->
-            File classifiedLicense = new File(temporaryDir, "${classifier}-license")
-            this.copyTree(source, classifiedLicense)
-            File classifiedVersion = this.mutationVersionDirectory(classifiedLicense, firstModule)
-            File classifiedJar = classifiedVersion.listFiles().find {
-                it.name.endsWith("-${classifier}.jar")
-            }
-            this.rewriteZip(classifiedJar, 'META-INF/LICENSE', "changed-${classifier}".bytes, null)
-            this.rewriteChecksums(classifiedJar)
-            this.expectFailure(
-                    classifiedLicense, "changed ${classifier} license", 'LICENSE_MISMATCH')
-        }
-
-        File moduleVariant = new File(temporaryDir, 'module-variant')
-        copyTree(source, moduleVariant)
-        File variantMetadata = mutationPrimary(moduleVariant, firstModule, '.module')
-        variantMetadata.setText(variantMetadata.getText('UTF-8').replace(
-                '"org.gradle.jvm.version": 21', '"org.gradle.jvm.version": 22'), 'UTF-8')
-        rewriteChecksums(variantMetadata)
-        expectFailure(moduleVariant, 'changed module variant', 'INVALID_METADATA')
-
-        File moduleFormatVersion = new File(temporaryDir, 'module-format-version')
-        copyTree(source, moduleFormatVersion)
-        mutateModule(moduleFormatVersion, firstModule) { model ->
-            model.formatVersion = '1.0'
-        }
-        expectFailure(moduleFormatVersion, 'module format version', 'INVALID_METADATA')
-
-        Map<String, List<String>> variantAttributeMutations = [
-            'module-usage': ['apiElements', 'org.gradle.usage', 'java-runtime'],
-            'module-category': ['apiElements', 'org.gradle.category', 'platform'],
-            'module-library-elements': ['apiElements', 'org.gradle.libraryelements', 'classes'],
-            'module-docs-type': ['sourcesElements', 'org.gradle.docstype', 'samples']
-        ]
-        variantAttributeMutations.each { scenario, mutation ->
-            File mutated = new File(temporaryDir, scenario)
-            this.copyTree(source, mutated)
-            this.mutateModule(mutated, firstModule) { model ->
-                model.variants.find { it.name == mutation[0] }
-                        .attributes[mutation[1]] = mutation[2]
-            }
-            this.expectFailure(mutated, scenario, 'INVALID_METADATA')
-        }
-
-        File moduleCapabilities = new File(temporaryDir, 'module-capabilities')
-        copyTree(source, moduleCapabilities)
-        mutateModule(moduleCapabilities, firstModule) { model ->
-            model.variants.find { it.name == 'apiElements' }.capabilities = [[
-                group: 'io.github.mundanej', name: 'unexpected', version: publicationVersion.get()
-            ]]
-        }
-        expectFailure(moduleCapabilities, 'module capabilities', 'INVALID_METADATA')
-
-        File moduleAvailableAt = new File(temporaryDir, 'module-available-at')
-        copyTree(source, moduleAvailableAt)
-        mutateModule(moduleAvailableAt, firstModule) { model ->
-            model.variants.find { it.name == 'apiElements' }['available-at'] = [
-                url: 'https://invalid.example/elsewhere.module', group: 'invalid',
-                module: 'invalid', version: '1'
-            ]
-        }
-        expectFailure(moduleAvailableAt, 'module available-at', 'INVALID_METADATA')
-
-        File moduleVersion = new File(temporaryDir, 'module-version')
-        copyTree(source, moduleVersion)
-        File versionMetadata = mutationPrimary(moduleVersion, firstModule, '.module')
-        versionMetadata.setText(versionMetadata.getText('UTF-8').replace(
-                "\"version\": \"${publicationVersion.get()}\"", '"version": "stale"'), 'UTF-8')
-        rewriteChecksums(versionMetadata)
-        expectFailure(moduleVersion, 'changed module version', 'VERSION_MISMATCH')
-
-        File moduleHash = new File(temporaryDir, 'module-hash')
-        copyTree(source, moduleHash)
-        File hashMetadata = mutationPrimary(moduleHash, firstModule, '.module')
-        hashMetadata.setText(hashMetadata.getText('UTF-8').replaceFirst(
-                /"sha256": "[0-9a-f]+"/, '"sha256": "'
-                        + ('0' * 64) + '"'), 'UTF-8')
-        rewriteChecksums(hashMetadata)
-        expectFailure(moduleHash, 'changed module artifact hash', 'CHECKSUM_MISMATCH')
-
-        Map<String, String> invalidModuleUrls = [
-            'module-traversing-url': '../escape.jar',
-            'module-external-url': 'https://invalid.example/artifact.jar'
-        ]
-        invalidModuleUrls.each { scenario, invalidUrl ->
-            File mutated = new File(temporaryDir, scenario)
-            this.copyTree(source, mutated)
-            this.mutateModule(mutated, firstModule) { model ->
-                model.variants.find { it.name == 'sourcesElements' }.files.first().url = invalidUrl
-            }
-            this.expectFailure(mutated, scenario, 'INVALID_METADATA')
-        }
-
-        File wrongModuleName = new File(temporaryDir, 'module-wrong-file-name')
-        copyTree(source, wrongModuleName)
-        mutateModule(wrongModuleName, firstModule) { model ->
-            model.variants.find { it.name == 'javadocElements' }.files.first().name = 'wrong.jar'
-        }
-        expectFailure(wrongModuleName, 'wrong module file name', 'INVALID_METADATA')
-
-        File duplicateModuleFile = new File(temporaryDir, 'module-duplicate-file')
-        copyTree(source, duplicateModuleFile)
-        mutateModule(duplicateModuleFile, firstModule) { model ->
-            def variant = model.variants.find { it.name == 'apiElements' }
-            variant.files.add(new LinkedHashMap<>(variant.files.first()))
-        }
-        expectFailure(duplicateModuleFile, 'duplicate module file', 'INVALID_METADATA')
-
-        File duplicateVariant = new File(temporaryDir, 'module-duplicate-variant')
-        copyTree(source, duplicateVariant)
-        mutateModule(duplicateVariant, firstModule) { model ->
-            model.variants.find { it.name == 'runtimeElements' }.name = 'apiElements'
-        }
-        expectFailure(duplicateVariant, 'duplicate module variant', 'INVALID_METADATA')
-
-        File documentationDependency = new File(temporaryDir, 'module-documentation-dependency')
-        copyTree(source, documentationDependency)
-        mutateModule(documentationDependency, firstModule) { model ->
-            model.variants.find { it.name == 'sourcesElements' }.dependencies = [[
-                group: 'io.github.mundanej', module: 'mundane-map-core',
-                version: [requires: publicationVersion.get()]
-            ]]
-        }
-        expectFailure(
-                documentationDependency, 'documentation variant dependency',
-                'UNEXPECTED_DEPENDENCY')
-
-        ['sha256', 'sha512'].each { extension ->
-            File strongChecksum = new File(temporaryDir, "checksum-${extension}")
-            this.copyTree(source, strongChecksum)
-            File checkedPayload = this.mutationPrimary(strongChecksum, firstModule, '.pom')
-            new File(checkedPayload.parentFile, "${checkedPayload.name}.${extension}")
-                    .setText('0', 'UTF-8')
-            this.expectFailure(strongChecksum, "changed ${extension}", 'CHECKSUM_MISMATCH')
-        }
-
-        ['password=secret', '/mnt/private/workspace'].eachWithIndex { value, index ->
-            File leaked = new File(temporaryDir, "leaked-metadata-${index}")
-            this.copyTree(source, leaked)
-            File leakedPom = this.mutationPrimary(leaked, firstModule, '.pom')
-            leakedPom.setText(leakedPom.getText('UTF-8').replace(
-                    '</project>', "<organization><name>${value}</name></organization></project>"),
-                    'UTF-8')
-            this.rewriteChecksums(leakedPom)
-            this.expectFailure(
-                    leaked, 'leaked credential or build path', 'UNEXPECTED_REPOSITORY')
-        }
-
-        File staleVersion = new File(temporaryDir, 'stale-version')
-        copyTree(source, staleVersion)
-        new File(staleVersion,
-                "io/github/mundanej/${firstModule}/0.0.0-stale").mkdirs()
-        expectFailure(staleVersion, 'stale version directory', 'UNEXPECTED_STAGED_FILE')
-
-        File extraCoordinate = new File(temporaryDir, 'extra-coordinate')
-        copyTree(source, extraCoordinate)
-        new File(extraCoordinate, 'io/github/mundanej/unexpected-module').mkdirs()
-        expectFailure(extraCoordinate, 'extra module coordinate', 'UNEXPECTED_COORDINATE')
-
-        if (publicationVersion.get().endsWith('-SNAPSHOT')) {
-            File badTimestamp = new File(temporaryDir, 'snapshot-timestamp')
-            copyTree(source, badTimestamp)
-            File badTimestampMetadata = new File(
-                    mutationVersionDirectory(badTimestamp, firstModule), 'maven-metadata.xml')
-            badTimestampMetadata.setText(badTimestampMetadata.getText('UTF-8').replaceFirst(
-                    '<timestamp>[^<]+</timestamp>', '<timestamp>bad</timestamp>'), 'UTF-8')
-            rewriteChecksums(badTimestampMetadata)
-            expectFailure(badTimestamp, 'invalid snapshot timestamp', 'INVALID_METADATA')
-
-            File badBuild = new File(temporaryDir, 'snapshot-build-number')
-            copyTree(source, badBuild)
-            File badBuildMetadata = new File(
-                    mutationVersionDirectory(badBuild, firstModule), 'maven-metadata.xml')
-            badBuildMetadata.setText(badBuildMetadata.getText('UTF-8').replaceFirst(
-                    '<buildNumber>[^<]+</buildNumber>', '<buildNumber>0</buildNumber>'), 'UTF-8')
-            rewriteChecksums(badBuildMetadata)
-            expectFailure(badBuild, 'invalid snapshot build number', 'INVALID_METADATA')
-
-            File badValue = new File(temporaryDir, 'snapshot-value')
-            copyTree(source, badValue)
-            File badValueMetadata = new File(
-                    mutationVersionDirectory(badValue, firstModule), 'maven-metadata.xml')
-            badValueMetadata.setText(badValueMetadata.getText('UTF-8').replaceFirst(
-                    '<value>[^<]+</value>', '<value>incoherent</value>'), 'UTF-8')
-            rewriteChecksums(badValueMetadata)
-            expectFailure(badValue, 'incoherent snapshot value', 'INCOHERENT_SNAPSHOT')
-
-            File duplicateTuple = new File(temporaryDir, 'snapshot-duplicate-tuple')
-            copyTree(source, duplicateTuple)
-            File duplicateTupleMetadata = new File(
-                    mutationVersionDirectory(duplicateTuple, firstModule), 'maven-metadata.xml')
-            duplicateTupleMetadata.setText(duplicateTupleMetadata.getText('UTF-8').replaceFirst(
-                    '<classifier>javadoc</classifier>', '<classifier>sources</classifier>'), 'UTF-8')
-            rewriteChecksums(duplicateTupleMetadata)
-            expectFailure(duplicateTuple, 'duplicate snapshot tuple', 'INCOHERENT_SNAPSHOT')
-        }
-    }
-
-    void expectFailure(File repository, String scenario, String tag) {
-        try {
-            VerifyPublicationDryRun.verifyDirectory(
-                    repository, releaseContract.get(), publicationVersion.get(),
-                    licenseFile.get().asFile.bytes)
-        } catch (GradleException expected) {
-            if (expected.message.contains("[${tag}]")) return
-            throw new GradleException(
-                    "Publication verifier rejected ${scenario} with wrong tag: ${expected.message}",
-                    expected)
-        }
-        throw new GradleException("Publication verifier accepted ${scenario}")
-    }
-
-    static void rewriteChecksums(File payload) {
-        [md5: 'MD5', sha1: 'SHA-1', sha256: 'SHA-256', sha512: 'SHA-512'].each {
-            suffix, algorithm ->
-                byte[] digest = MessageDigest.getInstance(algorithm).digest(payload.bytes)
-                new File(payload.parentFile, "${payload.name}.${suffix}").setText(
-                        digest.collect { String.format('%02x', it & 0xff) }.join(), 'UTF-8')
-        }
-    }
-
-    File mutationVersionDirectory(File repository, String module) {
-        new File(repository,
-                "io/github/mundanej/${module}/${publicationVersion.get()}")
-    }
-
-    File mutationPrimary(File repository, String module, String extension) {
-        File match = mutationVersionDirectory(repository, module).listFiles().find {
-            it.name.endsWith(extension)
-        }
-        if (match == null) throw new GradleException("Missing mutation target ${module} ${extension}")
-        match
-    }
-
-    File binaryJar(File repository, String module) {
-        File match = mutationVersionDirectory(repository, module).listFiles().find {
-            it.name.endsWith('.jar') && !it.name.contains('-sources')
-                    && !it.name.contains('-javadoc')
-        }
-        if (match == null) throw new GradleException("Missing binary JAR mutation target ${module}")
-        match
-    }
-
-    void testMissingPrimary(File source, String module, String kind) {
-        File missing = new File(temporaryDir, "missing-${kind}")
-        copyTree(source, missing)
-        File target
-        switch (kind) {
-            case 'binary':
-                target = binaryJar(missing, module)
-                break
-            case 'javadoc':
-                target = mutationVersionDirectory(missing, module).listFiles().find {
-                    it.name.endsWith('-javadoc.jar')
-                }
-                break
-            case 'pom':
-                target = mutationPrimary(missing, module, '.pom')
-                break
-            case 'module':
-                target = mutationPrimary(missing, module, '.module')
-                break
-            default:
-                throw new GradleException("Unknown primary mutation kind ${kind}")
-        }
-        if (target == null || !target.delete()) {
-            throw new GradleException("Could not remove ${kind} mutation target")
-        }
-        expectFailure(missing, "missing ${kind} artifact", 'MISSING_ARTIFACT')
-    }
-
-    void mutateModule(File repository, String module, Closure mutation) {
-        File metadata = mutationPrimary(repository, module, '.module')
-        def model = new JsonSlurper().parse(metadata)
-        mutation.call(model)
-        metadata.setText(
-                groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(model)), 'UTF-8')
-        rewriteChecksums(metadata)
-    }
-
-    static void rewriteZip(
-            File archive, String replacementName, byte[] replacement, String addedName) {
-        File rewritten = new File(archive.parentFile, "${archive.name}.rewritten")
-        ZipFile input = new ZipFile(archive)
-        try {
-            new ZipOutputStream(new FileOutputStream(rewritten)).withCloseable { output ->
-                input.entries().each { entry ->
-                    ZipEntry copy = new ZipEntry(entry.name)
-                    copy.time = 0L
-                    output.putNextEntry(copy)
-                    if (!entry.directory) {
-                        output.write(entry.name == replacementName
-                                ? replacement : input.getInputStream(entry).bytes)
-                    }
-                    output.closeEntry()
-                }
-                if (addedName != null) {
-                    ZipEntry added = new ZipEntry(addedName)
-                    added.time = 0L
-                    output.putNextEntry(added)
-                    output.write('forbidden'.bytes)
-                    output.closeEntry()
-                }
-            }
-        } finally {
-            input.close()
-        }
-        Files.move(rewritten.toPath(), archive.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
-
-    static void writeDuplicateZip(File archive, String name, byte[] bytes) {
-        byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8)
-        java.util.zip.CRC32 crc = new java.util.zip.CRC32()
-        crc.update(bytes)
-        long checksum = crc.value
-        List<Integer> offsets = []
-        ByteArrayOutputStream body = new ByteArrayOutputStream()
-        DataOutputStream output = new DataOutputStream(body)
-        2.times {
-            offsets.add(body.size())
-            writeLeInt(output, 0x04034b50)
-            writeLeShort(output, 20)
-            writeLeShort(output, 0)
-            writeLeShort(output, 0)
-            writeLeShort(output, 0)
-            writeLeShort(output, 0)
-            writeLeInt(output, checksum)
-            writeLeInt(output, bytes.length)
-            writeLeInt(output, bytes.length)
-            writeLeShort(output, nameBytes.length)
-            writeLeShort(output, 0)
-            output.write(nameBytes)
-            output.write(bytes)
-        }
-        int centralOffset = body.size()
-        offsets.each { offset ->
-            writeLeInt(output, 0x02014b50)
-            writeLeShort(output, 20)
-            writeLeShort(output, 20)
-            4.times { writeLeShort(output, 0) }
-            writeLeInt(output, checksum)
-            writeLeInt(output, bytes.length)
-            writeLeInt(output, bytes.length)
-            writeLeShort(output, nameBytes.length)
-            4.times { writeLeShort(output, 0) }
-            writeLeInt(output, 0)
-            writeLeInt(output, offset)
-            output.write(nameBytes)
-        }
-        int centralSize = body.size() - centralOffset
-        writeLeInt(output, 0x06054b50)
-        2.times { writeLeShort(output, 0) }
-        2.times { writeLeShort(output, 2) }
-        writeLeInt(output, centralSize)
-        writeLeInt(output, centralOffset)
-        writeLeShort(output, 0)
-        output.close()
-        archive.bytes = body.toByteArray()
-    }
-
-    static void writeLeShort(DataOutputStream output, long value) {
-        output.writeByte((int) (value & 0xff))
-        output.writeByte((int) ((value >>> 8) & 0xff))
-    }
-
-    static void writeLeInt(DataOutputStream output, long value) {
-        writeLeShort(output, value)
-        writeLeShort(output, value >>> 16)
-    }
-
-    static void copyTree(File source, File destination) {
-        if (destination.exists()) {
-            Files.walk(destination.toPath()).withCloseable { paths ->
-                paths.sorted(Comparator.reverseOrder()).forEach { Files.delete(it) }
-            }
-        }
-        Files.walk(source.toPath()).withCloseable { paths ->
-            paths.forEach { path ->
-                def relative = source.toPath().relativize(path)
-                def target = destination.toPath().resolve(relative)
-                if (Files.isDirectory(path)) Files.createDirectories(target)
-                else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
-            }
-        }
-    }
+def inventory = gradle.ext.mapProjectInventory
+def checkedProjects = inventory.collect { it.path }
+def publishedProjects = inventory.findAll { it.published }.collect { it.path }
+def java21Launcher = extensions.getByType(
+        org.gradle.jvm.toolchain.JavaToolchainService).launcherFor {
+    languageVersion = JavaLanguageVersion.of(21)
 }
-
-@DisableCachingByDefault(because = 'Executes three fresh isolated downstream Gradle builds')
-abstract class ConsumerSmokeTask extends DefaultTask {
-    @InputDirectory
-    @PathSensitive(PathSensitivity.RELATIVE)
-    abstract DirectoryProperty getTemplateDirectory()
-
-    @InputDirectory
-    @PathSensitive(PathSensitivity.RELATIVE)
-    abstract DirectoryProperty getRepositoryDirectory()
-
-    @Input
-    abstract Property<String> getPublicationVersion()
-
-    @Input
-    abstract Property<String> getGradleExecutable()
-
-    @Input
-    abstract Property<String> getJavaHome()
-
-    @org.gradle.api.tasks.OutputDirectory
-    abstract DirectoryProperty getScratchDirectory()
-
-    @TaskAction
-    void consume() {
-        File scratch = scratchDirectory.get().asFile
-        deleteTree(scratch)
-        File negativeProject = new File(scratch, 'missing-repository-project')
-        File wrongProject = new File(scratch, 'wrong-repository-project')
-        File validProject = new File(scratch, 'valid-project')
-        copyTree(templateDirectory.get().asFile, negativeProject)
-        copyTree(templateDirectory.get().asFile, wrongProject)
-        copyTree(templateDirectory.get().asFile, validProject)
-
-        File negativeHome = new File(scratch, 'missing-repository-home')
-        File wrongHome = new File(scratch, 'wrong-repository-home')
-        File validHome = new File(scratch, 'valid-home')
-        File wrongRepository = new File(scratch, 'wrong-existing-repository')
-        negativeHome.mkdirs()
-        wrongHome.mkdirs()
-        validHome.mkdirs()
-        wrongRepository.mkdirs()
-        ProcessResult negative = runGradle(negativeProject, negativeHome, 'help', [])
-        String invariant = 'map.consumerRepository must name an absolute existing directory'
-        if (negative.exitCode == 0 || !negative.output.contains(invariant)) {
-            throw new GradleException(
-                    "Consumer missing-repository control failed:\n${tail(negative.output)}")
-        }
-
-        ProcessResult wrong = runGradle(
-                wrongProject,
-                wrongHome,
-                'help',
-                ["-Pmap.consumerRepository=${wrongRepository.absolutePath}",
-                        "-Pmap.consumerVersion=${publicationVersion.get()}"])
-        String wrongInvariant =
-                'map.consumerRepository must contain the staged io.github.mundanej group'
-        if (wrong.exitCode == 0 || !wrong.output.contains(wrongInvariant)) {
-            throw new GradleException(
-                    "Consumer wrong-repository control failed:\n${tail(wrong.output)}")
-        }
-
-        ProcessResult valid = runGradle(
-                validProject,
-                validHome,
-                'smoke',
-                ["-Pmap.consumerRepository=${repositoryDirectory.get().asFile.absolutePath}",
-                        "-Pmap.consumerVersion=${publicationVersion.get()}"])
-        String sentinel = 'mundane-map consumer smoke: OK'
-        if (valid.exitCode != 0 || valid.output.count(sentinel) != 1) {
-            throw new GradleException("Consumer smoke failed:\n${tail(valid.output)}")
-        }
-        println sentinel
-    }
-
-    private ProcessResult runGradle(
-            File projectDirectory, File gradleHome, String taskName, List<String> properties) {
-        List<String> command = [
-            gradleExecutable.get(),
-            '-p', projectDirectory.absolutePath,
-            taskName,
-            '--offline',
-            '--no-daemon',
-            '--no-build-cache',
-            '--no-configuration-cache',
-            '--no-watch-fs',
-            '--console=plain',
-            "--gradle-user-home=${gradleHome.absolutePath}",
-            '-Dorg.gradle.java.installations.auto-download=false'
-        ]
-        command.addAll(properties)
-        ProcessBuilder builder = new ProcessBuilder(command.collect { it.toString() })
-        builder.redirectErrorStream(true)
-        builder.environment().put('JAVA_HOME', javaHome.get())
-        builder.environment().remove('GRADLE_OPTS')
-        builder.environment().remove('JAVA_OPTS')
-        Process process = builder.start()
-        ByteArrayOutputStream capture = new ByteArrayOutputStream()
-        Thread reader = Thread.ofVirtual().start { process.inputStream.transferTo(capture) }
-        boolean exited = process.waitFor(5, java.util.concurrent.TimeUnit.MINUTES)
-        if (!exited) {
-            process.destroyForcibly()
-            process.waitFor()
-            reader.join()
-            throw new GradleException("Consumer child build exceeded five minutes")
-        }
-        reader.join()
-        new ProcessResult(process.exitValue(), capture.toString(StandardCharsets.UTF_8))
-    }
-
-    private static String tail(String output) {
-        int maximum = 16 * 1024
-        output.length() <= maximum ? output : output.substring(output.length() - maximum)
-    }
-
-    private static void copyTree(File source, File destination) {
-        Files.walk(source.toPath()).withCloseable { paths ->
-            paths.forEach { path ->
-                if (Files.isSymbolicLink(path)) {
-                    throw new GradleException("Consumer template contains a symbolic link: ${path}")
-                }
-                def relative = source.toPath().relativize(path)
-                def target = destination.toPath().resolve(relative)
-                if (Files.isDirectory(path)) Files.createDirectories(target)
-                else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
-            }
-        }
-    }
-
-    private static void deleteTree(File directory) {
-        if (!directory.exists()) return
-        Files.walk(directory.toPath()).withCloseable { paths ->
-            paths.sorted(Comparator.reverseOrder()).forEach { Files.delete(it) }
-        }
-    }
-
-    private static record ProcessResult(int exitCode, String output) {}
-}
-
-@DisableCachingByDefault(because = 'Runs isolated parallel/repeat publication child builds')
-abstract class TestPublicationDryRunFunctional extends DefaultTask {
-    @org.gradle.api.tasks.Internal
-    abstract DirectoryProperty getSourceDirectory()
-
-    @org.gradle.api.tasks.Internal
-    abstract DirectoryProperty getGradleUserHome()
-
-    @Input
-    abstract Property<String> getGradleExecutable()
-
-    @Input
-    abstract Property<String> getJavaHome()
-
-    @org.gradle.api.tasks.OutputDirectory
-    abstract DirectoryProperty getScratchDirectory()
-
-    @TaskAction
-    void verifyFunctionalStaging() {
-        File scratch = scratchDirectory.get().asFile
-        deleteTree(scratch)
-        File workspace = new File(scratch, 'workspace')
-        copyWorkspace(sourceDirectory.get().asFile, workspace)
-        String snapshotVersion = '0.1.0-SNAPSHOT'
-        2.times { iteration ->
-            File sentinel = new File(workspace,
-                    'build/release-dry-run/maven/stale-publication-sentinel')
-            sentinel.parentFile.mkdirs()
-            sentinel.text = "stale-${iteration}"
-            runChild(workspace, ['verifyPublicationDryRun',
-                    "-Pmap.version=${snapshotVersion}"])
-            assertComplete(workspace, snapshotVersion, sentinel)
-        }
-        String releaseVersion = '0.1.0-functional'
-        runChild(workspace, ['testPublicationDryRunVerifier',
-                "-Pmap.version=${releaseVersion}"])
-        assertComplete(workspace, releaseVersion, null)
-    }
-
-    void runChild(File workspace, List<String> requested) {
-        List<String> command = [gradleExecutable.get(), '-p', workspace.absolutePath]
-        command.addAll(requested)
-        command.addAll(['--parallel', '--no-daemon', '--no-build-cache',
-                '--no-configuration-cache', '--no-watch-fs', '--console=plain'])
-        ProcessBuilder builder = new ProcessBuilder(command.collect { it.toString() })
-        builder.redirectErrorStream(true)
-        builder.environment().put('JAVA_HOME', javaHome.get())
-        builder.environment().put('GRADLE_USER_HOME', gradleUserHome.get().asFile.absolutePath)
-        Process process = builder.start()
-        ByteArrayOutputStream capture = new ByteArrayOutputStream()
-        Thread reader = Thread.ofVirtual().start { process.inputStream.transferTo(capture) }
-        boolean exited = process.waitFor(10, java.util.concurrent.TimeUnit.MINUTES)
-        if (!exited) {
-            process.destroyForcibly()
-            process.waitFor()
-            reader.join()
-            throw new GradleException('Publication functional child exceeded ten minutes')
-        }
-        reader.join()
-        String output = capture.toString(StandardCharsets.UTF_8)
-        if (process.exitValue() != 0) {
-            int start = Math.max(0, output.length() - 16 * 1024)
-            throw new GradleException(
-                    "Publication functional child failed:\n${output.substring(start)}")
-        }
-    }
-
-    static void assertComplete(File workspace, String version, File sentinel) {
-        if (sentinel != null && sentinel.exists()) {
-            throw new GradleException('Publication cleanup retained the stale sentinel')
-        }
-        File group = new File(workspace,
-                'build/release-dry-run/maven/io/github/mundanej')
-        Set<String> expected = ['mundane-map-api', 'mundane-map-core', 'mundane-map-awt',
-                'mundane-map-io-shapefile', 'mundane-map-io-image',
-                'mundane-map-io-dted', 'mundane-map-io-svg'] as Set
-        Set<String> actual = group.listFiles() == null
-                ? [] as Set : group.listFiles().findAll { it.isDirectory() }
-                        .collect { it.name } as Set
-        if (actual != expected) {
-            throw new GradleException(
-                    "Publication functional coordinates: expected ${expected}, found ${actual}")
-        }
-        expected.each { module ->
-            if (!new File(group, "${module}/${version}").isDirectory()) {
-                throw new GradleException(
-                        "Publication functional version missing: ${module}:${version}")
-            }
-        }
-    }
-
-    static void copyWorkspace(File source, File destination) {
-        def sourcePath = source.toPath()
-        Files.walk(sourcePath).withCloseable { paths ->
-            paths.forEach { path ->
-                def relative = sourcePath.relativize(path)
-                List<String> segments = []
-                relative.forEach { segments.add(it.toString()) }
-                if (segments.any { it == '.git' || it == '.gradle' || it == 'build' }) return
-                if (Files.isSymbolicLink(path)) {
-                    throw new GradleException("Publication workspace contains symlink: ${relative}")
-                }
-                def target = destination.toPath().resolve(relative)
-                if (Files.isDirectory(path)) Files.createDirectories(target)
-                else Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING)
-            }
-        }
-    }
-
-    static void deleteTree(File directory) {
-        if (!directory.exists()) return
-        Files.walk(directory.toPath()).withCloseable { paths ->
-            paths.sorted(Comparator.reverseOrder()).forEach { Files.delete(it) }
-        }
-    }
-}
-
-@DisableCachingByDefault(because = 'Console output is the task result')
-abstract class PrintPublishedArtifacts extends DefaultTask {
-    @Input
-    abstract ListProperty<String> getCoordinates()
-
-    @TaskAction
-    void printCoordinates() {
-        coordinates.get().each { println it }
-    }
-}
-
-@DisableCachingByDefault(because = 'Validates the configured task graph')
-abstract class VerifyShapefileCorpusIsolation extends DefaultTask {
-    @Input
-    abstract ListProperty<String> getViolations()
-
-    @TaskAction
-    void verifyIsolation() {
-        if (!violations.get().isEmpty()) {
-            throw new GradleException(violations.get().join(System.lineSeparator()))
-        }
-    }
-}
-
-def projectInventory = gradle.ext.mapProjectInventory
-def checkedProjects = projectInventory.collect { it.path }
-def publishedProjects = projectInventory.findAll { it.published }.collect { it.path }
-def buildLogicCheck = gradle.includedBuild('build-logic').task(':check')
-def buildLogicOfflineRepositoryVerification =
-        gradle.includedBuild('build-logic').task(':offlineRepositoryVerification')
 
 tasks.register('checkAll') {
     group = 'verification'
     description = 'Runs JVM checks across all included projects and build conventions.'
-    dependsOn buildLogicCheck
+    dependsOn gradle.includedBuild('build-logic').task(':check')
     dependsOn checkedProjects.collect { "${it}:check" }
 }
 
@@ -1616,12 +75,6 @@ tasks.register('qualityGate') {
     dependsOn 'checkAll'
     dependsOn checkedProjects.collect { "${it}:spotlessCheck" }
     dependsOn checkedProjects.collect { "${it}:javadoc" }
-}
-
-tasks.register('offlineRepositoryVerification') {
-    group = 'verification'
-    description = 'Runs the isolated offline-repository verification lane on Java 21.'
-    dependsOn buildLogicOfflineRepositoryVerification
 }
 
 tasks.named('check') {
@@ -1652,146 +105,12 @@ tasks.register('performanceQuick') {
     dependsOn ':modules:mundane-map-performance-tests:runQuickPerformanceEvidence'
 }
 
-def shapefileCorpusProject = project(':modules:mundane-map-io-shapefile')
-def shapefileCorpusOwnedTasks = [
-    'compileShapefileCorpusTestJava',
-    'processShapefileCorpusTestResources',
-    'shapefileCorpusTestClasses',
-    'shapefileCorpusTest',
-    'checkstyleShapefileCorpusTest',
-    'spotbugsShapefileCorpusTest'
-] as Set
-
 tasks.register('shapefileCorpus') {
     group = 'verification'
     description = 'Runs the separate checked-in Shapefile interoperability corpus lane.'
     dependsOn ':modules:mundane-map-io-shapefile:shapefileCorpusTest'
     dependsOn ':modules:mundane-map-io-shapefile:checkstyleShapefileCorpusTest'
     dependsOn ':modules:mundane-map-io-shapefile:spotbugsShapefileCorpusTest'
-    dependsOn tasks.named('verifyShapefileCorpusIsolation')
-}
-
-def verifyShapefileCorpusIsolation = tasks.register(
-        'verifyShapefileCorpusIsolation', VerifyShapefileCorpusIsolation) {
-    group = 'verification'
-    description = 'Proves normal quality roots do not execute the Shapefile corpus lane.'
-    violations.convention([])
-}
-
-gradle.projectsEvaluated {
-    def violations = []
-    def ownedPaths = shapefileCorpusOwnedTasks.collect {
-        ":modules:mundane-map-io-shapefile:${it}".toString()
-    } as Set
-    def auditedRoots = []
-    ['checkAll', 'qualityGate', 'check'].each { taskName ->
-        def candidate = rootProject.tasks.findByName(taskName)
-        if (candidate != null) {
-            auditedRoots.add(candidate)
-        }
-    }
-    checkedProjects.collect { project(it) }.each { auditedProject ->
-        ['check', 'spotlessCheck', 'javadoc'].each { taskName ->
-            def candidate = auditedProject.tasks.findByName(taskName)
-            if (candidate != null) {
-                auditedRoots.add(candidate)
-            }
-        }
-    }
-    def resolveDependencyNotation
-    resolveDependencyNotation = { owner, notation, resolved ->
-        if (notation == null) {
-            return
-        }
-        if (notation instanceof Task) {
-            resolved.add(notation)
-            return
-        }
-        if (notation instanceof org.gradle.api.tasks.TaskReference) {
-            resolved.add(owner.project.tasks.getByPath(notation.name))
-            return
-        }
-        if (notation instanceof Buildable) {
-            notation.buildDependencies.getDependencies(owner).each { resolved.add(it) }
-            return
-        }
-        if (notation instanceof Provider) {
-            resolveDependencyNotation(owner, notation.get(), resolved)
-            return
-        }
-        if (notation instanceof CharSequence) {
-            resolved.add(owner.project.tasks.getByPath(notation.toString()))
-            return
-        }
-        if (notation instanceof Map) {
-            notation.values().each { resolveDependencyNotation(owner, it, resolved) }
-            return
-        }
-        if (notation instanceof Iterable) {
-            notation.each { resolveDependencyNotation(owner, it, resolved) }
-            return
-        }
-        if (notation.getClass().isArray()) {
-            notation.each { resolveDependencyNotation(owner, it, resolved) }
-            return
-        }
-        if (notation instanceof Closure) {
-            def value = notation.maximumNumberOfParameters == 0
-                    ? notation.call()
-                    : notation.call(owner)
-            resolveDependencyNotation(owner, value, resolved)
-            return
-        }
-        if (notation instanceof java.util.concurrent.Callable) {
-            resolveDependencyNotation(owner, notation.call(), resolved)
-            return
-        }
-        throw new GradleException(
-                "Unsupported task dependency notation on ${owner.path}: ${notation.getClass().name}")
-    }
-    def declaredDependencies = { owner ->
-        def resolved = [] as Set
-        owner.getDependsOn().each { notation ->
-            resolveDependencyNotation(owner, notation, resolved)
-        }
-        resolved
-    }
-    def visitDependencies
-    visitDependencies = { owner, visited, matches ->
-        if (!visited.add(owner)) {
-            return
-        }
-        declaredDependencies(owner).each { dependency ->
-            if (ownedPaths.contains(dependency.path)) {
-                matches.add(dependency.path)
-            }
-            visitDependencies(dependency, visited, matches)
-        }
-    }
-    def ownedDependencies = { gateRoot ->
-        def matches = [] as Set
-        visitDependencies(gateRoot, [] as Set, matches)
-        matches
-    }
-    def calibrationRoot = tasks.named('shapefileCorpus').get()
-    def calibration = ownedDependencies(calibrationRoot)
-    def expectedCalibration = [
-        ':modules:mundane-map-io-shapefile:shapefileCorpusTest',
-        ':modules:mundane-map-io-shapefile:checkstyleShapefileCorpusTest',
-        ':modules:mundane-map-io-shapefile:spotbugsShapefileCorpusTest'
-    ] as Set
-    if (!calibration.containsAll(expectedCalibration)) {
-        violations.add(
-                "Corpus dependency-closure verifier failed its positive calibration: ${calibration.sort()}")
-    }
-    auditedRoots.each { gateRoot ->
-        ownedDependencies(gateRoot).each { dependencyPath ->
-            violations.add("Corpus task ${dependencyPath} leaked into ${gateRoot.path}")
-        }
-    }
-    verifyShapefileCorpusIsolation.configure {
-        it.violations.set(violations.unique().sort())
-    }
 }
 
 tasks.register('primeShapefileCorpusDependencies') {
@@ -1800,72 +119,12 @@ tasks.register('primeShapefileCorpusDependencies') {
     dependsOn ':modules:mundane-map-io-shapefile:primeShapefileCorpusDependenciesInternal'
 }
 
-def dtedCorpusProject = project(':modules:mundane-map-io-dted')
-def dtedCorpusOwnedTasks = [
-    'compileDtedCorpusTestJava',
-    'processDtedCorpusTestResources',
-    'dtedCorpusTestClasses',
-    'dtedCorpusTest',
-    'checkstyleDtedCorpusTest',
-    'spotbugsDtedCorpusTest'
-] as Set
-
 tasks.register('dtedCorpus') {
     group = 'verification'
     description = 'Runs the separate checked-in DTED interoperability corpus lane.'
     dependsOn ':modules:mundane-map-io-dted:dtedCorpusTest'
     dependsOn ':modules:mundane-map-io-dted:checkstyleDtedCorpusTest'
     dependsOn ':modules:mundane-map-io-dted:spotbugsDtedCorpusTest'
-    dependsOn tasks.named('verifyDtedCorpusIsolation')
-}
-
-def verifyDtedCorpusIsolation = tasks.register(
-        'verifyDtedCorpusIsolation', VerifyShapefileCorpusIsolation) {
-    group = 'verification'
-    description = 'Proves normal quality and publication roots do not execute the DTED corpus lane.'
-    violations.convention([])
-}
-
-gradle.taskGraph.whenReady { graph ->
-    Set<String> ownedPaths = dtedCorpusOwnedTasks.collect {
-        "${dtedCorpusProject.path}:${it}".toString()
-    } as Set
-    Set<String> auditedRootPaths = [] as Set
-    ['check', 'checkAll', 'qualityGate', 'publicationDryRun', 'stageReleaseDryRun',
-            'verifyPublicationDryRun'].each { taskName ->
-        Task candidate = rootProject.tasks.findByName(taskName)
-        if (candidate != null) auditedRootPaths.add(candidate.path)
-    }
-    checkedProjects.collect { project(it) }.each { auditedProject ->
-        ['check', 'spotlessCheck', 'javadoc'].each { taskName ->
-            Task candidate = auditedProject.tasks.findByName(taskName)
-            if (candidate != null) auditedRootPaths.add(candidate.path)
-        }
-        auditedProject.tasks.matching { task -> task.group == 'publishing' }.each {
-            auditedRootPaths.add(it.path)
-        }
-    }
-
-    Set<String> graphPaths = graph.allTasks.collect { it.path } as Set
-    List<String> violations = []
-    if (graphPaths.contains(tasks.named('dtedCorpus').get().path)
-            && !graphPaths.containsAll(ownedPaths)) {
-        violations.add(
-                "DTED corpus task-graph calibration failed: ${graphPaths.intersect(ownedPaths).sort()}")
-    }
-    Set<String> reachedAuditedRoots = graphPaths.intersect(auditedRootPaths)
-    Set<String> reachedOwnedTasks = graphPaths.intersect(ownedPaths)
-    if (!reachedAuditedRoots.isEmpty() && !reachedOwnedTasks.isEmpty()) {
-        reachedAuditedRoots.each { rootPath ->
-            violations.add("DTED corpus tasks ${reachedOwnedTasks.sort()} leaked into ${rootPath}")
-        }
-    }
-    if (!violations.isEmpty()) {
-        throw new GradleException(violations.unique().sort().join(System.lineSeparator()))
-    }
-    verifyDtedCorpusIsolation.configure {
-        it.violations.set([])
-    }
 }
 
 tasks.register('primeDtedCorpusDependencies') {
@@ -1874,115 +133,152 @@ tasks.register('primeDtedCorpusDependencies') {
     dependsOn ':modules:mundane-map-io-dted:primeDtedCorpusDependenciesInternal'
 }
 
-tasks.register('cleanReleaseDryRun', Delete) {
+def publicationContract = [
+    'mundane-map-api|||io/github/mundanej/map/api/',
+    'mundane-map-core|mundane-map-api||io/github/mundanej/map/core/',
+    'mundane-map-awt|mundane-map-api,mundane-map-core||io/github/mundanej/map/awt/',
+    'mundane-map-io-shapefile|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/shapefile/',
+    'mundane-map-io-image|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/image/',
+    'mundane-map-io-dted|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/dted/',
+    'mundane-map-io-svg|mundane-map-api||io/github/mundanej/map/io/svg/'
+].asImmutable()
+def releaseProjectByArtifact = publishedProjects.collectEntries { path ->
+    [(project(path).name): path]
+}
+def contractArtifacts = publicationContract.collect { it.split('\\|', -1)[0] }
+if (releaseProjectByArtifact.keySet() != (contractArtifacts as Set)) {
+    throw new GradleException(
+            "Published inventory ${releaseProjectByArtifact.keySet().sort()} does not match "
+                    + "the release contract ${contractArtifacts.sort()}")
+}
+
+def cleanReleaseDryRun = tasks.register('cleanReleaseDryRun', Delete) {
     group = 'publishing'
     delete layout.buildDirectory.dir('release-dry-run')
     delete layout.buildDirectory.dir('release-evidence')
-    mustRunAfter tasks.named('clean')
 }
 
-def publishedReleaseContract = [
-    'mundane-map-api|||io/github/mundanej/map/api/|Public geometry, feature, layer, projection, style, and event contracts.',
-    'mundane-map-core|mundane-map-api||io/github/mundanej/map/core/|JDK-only viewport, projection, layer, and geometry support.',
-    'mundane-map-awt|mundane-map-api,mundane-map-core||io/github/mundanej/map/awt/|Swing and Java2D map component.',
-    'mundane-map-io-shapefile|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/shapefile/|JDK-only read-only ESRI Shapefile support.',
-    'mundane-map-io-image|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/image/|Bounded toolkit-neutral PNG and JPEG raster sources.',
-    'mundane-map-io-dted|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/dted/|JDK-only read-only DTED elevation support.',
-    'mundane-map-io-svg|mundane-map-api||io/github/mundanej/map/io/svg/|JDK-only secure static SVG marker import support.'
-]
-def releaseProjectByArtifact = publishedProjects.collectEntries { projectPath ->
-    [(project(projectPath).name): projectPath]
-}
-def contractArtifacts = publishedReleaseContract.collect { it.split('\\|', -1)[0] }
-if (releaseProjectByArtifact.keySet() != (contractArtifacts as Set)) {
-    throw new GradleException(
-            "Published release contract mismatch: inventory ${releaseProjectByArtifact.keySet().sort()}, "
-                    + "contract ${contractArtifacts.sort()}")
-}
 def publicationTaskPaths = contractArtifacts.collect { artifact ->
     "${releaseProjectByArtifact.get(artifact)}:publishMavenJavaPublicationToReleaseDryRunRepository"
+}
+subprojects {
+    plugins.withId('maven-publish') {
+        tasks.matching {
+            it.name == 'publishMavenJavaPublicationToReleaseDryRunRepository'
+        }.configureEach {
+            dependsOn cleanReleaseDryRun
+        }
+    }
 }
 
 def stageReleaseDryRun = tasks.register('stageReleaseDryRun') {
     group = 'publishing'
-    description = 'Writes the published Maven modules in deterministic inventory order.'
+    description = 'Stages every public module in the local Maven repository.'
     dependsOn publicationTaskPaths
 }
 
-tasks.register('publicationDryRun') {
-    group = 'publishing'
-    description = 'Stages and verifies published modules in a local Maven repository.'
-    dependsOn 'testPublicationDryRunVerifier'
-    dependsOn 'testPublicationDryRunFunctional'
-}
-
-tasks.register(
-        'testPublicationDryRunVerifier',
-        TestPublicationDryRunVerifier) {
+def verifyPublicationDryRun = tasks.register(
+        'verifyPublicationDryRun', VerifyPublicationRepository) {
     group = 'verification'
-    description = 'Proves publication verification rejects stale and unexpected files.'
-    dependsOn 'verifyPublicationDryRun'
-    repositoryDirectory = layout.buildDirectory.dir('release-dry-run/maven')
-    releaseContract = publishedReleaseContract
-    publicationVersion = project.version.toString()
-    licenseFile = layout.projectDirectory.file('LICENSE')
-}
-
-tasks.register('testPublicationDryRunFunctional', TestPublicationDryRunFunctional) {
-    group = 'verification'
-    description = 'Proves parallel repeat staging cleanup and literal-release verification.'
-    mustRunAfter tasks.named('testPublicationDryRunVerifier')
-    sourceDirectory = layout.projectDirectory
-    gradleUserHome = gradle.gradleUserHomeDir
-    gradleExecutable = new File(gradle.gradleHomeDir, 'bin/gradle').absolutePath
-    javaHome = System.getProperty('java.home')
-    scratchDirectory = layout.buildDirectory.dir('publication-functional')
-    outputs.upToDateWhen { false }
-}
-
-gradle.projectsEvaluated {
-    Task previousWrite = null
-    Task cleanup = rootProject.tasks.named('cleanReleaseDryRun').get()
-    publicationTaskPaths.each { taskPath ->
-        Task write = tasks.getByPath(taskPath)
-        write.dependsOn cleanup
-        if (previousWrite != null) {
-            write.mustRunAfter(previousWrite)
-        }
-        previousWrite = write
-    }
-}
-
-tasks.register(
-        'verifyPublicationDryRun',
-        VerifyPublicationDryRun) {
-    group = 'verification'
-    description = 'Verifies the exact public-module payload staged by publicationDryRun.'
+    description = 'Verifies the project invariants of the staged Maven repository.'
     dependsOn stageReleaseDryRun
     repositoryDirectory = layout.buildDirectory.dir('release-dry-run/maven')
-    releaseContract = publishedReleaseContract
+    releaseContract = publicationContract
     publicationVersion = project.version.toString()
     licenseFile = layout.projectDirectory.file('LICENSE')
     artifactManifest = layout.buildDirectory.file('release-evidence/artifact-manifest.tsv')
 }
 
-tasks.register('consumerSmoke', ConsumerSmokeTask) {
-    group = 'verification'
-    description = 'Builds and runs a clean Java 21 consumer from staged Maven artifacts only.'
-    dependsOn tasks.named('publicationDryRun')
-    templateDirectory = layout.projectDirectory.dir('consumer-smoke')
-    repositoryDirectory = layout.buildDirectory.dir('release-dry-run/maven')
-    publicationVersion = project.version.toString()
-    gradleExecutable = new File(gradle.gradleHomeDir, 'bin/gradle').absolutePath
-    javaHome = System.getProperty('java.home')
-    scratchDirectory = layout.buildDirectory.dir('consumer-smoke')
-    outputs.upToDateWhen { false }
+tasks.register('publicationDryRun') {
+    group = 'publishing'
+    description = 'Stages and verifies the local Maven repository.'
+    dependsOn verifyPublicationDryRun
 }
 
-tasks.register('printPublishedArtifacts', PrintPublishedArtifacts) {
+def consumerRoot = layout.buildDirectory.dir('consumer-smoke')
+def prepareConsumerSmoke = tasks.register('prepareConsumerSmoke', Sync) {
+    from layout.projectDirectory.dir('consumer-smoke')
+    into consumerRoot.map { it.dir('project') }
+}
+def cleanConsumerSmokeHome = tasks.register('cleanConsumerSmokeHome', Delete) {
+    delete consumerRoot.map { it.dir('gradle-home') }
+}
+tasks.register('consumerSmoke', Exec) {
+    group = 'verification'
+    description = 'Builds and runs one clean Java 21 consumer from staged artifacts only.'
+    dependsOn tasks.named('publicationDryRun'), prepareConsumerSmoke, cleanConsumerSmokeHome
+    executable new File(gradle.gradleHomeDir, 'bin/gradle')
+    args '-p', consumerRoot.get().dir('project').asFile.absolutePath,
+            'smoke', '--offline', '--no-daemon', '--no-build-cache',
+            '--no-configuration-cache', '--no-watch-fs', '--console=plain',
+            "--gradle-user-home=${consumerRoot.get().dir('gradle-home').asFile.absolutePath}",
+            "-Pmap.consumerRepository=${layout.buildDirectory.dir('release-dry-run/maven').get().asFile.absolutePath}",
+            "-Pmap.consumerVersion=${project.version}",
+            '-Dorg.gradle.java.installations.auto-download=false'
+    environment 'JAVA_HOME',
+            java21Launcher.get().metadata.installationPath.asFile.absolutePath
+}
+
+tasks.register('printPublishedArtifacts') {
     group = 'help'
     description = 'Prints the planned public Maven coordinates.'
-    coordinates = publishedProjects.collect { projectPath ->
-        "${project.group}:${project(projectPath).name}:${project.version}"
+    doLast {
+        publishedProjects.each { path ->
+            println "${project.group}:${project(path).name}:${project.version}"
+        }
     }
+}
+
+configurations {
+    offlineTooling {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+}
+dependencies {
+    offlineTooling 'org.gradle.toolchains:foojay-resolver:1.0.0'
+    // Spotless resolves the platform-specific Groovy-Eclipse launcher lazily at execution time.
+    offlineTooling 'com.diffplug.durian:durian-swt.os:4.3.1'
+    offlineTooling 'com.google.googlejavaformat:google-java-format:1.28.0'
+}
+
+def buildLogicCoordinates = layout.projectDirectory.file(
+        'build-logic/build/offline-repository/coordinates.txt')
+def writeBuildLogicCoordinates =
+        gradle.includedBuild('build-logic').task(':writeOfflineRepositoryCoordinates')
+def offlinePluginMarkers = [
+    'org.gradle.toolchains.foojay-resolver-convention|org.gradle.toolchains.foojay-resolver-convention.gradle.plugin|1.0.0|org.gradle.toolchains|foojay-resolver',
+    "com.diffplug.spotless|com.diffplug.spotless.gradle.plugin|${libs.versions.spotlessPlugin.get()}|com.diffplug.spotless|spotless-plugin-gradle",
+    "com.github.spotbugs|com.github.spotbugs.gradle.plugin|${libs.versions.spotbugsPlugin.get()}|com.github.spotbugs.snom|spotbugs-gradle-plugin",
+    "net.ltgt.errorprone|net.ltgt.errorprone.gradle.plugin|${libs.versions.errorpronePlugin.get()}|net.ltgt.gradle|gradle-errorprone-plugin",
+    "org.graalvm.buildtools.native|org.graalvm.buildtools.native.gradle.plugin|${libs.versions.graalvmNativePlugin.get()}|org.graalvm.buildtools|native-gradle-plugin"
+].asImmutable()
+
+def assembleOfflineRepository = tasks.register(
+        'assembleOfflineRepository', AssembleOfflineRepository) {
+    group = 'build setup'
+    description = 'Creates the reusable Maven repository for an isolated offline build.'
+    dependsOn writeBuildLogicCoordinates, projectCoordinateTasks
+    coordinates = []
+    pluginMarkers = offlinePluginMarkers
+    coordinateFiles.from(buildLogicCoordinates, projectCoordinateManifests)
+    artifactCache = layout.dir(providers.provider {
+        new File(gradle.gradleUserHomeDir, 'caches/modules-2/files-2.1')
+    })
+    outputDirectory = layout.buildDirectory.dir('offline-repository/maven')
+}
+
+tasks.register('offlineRepositoryVerification', OfflineBuildVerification) {
+    group = 'verification'
+    description = 'Runs qualityGate from copied sources, a clean Gradle home, and one repository.'
+    dependsOn assembleOfflineRepository
+    sourceDirectory = layout.projectDirectory
+    repositoryDirectory = assembleOfflineRepository.flatMap { it.outputDirectory }
+    gradleUserHome = layout.dir(providers.provider { gradle.gradleUserHomeDir })
+    javaHome = System.getProperty('java.home')
+    java21Home = java21Launcher.map { it.metadata.installationPath.asFile.absolutePath }
+    scratchDirectory = layout.dir(providers.provider {
+        file('/tmp/mundane-map-offline-verification')
+    })
+    outputs.upToDateWhen { false }
 }
