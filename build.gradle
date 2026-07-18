@@ -135,13 +135,14 @@ tasks.register('primeDtedCorpusDependencies') {
 }
 
 def publicationContract = [
-    'mundane-map-api|||io/github/mundanej/map/api/',
-    'mundane-map-core|mundane-map-api||io/github/mundanej/map/core/',
-    'mundane-map-awt|mundane-map-api,mundane-map-core||io/github/mundanej/map/awt/',
-    'mundane-map-io-shapefile|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/shapefile/',
-    'mundane-map-io-image|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/image/',
-    'mundane-map-io-dted|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/dted/',
-    'mundane-map-io-svg|mundane-map-api||io/github/mundanej/map/io/svg/'
+    'mundane-map-api||||io/github/mundanej/map/api/',
+    'mundane-map-core|mundane-map-api|||io/github/mundanej/map/core/',
+    'mundane-map-awt|mundane-map-api,mundane-map-core|||io/github/mundanej/map/awt/',
+    'mundane-map-io-shapefile|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/shapefile/',
+    'mundane-map-io-image|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/image/',
+    'mundane-map-io-dted|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/dted/',
+    'mundane-map-io-svg|mundane-map-api|||io/github/mundanej/map/io/svg/'
+    ,'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/'
 ].asImmutable()
 def releaseProjectByArtifact = publishedProjects.collectEntries { path ->
     [(project(path).name): path]
@@ -281,4 +282,19 @@ tasks.register('offlineRepositoryVerification', OfflineBuildVerification) {
         file('/tmp/mundane-map-offline-verification')
     })
     outputs.upToDateWhen { false }
+}
+
+def stageConsumerExternalDependencies = tasks.register('stageConsumerExternalDependencies', Copy) {
+    group = 'publishing'
+    description = 'Adds approved external adapter dependencies to the staged consumer repository.'
+    dependsOn tasks.named('publicationDryRun'), assembleOfflineRepository
+    from(assembleOfflineRepository.flatMap { it.outputDirectory }) {
+        include 'tools/jackson/core/jackson-core/3.1.5/**'
+        include 'tools/jackson/jackson-bom/3.1.5/**'
+    }
+    into layout.buildDirectory.dir('release-dry-run/maven')
+}
+
+tasks.named('consumerSmoke') {
+    dependsOn stageConsumerExternalDependencies
 }

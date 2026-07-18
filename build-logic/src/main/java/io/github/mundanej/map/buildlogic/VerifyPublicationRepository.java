@@ -152,15 +152,22 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 "Missing BSD-3-Clause POM license: " + pom);
 
         Map<String, Set<String>> dependencies = new HashMap<>();
+        Set<String> externalRuntime = new TreeSet<>();
         var nodes = project.getElementsByTagName("dependency");
         for (int index = 0; index < nodes.getLength(); index++) {
             Element dependency = (Element) nodes.item(index);
-            require(
-                    "io.github.mundanej".equals(childText(dependency, "groupId")),
-                    "External runtime dependency leaked into " + pom);
-            dependencies
-                    .computeIfAbsent(childText(dependency, "scope"), ignored -> new TreeSet<>())
-                    .add(childText(dependency, "artifactId"));
+            String group = childText(dependency, "groupId");
+            String artifact = childText(dependency, "artifactId");
+            String dependencyVersion = childText(dependency, "version");
+            String scope = childText(dependency, "scope");
+            if ("io.github.mundanej".equals(group)) {
+                dependencies.computeIfAbsent(scope, ignored -> new TreeSet<>()).add(artifact);
+            } else {
+                require(
+                        "runtime".equals(scope),
+                        "External dependency must be runtime scoped in " + pom);
+                externalRuntime.add(group + ":" + artifact + ":" + dependencyVersion);
+            }
         }
         require(
                 dependencies.getOrDefault("compile", Set.of()).equals(contract.compileDependencies()),
@@ -171,6 +178,9 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         require(
                 dependencies.keySet().stream().allMatch(scope -> scope.equals("compile") || scope.equals("runtime")),
                 "Unexpected dependency scope in " + pom + ": " + dependencies);
+        require(
+                externalRuntime.equals(contract.externalRuntimeDependencies()),
+                "External runtime dependency mismatch in " + pom + ": " + externalRuntime);
     }
 
     private static void verifyArchive(
@@ -254,11 +264,11 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         Map<String, Contract> result = new LinkedHashMap<>();
         for (String row : rows) {
             String[] fields = row.split("\\|", -1);
-            require(fields.length == 4, "Invalid publication contract row: " + row);
+            require(fields.length == 5, "Invalid publication contract row: " + row);
             Contract previous =
                     result.put(
                             fields[0],
-                            new Contract(set(fields[1]), set(fields[2]), fields[3]));
+                            new Contract(set(fields[1]), set(fields[2]), set(fields[3]), fields[4]));
             require(previous == null, "Duplicate publication contract: " + fields[0]);
         }
         return result;
@@ -292,5 +302,6 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
     private record Contract(
             Set<String> compileDependencies,
             Set<String> runtimeDependencies,
+            Set<String> externalRuntimeDependencies,
             String packageRoot) {}
 }

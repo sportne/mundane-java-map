@@ -28,6 +28,8 @@ import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.RasterImages;
 import io.github.mundanej.map.io.dted.DtedFiles;
 import io.github.mundanej.map.io.dted.DtedOpenOptions;
+import io.github.mundanej.map.io.geojson.GeoJsonFiles;
+import io.github.mundanej.map.io.geojson.GeoJsonOpenOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
@@ -57,6 +59,7 @@ public final class MundaneMapConsumerSmoke {
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
         testSvg();
+        testGeoJson();
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
             testShapefile(directory);
@@ -80,6 +83,44 @@ public final class MundaneMapConsumerSmoke {
                                 .getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         io.github.mundanej.map.api.MarkerPlacement.centeredScreen(18));
         require(symbol.role() == io.github.mundanej.map.api.SymbolRole.MARKER, "SVG role changed");
+    }
+
+    private static void testGeoJson() {
+        byte[] document =
+                """
+                {"type":"FeatureCollection","features":[
+                  {"type":"Feature","id":"consumer-point","geometry":{
+                    "type":"Point","coordinates":[-77.0365,38.8977]},
+                    "properties":{"name":"White House","active":true}}
+                ]}
+                """
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        FeatureSource source =
+                GeoJsonFiles.open(
+                        document,
+                        new SourceIdentity("consumer-geojson", "Consumer GeoJSON"),
+                        GeoJsonOpenOptions.defaults(),
+                        CancellationToken.none());
+        try {
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), CancellationToken.none());
+            try {
+                require(cursor.advance(), "GeoJSON source was empty");
+                FeatureRecord record = cursor.current();
+                require(record.id().equals("string:consumer-point"), "unexpected GeoJSON id");
+                require(
+                        record.attributes().get("name").equals("White House"),
+                        "unexpected GeoJSON property");
+                PointGeometry point = (PointGeometry) record.geometry();
+                require(
+                        point.coordinate().equals(new Coordinate(-77.0365, 38.8977)),
+                        "unexpected GeoJSON point");
+                require(!cursor.advance(), "GeoJSON source had an extra record");
+            } finally {
+                cursor.close();
+            }
+        } finally {
+            source.close();
+        }
     }
 
     private static void renderVector(CrsRegistry registry, SymbolRendererRegistry renderers)

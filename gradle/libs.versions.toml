@@ -9,6 +9,7 @@ checkstyle = "13.4.2"
 errorpronePlugin = "5.1.0"
 errorprone = "2.49.0"
 graalvmNativePlugin = "1.1.0"
+jacksonCore = "3.1.5"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -16,10 +17,10 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
+jackson-core = { module = "tools.jackson.core:jackson-core", version.ref = "jacksonCore" }
 
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotlessPlugin" }
 spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugsPlugin" }
 errorprone = { id = "net.ltgt.errorprone", version.ref = "errorpronePlugin" }
 graalvm-native = { id = "org.graalvm.buildtools.native", version.ref = "graalvmNativePlugin" }
-

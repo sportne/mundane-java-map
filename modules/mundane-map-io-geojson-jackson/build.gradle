@@ -1,0 +1,69 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+def jacksonProvenance = configurations.create('jacksonProvenance') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation libs.jackson.core
+    add(jacksonProvenance.name, 'tools.jackson.core:jackson-core:3.1.5@pom')
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+def jacksonRuntime = configurations.runtimeClasspath.incoming.artifactView {
+    componentFilter { identifier -> identifier.displayName.startsWith('tools.jackson') }
+}.files
+
+def verifyJacksonDependency = tasks.register('verifyJacksonDependency') {
+    group = 'verification'
+    description = 'Verifies the approved Jackson runtime graph and Maven Central checksums.'
+    inputs.files(jacksonRuntime, jacksonProvenance)
+    doLast {
+        def runtimeFiles = jacksonRuntime.files
+        if (runtimeFiles.size() != 1
+                || runtimeFiles.iterator().next().name != 'jackson-core-3.1.5.jar') {
+            throw new GradleException("Unexpected Jackson runtime artifacts: ${runtimeFiles*.name}")
+        }
+        def pomFiles = jacksonProvenance.files
+        if (pomFiles.size() != 1) {
+            throw new GradleException("Expected one Jackson provenance POM, found ${pomFiles.size()}")
+        }
+        def sha256 = { File file ->
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance('SHA-256')
+            file.withInputStream { input ->
+                byte[] buffer = new byte[8192]
+                for (int count; (count = input.read(buffer)) >= 0;) {
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().encodeHex().toString()
+        }
+        def expectedJar = '9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2'
+        def expectedPoms = [
+            // Maven Central provenance POM.
+            'd05c1f9f436866306d26b8f482ce49507d2a5f5e0816e3a07f35096b9f83e1ba',
+            // Deterministic dependency-only POM produced by assembleOfflineRepository.
+            '66c69e101da792141869b08c4dbfd369c359d17ffaed57f5d7e9eba2b1c8ec0c'
+        ] as Set
+        if (sha256(runtimeFiles.iterator().next()) != expectedJar
+                || !expectedPoms.contains(sha256(pomFiles.iterator().next()))) {
+            throw new GradleException('Jackson dependency checksum mismatch')
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyJacksonDependency
+}
+
+description = 'Optional bounded RFC 7946 support using Jackson Core.'

@@ -25,6 +25,7 @@ dependencies {
     implementation "io.github.mundanej:mundane-map-io-image:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-dted:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-svg:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-geojson-jackson:${mapVersion}"
 }
 
 application {
@@ -45,9 +46,6 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
                             "consumer resolved a dependency project component: ${identifier}")
                 }
             } else if (identifier instanceof ModuleComponentIdentifier) {
-                if (identifier.group != 'io.github.mundanej') {
-                    throw new GradleException("consumer resolved an external component: ${identifier}")
-                }
                 modules.add("${identifier.group}:${identifier.module}:${identifier.version}")
             } else {
                 throw new GradleException("consumer resolved an unsupported component: ${identifier}")
@@ -61,6 +59,9 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
             "io.github.mundanej:mundane-map-io-image:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-dted:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-svg:${mapVersion}"
+            ,"io.github.mundanej:mundane-map-io-geojson-jackson:${mapVersion}"
+            ,"tools.jackson.core:jackson-core:3.1.5"
+            ,"tools.jackson:jackson-bom:3.1.5"
         ] as Set
         if (modules != expected) {
             throw new GradleException(

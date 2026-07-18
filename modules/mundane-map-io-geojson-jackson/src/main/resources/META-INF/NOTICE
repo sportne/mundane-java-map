@@ -1,0 +1,14 @@
+mundane-map-io-geojson-jackson third-party notice
+
+This module depends on Jackson Core 3.1.5 (tools.jackson.core:jackson-core),
+licensed under the Apache License, Version 2.0. Jackson Core contains
+FastDoubleParser and Schubfach code under their respective MIT licenses.
+
+The dependency is resolved from Maven Central and is not copied into this
+module's JAR. Its upstream LICENSE and NOTICE files remain in the separately
+resolved Jackson Core artifact.
+
+Upstream project: https://github.com/FasterXML/jackson-core
+Artifact: https://repo.maven.apache.org/maven2/tools/jackson/core/jackson-core/3.1.5/
+JAR SHA-256: 9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2
+POM SHA-256: d05c1f9f436866306d26b8f482ce49507d2a5f5e0816e3a07f35096b9f83e1ba

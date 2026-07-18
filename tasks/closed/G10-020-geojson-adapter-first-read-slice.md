@@ -1,6 +1,6 @@
 # G10-020 — GeoJSON adapter and first read slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-002
 Gate: G10
 Type: AFK
@@ -52,3 +52,7 @@ git diff --check
 
 The module must deliver working behavior in the same change that registers it. Keep Jackson private
 and construct the exact pinned factory directly.
+
+Completed with independent review. The adapter uses a bounded two-phase root dispatch, primitive
+coordinate accumulation, exact snapshot ownership, locked/checksummed Jackson provenance, and a
+staged-artifact consumer smoke.

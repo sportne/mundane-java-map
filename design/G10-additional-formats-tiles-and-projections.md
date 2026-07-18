@@ -409,8 +409,8 @@ cursor ends. The exact Jackson 3.1.5 builder recipe is:
 
 ```text
 JsonFactory.builder()
-  disable TokenStreamFactory.Feature.CHARSET_DETECTION
-  disable TokenStreamFactory.Feature.CANONICALIZE_PROPERTY_NAMES
+  enable TokenStreamFactory.Feature.CHARSET_DETECTION
+  enable TokenStreamFactory.Feature.CANONICALIZE_PROPERTY_NAMES
   disable TokenStreamFactory.Feature.INTERN_PROPERTY_NAMES
   disable StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION
   disable StreamReadFeature.USE_FAST_DOUBLE_PARSER
@@ -437,10 +437,42 @@ JsonFactory.builder()
 Construction tests read every configured feature back and fail closed on a version/API mismatch; a
 future dependency upgrade must explicitly classify every newly added read feature before use. The
 non-recycling pool creates operation-owned buffers and retains none after parser close. Property-name
-canonicalization/interning is off, input content is excluded from locations, and the project parses
+interning is off, input content is excluded from locations, and the project parses
 raw numeric token text with its own bounded JDK conversions. Parsers are closed once with the first
 failure primary. There is no factory cache, recycler cache, shared symbol table, or retained untrusted
 name outside the charged operation/source values.
+
+Executable G10-020 evidence corrected one draft assumption: Jackson Core 3.1.5 requires
+`CHARSET_DETECTION` for its byte-array bootstrap and otherwise dereferences an absent encoding before
+tokenization. The adapter therefore strictly validates the entire bounded snapshot as UTF-8 and
+rejects every alternate BOM/encoding before parser construction, then leaves this one bootstrap flag
+enabled to retain byte-accurate token fences. This is not format auto-acceptance; project validation
+remains authoritative and tests pin rejection before Jackson for non-UTF-8 input.
+
+The same executable check found that Jackson 3.1.5 selects its character parser, with unavailable byte
+offsets, when property-name canonicalization is disabled. The operation-owned factory therefore
+enables canonicalization while leaving interning disabled. Its symbol table is reachable only for the
+bounded parser operation and is discarded on close; no static factory, recycler, thread-local, or
+cross-document symbol table retains untrusted names. Tests pin the UTF-8 byte parser and exact fences.
+
+G10-020 review also made root dispatch explicitly two-phase. The first bounded pass validates and
+counts the entire root while retaining only byte fences for deferred members; after the exact `type`
+is known, one bounded replay interprets only the members defined for that root kind. A member named
+`geometry`, `properties`, `coordinates`, or `features` is therefore a skipped foreign member when it
+belongs to another root kind, independent of member order, without retaining a JSON tree.
+
+The owned-byte counter starts with the retained snapshot and prospectively charges member/index work,
+decoded characters, coordinate storage, property slots, feature entries, and temporary ID state.
+Caller byte arrays are checked for cancellation, input size, and initial ownership before the
+defensive copy. Project token/depth/name/string/number counters or stable constraint translation make
+the public limit diagnostic authoritative even when Jackson detects the same one-over boundary.
+Local-file opening allocates the exact size-checked snapshot once and probes one additional stream
+byte, avoiding a growing buffer plus full-copy peak. Coordinate accumulation is primitive and charges
+every simultaneously live backing array before growth or final compaction; an exact/one-under test
+pins that conservative peak.
+The dependency-verification task accepts the recorded Maven Central POM digest and, only inside the
+isolated repository lane, the separately pinned digest of the build's deterministic dependency-only
+POM normalization; the resolved JAR has one accepted upstream digest in every lane.
 
 ### Exact document and object profile
 
