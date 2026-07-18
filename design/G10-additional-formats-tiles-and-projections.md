@@ -543,6 +543,14 @@ The exact 2D geometry profile is:
 | `Polygon` | one or more rings, each at least four positions with exact first/last closure | `PolygonGeometry` |
 | `MultiPolygon` | one or more polygons, each satisfying the Polygon rule | `MultiPolygonGeometry` |
 
+G10-021 implements this table without a second geometry model. Coordinate values are reparsed from
+the already validated member fence directly into charged primitive accumulators; line, ring, and
+polygon fencepost arrays preserve encounter order. Ring closure is exact after zero normalization,
+the first Polygon ring remains exterior, later rings remain holes, and MultiPolygon polygon/ring
+offsets are retained without orientation repair. The rendering check exercises all six resulting
+source geometry families through the EPSG:4326 AWT layer with tolerant marker, color/area, and
+hole-background assertions.
+
 Every position has exactly longitude then latitude. A third/fourth ordinate is unsupported rather
 than silently discarded. Coordinate tokens must be finite when converted to `double`; longitude is
 inclusive `[-180,180]`, latitude inclusive `[-90,90]`, and negative zero is canonicalized to positive
@@ -2810,8 +2818,9 @@ G10 preserves the smallest useful boundaries after reviewing all seven decisions
 
 - SVG import produces ordinary Level 1 symbols; it does not create an SVG scene graph or arbitrary
   document engine.
-- The approved GeoJSON profile isolates its one Jackson parser/generator while the public source remains
-  dependency-free; G10-002 approves that dependency for G10-020, but no adapter module exists yet.
+- The approved GeoJSON profile isolates its one Jackson parser/generator while the public source
+  remains dependency-free; G10-020 and G10-021 now provide its published bounded reader for all six
+  approved 2D geometry families.
 - GeoTIFF keeps bounded image and elevation entry points in one format module without becoming a TIFF,
   CRS, or GDAL framework.
 - The proposed GeoPackage and MBTiles profiles would remain separate optional adapters; G10-039's

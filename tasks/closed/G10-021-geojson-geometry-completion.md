@@ -1,6 +1,6 @@
 # G10-021 — GeoJSON geometry completion
 
-Status: Proposed
+Status: Complete
 Depends on: G10-020
 Gate: G10
 Type: AFK

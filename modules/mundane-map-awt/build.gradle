@@ -6,6 +6,7 @@ plugins {
 dependencies {
     api project(':modules:mundane-map-api')
     api project(':modules:mundane-map-core')
+    testImplementation project(':modules:mundane-map-io-geojson-jackson')
     testImplementation project(':modules:mundane-map-io-image')
 }
 

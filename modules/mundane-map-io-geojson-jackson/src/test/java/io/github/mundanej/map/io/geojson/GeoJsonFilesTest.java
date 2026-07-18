@@ -18,8 +18,12 @@ import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
+import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.math.BigDecimal;
@@ -250,9 +254,10 @@ class GeoJsonFilesTest {
         assertFailure("{\"type\":\"Point\",\"coordinates\":[181,0]}", "GEOJSON_VALUE_INVALID");
         assertFailure("{\"type\":\"Point\",\"coordinates\":[]}", "GEOJSON_PROFILE_UNSUPPORTED");
         assertFailure("{\"type\":\"Feature\",\"geometry\":null}", "GEOJSON_VALUE_INVALID");
-        assertFailure(
-                "{\"type\":\"GeometryCollection\",\"geometries\":[]}",
-                "GEOJSON_PROFILE_UNSUPPORTED");
+        assertGeometryCollectionUnsupported("{\"type\":\"GeometryCollection\",\"geometries\":[]}");
+        assertGeometryCollectionUnsupported(
+                "{\"type\":\"Feature\",\"geometry\":{\"type\":\"GeometryCollection\","
+                        + "\"geometries\":[]},\"properties\":null}");
         assertFailure(
                 "{\"type\":\"FeatureCollection\",\"features\":[]} trailing",
                 "GEOJSON_JSON_INVALID");
@@ -352,19 +357,147 @@ class GeoJsonFilesTest {
     @Test
     void enforcesConservativePrimitiveAccumulatorPeakAtExactBoundary() {
         String document = "{\"type\":\"MultiPoint\",\"coordinates\":[[0,0],[1,1]]}";
-        assertLimit(document, multiPointLimits(290), "ownedBytes");
+        assertLimit(document, multiPointLimits(354), "ownedBytes");
 
         FeatureSource exact =
                 GeoJsonFiles.open(
                         json(document),
                         IDENTITY,
-                        new GeoJsonOpenOptions(multiPointLimits(291), FeatureSourceLimits.LEVEL_1),
+                        new GeoJsonOpenOptions(multiPointLimits(355), FeatureSourceLimits.LEVEL_1),
                         CancellationToken.none());
         assertEquals(
                 2,
                 ((MultiPointGeometry) only(exact, FeatureQuery.all()).geometry())
                         .coordinates()
                         .size());
+        exact.close();
+    }
+
+    @Test
+    void readsEveryApprovedPackedGeometryWithOrderAndHoles() {
+        LineStringGeometry line =
+                assertInstanceOf(
+                        LineStringGeometry.class,
+                        geometry("{\"type\":\"LineString\",\"coordinates\":[[-2,0],[3,1]]}"));
+        assertArrayEquals(new double[] {-2, 0, 3, 1}, line.coordinates().toArray());
+
+        MultiLineStringGeometry multiLine =
+                assertInstanceOf(
+                        MultiLineStringGeometry.class,
+                        geometry(
+                                "{\"type\":\"MultiLineString\",\"coordinates\":["
+                                        + "[[0,0],[1,1]],[[2,2],[3,3],[4,4]]]}"));
+        assertArrayEquals(new int[] {0, 2, 5}, multiLine.partOffsets());
+        assertArrayEquals(
+                new double[] {0, 0, 1, 1, 2, 2, 3, 3, 4, 4}, multiLine.coordinates().toArray());
+
+        PolygonGeometry polygon =
+                assertInstanceOf(
+                        PolygonGeometry.class,
+                        geometry(
+                                "{\"type\":\"Polygon\",\"coordinates\":["
+                                        + "[[0,0],[8,0],[8,8],[0,8],[0,0]],"
+                                        + "[[2,2],[2,4],[4,4],[4,2],[2,2]]]}"));
+        assertEquals(1, polygon.holes().size());
+        assertArrayEquals(
+                new double[] {2, 2, 2, 4, 4, 4, 4, 2, 2, 2}, polygon.holes().get(0).toArray());
+
+        MultiPolygonGeometry multiPolygon =
+                assertInstanceOf(
+                        MultiPolygonGeometry.class,
+                        geometry(
+                                "{\"type\":\"MultiPolygon\",\"coordinates\":["
+                                        + "[[[0,0],[3,0],[3,3],[0,3],[0,0]]],"
+                                        + "[[[5,5],[9,5],[9,9],[5,9],[5,5]],"
+                                        + "[[6,6],[6,7],[7,7],[7,6],[6,6]]]]}"));
+        assertArrayEquals(new int[] {0, 5, 10, 15}, multiPolygon.ringOffsets());
+        assertArrayEquals(new int[] {0, 1, 3}, multiPolygon.polygonRingOffsets());
+        assertEquals(new Envelope(0, 0, 9, 9), multiPolygon.envelope());
+    }
+
+    @Test
+    void allSixGeometryFamiliesQueryInFeatureOrder() {
+        FeatureSource source =
+                open(
+                        json(
+                                """
+                                {"type":"FeatureCollection","features":[
+                                  {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":null},
+                                  {"type":"Feature","geometry":{
+                                    "type":"MultiPoint","coordinates":[[1,1],[2,2]]},"properties":null},
+                                  {"type":"Feature","geometry":{
+                                    "type":"LineString","coordinates":[[3,3],[4,4]]},"properties":null},
+                                  {"type":"Feature","geometry":{
+                                    "type":"MultiLineString","coordinates":[[[5,5],[6,6]]]},"properties":null},
+                                  {"type":"Feature","geometry":{
+                                    "type":"Polygon","coordinates":[[[7,7],[8,7],[8,8],[7,7]]]},"properties":null},
+                                  {"type":"Feature","geometry":{
+                                    "type":"MultiPolygon","coordinates":[
+                                      [[[9,9],[10,9],[10,10],[9,9]]]]},"properties":null}
+                                ]}
+                                """));
+        FeatureCursor cursor = source.openCursor(FeatureQuery.all(), CancellationToken.none());
+        List<Class<?>> types = new java.util.ArrayList<>();
+        while (cursor.advance()) {
+            types.add(cursor.current().geometry().getClass());
+        }
+        assertEquals(
+                List.of(
+                        PointGeometry.class,
+                        MultiPointGeometry.class,
+                        LineStringGeometry.class,
+                        MultiLineStringGeometry.class,
+                        PolygonGeometry.class,
+                        MultiPolygonGeometry.class),
+                types);
+        cursor.close();
+        FeatureRecord bounded =
+                only(
+                        source,
+                        new FeatureQuery(
+                                Optional.of(new Envelope(8.5, 8.5, 10.5, 10.5)),
+                                AttributeSelection.NONE,
+                                Optional.empty()));
+        assertEquals("record:5", bounded.id());
+        assertInstanceOf(MultiPolygonGeometry.class, bounded.geometry());
+        source.close();
+    }
+
+    @Test
+    void rejectsMalformedNestedGeometryWithoutPublishingARecord() {
+        assertFailure("{\"type\":\"LineString\",\"coordinates\":[[0,0]]}", "GEOJSON_VALUE_INVALID");
+        assertFailure(
+                "{\"type\":\"MultiLineString\",\"coordinates\":[[]]}",
+                "GEOJSON_PROFILE_UNSUPPORTED");
+        assertFailure(
+                "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[1,0],[1,1],[0,1]]]}",
+                "GEOJSON_VALUE_INVALID");
+        assertFailure(
+                "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[1,0],[0,0]]]}",
+                "GEOJSON_VALUE_INVALID");
+        assertFailure(
+                "{\"type\":\"MultiPolygon\",\"coordinates\":[[]]}", "GEOJSON_PROFILE_UNSUPPORTED");
+        assertFailure(
+                "{\"type\":\"LineString\",\"coordinates\":[[0,0,1],[1,1]]}",
+                "GEOJSON_PROFILE_UNSUPPORTED");
+    }
+
+    @Test
+    void countsBothPolygonsAndRingsAgainstTheMultipartLimit() {
+        String document =
+                "{\"type\":\"MultiPolygon\",\"coordinates\":["
+                        + "[[[0,0],[1,0],[1,1],[0,0]]],"
+                        + "[[[2,2],[3,2],[3,3],[2,2]]]]}";
+        GeoJsonLimits oneUnder = geometryLimits(3);
+        assertLimit(document, oneUnder, "parts");
+
+        FeatureSource exact =
+                GeoJsonFiles.open(
+                        json(document),
+                        IDENTITY,
+                        new GeoJsonOpenOptions(geometryLimits(4), FeatureSourceLimits.LEVEL_1),
+                        CancellationToken.none());
+        assertInstanceOf(MultiPolygonGeometry.class, only(exact, FeatureQuery.all()).geometry());
         exact.close();
     }
 
@@ -389,12 +522,27 @@ class GeoJsonFilesTest {
         return ((PointGeometry) record.geometry()).coordinate();
     }
 
+    private static io.github.mundanej.map.api.Geometry geometry(String document) {
+        FeatureSource source = open(json(document));
+        try {
+            return only(source, FeatureQuery.all()).geometry();
+        } finally {
+            source.close();
+        }
+    }
+
     private static void assertFailure(String document, String code) {
         SourceException failure = assertThrows(SourceException.class, () -> open(json(document)));
         assertEquals(code, failure.terminal().code());
         assertEquals(
                 "geojson", failure.terminal().location().orElseThrow().component().orElseThrow());
         assertEquals("geojson-test", failure.terminal().sourceId());
+    }
+
+    private static void assertGeometryCollectionUnsupported(String document) {
+        SourceException failure = assertThrows(SourceException.class, () -> open(json(document)));
+        assertEquals("GEOJSON_PROFILE_UNSUPPORTED", failure.terminal().code());
+        assertEquals(Map.of("construct", "geometryCollection"), failure.terminal().context());
     }
 
     private static void assertLimit(String document, GeoJsonLimits limits, String expectedLimit) {
@@ -420,6 +568,11 @@ class GeoJsonFilesTest {
 
     private static GeoJsonLimits multiPointLimits(long ownedBytes) {
         return new GeoJsonLimits(100, 8, 100, 10, 1, 2, 2, 1, 1, 1, 11, 10, 25, 10, ownedBytes, 1);
+    }
+
+    private static GeoJsonLimits geometryLimits(int parts) {
+        return new GeoJsonLimits(
+                1_000, 16, 1_000, 100, 1, 20, 20, parts, 1, 1, 32, 100, 500, 32, 10_000, 1);
     }
 
     private static byte[] json(String value) {

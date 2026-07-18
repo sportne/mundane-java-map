@@ -10,8 +10,12 @@ import io.github.mundanej.map.api.DiagnosticSeverity;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
@@ -59,7 +63,8 @@ final class GeoJsonReader {
         if (offset != 0) {
             warnings.add("GEOJSON_UTF8_BOM_IGNORED", "A leading UTF-8 BOM was ignored");
         }
-        State state = new State(identity.id(), limits, cancellation, offset, true, bytes.length);
+        State state =
+                new State(bytes, identity.id(), limits, cancellation, offset, true, bytes.length);
         try (JsonParser parser =
                 GeoJsonFactories.reader(limits)
                         .createParser(
@@ -94,7 +99,15 @@ final class GeoJsonReader {
             SourceIdentity identity,
             GeoJsonLimits limits,
             CancellationToken cancellation) {
-        State state = new State(identity.id(), limits, cancellation, 0, true, 0);
+        State state =
+                new State(
+                        bytes,
+                        identity.id(),
+                        limits,
+                        cancellation,
+                        entry.startInclusive(),
+                        true,
+                        0);
         try (JsonParser parser =
                 GeoJsonFactories.reader(limits)
                         .createParser(
@@ -173,6 +186,9 @@ final class GeoJsonReader {
             replay.physicalFeature();
             ParsedFeature parsed = parseDeferredFeature(bytes, start, end, replay, warnings);
             entries = List.of(parsed.withFence(start, end));
+        } else if (type.equals("GeometryCollection")) {
+            unsupported(state.sourceId, "geometryCollection");
+            throw new AssertionError();
         } else if (isGeometryType(type)) {
             GeometryData geometry = parseDeferredGeometry(bytes, start, end, state.replay(start));
             entries = List.of(new Entry(start, end, geometry.geometry().envelope(), 0, true, true));
@@ -369,7 +385,10 @@ final class GeoJsonReader {
                         duplicate(state.sourceId);
                     }
                     fields.coordinatesSeen = true;
-                    fields.coordinates = parseCoordinates(value, parser, state);
+                    int start = state.absoluteOffset(parser.currentTokenLocation().getByteOffset());
+                    skipValue(value, parser, state);
+                    int end = state.absoluteOffset(parser.currentLocation().getByteOffset());
+                    fields.coordinates = new ValueFence(start, end);
                 }
                 case "bbox" -> parseBbox(value, parser, state);
                 case "crs" -> unsupported(state.sourceId, "legacyCrs");
@@ -379,9 +398,13 @@ final class GeoJsonReader {
         return finishGeometry(type, fields, state);
     }
 
-    private static GeometryData finishGeometry(String type, GeometryFields fields, State state) {
+    private static GeometryData finishGeometry(String type, GeometryFields fields, State state)
+            throws JacksonException {
         if (type == null) {
             invalid(state.sourceId, "type", "missing");
+        }
+        if ("GeometryCollection".equals(type)) {
+            unsupported(state.sourceId, "geometryCollection");
         }
         if (!fields.coordinatesSeen) {
             invalid(state.sourceId, "coordinates", "missing");
@@ -389,23 +412,30 @@ final class GeoJsonReader {
         if (fields.coordinates == null) {
             invalid(state.sourceId, "coordinates", "null");
         }
+        State coordinates = state.replay(fields.coordinates.startInclusive());
+        Geometry geometry;
+        try (JsonParser parser = parser(state.bytes, fields.coordinates, state.limits)) {
+            JsonToken token = nextRequired(parser, coordinates, "coordinates", "missing");
+            geometry = parseGeometryCoordinates(type, token, parser, coordinates);
+            requireEnd(parser, coordinates);
+        }
+        state.absorb(coordinates);
+        return new GeometryData(geometry);
+    }
+
+    private static Geometry parseGeometryCoordinates(
+            String type, JsonToken token, JsonParser parser, State state) throws JacksonException {
         return switch (type) {
-            case "Point" -> {
-                if (!fields.coordinates.point()) {
-                    unsupported(state.sourceId, "positionArity");
-                }
-                double[] packed = fields.coordinates.packed();
-                yield new GeometryData(new PointGeometry(new Coordinate(packed[0], packed[1])));
-            }
-            case "MultiPoint" -> {
-                if (fields.coordinates.point()) {
-                    unsupported(state.sourceId, "positionArity");
-                }
-                yield new GeometryData(
-                        new MultiPointGeometry(CoordinateSequence.of(fields.coordinates.packed())));
-            }
-            case "LineString", "MultiLineString", "Polygon", "MultiPolygon" ->
-                    unsupportedGeometry(state.sourceId, type);
+            case "Point" -> parsePoint(token, parser, state);
+            case "MultiPoint" ->
+                    new MultiPointGeometry(
+                            sequence(parseSequence(token, parser, state, 1, false), state));
+            case "LineString" ->
+                    new LineStringGeometry(
+                            sequence(parseSequence(token, parser, state, 2, false), state));
+            case "MultiLineString" -> parseMultiLineString(token, parser, state);
+            case "Polygon" -> parsePolygon(token, parser, state);
+            case "MultiPolygon" -> parseMultiPolygon(token, parser, state);
             case "GeometryCollection" -> {
                 unsupported(state.sourceId, "geometryCollection");
                 yield null;
@@ -417,55 +447,187 @@ final class GeoJsonReader {
         };
     }
 
-    private static CoordinatesData parseCoordinates(JsonToken token, JsonParser parser, State state)
+    private static PointGeometry parsePoint(JsonToken token, JsonParser parser, State state)
             throws JacksonException {
         requireCurrent(token, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
-        JsonToken first = nextRequired(parser, state, "coordinates", "cardinality");
-        if (first == JsonToken.END_ARRAY) {
+        double[] position = parsePosition(parser, state, 1);
+        state.owned(2L * Double.BYTES);
+        return new PointGeometry(new Coordinate(position[0], position[1]));
+    }
+
+    private static double[] parseSequence(
+            JsonToken token, JsonParser parser, State state, int minimum, boolean closed)
+            throws JacksonException {
+        DoubleAccumulator values = new DoubleAccumulator(state);
+        parseSequenceInto(token, parser, state, minimum, closed, values, new int[] {0});
+        return values.toArray();
+    }
+
+    private static int parseSequenceInto(
+            JsonToken token,
+            JsonParser parser,
+            State state,
+            int minimum,
+            boolean closed,
+            DoubleAccumulator values,
+            int[] geometryPositions)
+            throws JacksonException {
+        requireCurrent(token, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
+        int start = values.positionCount();
+        JsonToken item = nextRequired(parser, state, "coordinates", "cardinality");
+        while (item != JsonToken.END_ARRAY) {
+            requireCurrent(item, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
+            parsePositionInto(parser, state, ++geometryPositions[0], values);
+            item = nextRequired(parser, state, "coordinates", "cardinality");
+        }
+        int count = values.positionCount() - start;
+        if (count == 0) {
             unsupported(state.sourceId, "emptyGeometry");
         }
-        if (first.isNumeric()) {
-            double x = coordinateNumber(parser, state, true);
-            JsonToken second = nextRequired(parser, state, "coordinates", "cardinality");
-            if (!second.isNumeric()) {
-                invalid(state.sourceId, "coordinates", "cardinality");
-            }
-            double y = coordinateNumber(parser, state, false);
-            if (next(parser, state) != JsonToken.END_ARRAY) {
-                unsupported(state.sourceId, "positionArity");
-            }
-            state.owned(16);
-            state.position(1);
-            return new CoordinatesData(true, new double[] {x, y});
+        if (count < minimum) {
+            invalid(state.sourceId, "coordinates", "cardinality");
         }
-        if (first != JsonToken.START_ARRAY) {
+        if (closed && !values.isClosed(start, values.positionCount())) {
+            invalid(state.sourceId, "coordinates", "closure");
+        }
+        return count;
+    }
+
+    private static double[] parsePosition(JsonParser parser, State state, int geometryPositions)
+            throws JacksonException {
+        JsonToken xToken = nextRequired(parser, state, "coordinates", "cardinality");
+        if (xToken == JsonToken.END_ARRAY) {
+            unsupported(state.sourceId, "emptyGeometry");
+        }
+        if (!xToken.isNumeric()) {
             invalid(state.sourceId, "coordinates", "kind");
         }
-        DoubleAccumulator ordinates = new DoubleAccumulator(state);
-        int count = 0;
-        JsonToken positionStart = first;
-        while (positionStart == JsonToken.START_ARRAY) {
-            JsonToken xToken = nextRequired(parser, state, "coordinates", "cardinality");
-            if (!xToken.isNumeric()) {
-                invalid(state.sourceId, "coordinates", "kind");
-            }
-            double x = coordinateNumber(parser, state, true);
-            JsonToken yToken = nextRequired(parser, state, "coordinates", "cardinality");
-            if (!yToken.isNumeric()) {
-                invalid(state.sourceId, "coordinates", "cardinality");
-            }
-            double y = coordinateNumber(parser, state, false);
-            if (next(parser, state) != JsonToken.END_ARRAY) {
-                unsupported(state.sourceId, "positionArity");
-            }
-            ordinates.add(x, y);
-            state.position(++count);
-            positionStart = next(parser, state);
+        double x = coordinateNumber(parser, state, true);
+        JsonToken yToken = nextRequired(parser, state, "coordinates", "cardinality");
+        if (!yToken.isNumeric()) {
+            invalid(state.sourceId, "coordinates", "cardinality");
         }
-        if (positionStart != JsonToken.END_ARRAY) {
+        double y = coordinateNumber(parser, state, false);
+        finishPosition(parser, state, geometryPositions);
+        return new double[] {x, y};
+    }
+
+    private static void parsePositionInto(
+            JsonParser parser, State state, int geometryPositions, DoubleAccumulator values)
+            throws JacksonException {
+        JsonToken xToken = nextRequired(parser, state, "coordinates", "cardinality");
+        if (xToken == JsonToken.END_ARRAY) {
+            unsupported(state.sourceId, "emptyGeometry");
+        }
+        if (!xToken.isNumeric()) {
             invalid(state.sourceId, "coordinates", "kind");
         }
-        return new CoordinatesData(false, ordinates.toArray());
+        double x = coordinateNumber(parser, state, true);
+        JsonToken yToken = nextRequired(parser, state, "coordinates", "cardinality");
+        if (!yToken.isNumeric()) {
+            invalid(state.sourceId, "coordinates", "cardinality");
+        }
+        double y = coordinateNumber(parser, state, false);
+        finishPosition(parser, state, geometryPositions);
+        values.add(x, y);
+    }
+
+    private static void finishPosition(JsonParser parser, State state, int geometryPositions)
+            throws JacksonException {
+        if (next(parser, state) != JsonToken.END_ARRAY) {
+            unsupported(state.sourceId, "positionArity");
+        }
+        state.position(geometryPositions);
+    }
+
+    private static MultiLineStringGeometry parseMultiLineString(
+            JsonToken token, JsonParser parser, State state) throws JacksonException {
+        requireCurrent(token, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
+        DoubleAccumulator values = new DoubleAccumulator(state);
+        IntAccumulator offsets = new IntAccumulator(state);
+        offsets.add(0);
+        int[] geometryPositions = {0};
+        JsonToken part = nextRequired(parser, state, "coordinates", "cardinality");
+        while (part != JsonToken.END_ARRAY) {
+            state.part();
+            parseSequenceInto(part, parser, state, 2, false, values, geometryPositions);
+            offsets.add(values.positionCount());
+            part = nextRequired(parser, state, "coordinates", "cardinality");
+        }
+        if (offsets.size() == 1) {
+            unsupported(state.sourceId, "emptyGeometry");
+        }
+        int[] packedOffsets = offsets.toArray();
+        state.owned(Math.multiplyExact((long) packedOffsets.length, Integer.BYTES));
+        return MultiLineStringGeometry.of(sequence(values.toArray(), state), packedOffsets);
+    }
+
+    private static PolygonGeometry parsePolygon(JsonToken token, JsonParser parser, State state)
+            throws JacksonException {
+        requireCurrent(token, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
+        List<CoordinateSequence> rings = new ArrayList<>();
+        int[] geometryPositions = {0};
+        JsonToken ring = nextRequired(parser, state, "coordinates", "cardinality");
+        while (ring != JsonToken.END_ARRAY) {
+            state.part();
+            DoubleAccumulator values = new DoubleAccumulator(state);
+            parseSequenceInto(ring, parser, state, 4, true, values, geometryPositions);
+            rings.add(sequence(values.toArray(), state));
+            ring = nextRequired(parser, state, "coordinates", "cardinality");
+        }
+        if (rings.isEmpty()) {
+            unsupported(state.sourceId, "emptyGeometry");
+        }
+        state.owned(Math.multiplyExact((long) rings.size(), 8));
+        return new PolygonGeometry(rings.get(0), rings.subList(1, rings.size()));
+    }
+
+    private static MultiPolygonGeometry parseMultiPolygon(
+            JsonToken token, JsonParser parser, State state) throws JacksonException {
+        requireCurrent(token, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
+        DoubleAccumulator values = new DoubleAccumulator(state);
+        IntAccumulator ringOffsets = new IntAccumulator(state);
+        IntAccumulator polygonOffsets = new IntAccumulator(state);
+        ringOffsets.add(0);
+        polygonOffsets.add(0);
+        int[] geometryPositions = {0};
+        int rings = 0;
+        JsonToken polygon = nextRequired(parser, state, "coordinates", "cardinality");
+        while (polygon != JsonToken.END_ARRAY) {
+            state.part();
+            requireCurrent(polygon, JsonToken.START_ARRAY, state.sourceId, "coordinates", "kind");
+            int polygonRings = 0;
+            JsonToken ring = nextRequired(parser, state, "coordinates", "cardinality");
+            while (ring != JsonToken.END_ARRAY) {
+                state.part();
+                parseSequenceInto(ring, parser, state, 4, true, values, geometryPositions);
+                ringOffsets.add(values.positionCount());
+                polygonRings++;
+                rings++;
+                ring = nextRequired(parser, state, "coordinates", "cardinality");
+            }
+            if (polygonRings == 0) {
+                unsupported(state.sourceId, "emptyGeometry");
+            }
+            polygonOffsets.add(rings);
+            polygon = nextRequired(parser, state, "coordinates", "cardinality");
+        }
+        if (polygonOffsets.size() == 1) {
+            unsupported(state.sourceId, "emptyGeometry");
+        }
+        int[] packedRingOffsets = ringOffsets.toArray();
+        int[] packedPolygonOffsets = polygonOffsets.toArray();
+        state.owned(
+                Math.multiplyExact(
+                        (long) packedRingOffsets.length + packedPolygonOffsets.length,
+                        Integer.BYTES));
+        return MultiPolygonGeometry.of(
+                sequence(values.toArray(), state), packedRingOffsets, packedPolygonOffsets);
+    }
+
+    private static CoordinateSequence sequence(double[] packed, State state) {
+        state.owned(Math.multiplyExact((long) packed.length, Double.BYTES));
+        return CoordinateSequence.of(packed);
     }
 
     private static Map<String, Object> parseProperties(
@@ -713,11 +875,6 @@ final class GeoJsonReader {
         };
     }
 
-    private static GeometryData unsupportedGeometry(String sourceId, String type) {
-        unsupported(sourceId, "geometry:" + type);
-        return null;
-    }
-
     private static int bomOffset(byte[] bytes) {
         return bytes.length >= 3
                         && (bytes[0] & 0xff) == 0xef
@@ -934,24 +1091,6 @@ final class GeoJsonReader {
 
     private record GeometryData(Geometry geometry) {}
 
-    private static final class CoordinatesData {
-        private final boolean point;
-        private final double[] packed;
-
-        private CoordinatesData(boolean point, double[] packed) {
-            this.point = point;
-            this.packed = packed;
-        }
-
-        private boolean point() {
-            return point;
-        }
-
-        private double[] packed() {
-            return packed;
-        }
-    }
-
     private static final class DoubleAccumulator {
         private final State state;
         private double[] values;
@@ -973,11 +1112,52 @@ final class GeoJsonReader {
             values[size++] = y;
         }
 
+        private int positionCount() {
+            return size / 2;
+        }
+
+        private boolean isClosed(int startPosition, int endPosition) {
+            int first = Math.multiplyExact(startPosition, 2);
+            int last = Math.multiplyExact(endPosition - 1, 2);
+            return Double.compare(values[first], values[last]) == 0
+                    && Double.compare(values[first + 1], values[last + 1]) == 0;
+        }
+
         private double[] toArray() {
             if (size == values.length) {
                 return values;
             }
             state.owned(Math.multiplyExact((long) size, Double.BYTES));
+            return java.util.Arrays.copyOf(values, size);
+        }
+    }
+
+    private static final class IntAccumulator {
+        private final State state;
+        private int[] values;
+        private int size;
+
+        private IntAccumulator(State state) {
+            this.state = state;
+            values = new int[8];
+            state.owned(8L * Integer.BYTES);
+        }
+
+        private void add(int value) {
+            if (size == values.length) {
+                int nextLength = Math.multiplyExact(values.length, 2);
+                state.owned(Math.multiplyExact((long) nextLength, Integer.BYTES));
+                values = java.util.Arrays.copyOf(values, nextLength);
+            }
+            values[size++] = value;
+        }
+
+        private int size() {
+            return size;
+        }
+
+        private int[] toArray() {
+            state.owned(Math.multiplyExact((long) size, Integer.BYTES));
             return java.util.Arrays.copyOf(values, size);
         }
     }
@@ -993,10 +1173,11 @@ final class GeoJsonReader {
 
     private static final class GeometryFields {
         private boolean coordinatesSeen;
-        private CoordinatesData coordinates;
+        private ValueFence coordinates;
     }
 
     private static final class State {
+        private final byte[] bytes;
         private final String sourceId;
         private final GeoJsonLimits limits;
         private final CancellationToken cancellation;
@@ -1009,17 +1190,20 @@ final class GeoJsonReader {
         private int members;
         private int physicalFeatures;
         private int positions;
+        private int parts;
         private int properties;
         private int characters;
         private int polls;
 
         private State(
+                byte[] bytes,
                 String sourceId,
                 GeoJsonLimits limits,
                 CancellationToken cancellation,
                 int baseOffset,
                 boolean countLexical,
                 long initialOwnedBytes) {
+            this.bytes = bytes;
             this.sourceId = sourceId;
             this.limits = limits;
             this.cancellation = cancellation;
@@ -1029,7 +1213,17 @@ final class GeoJsonReader {
         }
 
         private State replay(int offset) {
-            return new State(sourceId, limits, cancellation, offset, false, ownedBytes);
+            State replay =
+                    new State(bytes, sourceId, limits, cancellation, offset, false, ownedBytes);
+            replay.positions = positions;
+            replay.parts = parts;
+            return replay;
+        }
+
+        private void absorb(State parsed) {
+            ownedBytes = parsed.ownedBytes;
+            positions = parsed.positions;
+            parts = parsed.parts;
         }
 
         private int absoluteOffset(long relative) {
@@ -1065,6 +1259,7 @@ final class GeoJsonReader {
             if (++members > limits.maximumObjectMembers()) {
                 throw limit(sourceId, "objectMembers", members, limits.maximumObjectMembers());
             }
+            owned(16);
         }
 
         private int physicalFeature() {
@@ -1091,6 +1286,13 @@ final class GeoJsonReader {
                         limits.maximumPositionsPerGeometry());
             }
             owned(16);
+        }
+
+        private void part() {
+            if (++parts > limits.maximumParts()) {
+                throw limit(sourceId, "parts", parts, limits.maximumParts());
+            }
+            owned(4);
         }
 
         private void property() {
