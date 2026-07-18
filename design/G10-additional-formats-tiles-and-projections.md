@@ -1251,9 +1251,13 @@ and the Linux JVM evidence below cannot be described as Native Image evidence. A
 a new HITL packaging task that proves the exact native library, extraction/static-link policy,
 reachability, cleanup, and format behavior without weakening the Level 1 rules.
 
-Embedded database BLOBs establish the first real non-file consumers of G6's complete image profile;
-G10-006 adds HTTP response bodies as a third. Shared working card G10-039 therefore adds one
-toolkit-neutral synchronous helper to `mundane-map-io-image`, and every tile adapter reuses it:
+### Dependency-neutral encoded-image helper (G10-039)
+
+G10-006 independently authorizes G10-039 as the first non-file consumer boundary for G6. The helper
+depends only on the completed G6 image contracts/implementation and G10-006; it does not depend on,
+or imply approval of, the optional SQLite/Xerial profile. If G10-004 and G11-004 are later approved,
+their embedded tile BLOB consumers reuse the same helper. G10-039 adds one toolkit-neutral synchronous
+operation to `mundane-map-io-image`:
 
 ```text
 RasterImages.decode(byte[] encodedBytes, SourceIdentity identity,
@@ -1680,27 +1684,25 @@ writable private temporary directory. These are test-only process/classpath cont
 loader seam or supported incomplete dependency graph. No Native Image, new
 corpus command, public network, benchmark threshold, or Level 1 release record is changed.
 
-After G10-004, create one shared working prerequisite; after the global G11-004 adapter approval,
-create five SQLite-format cards:
+G10-039 is the dependency-neutral prerequisite authorized by G10-006. After G10-004 and the global
+G11-004 adapter approval, create five SQLite-format cards that consume it:
 
-1. `G10-039` — add the exact G6 encoded-byte helper with PNG/JPEG success, mismatch, malformed,
-   cancellation, and limit tests; create no module and publish no format behavior.
-2. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
+1. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
    connection policy, and deliver catalog plus Point/MultiPoint feature query/render, publication, and
    staged-consumer behavior.
-3. `G10-041` — complete line/polygon multipart geometry, attributes, CRS handling, query projection,
+2. `G10-041` — complete line/polygon multipart geometry, attributes, CRS handling, query projection,
    viewer behavior, and feature hostile-input coverage.
-4. `G10-042` — deliver GeoPackage PNG/JPEG tile matrices, sparse reads, bounded decoded cache,
+3. `G10-042` — deliver GeoPackage PNG/JPEG tile matrices, sparse reads, bounded decoded cache,
    tolerant rendering, independent fixtures, and complete container hardening.
-5. `G10-043` — create `mundane-map-io-mbtiles-xerial` with metadata, TMS conversion, PNG/JPEG sparse
+4. `G10-043` — create `mundane-map-io-mbtiles-xerial` with metadata, TMS conversion, PNG/JPEG sparse
    raster reads, viewer, publication, and staged-consumer behavior.
-6. `G10-044` — close MBTiles limits/diagnostics/cancellation/cache/mutation/corrupt-database cases,
+5. `G10-044` — close MBTiles limits/diagnostics/cancellation/cache/mutation/corrupt-database cases,
    add independent fixtures, and record the exact Linux JVM support evidence for both adapters.
 
-The exact graph is: G10-039 follows G10-004; G10-040 follows both G10-004 and G11-004; G10-041 follows
-G10-040; G10-042 follows G10-041 and G10-039; G10-043 follows G10-039 and G11-004; and G10-044 follows
-G10-042 and G10-043. G10-039 is also a prerequisite of G10-060. The format branches are logically
-independent after the shared decoder, but dependency
+The exact graph is: G10-039 follows G6-004 and G10-006; G10-040 follows both G10-004 and G11-004;
+G10-041 follows G10-040; G10-042 follows G10-041 and G10-039; G10-043 follows G10-039 and G11-004;
+and G10-044 follows G10-042 and G10-043. G10-039 is also a prerequisite of G10-060. The format
+branches are logically independent after the shared decoder, but dependency
 verification, settings/inventory, publication, consumer, task-index, and roadmap changes remain under
 one integration owner. No module is created by the profile decision or shared helper card.
 
@@ -2505,6 +2507,10 @@ G10-060 depends on G10-039; G10-061 and G10-062 follow serially because they sha
 cache, fixtures, module, and publication files. G10-039 is also the shared prerequisite for G10-042 and
 G10-043; a single integration owner lands it before the independent tile-format branches. No module or
 network request is created by G10-006 itself.
+
+Completion record (2026-07-17): G10-006 adopts this explicit acquisition design and G10-039 plus
+G10-060 through G10-062 as its later implementation sequence. The design task creates no module,
+network request, public service default, dependency, or Native Image claim.
 
 ## Additional-projection evidence decision (G10-007)
 

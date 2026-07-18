@@ -1,6 +1,6 @@
 # G10-006 — Remote tile-source first slice
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G10
 Type: AFK
@@ -12,10 +12,11 @@ PNG/JPEG tile region into a detached raster source without performing network I/
 
 ## Context
 
-Level 1 provides raster decoding, requests, caches, diagnostics, and explicit lifecycle; the approved
-G10-004 profile defines the shared encoded-byte decode surface. A remote adapter must not block Swing
-painting or hide network, authentication, cache, cancellation, or JDK HTTP-client lifetime behind
-generic raster behavior.
+Level 1 provides raster decoding, requests, caches, diagnostics, and explicit lifecycle, but its image
+source exposes only local-file opening. This task independently authorizes the dependency-neutral
+G10-039 encoded-byte helper before HTTP or optional SQLite consumers. A remote adapter must not block
+Swing painting or hide network, authentication, cache, cancellation, or JDK HTTP-client lifetime
+behind generic raster behavior.
 
 ## Scope
 
@@ -72,3 +73,7 @@ AFK design checkpoint: the task has no maintainer-only policy choice. The approv
 no credentials and no default service; consumers separately own service selection, permission,
 attribution, rate limits, and cleartext opt-in. Later implementation never contacts a public server in
 automated tests.
+
+The design was completed on 2026-07-17. It records the explicit acquisition boundary and later
+working slices without creating a module, performing network I/O, changing production code, or adding
+a dependency. The focused API check, `qualityGate`, and `git diff --check` passed before closure.

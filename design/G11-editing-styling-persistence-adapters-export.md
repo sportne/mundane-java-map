@@ -1580,17 +1580,19 @@ run or claimed for these adapters unless a later task changes `not-targeted` wit
 No new G11 implementation card is created. The accepted work uses G10's graph:
 
 ```text
-G10-004 -> G10-039
+G6-004 + G10-006 -> G10-039
 G10-004 + G11-004 -> G10-040 -> G10-041
 G10-041 + G10-039 -> G10-042
 G10-039 + G11-004 -> G10-043
 G10-042 + G10-043 -> G10-044
 ```
 
-After G10-039 and this decision, the GeoPackage and MBTiles working roots are logically independent.
-They are not path-safe in parallel when they both touch settings, the project inventory, root Gradle,
-publication/consumer fixtures, the task index, or roadmap; one integrator serializes those shared
-changes. Deferred candidates add no tasks and cannot be reported as blocked work.
+G10-039 may land before G10-004 or G11-004; those decisions do not own or block the dependency-neutral
+G6 helper. After G10-039 and this decision, the GeoPackage and MBTiles working roots consume it and
+are logically independent. They are not path-safe in parallel when they both touch settings, the
+project inventory, root Gradle, publication/consumer fixtures, the task index, or roadmap; one
+integrator serializes those shared changes. Deferred candidates add no tasks and cannot be reported
+as blocked work.
 
 The named HITL checkpoint is **G11 optional-adapter disposition approval**. A maintainer approves the
 one `ACCEPT` and three `DEFER` outcomes, exact Xerial coordinate/classifiers/checksums, two-module and

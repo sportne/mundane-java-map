@@ -366,7 +366,8 @@ separately decomposed.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native
-  Image claim, or default public service URL.
+  Image claim, or default public service URL. G10-006 completes this design and independently
+  authorizes the shared G10-039 image helper before G10-060, without waiting on SQLite/Xerial work.
 - Additional projection work is currently deferred: no third CRS, formula, PROJ adapter, or raster
   warp is selected. A later proposal must supply one complete workflow/domain/accuracy/format/platform/
   conformance evidence packet, then choose `CORE_DIRECT` or `PROJ_REQUIRED` explicitly before creating
