@@ -375,8 +375,9 @@ separately decomposed.
 
 ### G11 — Editing, styling, persistence, adapters, and export
 
-- Editing uses an application-owned, point-first immutable-record session: atomic revision-checked
-  transactions, bounded delta undo/redo, and explicit same-CRS vertex/segment snapping precede any
+- G11-001 is complete as a design decision. Editing uses an application-owned, point-first immutable-
+  record session: atomic revision-checked transactions, bounded delta undo/redo, and explicit same-CRS
+  vertex/segment snapping precede any
   mutable workflow. Read-only sources are never written or disguised as edit state. The approved
   design decomposes implementation into session, history, snapping, and point-tool vertical slices.
 - Use one immutable binding-owned portrayal with closed fixed/categorical/graduated role selectors,

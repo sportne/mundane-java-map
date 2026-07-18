@@ -1,6 +1,6 @@
 # G11-001 — Editing, undo, and snapping model
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G11
 Type: HITL
@@ -15,7 +15,7 @@ explicit same-CRS vertex/segment query before production editing work begins.
 
 Level 1 public values are immutable, sources are read-only, and interaction tools have explicit
 lifecycle. The authoritative architecture is the
-[G11 editing design](../design/G11-editing-styling-persistence-adapters-export.md#editing-undo-and-snapping-model-g11-001),
+[G11 editing design](../../design/G11-editing-styling-persistence-adapters-export.md#editing-undo-and-snapping-model-g11-001),
 which preserves those properties instead of making geometries, layers, or source adapters mutable.
 
 ## Scope
@@ -72,3 +72,8 @@ git diff --check
 HITL checkpoint: **G11 editing command and snapping profile approval**. The maintainer approves the
 immutable-record session, transaction/history/event semantics, same-CRS snap policy, point-tool scope,
 and four-slice decomposition before public API implementation.
+
+The maintainer approved the checkpoint on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. The design fixes the complete point-first contract and later slice
+graph without creating production APIs, implementation cards, modules, or dependencies. Focused
+API/core/AWT checks, `qualityGate`, and `git diff --check` passed before closure.

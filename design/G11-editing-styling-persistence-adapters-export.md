@@ -622,6 +622,12 @@ grid/intersection/midpoint/angle snapping, multi-selection, format writers, tran
 sessions, and JTS coupling remain out of scope. These omissions are deliberate boundaries, not empty
 extension points.
 
+Decision record (2026-07-17): **G11 editing command and snapping profile approval** is approved
+through the maintainer's advance HITL authorization for dependency-free remaining tasks. Approval
+selects the owner-thread immutable-record session, bounded delta history, same-CRS snap resolver,
+point-only controller, and G11-010 through G11-013 exactly as specified above. It creates no API,
+production code, module, implementation task file, source write-back path, or external dependency.
+
 ## Thematic portrayal and point-label placement (G11-002)
 
 ### One binding-owned portrayal, not a styling language
