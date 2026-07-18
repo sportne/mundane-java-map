@@ -380,7 +380,8 @@ separately decomposed.
   vertex/segment snapping precede any
   mutable workflow. Read-only sources are never written or disguised as edit state. The approved
   design decomposes implementation into session, history, snapping, and point-tool vertical slices.
-- Use one immutable binding-owned portrayal with closed fixed/categorical/graduated role selectors,
+- G11-002 is complete as a design decision. Use one immutable binding-owned portrayal with closed
+  fixed/categorical/graduated role selectors,
   exact canonical-scalar matching, and projected source attributes. Place bounded name/text-attribute
   labels for singular points in one deterministic global pass: AWT owns logical `SansSerif` metrics
   and drawing through one fixed logical metric profile shared by paint and export capture, while

@@ -1,6 +1,6 @@
 # G11-002 — Thematic styling and label placement
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G11
 Type: HITL
@@ -78,3 +78,8 @@ HITL checkpoint: **G11 thematic and point-label profile approval**. The maintain
 matching/fallback, the singular-point text/font/position profile, global placement/paint order,
 compatibility-label migration, annotation-only interaction policy, limits/failures, visual examples,
 and the five-slice decomposition before G11-020 is created.
+
+The maintainer approved the checkpoint on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. The design fixes the complete portrayal/point-label contract and
+later slice graph without creating production APIs, implementation cards, modules, or dependencies.
+Focused API/core/AWT checks, `qualityGate`, and `git diff --check` passed before closure.

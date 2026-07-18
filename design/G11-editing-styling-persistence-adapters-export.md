@@ -983,6 +983,12 @@ scenarios, and five-slice decomposition before G11-020 is created. The result is
 that makes attribute-driven cartography and collision-aware labels useful without turning a small map
 library into a stylesheet, expression, font, or cache framework.
 
+Decision record (2026-07-17): **G11 thematic and point-label profile approval** is approved through
+the maintainer's advance HITL authorization for dependency-free remaining tasks. Approval selects the
+closed selectors, singular-point label profile, deterministic global placement, compatibility
+migration, and G11-020 through G11-024 exactly as specified above. It creates no production API,
+module, later task file, styling language, label cache, font dependency, or external dependency.
+
 ## Workspace persistence profile (G11-003)
 
 ### Portable configuration boundary
