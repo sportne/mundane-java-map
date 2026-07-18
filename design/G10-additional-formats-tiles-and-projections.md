@@ -2662,6 +2662,11 @@ publication/consumer/native evidence. Paths touching API/core registry files, fo
 architecture inventories, publication, native inventory, index, and roadmap are serialized under one
 integration owner. No task identifiers are reserved while the decision remains deferred.
 
+Decision record (2026-07-17): **G10 additional-projection evidence decision** is approved through the
+maintainer's advance HITL authorization for dependency-free remaining tasks with outcome `DEFER`.
+The repository supplies no complete evidence packet, so this decision creates no definition, alias,
+projection, dependency, module, implementation task, raster-warp promise, or Native Image claim.
+
 ### G10 holistic simplicity closeout
 
 G10 preserves the smallest useful boundaries after reviewing all seven decisions together:

@@ -1,6 +1,6 @@
 # G10-007 — Additional projection selection
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G10
 Type: HITL
@@ -69,3 +69,7 @@ git diff --check
 HITL checkpoint: **G10 additional-projection evidence decision**. Approval records `DEFER`; a future
 maintainer may reopen selection only with the complete evidence packet. `DEFER` is a completed design
 decision, not a blocker and not a claim that EPSG:4326/EPSG:3857 cover every application.
+
+The maintainer approved `DEFER` on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. No production code, module, implementation card, or dependency was
+created. Focused API/core checks, `qualityGate`, and `git diff --check` passed before closure.

@@ -225,7 +225,7 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
 | [G10-005 — GPX and KML source profiles](closed/G10-005-gpx-and-kml-source-profiles.md) | Complete | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
 | [G10-006 — Remote tile source first slice](closed/G10-006-remote-tile-source-first-slice.md) | Complete | AFK | G8-004 | Design explicit bounded HTTP XYZ acquisition into detached raster snapshots. |
-| [G10-007 — Additional projection selection](G10-007-additional-projection-selection.md) | Proposed | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |
+| [G10-007 — Additional projection selection](closed/G10-007-additional-projection-selection.md) | Complete | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |
 
 ### G11 — Editing, styling, persistence, adapters, and export
 
