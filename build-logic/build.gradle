@@ -35,6 +35,7 @@ tasks.withType(Test).configureEach {
 def resolvedCoordinates = providers.provider {
     Map<String, Set<String>> coordinates = [:].withDefault { [] as Set }
     configurations.matching { it.canBeResolved }.each { configuration ->
+        configuration.resolve()
         configuration.incoming.resolutionResult.allComponents.each { component ->
             if (component.id instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
                 String owner =

@@ -18,6 +18,7 @@ allprojects { candidate ->
     def coordinates = candidate.providers.provider {
         Map<String, Set<String>> resolved = [:].withDefault { [] as Set }
         candidate.configurations.matching { it.canBeResolved }.each { configuration ->
+            configuration.resolve()
             configuration.incoming.resolutionResult.allComponents.each { component ->
                 if (component.id instanceof ModuleComponentIdentifier) {
                     String owner =
@@ -236,7 +237,6 @@ configurations {
     }
 }
 dependencies {
-    offlineTooling 'org.gradle.toolchains:foojay-resolver:1.0.0'
     // Spotless resolves the platform-specific Groovy-Eclipse launcher lazily at execution time.
     offlineTooling 'com.diffplug.durian:durian-swt.os:4.3.1'
     offlineTooling 'com.google.googlejavaformat:google-java-format:1.28.0'
