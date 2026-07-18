@@ -800,6 +800,14 @@ fallback. Validation, source, cancellation, encoding, write, force, move, or cle
 an existing target unchanged when replacement has not occurred; the primary failure retains later
 cursor/generator/file cleanup failures as suppressed exceptions.
 
+G10-022 implements this contract with a direct non-recycling Jackson generator and a bounded owned
+UTF-8 sink. It validates the canonical EPSG:4326 source, scalar/numeric/geometry profile, counters,
+and full encoded document before creating a same-directory temporary file. The public facade borrows
+one all-features cursor without closing the source, and the package-private filesystem boundary exists
+only so force, atomic-move, and cleanup outcomes can be tested deterministically. Exact-byte repeat,
+semantic reopen, all-geometry, cancellation, source-lifecycle, limit, and old-target preservation
+tests cover the observable slice.
+
 `GeoJsonWriteLimits` is immutable. Count/character fields are positive `int`; byte fields are positive
 `long`. `coordinatesPerGeometry <= totalCoordinates`, `propertiesPerFeature <= totalProperties`, and
 `scalarCharacters <= aggregateCharacters`. Owned bytes must be at least the checked sum of output

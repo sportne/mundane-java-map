@@ -2,6 +2,8 @@ package io.github.mundanej.map.io.geojson;
 
 import tools.jackson.core.StreamReadConstraints;
 import tools.jackson.core.StreamReadFeature;
+import tools.jackson.core.StreamWriteConstraints;
+import tools.jackson.core.StreamWriteFeature;
 import tools.jackson.core.TokenStreamFactory;
 import tools.jackson.core.json.JsonFactory;
 import tools.jackson.core.json.JsonFactoryBuilder;
@@ -49,6 +51,22 @@ final class GeoJsonFactories {
         JsonFactory factory = builder.build();
         verify(factory, limits);
         return factory;
+    }
+
+    static JsonFactory writer(GeoJsonWriteLimits limits) {
+        StreamWriteConstraints constraints =
+                StreamWriteConstraints.builder()
+                        .maxNestingDepth(limits.maximumNestingDepth())
+                        .build();
+        return JsonFactory.builder()
+                .disable(StreamWriteFeature.AUTO_CLOSE_CONTENT)
+                .disable(StreamWriteFeature.AUTO_CLOSE_TARGET)
+                .disable(StreamWriteFeature.FLUSH_PASSED_TO_STREAM)
+                .disable(StreamWriteFeature.WRITE_BIGDECIMAL_AS_PLAIN)
+                .disable(StreamWriteFeature.USE_FAST_DOUBLE_WRITER)
+                .recyclerPool(JsonRecyclerPools.nonRecyclingPool())
+                .streamWriteConstraints(constraints)
+                .build();
     }
 
     private static void verify(JsonFactory factory, GeoJsonLimits limits) {

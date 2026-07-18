@@ -13,7 +13,7 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 
-/** Opens bounded local or caller-provided RFC 7946 documents. */
+/** Opens bounded RFC 7946 documents and writes deterministic local FeatureCollections. */
 public final class GeoJsonFiles {
     private GeoJsonFiles() {}
 
@@ -44,6 +44,26 @@ public final class GeoJsonFiles {
         }
         byte[] bytes = read(path, identity, options.formatLimits(), cancellation);
         return openOwned(bytes, identity, options, cancellation);
+    }
+
+    /**
+     * Writes a source as one bounded deterministic RFC 7946 FeatureCollection.
+     *
+     * <p>The source is borrowed and remains open. Its sole borrowed cursor is always closed. The
+     * target is replaced atomically only after the complete document has been validated and
+     * encoded.
+     *
+     * @param target local regular-file target
+     * @param source borrowed source with canonical EPSG:4326 metadata
+     * @param limits immutable write ceilings
+     * @param cancellation cancellation signal
+     */
+    public static void write(
+            Path target,
+            FeatureSource source,
+            GeoJsonWriteLimits limits,
+            CancellationToken cancellation) {
+        GeoJsonWriter.write(target, source, limits, cancellation);
     }
 
     /**

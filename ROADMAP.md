@@ -363,10 +363,11 @@ separately decomposed.
   are complete: the published optional adapter reads all six approved 2D geometry families through
   locked and checksum-verified Jackson Core, with packed multipart storage, stable malformed-shape
   outcomes, tolerant source-backed rendering, architecture, offline publication, and consumer
-  evidence. Writer, hardening, fixture/viewer, and native work remains serially decomposed as G10-022
-  through G10-025.
-  The writer consumes one canonical EPSG:4326 FeatureSource, rejects silent data loss, and performs
-  deterministic bounded atomic local replacement; generic JSON serialization remains outside scope.
+  evidence. G10-022 is also complete: its writer borrows one canonical EPSG:4326 FeatureSource,
+  rejects silent data loss, produces bounded deterministic UTF-8, and performs same-directory atomic
+  local replacement with stable failure and cleanup behavior. Hardening, fixture/viewer, and native
+  work remains serially decomposed as G10-023 through G10-025; generic JSON serialization remains
+  outside scope.
 - G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
   boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only

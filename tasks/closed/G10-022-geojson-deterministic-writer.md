@@ -1,6 +1,6 @@
 # G10-022 — GeoJSON deterministic writer
 
-Status: Proposed
+Status: Complete
 Depends on: G10-021
 Gate: G10
 Type: AFK
