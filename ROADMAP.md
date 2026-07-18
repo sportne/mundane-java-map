@@ -348,19 +348,15 @@ separately decomposed.
   explicit raster/elevation routes, and nine later vertical slices. No GeoTIFF module exists yet.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
-- GeoJSON through one bounded optional Jackson Core adapter; a strict JDK-only Classic GeoTIFF reader
-  with explicit raster/elevation entry points; separate strict GeoPackage 1.4.0 and raster MBTiles 1.3
-  adapters; separate JDK-only GPX 1.1 waypoint/track and static KML 2.2 geometry sources; remote tile
-  sources; and an evidence gate for any additional projection.
+- G10-002 remains Proposed. Its draft evaluates one bounded optional Jackson Core GeoJSON adapter;
+  neither that dependency nor a GeoJSON module is approved.
+- G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
+  boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
-- SQLite-backed formats use separate `mundane-map-io-geopackage-xerial` and
-  `mundane-map-io-mbtiles-xerial` Optional adapters with pinned code-only/Linux-native classifiers,
-  direct read-only construction, and no JDBC type leakage. Their first claim is Java 21 on Linux
-  x86-64/glibc JVM only; Native Image and other platforms require new evidence. See the
-  [G10 task set](tasks/README.md#g10--additional-formats-tiles-and-projections).
-- GPX and KML remain independent modules even though both use directly constructed JDK StAX. Their
-  first profiles are bounded UTF-8 local-file snapshots yielding unstyled EPSG:4326 features; GPX
+- The approved GPX and KML designs keep their future modules independent even though both use directly
+  constructed JDK StAX. Their first profiles are bounded UTF-8 local-file snapshots yielding unstyled
+  EPSG:4326 features; GPX
   routes/extensions and KML network, temporal, region, altitude, style, and presentation semantics
   remain explicit rejects or warned omissions rather than implicit behavior.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
@@ -396,12 +392,12 @@ separately decomposed.
   replacement; edit/history, thematic labels,
   data, limits, caches, diagnostics, credentials, remote sources, and later formats remain excluded.
   G11-030 through G11-034 deliver reader, writer, session, viewer, and hardening/native/consumer slices.
-- Approve only the two bounded Xerial-backed GeoPackage/MBTiles Optional adapters, with exact
-  classifiers and a Java 21 Linux x86-64/glibc 2.35+ JVM-only claim. JTS, PROJ, and GDAL remain
-  explicitly deferred until their recorded capability/evidence gates are met; no generic adapter API
-  or empty module is reserved.
-- Export one detached logical-screen viewport as canonical static SVG 1.1. API-owned immutable
-  snapshot values cross from synchronous AWT capture into the existing AWT-free SVG module, which
+- G11-004 remains Proposed. Its draft evaluates whether to accept bounded Xerial-backed GeoPackage/
+  MBTiles adapters and defer JTS, PROJ, and GDAL; no adapter disposition, classifier, platform claim,
+  generic adapter API, or module is approved.
+- G11-005 is complete as a design decision. Export one detached logical-screen viewport as canonical
+  static SVG 1.1. API-owned immutable snapshot values cross from synchronous AWT capture into the
+  existing AWT-free SVG module, which
   reuses only the approved core symbol algorithms. The profile supports the six vector geometry
   families, exact built-in vector symbol trees, hatches, and already measured/placed point labels;
   raster/elevation layers, raster icons, custom/legacy symbols, overlays, metadata, image fallback,

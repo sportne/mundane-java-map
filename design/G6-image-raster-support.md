@@ -1567,10 +1567,11 @@ quality gate, and whitespace passed on 2026-07-15. Corpus, rendering-regression,
 publication, and consumer lanes remained separate and did not run. The maintainer's advance HITL
 approval accepts this Linux-only evidence and closes G6 without adding another production abstraction.
 
-## Approved Level 2 embedded-byte extension
+## Proposed Level 2 embedded-byte extension
 
-G10-004 and G10-006 establish GeoPackage, MBTiles, and HTTP XYZ as demonstrated consumers of encoded
-PNG/JPEG byte values. Shared implementation card G10-039 adds `RasterImages.decode(byte[], SourceIdentity,
+G10-006 establishes HTTP XYZ as a demonstrated consumer of encoded PNG/JPEG byte values. If approved,
+G10-004 would add GeoPackage and MBTiles as consumers of those
+values. Shared implementation card G10-039 adds `RasterImages.decode(byte[], SourceIdentity,
 EncodedRasterDecodeOptions, EncodedRasterDecoderRegistry, CancellationToken)`, returning one detached
 native-size `RgbaPixelBuffer`. The helper defensively snapshots bytes and reuses the complete G6
 container validation, limits, accounting, cancellation, and explicit decoder path. An optional

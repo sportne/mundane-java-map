@@ -220,9 +220,9 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G10-001 — Secure SVG import profile and first slice](closed/G10-001-secure-svg-import-profile-and-first-slice.md) | Complete | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
-| [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
+| [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Decide whether to approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](closed/G10-003-geotiff-raster-and-elevation-profile-decision.md) | Complete | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
-| [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
+| [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide whether to approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
 | [G10-005 — GPX and KML source profiles](closed/G10-005-gpx-and-kml-source-profiles.md) | Complete | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
 | [G10-006 — Remote tile source first slice](closed/G10-006-remote-tile-source-first-slice.md) | Complete | AFK | G8-004 | Design explicit bounded HTTP XYZ acquisition into detached raster snapshots. |
 | [G10-007 — Additional projection selection](closed/G10-007-additional-projection-selection.md) | Complete | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |
@@ -234,5 +234,5 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | [G11-001 — Editing, undo, and snapping model](closed/G11-001-editing-undo-and-snapping-model.md) | Complete | HITL | G8-004 | Approve a point-first immutable edit session, bounded history, and same-CRS snapping. |
 | [G11-002 — Thematic styling and label placement](closed/G11-002-thematic-styling-and-label-placement.md) | Complete | HITL | G8-004 | Approve closed thematic selectors and one bounded deterministic point-label pass. |
 | [G11-003 — Workspace persistence profile](closed/G11-003-workspace-persistence-profile.md) | Complete | HITL | G8-004 | Approve strict local XML v1 persistence with explicit application openers and atomic replacement. |
-| [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-003, G10-004, G10-007, G11-001 | Accept two Xerial format adapters; defer JTS, PROJ, and GDAL. |
-| [G11-005 — Vector map export profile](G11-005-vector-map-export-profile.md) | Proposed | HITL | G10-001, G11-002 | Approve detached AWT capture and canonical static SVG export in the existing SVG module. |
+| [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-003, G10-004, G10-007, G11-001 | Decide whether to accept two Xerial format adapters and defer JTS, PROJ, and GDAL. |
+| [G11-005 — Vector map export profile](closed/G11-005-vector-map-export-profile.md) | Complete | HITL | G10-001, G11-002 | Approve detached AWT capture and canonical static SVG export in the existing SVG module. |

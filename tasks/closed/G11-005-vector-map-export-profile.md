@@ -1,6 +1,6 @@
 # G11-005 — Vector map export profile
 
-Status: Proposed
+Status: Complete
 Depends on: G10-001, G11-002
 Gate: G11
 Type: HITL
@@ -24,8 +24,8 @@ Define immutable API-owned vector-export snapshot/limit values, `MapView`-owned 
 encoding in the existing SVG module, supported geometry/symbol/text behavior, exact exclusions,
 ordering, clipping, opacity, hatch, number/XML rules, limits, cancellation, stable diagnostics,
 atomic replacement, manual browser evidence, Native Image/publication expectations, and G11-040
-through G11-043 vertical slices. Close G11 and re-evaluate G0–G11 for simplicity and boundary
-coherence.
+through G11-043 vertical slices. Re-evaluate the dependency-free G11 sequence and G0–G11 for
+simplicity and boundary coherence while keeping the dependency-adding G11-004 proposal open.
 
 ## Out of scope
 
@@ -78,3 +78,9 @@ HITL checkpoint: **G11 canonical static SVG vector-map export profile approval**
 approves the SVG target, API/AWT/I/O ownership, effect and text matrices, canonical serialization,
 limits/failures/atomic replacement, four-slice graph, and G11/G0–G11 simplicity closeout before
 G11-040 is created. Export extends the G10 SVG artifact; it creates no new module.
+
+The maintainer approved the checkpoint on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. The design fixes the complete detached export contract, later slice
+graph, and cross-gate simplicity review without creating production APIs, implementation cards,
+modules, or dependencies. G10-002, G10-004, and G11-004 remain Proposed and are not approved here.
+Focused API/core/AWT checks, `qualityGate`, and `git diff --check` passed before closure.

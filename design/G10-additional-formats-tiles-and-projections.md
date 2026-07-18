@@ -351,32 +351,33 @@ one inline native/consumer case are sufficient; every broader SVG feature remain
 
 ### One optional adapter, not two parser stacks
 
-The named HITL checkpoint is **G10 GeoJSON profile approval**. It approves the exact RFC 7946 subset,
+The named HITL checkpoint is **G10 GeoJSON profile approval**. If approved, it would select the exact RFC 7946 subset,
 the external-parser boundary, limits, diagnostics, and follow-up graph below before any GeoJSON module
-is created. G10-002 itself changes design and task records only.
+is created. The profile below is a proposal, not an approved project decision; G10-002 remains
+Proposed and changes design and task records only.
 
-The approved implementation strategy is one explicitly optional adapter,
-`mundane-map-io-geojson-jackson`. Its first working slice pins
+The proposed implementation strategy is one explicitly optional adapter,
+`mundane-map-io-geojson-jackson`. Its first working slice would pin
 `tools.jackson.core:jackson-core:3.1.5`, selected on 2026-07-13 as the latest Maven Central patch on the
-3.1 LTS line rather than the newer non-LTS 3.2 line. The approved JAR SHA-256 is
+3.1 LTS line rather than the newer non-LTS 3.2 line. The proposed JAR SHA-256 is
 `9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2`. Dependency locking,
-artifact/POM provenance, Apache-2.0 license/notice review, and an exact resolved runtime graph are
-mandatory. The implementation checkpoint rechecks security advisories and artifact availability
-without using a version range or silently changing the approved version. It uses Jackson Core's token
+artifact/POM provenance, Apache-2.0 license/notice review, and an exact resolved runtime graph would be
+mandatory. The implementation checkpoint would recheck security advisories and artifact availability
+without using a version range or silently changing the proposed pinned version. It uses Jackson Core's token
 stream only—no databind, annotations, tree model, object mapper, polymorphic type handling, provider
 lookup, or application serialization.
 
 The 3.1.5 artifact shades FastDoubleParser/Schubfach classes and contains
-`META-INF/services/tools.jackson.core.TokenStreamFactory`. Approval records the bundled upstream
-versions/notices/licenses as artifact content even though the adapter disables both fast-number
-features and never invokes service discovery. The service descriptor is not copied into a MundaneJ
-artifact or native resource configuration. Direct `JsonFactory` construction and architecture tests
-prove it is operationally irrelevant; G10-024 must separately prove that Native Image uses no service
+`META-INF/services/tools.jackson.core.TokenStreamFactory`. The proposed approval packet records the bundled upstream
+versions/notices/licenses as artifact content even though the proposed adapter would disable both fast-number
+features and would never invoke service discovery. The service descriptor would not be copied into a MundaneJ
+artifact or native resource configuration. Direct `JsonFactory` construction and architecture tests would
+prove it operationally irrelevant; proposed card G10-024 would separately prove that Native Image uses no service
 registration or metadata-repository fallback, inventory any statically reachable shaded classes, and
 prove the disabled fast paths are not executed. If the dependency cannot satisfy that bounded native
-path, the adapter remains explicitly JVM-only rather than weakening the project's discovery rules.
+path, the adapter would remain explicitly JVM-only rather than weakening the project's discovery rules.
 
-This external dependency is justified by correct JSON tokenization, Unicode escape handling, numeric
+The proposed external dependency would be justified by correct JSON tokenization, Unicode escape handling, numeric
 lexing, byte locations, and maintained malformed-input behavior. Reimplementing those concerns in a
 map library would create a security-sensitive generic JSON parser larger than the GeoJSON adapter.
 The rejected existing MundaneJ JSON-binding parser materializes an input-backed character model,
@@ -385,15 +386,15 @@ allocation controls required here. If the maintainer rejects Jackson at the chec
 must be revised to one bounded JDK-only tokenizer before implementation; the project will not ship
 parallel Jackson and home-grown GeoJSON modules or a speculative parser SPI.
 
-The optional adapter depends only on `mundane-map-api`, the exact G4 accounting/query utilities in
-`mundane-map-core`, Jackson Core, and `java.base`. It is AWT-free and named as an implementation
-choice rather than occupying a generic `mundane-map-io-geojson` artifact. Public signatures contain
+The optional adapter would depend only on `mundane-map-api`, the exact G4 accounting/query utilities in
+`mundane-map-core`, Jackson Core, and `java.base`. It would be AWT-free and named as an implementation
+choice rather than occupying a generic `mundane-map-io-geojson` artifact. Public signatures would contain
 only JDK and MundaneJ values; Jackson types, factories, tokens, constraints, locations, and exceptions
-remain private. Construction directly creates the pinned `JsonFactory`; there is no `ServiceLoader`,
+would remain private. Construction would directly create the pinned `JsonFactory`; there would be no `ServiceLoader`,
 classpath scan, reflection, static mutable factory, automatic module discovery, or JSON renderer.
 `mundane-map-api` remains unchanged.
 
-The implementation module is classified as a Published Level 2 **Optional adapter**, not a JDK-only
+The implementation module would be classified as a Published Level 2 **Optional adapter**, not a JDK-only
 runtime module and never part of the Level 1 graph. Its publication and consumer additions follow the
 append-only inventory rule established by G9/G10-001. Native Image remains unclaimed until the final
 follow-up proves the exact parser/source/render path; successful JVM parsing alone does not change
@@ -1151,9 +1152,10 @@ only with a separately reviewed G10-030 task.
 
 ### Approval and dependency boundary
 
-The named checkpoint is **G10 SQLite container profile approval**. It independently approves the
+The named checkpoint is **G10 SQLite container profile approval**. If approved, it would independently select the
 GeoPackage and MBTiles profiles below, one external-driver deployment, the bounded JNI qualification,
-and the later implementation graph. G10-004 creates no module or production code.
+and the later implementation graph. The profile below is a proposal, not an approved project decision;
+G10-004 remains Proposed and creates no module or production code.
 
 The future implementations are two published Level 2 Optional adapters:
 
@@ -1180,14 +1182,14 @@ no production dependency merely to hide several fixed statements and cleanup ste
 contain only JDK and MundaneJ values; JDBC, Xerial, SQLite, SQL, statement, result-set, and native
 loader types remain private. `mundane-map-api` is unchanged.
 
-Both tile adapters reuse the complete G6 PNG/JPEG profile through `mundane-map-io-image`; they do not
-reimplement image validation or call ImageIO. G0's normal ban on arbitrary format-module coupling is
+Both proposed tile adapters would reuse the complete G6 PNG/JPEG profile through `mundane-map-io-image`; they would not
+reimplement image validation or call ImageIO. G0's normal ban on arbitrary format-module coupling would be
 refined to permit an explicitly inventoried, acyclic container/transport-to-codec edge after both
-ends provide working behavior. Architecture tests allowlist only the concrete edges. For this task
+ends provide working behavior. Architecture tests would allowlist only the concrete edges. For this task
 family those are `geopackage-xerial -> image` and `mbtiles-xerial -> image`; reverse edges, cycles,
 transitive toolkit leakage, and an open-ended I/O dependency category remain forbidden.
 
-On 2026-07-13 the approved resolvable dependency is `org.xerial:sqlite-jdbc:3.53.2.0`, released on
+On 2026-07-13 the proposed resolvable dependency was pinned as `org.xerial:sqlite-jdbc:3.53.2.0`, released on
 2026-06-04 and present as the current split release in Maven Central. The exact artifacts, independently
 downloaded and hashed during G11-004 design review, are:
 
@@ -1203,7 +1205,7 @@ classifier still contains upstream binaries for several Linux architectures and 
 Xerial publishes no narrower classifier. A private platform preflight runs before connection/native
 initialization: `os.name` must be exactly `Linux`, `os.arch` must be `amd64` or `x86_64`, and Xerial's
 `OSInfo.isMusl()` must be false; every other result is `SQLITE_ADAPTER_UNAVAILABLE` with
-`reason=unsupportedPlatform`. The first support claim is a Java 21 JVM on that x86-64 Linux path with
+`reason=unsupportedPlatform`. The proposed profile would make its first support claim for a Java 21 JVM on that x86-64 Linux path with
 glibc 2.35 or newer. Pinned Ubuntu 22.04/glibc 2.35 is the minimum evidence lane and Ubuntu
 24.04/glibc 2.39 is the second lane; each records the exact image, JDK, kernel, and `getconf` result.
 The pinned glibc native's symbol table requires at most `GLIBC_2.3`, but that is artifact inventory,
@@ -1233,11 +1235,11 @@ the ordinary Linux branch. These
 reflection, host-file, resource, JNI, load, and dormant process mechanisms are explicit
 external-artifact exceptions, not undiscovered project behavior.
 
-Project bytecode constructs pinned `org.sqlite.jdbc4.JDBC4Connection` directly with private fixed
-properties and does not call `DriverManager`, `ServiceLoader`, `SQLiteDataSource`, `Class.forName`,
+Future project bytecode would construct pinned `org.sqlite.jdbc4.JDBC4Connection` directly with private fixed
+properties and would not call `DriverManager`, `ServiceLoader`, `SQLiteDataSource`, `Class.forName`,
 reflection, resource lookup, process execution, or native loading. The external loader extracts and
 loads its selected JNI library and therefore needs a writable temporary directory. These bounded
-third-party mechanisms are accepted only inside the Optional adapters under G0 qualification. The
+third-party mechanisms would be accepted only inside the Optional adapters under G0 qualification. The
 service descriptor and Native Image metadata are not copied into a MundaneJ artifact or explicit
 native configuration. External-artifact verification scans the exact descriptor/resource tree,
 native entries, symbolic calls/strings for reflection, fixed host paths, process execution, URL/
@@ -1245,7 +1247,7 @@ resource access, temporary properties, and load APIs; the supported-path test ex
 above and no other process/file target. Any addition or changed control-path inventory
 requires design review rather than an allow-all dependency exemption.
 
-These adapters are JVM-only and have Native Image policy `not-targeted`. Xerial's own reachability
+The proposed adapters would be JVM-only and would have Native Image policy `not-targeted`. Xerial's own reachability
 metadata is not a project compatibility claim. Neither adapter enters the shared native executable,
 and the Linux JVM evidence below cannot be described as Native Image evidence. Any later claim needs
 a new HITL packaging task that proves the exact native library, extraction/static-link policy,
@@ -1318,12 +1320,12 @@ array never fabricates an extension.
 
 ### One strict read-only SQLite session policy
 
-Each inspection call or returned source owns one direct connection. There is no pool, shared static
+Each future inspection call or returned source would own one direct connection. The profile permits no pool, shared static
 connection, thread-local, connection registry, arbitrary SQL hook, transaction API, or public database
-handle. Inspection closes before returning an immutable catalog. A feature source owns its connection
-until source close and permits G4's one live cursor. A tile source similarly owns one connection and
-performs one serialized raster read at a time. Returned records, pixels, metadata, reports, and catalog
-values are detached and remain valid after connection/source close.
+handle. Inspection would close before returning an immutable catalog. A feature source would own its connection
+until source close and permit G4's one live cursor. A tile source would similarly own one connection and
+perform one serialized raster read at a time. Returned records, pixels, metadata, reports, and catalog
+values would be detached and remain valid after connection/source close.
 
 Input is one caller-authorized local `Path`. Before JNI loading, the adapter:
 
@@ -1377,26 +1379,26 @@ SQLite parsing, B-tree pages, page cache, JNI transitions, native result storage
 temporary native extraction are opaque external allocations. The adapter therefore claims bounded
 file size, SQLite limits, an 8-MiB connection page-cache request, VM work, returned rows/blobs,
 project-owned allocations, and operation lifetime—not prospective byte-perfect native allocation.
-That explicit qualification is part of the Optional-adapter approval and is never generalized to a
+That explicit qualification would be part of any Optional-adapter approval and is never generalized to a
 JDK-only parser. The first terminal format/cancellation/limit result is primary; statement,
 progress-handler, connection, and temporary cleanup failures are suppressed in that order. Close is
 idempotent and permanent even after cleanup failure.
 
 ### GeoPackage 1.4.0 profile
 
-`mundane-map-io-geopackage-xerial` implements a strict, extension-free read-only subset of OGC
-GeoPackage 1.4.0. It requires a case-insensitive `.gpkg` filename suffix, application ID `GPKG`,
+The proposed `mundane-map-io-geopackage-xerial` module would implement a strict, extension-free read-only subset of OGC
+GeoPackage 1.4.0. It would require a case-insensitive `.gpkg` filename suffix, application ID `GPKG`,
 `user_version=10400`, the required core tables,
 and exact declared constraints needed by the selected content. Older/newer versions, extended
 GeoPackages, every row in `gpkg_extensions`, related tables, attributes-only contents, metadata,
 schema/data-column constraints, RTree, WebP, tiled gridded coverage, vector tiles, 3D, and custom
-geometry types are deferred. The object inventory permits required core tables, an optional empty
+geometry types would be deferred. The object inventory would permit required core tables, an optional empty
 `gpkg_extensions`, catalogued feature/tile user tables, their ordinary B-tree indexes and inert
 triggers, and SQLite's fixed internal objects. An attributes/unknown contents row or any other
-application table/view/virtual table is a recognizable unsupported content/extension construct rather
+application table/view/virtual table would be a recognizable unsupported content/extension construct rather
 than silently ignored.
 
-The lean public surface is:
+The proposed lean public surface would be:
 
 ```text
 GeoPackages.inspect(Path, SourceIdentity, GeoPackageInspectOptions, CancellationToken)
@@ -1420,8 +1422,8 @@ GeoPackageInspectOptions / GeoPackageFeatureOptions / GeoPackageTileOptions
   compose GeoPackageLimits with only the relevant G4 source limits/cache policy
 ```
 
-Catalog descriptors expose bounded immutable table names, geometry kind/schema/CRS metadata, or tile
-matrix levels and bounds. They expose no connection or lazy operation. Selection is an exact catalog
+Catalog descriptors would expose bounded immutable table names, geometry kind/schema/CRS metadata, or tile
+matrix levels and bounds. They would expose no connection or lazy operation. Selection would be an exact catalog
 name, not a SQL fragment, pattern, ordinal guess, or automatic first table.
 
 The feature profile accepts one ordinary user table per source, one `INTEGER PRIMARY KEY`, and one
@@ -1495,18 +1497,18 @@ cache.
 
 ### MBTiles 1.3 raster profile
 
-`mundane-map-io-mbtiles-xerial` supports a single MBTiles 1.3 raster tileset. MBTiles has no stored
+The proposed `mundane-map-io-mbtiles-xerial` module would support a single MBTiles 1.3 raster tileset. MBTiles has no stored
 specification-version field: the optional `metadata.version` is a tileset revision and is never used
 to infer conformance. SQLite application ID zero or the assigned `0x4d504258` (`MPBX`) is accepted;
-another nonzero application ID is unsupported, and `user_version` has no MBTiles meaning. The adapter
-recognizes the profile structurally and requires real `metadata`
-and `tiles` tables. Although MBTiles permits compatible views, the first security profile rejects
+another nonzero application ID would be unsupported, and `user_version` has no MBTiles meaning. The adapter
+would recognize the profile structurally and require real `metadata`
+and `tiles` tables. Although MBTiles permits compatible views, the first security profile would reject
 views, virtual tables, extensions, and alternative schemas. Inert triggers are bounded and ignored;
-no adapter statement can fire one. The object inventory otherwise permits ordinary indexes and fixed
+no adapter statement could fire one. The object inventory would otherwise permit ordinary indexes and fixed
 SQLite internal objects only; grids, grid data, or any other application table are unsupported rather
 than silently queried.
 
-The public surface is:
+The proposed public surface would be:
 
 ```text
 MbTiles.inspect(Path, SourceIdentity, MbTilesInspectOptions, CancellationToken)
@@ -1517,7 +1519,7 @@ MbTiles.open(Path, SourceIdentity, int zoom, MbTilesOpenOptions,
   -> RasterSource
 ```
 
-`MbTilesMetadata` is a detached immutable value containing the bounded required `name` and normalized
+`MbTilesMetadata` would be a detached immutable value containing the bounded required `name` and normalized
 format, optional WGS 84 bounds/center/minimum zoom/maximum zoom/type/revision/description/attribution,
 the actual zoom set, and an opening report. Attribution remains plain unrendered text; HTML is not
 interpreted. Metadata names are unique. Unknown rows are bounded and ignored with one warning; grids,
@@ -1596,7 +1598,7 @@ The closed shared adapter diagnostics are:
 
 | Code | Exact context | Meaning |
 | --- | --- | --- |
-| `SQLITE_ADAPTER_UNAVAILABLE` | `reason=unsupportedPlatform|nativeLoad|temporaryDirectory` | The approved native runtime cannot start. |
+| `SQLITE_ADAPTER_UNAVAILABLE` | `reason=unsupportedPlatform|nativeLoad|temporaryDirectory` | The proposed native runtime cannot start. |
 | `SQLITE_INPUT_INVALID` | `reason=path|type|sidecar|header|pageLayout` | The local container preflight failed. |
 | `SQLITE_INPUT_CHANGED` | `phase=inspect|cursor|read|publish` | The immutable-input fingerprint changed. |
 | `SQLITE_OPEN_FAILED` | `phase=load|connect|policy` | A bounded connection phase failed. |
@@ -1671,7 +1673,7 @@ Each created module joins publication staging and the standalone consumer with i
 runtime dependencies, artifact/license/checksum verification, and the pinned Java 21 Ubuntu
 22.04/glibc 2.35 and Ubuntu 24.04/glibc 2.39 JVM scenarios. The project repository contains only
 MundaneJ artifacts; G8's post-Level-1 Optional-adapter
-rule constructs a separate exact build-only mirror containing the approved Xerial POM, code classifier,
+rule constructs a separate exact build-only mirror containing the proposed pinned Xerial POM, code classifier,
 and Linux classifier. A fresh offline consumer resolves both adapter artifacts and exactly those two
 classified runtime artifacts, rejects the ordinary/all-platform JAR and every other component, and
 opens one staged fixture. The two pinned Ubuntu jobs run real read/query/render tests; a pinned
@@ -1684,8 +1686,8 @@ writable private temporary directory. These are test-only process/classpath cont
 loader seam or supported incomplete dependency graph. No Native Image, new
 corpus command, public network, benchmark threshold, or Level 1 release record is changed.
 
-G10-039 is the dependency-neutral prerequisite authorized by G10-006. After G10-004 and the global
-G11-004 adapter approval, create five SQLite-format cards that consume it:
+G10-039 is the dependency-neutral prerequisite authorized by G10-006. If G10-004 and the global
+G11-004 adapter decision are approved, create five SQLite-format cards that consume it:
 
 1. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
    connection policy, and deliver catalog plus Point/MultiPoint feature query/render, publication, and
@@ -2525,10 +2527,10 @@ The repository provides no demonstrated third-projection workflow:
 
 - the basic, measurement, shapefile, raster, symbol, and performance examples use only the exact G4
   EPSG:4326/EPSG:3857 definitions and direct operation;
-- DTED, GPX, KML, and RFC 7946 GeoJSON expose geographic WGS 84 coordinates under their approved
-  profiles;
-- XYZ and MBTiles use the canonical Web Mercator matrix, while the approved GeoPackage feature/tile
-  profiles recognize only the existing EPSG:4326/EPSG:3857 definitions;
+- The approved DTED, GPX, and KML profiles expose geographic WGS 84 coordinates; Proposed G10-002
+  would do the same for RFC 7946 GeoJSON;
+- XYZ uses the canonical Web Mercator matrix; the Proposed G10-004 draft would do the same for MBTiles
+  and recognize only the existing EPSG:4326/EPSG:3857 definitions for GeoPackage features/tiles;
 - the GeoTIFF profile rejects unapproved EPSG, user-defined, WKT, vertical, and compound CRS constructs
   rather than widening recognition, and no fixture or consumer requires another accepted operation;
   GeoPackage alone retains its well-formed unrecognized CRS rows as unknown metadata; and
@@ -2673,11 +2675,13 @@ G10 preserves the smallest useful boundaries after reviewing all seven decisions
 
 - SVG import produces ordinary Level 1 symbols; it does not create an SVG scene graph or arbitrary
   document engine.
-- GeoJSON isolates its one justified Jackson parser while the public source remains dependency-free.
+- The proposed GeoJSON profile would isolate its one Jackson parser while the public source remains
+  dependency-free; G10-002 has not approved that dependency.
 - GeoTIFF keeps bounded image and elevation entry points in one format module without becoming a TIFF,
   CRS, or GDAL framework.
-- GeoPackage and MBTiles remain separate optional adapters; their only shared production addition is
-  G10-039's encoded-byte image helper, now justified by those two formats and HTTP XYZ.
+- The proposed GeoPackage and MBTiles profiles would remain separate optional adapters; G10-039's
+  dependency-neutral encoded-byte helper is already justified by HTTP XYZ and would be reused if
+  G10-004 and G11-004 are approved.
 - GPX and KML keep separate secure StAX state machines instead of a speculative XML/GIS hierarchy.
 - HTTP XYZ is explicit acquisition into a detached raster, not network behavior hidden in paint or
   `RasterSource.read`.

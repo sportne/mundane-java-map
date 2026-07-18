@@ -640,7 +640,7 @@ fresh evidence against the then-current inventory.
 
 ### Post-Level 1 Optional-adapter consumer rule
 
-G10-004 establishes the first classified native dependency and makes the existing one-repository,
+If approved and implemented, G10-004 would establish the first classified native dependency and make the existing one-repository,
 map-components-only consumer assertion intentionally conditional on a JDK-only inventory. A task that
 adds a working Optional adapter must also declare one exact approved external runtime graph in the
 release contract and create a separate build-only dependency mirror. The mirror contains only the

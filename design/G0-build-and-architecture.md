@@ -224,7 +224,7 @@ executed. If the external library requires discovery or an unapproved native mec
 approved capability, the adapter remains JVM-only or the task rejects the dependency; this is not a
 general discovery exception for project code or behavior.
 
-G10-004 approves the first future format-composition edges:
+The Proposed G10-004 draft would approve the first future format-composition edges:
 `mundane-map-io-geopackage-xerial -> mundane-map-io-image` and
 `mundane-map-io-mbtiles-xerial -> mundane-map-io-image`, solely for bounded embedded PNG/JPEG decode.
 G10-006 adds `mundane-map-io-http-tiles -> mundane-map-io-image` for the same explicit encoded-tile
