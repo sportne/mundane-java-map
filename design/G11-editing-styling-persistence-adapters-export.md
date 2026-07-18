@@ -1449,6 +1449,12 @@ and five-slice decomposition before G11-030 is created. This is the smallest wor
 a useful local map while keeping runtime ownership, data, secrets, presentation extensions, and future
 formats outside the file.
 
+Decision record (2026-07-17): **G11 workspace persistence profile approval** is approved through the
+maintainer's advance HITL authorization for dependency-free remaining tasks. Approval selects the
+strict version 1 field/exclusion list, canonical XML, guarded local-path/opening transaction, atomic
+replacement, and G11-030 through G11-034 exactly as specified above. It creates no production API,
+module, later task file, serializer dependency, migration framework, or broader persistence claim.
+
 ## Optional-adapter dispositions (G11-004)
 
 ### Evidence gate, not an adapter framework

@@ -1,6 +1,6 @@
 # G11-003 — Workspace persistence profile
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G11
 Type: HITL
@@ -71,3 +71,8 @@ HITL checkpoint: **G11 workspace persistence profile approval**. The maintainer 
 field/exclusion list, XML/version/canonicalization policy, local-path threat model, two example opener
 policies, catalog rule, limits/failures, atomic replacement, viewer scenario, and five-slice
 decomposition before G11-030 is created.
+
+The maintainer approved the checkpoint on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. The design fixes the complete version 1 workspace contract and later
+slice graph without creating production APIs, implementation cards, modules, or dependencies. Focused
+API/core checks, `qualityGate`, and `git diff --check` passed before closure.

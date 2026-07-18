@@ -388,7 +388,8 @@ separately decomposed.
   toolkit-neutral placed-label values preserve the handoff. Later
   G11-020 through G11-024 slices deliver selectors, complete roles, layout, regression/evidence, and
   native/consumer closeout without an expression language or label cache.
-- Persist a strict local `.mmap.xml` version 1: canonical CRS/view state, ordered local opener/identity/
+- G11-003 is complete as a design decision. Persist a strict local `.mmap.xml` version 1: canonical
+  CRS/view state, ordered local opener/identity/
   path references, fixed external catalog symbols, and raster presentation only. One AWT-free module
   depends only on API/core and uses guarded relative paths, explicit application source/catalog
   registries, bounded secure StAX parsing, all-or-nothing owned sessions, and mandatory atomic
