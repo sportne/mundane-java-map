@@ -408,6 +408,7 @@ gradle.projectsEvaluated {
         ':modules:mundane-map-core',
         ':modules:mundane-map-awt',
         ':modules:mundane-map-io-dted',
+        ':modules:mundane-map-io-svg',
         ':modules:mundane-map-io-image',
         ':modules:mundane-map-io-shapefile',
     ] as Set

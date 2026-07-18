@@ -341,7 +341,9 @@ separately decomposed.
 
 ### G10 — Additional formats, tiles, and projections
 
-- A secure static SVG import subset; general SVG is not promised.
+- G10-001 is complete: published AWT-free `mundane-map-io-svg` securely imports the approved static
+  SVG marker subset into ordinary immutable vector/composite symbols through bounded JVM, render,
+  Native Image, publication, and consumer paths. General SVG is not promised.
 - GeoJSON through one bounded optional Jackson Core adapter; a strict JDK-only Classic GeoTIFF reader
   with explicit raster/elevation entry points; separate strict GeoPackage 1.4.0 and raster MBTiles 1.3
   adapters; separate JDK-only GPX 1.1 waypoint/track and static KML 2.2 geometry sources; remote tile

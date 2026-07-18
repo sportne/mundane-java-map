@@ -1,6 +1,6 @@
 # G10-001 — Secure SVG import profile and first slice
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G10
 Type: HITL
@@ -71,3 +71,17 @@ task adds a working post-Level-1 published/native-targeted module, its implement
 against the then-current inventories rather than hard-code a historical module/resource count. It is
 dependency-parallel with G9-008 but not path-safe: whichever task lands second retains the first
 task's append-only native scenario and reconciles the complete authoritative manifest.
+
+The maintainer approved **G10 secure SVG profile approval** on 2026-07-17 through the advance HITL
+authorization for dependency-free remaining tasks. The implementation adds no external dependency:
+`mundane-map-io-svg` depends only on `mundane-map-api` and JDK `java.xml`. Stroke-only open vector
+marker paths are the one owning-API compatibility adjustment; filled paths retain the prior closed-
+subpath invariant.
+
+Validation completed on 2026-07-17 after addressing nine independent review rounds. Focused
+module/architecture checks, exhaustive profile/limit/hostile-input and file-lifecycle tests,
+`renderRegression`, an actual GraalVM CE 21.0.2 `nativeSmoke`, and `qualityGate` passed in the project
+workspace. The staged `publicationDryRun consumerSmoke` passed from a fresh exact `/tmp` source-tree
+copy in 54 seconds; the same command's functional nested build exceeded 20 minutes on `/mnt/d`
+because of WSL mount metadata overhead, without reporting a test failure. No corpus or performance
+lane was run.

@@ -8,9 +8,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class SymbolModelTest {
+    @Test
+    void permitsOpenVectorMarkerPathOnlyForStrokeOnlySymbols() {
+        VectorPath open = VectorPath.builder().moveTo(0, 0).lineTo(1, 1).build();
+        Envelope viewBox = new Envelope(0, 0, 1, 1);
+        SymbolStroke stroke =
+                new SymbolStroke(Rgba.rgb(0, 0, 0), new SymbolLength(1, SymbolUnit.SCREEN_PIXEL));
+
+        VectorMarkerSymbol symbol =
+                VectorMarkerSymbol.of(
+                        open,
+                        viewBox,
+                        Rgba.TRANSPARENT,
+                        Optional.of(stroke),
+                        MarkerPlacement.centeredScreen(10),
+                        1);
+        assertEquals(open, symbol.path());
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        VectorMarkerSymbol.of(
+                                open,
+                                viewBox,
+                                Rgba.rgb(1, 2, 3),
+                                Optional.of(stroke),
+                                MarkerPlacement.centeredScreen(10),
+                                1));
+    }
+
     private static final Envelope VIEW_BOX = new Envelope(-1.0, -1.0, 1.0, 1.0);
 
     @Test

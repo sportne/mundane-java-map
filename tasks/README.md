@@ -219,7 +219,7 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G10-001 — Secure SVG import profile and first slice](G10-001-secure-svg-import-profile-and-first-slice.md) | Proposed | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
+| [G10-001 — Secure SVG import profile and first slice](closed/G10-001-secure-svg-import-profile-and-first-slice.md) | Complete | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
 | [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](G10-003-geotiff-raster-and-elevation-profile-decision.md) | Proposed | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |

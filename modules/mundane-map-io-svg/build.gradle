@@ -1,0 +1,10 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+}
+
+description = 'JDK-only secure static SVG marker import support.'

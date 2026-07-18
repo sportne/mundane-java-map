@@ -16,6 +16,7 @@ import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
+import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.awt.SymbolRendererRegistry;
@@ -29,6 +30,7 @@ import io.github.mundanej.map.io.dted.DtedFiles;
 import io.github.mundanej.map.io.dted.DtedOpenOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
+import io.github.mundanej.map.io.svg.SvgSymbols;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -54,6 +56,7 @@ public final class MundaneMapConsumerSmoke {
         SymbolRendererRegistry renderers = SymbolRendererRegistry.builderWithBuiltIns().build();
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
+        testSvg();
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
             testShapefile(directory);
@@ -67,6 +70,16 @@ public final class MundaneMapConsumerSmoke {
         }
         require(!Files.exists(directory), "consumer temporary directory leaked");
         System.out.println("mundane-map consumer smoke: OK");
+    }
+
+    private static void testSvg() {
+        Symbol symbol =
+                SvgSymbols.parse(
+                        new SourceIdentity("consumer-svg", "Consumer SVG"),
+                        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><path d=\"M1 9 L5 1 L9 9 Z\" fill=\"#1478dc\" fill-rule=\"evenodd\"/></svg>"
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        io.github.mundanej.map.api.MarkerPlacement.centeredScreen(18));
+        require(symbol.role() == io.github.mundanej.map.api.SymbolRole.MARKER, "SVG role changed");
     }
 
     private static void renderVector(CrsRegistry registry, SymbolRendererRegistry renderers)

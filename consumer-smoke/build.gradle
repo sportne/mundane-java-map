@@ -24,6 +24,7 @@ dependencies {
     implementation "io.github.mundanej:mundane-map-io-shapefile:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-image:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-dted:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-svg:${mapVersion}"
 }
 
 application {
@@ -59,6 +60,7 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
             "io.github.mundanej:mundane-map-io-shapefile:${mapVersion}",
             "io.github.mundanej:mundane-map-io-image:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-dted:${mapVersion}"
+            ,"io.github.mundanej:mundane-map-io-svg:${mapVersion}"
         ] as Set
         if (modules != expected) {
             throw new GradleException(

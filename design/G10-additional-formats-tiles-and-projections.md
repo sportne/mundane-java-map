@@ -4,6 +4,19 @@ Project index: [DESIGN.md](../DESIGN.md).
 
 ## Secure SVG import profile and first slice (G10-001)
 
+### Approval and implementation record
+
+The maintainer approved every dependency-free HITL task in scope on 2026-07-17, including the named
+**G10 secure SVG profile approval** checkpoint. The approval covers the supported/rejected tables,
+four-cubic circle approximation, view-box and paint/stroke representability rules, secure StAX
+controls, limits, diagnostics, literal native scenario, and publication/consumer extension below.
+
+Implementation retains the profile's stroke-only open geometry honestly. `VectorMarkerSymbol` now
+accepts an open path only when its fill is fully transparent and a stroke is present; filled and
+fill-only marker paths still require every subpath to close. This is the narrow owning-API change
+needed for supported SVG `line`, `polyline`, and open `path` leaves and does not widen filled marker
+behavior.
+
 ### Profile approval and module boundary
 
 G10-001 imports marker artwork, not feature geometry, documents, maps, or renderer plugins. The named

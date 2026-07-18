@@ -56,6 +56,7 @@ public final class NativeSmokeMain {
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openDted()) {
             NativeDtedSmokeScenario.run(workspace.dtedPaths());
         }
+        NativeSvgSmokeScenario.run();
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {

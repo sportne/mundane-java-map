@@ -22,6 +22,10 @@ configurations {
     renderRegressionTestRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
+dependencies {
+    renderRegressionTestImplementation project(':modules:mundane-map-io-svg')
+}
+
 tasks.register('renderRegressionTest', Test) {
     group = 'verification'
     description = 'Runs portable offscreen symbol-rendering regression scenarios.'

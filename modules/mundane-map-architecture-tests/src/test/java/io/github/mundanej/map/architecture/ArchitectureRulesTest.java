@@ -1112,6 +1112,56 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void svgModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndStreamingOnly() {
+        ModuleDescriptor svg = moduleEndingWith("mundane-map-io-svg");
+        JavaClasses classes = classesByModule.get(svg);
+        List<String> prohibitedToolkitNetworkOrXmlModels =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("java.net.")
+                                                || target.startsWith("org.w3c.dom.")
+                                                || target.startsWith("org.xml.sax.")
+                                                || (target.startsWith("javax.xml.")
+                                                        && !target.equals("javax.xml.XMLConstants")
+                                                        && !target.startsWith("javax.xml.stream.")))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                classes.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.svg"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals("JDK_RUNTIME", svg.category());
+        assertEquals(2, svg.releaseLevel());
+        assertTrue(svg.nativeTarget());
+        assertEquals(Set.of(":modules:mundane-map-api"), svg.allowedRuntimeProjects());
+        assertFalse(classes.isEmpty(), "Expected the working SVG format module");
+        assertTrue(
+                prohibitedToolkitNetworkOrXmlModels.isEmpty(),
+                () -> String.join("\n", prohibitedToolkitNetworkOrXmlModels));
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        assertEquals(Set.of("SvgSymbols", "SvgImportLimits"), publicTypes);
+    }
+
+    @Test
     void nativeSmokeSupportAvoidsProhibitedMechanisms() {
         List<String> violations =
                 ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);
@@ -1120,7 +1170,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactSixExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactSevenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1128,7 +1178,8 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-awt",
                         ":modules:mundane-map-io-image",
                         ":modules:mundane-map-io-shapefile",
-                        ":modules:mundane-map-io-dted");
+                        ":modules:mundane-map-io-dted",
+                        ":modules:mundane-map-io-svg");
         Set<String> actual =
                 Files.readAllLines(nativeSupportBuild).stream()
                         .map(String::trim)

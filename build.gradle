@@ -1530,7 +1530,7 @@ abstract class TestPublicationDryRunFunctional extends DefaultTask {
                 'build/release-dry-run/maven/io/github/mundanej')
         Set<String> expected = ['mundane-map-api', 'mundane-map-core', 'mundane-map-awt',
                 'mundane-map-io-shapefile', 'mundane-map-io-image',
-                'mundane-map-io-dted'] as Set
+                'mundane-map-io-dted', 'mundane-map-io-svg'] as Set
         Set<String> actual = group.listFiles() == null
                 ? [] as Set : group.listFiles().findAll { it.isDirectory() }
                         .collect { it.name } as Set
@@ -1887,7 +1887,8 @@ def publishedReleaseContract = [
     'mundane-map-awt|mundane-map-api,mundane-map-core||io/github/mundanej/map/awt/|Swing and Java2D map component.',
     'mundane-map-io-shapefile|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/shapefile/|JDK-only read-only ESRI Shapefile support.',
     'mundane-map-io-image|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/image/|Bounded toolkit-neutral PNG and JPEG raster sources.',
-    'mundane-map-io-dted|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/dted/|JDK-only read-only DTED elevation support.'
+    'mundane-map-io-dted|mundane-map-api|mundane-map-core|io/github/mundanej/map/io/dted/|JDK-only read-only DTED elevation support.',
+    'mundane-map-io-svg|mundane-map-api||io/github/mundanej/map/io/svg/|JDK-only secure static SVG marker import support.'
 ]
 def releaseProjectByArtifact = publishedProjects.collectEntries { projectPath ->
     [(project(projectPath).name): projectPath]

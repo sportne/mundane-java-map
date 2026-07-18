@@ -47,14 +47,17 @@ public final class VectorMarkerSymbol implements MarkerSymbol {
                 || pathEnvelope.maxY() > viewBox.maxY()) {
             throw new IllegalArgumentException("path coordinates must remain inside viewBox");
         }
-        requireClosedSubpaths(path);
+        if (fill.alpha() != 0 || stroke.isEmpty()) {
+            requireClosedSubpaths(path);
+        }
         this.opacity = opacity == 0.0 ? 0.0 : opacity;
     }
 
     /**
      * Creates a vector marker with explicit optional stroke and placement.
      *
-     * @param path immutable closed-subpath vector path
+     * @param path immutable vector path; every subpath must be closed unless the fill is
+     *     transparent and a stroke is present
      * @param viewBox finite positive-area path coordinate bounds
      * @param fill marker fill color
      * @param stroke optional round stroke
