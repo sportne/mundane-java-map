@@ -351,40 +351,43 @@ one inline native/consumer case are sufficient; every broader SVG feature remain
 
 ### One optional adapter, not two parser stacks
 
-The named HITL checkpoint is **G10 GeoJSON profile approval**. If approved, it would select the exact RFC 7946 subset,
-the external-parser boundary, limits, diagnostics, and follow-up graph below before any GeoJSON module
-is created. The profile below is a proposal, not an approved project decision; G10-002 remains
-Proposed and changes design and task records only.
+The named HITL checkpoint is **G10 GeoJSON profile approval**. The maintainer approved the exact RFC
+7946 read/write subset, external-parser boundary, limits, diagnostics, and follow-up graph on
+2026-07-18 before any GeoJSON module was created.
 
-The proposed implementation strategy is one explicitly optional adapter,
-`mundane-map-io-geojson-jackson`. Its first working slice would pin
+The approved implementation strategy is one explicitly optional adapter,
+`mundane-map-io-geojson-jackson`. Its first working slice pins
 `tools.jackson.core:jackson-core:3.1.5`, selected on 2026-07-13 as the latest Maven Central patch on the
-3.1 LTS line rather than the newer non-LTS 3.2 line. The proposed JAR SHA-256 is
+3.1 LTS line rather than the newer non-LTS 3.2 line. The JAR SHA-256 is
 `9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2`. Dependency locking,
-artifact/POM provenance, Apache-2.0 license/notice review, and an exact resolved runtime graph would be
-mandatory. The implementation checkpoint would recheck security advisories and artifact availability
-without using a version range or silently changing the proposed pinned version. It uses Jackson Core's token
+artifact/POM provenance, license/notice review, and an exact resolved runtime graph are mandatory.
+The Maven Central POM SHA-256 is
+`d05c1f9f436866306d26b8f482ce49507d2a5f5e0816e3a07f35096b9f83e1ba`; its resolved production
+runtime graph contains only `tools.jackson.core:jackson-core:3.1.5`. Jackson Core is Apache-2.0 and
+its NOTICE records shaded FastDoubleParser and Schubfach code under MIT-compatible notices that must
+be retained with the artifact. G10-020 rechecks advisories, digests, notices, artifact availability,
+and the resolved graph without using a version range or silently changing the pin. It uses Jackson
+Core's token
 stream only—no databind, annotations, tree model, object mapper, polymorphic type handling, provider
 lookup, or application serialization.
 
 The 3.1.5 artifact shades FastDoubleParser/Schubfach classes and contains
-`META-INF/services/tools.jackson.core.TokenStreamFactory`. The proposed approval packet records the bundled upstream
-versions/notices/licenses as artifact content even though the proposed adapter would disable both fast-number
+`META-INF/services/tools.jackson.core.TokenStreamFactory`. The approval records the bundled upstream
+notices/licenses as artifact content even though the adapter disables both fast-number
 features and would never invoke service discovery. The service descriptor would not be copied into a MundaneJ
 artifact or native resource configuration. Direct `JsonFactory` construction and architecture tests would
-prove it operationally irrelevant; proposed card G10-024 would separately prove that Native Image uses no service
+prove it operationally irrelevant; G10-025 separately proves that Native Image uses no service
 registration or metadata-repository fallback, inventory any statically reachable shaded classes, and
 prove the disabled fast paths are not executed. If the dependency cannot satisfy that bounded native
 path, the adapter would remain explicitly JVM-only rather than weakening the project's discovery rules.
 
-The proposed external dependency would be justified by correct JSON tokenization, Unicode escape handling, numeric
+The external dependency is justified by correct JSON tokenization, Unicode escape handling, numeric
 lexing, byte locations, and maintained malformed-input behavior. Reimplementing those concerns in a
 map library would create a security-sensitive generic JSON parser larger than the GeoJSON adapter.
 The rejected existing MundaneJ JSON-binding parser materializes an input-backed character model,
 exposes unsuitable character offsets, and lacks the parser-work, nesting, duplicate-member, and
-allocation controls required here. If the maintainer rejects Jackson at the checkpoint, this design
-must be revised to one bounded JDK-only tokenizer before implementation; the project will not ship
-parallel Jackson and home-grown GeoJSON modules or a speculative parser SPI.
+allocation controls required here. The project will not ship parallel Jackson and home-grown GeoJSON
+modules or a speculative parser SPI.
 
 The optional adapter would depend only on `mundane-map-api`, the exact G4 accounting/query utilities in
 `mundane-map-core`, Jackson Core, and `java.base`. It would be AWT-free and named as an implementation
@@ -590,9 +593,16 @@ selected attributes.
 
 ### Bounded snapshot source and query behavior
 
-The eventual public facade exposes only `GeoJsonSources`, immutable `GeoJsonLimits`, and overloads for
-a regular local `Path` or caller byte array with `SourceIdentity`, `FeatureSourceLimits`, and
-`CancellationToken`. Exact signatures land with G10-020 after API compile sketches. A path open reads
+The public facade exposes `GeoJsonFiles`, immutable `GeoJsonOpenOptions`, and immutable
+`GeoJsonLimits`. Its exact read signatures are:
+
+```text
+GeoJsonFiles.open(Path, SourceIdentity, GeoJsonOpenOptions, CancellationToken) -> FeatureSource
+GeoJsonFiles.open(byte[], SourceIdentity, GeoJsonOpenOptions, CancellationToken) -> FeatureSource
+GeoJsonOpenOptions(GeoJsonLimits, FeatureSourceLimits)
+```
+
+A path open reads
 and closes one bounded file; a byte-array open defensively copies. The successful source owns one exact
 UTF-8 byte snapshot, so later filesystem/caller mutation cannot change metadata, offsets, or records.
 It owns no path, channel, parser, token, thread, executor, cache, or external handle after open.
@@ -704,6 +714,96 @@ members, plus rejection tables for duplicates, invalid Unicode/JSON/numbers, Z/M
 geometry, nested properties, legacy CRS, exact/one-over limits, and cancellation. It also records the
 pinned dependency graph/license and direct-construction/native risk analysis.
 
+### Deterministic bounded FeatureSource writer
+
+The same optional adapter writes one caller-owned `FeatureSource` as a strict RFC 7946
+`FeatureCollection`. The public entry point is
+`GeoJsonFiles.write(Path, FeatureSource, GeoJsonWriteLimits, CancellationToken)`. It borrows exactly
+one `FeatureQuery.all()` cursor and always closes that cursor, but never closes the source. Source
+metadata must contain the exact canonical registered EPSG:4326 definition; absent, unknown,
+fabricated, or other CRS metadata fails before cursor creation. No implicit projection is performed.
+
+The writer directly constructs a Jackson `JsonGenerator` from the same private factory policy. It
+uses no mapper, tree, annotations, service lookup, shared factory, or Jackson value in a public
+signature. Output is UTF-8 without a BOM, one compact JSON document plus one final LF. Member order is
+fixed as collection `type`, `features`; feature `type`, `id`, `geometry`, `properties`; and geometry
+`type`, `coordinates`. Attribute insertion order and all geometry/part/ring order are retained. The
+writer emits no `bbox`, `crs`, foreign member, Z/M coordinate, or GeometryCollection.
+
+Every record ID is emitted as an exact JSON string. It must be a Unicode-scalar sequence of at most
+249 UTF-16 characters so the reader's seven-character `string:` prefix remains within the 256-character
+emitted-ID bound. Reopening applies that prefix; exact in-memory ID round-trip is not claimed. A non-empty
+`FeatureRecord.name()` terminates before output publication because GeoJSON defines no name member and
+the adapter neither drops it nor invents a privileged property. Properties accept `String`,
+`Boolean`, `Long`, finite `Double`, `BigDecimal`, and `AttributeNull`; `LocalDate`, `AttributeBytes`,
+and any future canonical type are rejected explicitly. Every ID, property name, and string property
+value is validated as Unicode scalar text before generator use. Property names retain G4's 256-character
+bound and string values use the configured scalar bound. All six supported immutable geometry values
+are emitted after validating finite longitude/latitude ranges, ring closure, and configured feature,
+coordinate, scalar, numeric, nesting, and owned/output-byte limits.
+
+Semantic reopen tests normalize supported numeric attributes before comparison: `Long` remains
+`Long`; `Double` converts with `BigDecimal.valueOf`, and `BigDecimal` is used directly. A mathematical
+integral value within signed 64-bit range becomes `Long`; otherwise numerical zero becomes
+`BigDecimal.ZERO` and every other decimal uses `stripTrailingZeros()`. Negative floating zero is
+therefore equivalent to positive numeric zero, and BigDecimal scale is intentionally not preserved.
+The normalized decimal must have at most 34 significant digits and adjusted exponent in
+`[-308,308]`; its Jackson-emitted token must also fit the numeric-character limit. Values outside
+those bounds are unrepresentable rather than producing output the reader rejects. All nonnumeric
+properties compare by canonical value equality.
+
+Encoding first materializes the complete validated bytes in one bounded sink while polling
+cancellation before and after source/cursor calls and at most every 4,096 project-controlled primitive
+units. Only then does the writer create a private same-directory regular temporary file, write and
+force it, and replace the target with `ATOMIC_MOVE` plus `REPLACE_EXISTING`. There is no non-atomic
+fallback. Validation, source, cancellation, encoding, write, force, move, or cleanup failure leaves
+an existing target unchanged when replacement has not occurred; the primary failure retains later
+cursor/generator/file cleanup failures as suppressed exceptions.
+
+`GeoJsonWriteLimits` is immutable. Count/character fields are positive `int`; byte fields are positive
+`long`. `coordinatesPerGeometry <= totalCoordinates`, `propertiesPerFeature <= totalProperties`, and
+`scalarCharacters <= aggregateCharacters`. Owned bytes must be at least the checked sum of output
+bytes, 16 bytes per total coordinate, eight bytes per feature/property/part slot, and two bytes per
+aggregate character. Defaults and inclusive hard maxima are:
+
+| Write ceiling | Default | Hard maximum |
+| --- | ---: | ---: |
+| UTF-8 output bytes | 16,777,216 | 268,435,456 |
+| Conservatively owned bytes | 268,435,456 | 1,073,741,824 |
+| JSON output nesting depth, root = 1 | 8 | 16 |
+| Features | 100,000 | 1,000,000 |
+| Total coordinate positions | 2,000,000 | 16,000,000 |
+| Positions in one geometry | 1,000,000 | 16,000,000 |
+| Total parts/rings/polygons | 250,000 | 2,000,000 |
+| Properties in one feature | 256 | 4,096 |
+| Total property values | 1,000,000 | 8,000,000 |
+| Characters in one scalar | 65,536 | 1,048,576 |
+| Aggregate scalar characters | 16,777,216 | 134,217,728 |
+| Characters in one number | 128 | 256 |
+
+`GeoJsonWriteException` carries one immutable `GeoJsonWriteProblem(code, message, context)` plus an optional
+source report present only when a `SourceException` is mapped. Exact closed outcomes are:
+
+| Code | Exact ordered context | Fixed meaning |
+| --- | --- | --- |
+| `GEOJSON_WRITE_CRS_INVALID` | `reason=missing|unknown|mismatch|definition` | Source CRS cannot be represented as RFC 7946 coordinates. |
+| `GEOJSON_WRITE_VALUE_UNREPRESENTABLE` | `field=id|name|attribute|geometry|coordinate`, `reason=nonEmpty|type|range|nonFinite|closure|length|unicode|number` | A source value is outside the write profile. |
+| `GEOJSON_WRITE_SOURCE_FAILED` | `phase=metadata|cursorOpen|advance|current|cursorClose` | The borrowed source failed. |
+| `GEOJSON_WRITE_LIMIT_EXCEEDED` | `limit=outputBytes|ownedBytes|nesting|features|coordinates|geometryCoordinates|parts|featureProperties|properties|scalarCharacters|aggregateCharacters|numberCharacters`, `requested`, `maximum` | A prospective write charge crossed its limit. |
+| `GEOJSON_WRITE_CANCELLED` | `phase=validate|source|encode|temporary|write|move` | Cancellation stopped the write. |
+| `GEOJSON_WRITE_TARGET_INVALID` | `reason=parent|symlink|wrongKind` | The local target is unsafe or unsupported. |
+| `GEOJSON_WRITE_FAILED` | `phase=encode|temporary|write|force|move|cleanup`, `reason=io|changed` | A bounded encoding or file operation failed. |
+| `GEOJSON_WRITE_ATOMIC_MOVE_UNSUPPORTED` | empty | The provider cannot replace atomically. |
+
+These fixed meanings are the public problem messages. Context contains only the listed bounded ASCII
+tokens and canonical non-negative counts; it never contains paths, IDs, names, property keys/values,
+source diagnostic messages, Jackson/provider details, or raw JSON. A source `SourceException` remains
+the cause. Deterministic precedence is public arguments/limit construction, already-cancelled token,
+source metadata/CRS, target parent/existing-target checks, cursor open, records in source order with
+name then ID then geometry then properties validation, prospective limits, generator encoding, final
+cancellation, temporary creation/write/force/close, atomic move, and cleanup. The first failure is
+primary and later cursor/generator/file cleanup failures are suppressed.
+
 After approval, create these serial, one-to-five-day implementation cards; none exists merely to make
 an empty module:
 
@@ -711,17 +811,20 @@ an empty module:
    FeatureCollection Point/MultiPoint, IDs/properties/query lifecycle, publication staging, and an
    offline consumer.
 2. `G10-021` — add line, polygon, and multipart geometry through query and tolerant map rendering.
-3. `G10-022` — close every diagnostic/limit/cleanup case and add deterministic bounded mutation
-   testing.
-4. `G10-023` — add a small provenance-recorded RFC/real-producer fixture set and runnable GeoJSON
-   viewer; extend `renderRegression` without a new corpus command.
-5. `G10-024` — extend the one native executable with explicit Jackson construction, one valid
-   query/render and one exact malformed outcome, then record the bounded Linux claim.
+3. `G10-022` — add bounded deterministic FeatureSource writing, semantic reopen evidence, atomic
+   replacement, and writer lifecycle/failure tests.
+4. `G10-023` — close every reader/writer diagnostic, limit, cancellation, and cleanup case and add
+   deterministic bounded mutation/adversarial-source testing.
+5. `G10-024` — add a small provenance-recorded RFC/real-producer fixture set and runnable GeoJSON
+   viewer; extend `renderRegression`, publication, and the offline consumer without a new corpus lane.
+6. `G10-025` — extend the one native executable with explicit Jackson construction, valid read/write/
+   reopen/query/render and one exact malformed outcome, then record the bounded Linux claim.
 
-G10-021 depends on G10-020; G10-022 depends on G10-021; G10-023 depends on G10-022; G10-024 depends
-on G10-023. Shared publication/native inventories follow the append-only single-owner rule. Broader
-properties, GeometryCollection, Z/M, sequences, remote retrieval, writing, alternate parsers, and
-format-specific performance optimization require new evidence and tasks.
+The implementation sequence is strictly
+`G10-020 -> G10-021 -> G10-022 -> G10-023 -> G10-024 -> G10-025`. Shared publication/native
+inventories follow the append-only single-owner rule. Broader properties, GeometryCollection, Z/M,
+sequences, remote retrieval, generic record iterables, alternate parsers, and format-specific
+performance optimization require new evidence and tasks.
 
 ## GeoTIFF raster and elevation profile decision (G10-003)
 
@@ -2675,8 +2778,8 @@ G10 preserves the smallest useful boundaries after reviewing all seven decisions
 
 - SVG import produces ordinary Level 1 symbols; it does not create an SVG scene graph or arbitrary
   document engine.
-- The proposed GeoJSON profile would isolate its one Jackson parser while the public source remains
-  dependency-free; G10-002 has not approved that dependency.
+- The approved GeoJSON profile isolates its one Jackson parser/generator while the public source remains
+  dependency-free; G10-002 approves that dependency for G10-020, but no adapter module exists yet.
 - GeoTIFF keeps bounded image and elevation entry points in one format module without becoming a TIFF,
   CRS, or GDAL framework.
 - The proposed GeoPackage and MBTiles profiles would remain separate optional adapters; G10-039's

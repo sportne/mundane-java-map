@@ -224,7 +224,13 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G10-001 — Secure SVG import profile and first slice](closed/G10-001-secure-svg-import-profile-and-first-slice.md) | Complete | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
-| [G10-002 — GeoJSON feature-source profile decision](G10-002-geojson-feature-source-profile-decision.md) | Proposed | HITL | G8-004 | Decide whether to approve a strict 2D RFC 7946 source and one isolated Jackson Core adapter. |
+| [G10-002 — GeoJSON feature-source profile decision](closed/G10-002-geojson-feature-source-profile-decision.md) | Complete | HITL | G8-004 | Approve a strict 2D RFC 7946 reader/writer and one isolated Jackson Core adapter. |
+| [G10-020 — GeoJSON adapter and first read slice](G10-020-geojson-adapter-first-read-slice.md) | Proposed | AFK | G10-002 | Publish a working bounded Point/MultiPoint Jackson adapter. |
+| [G10-021 — GeoJSON geometry completion](G10-021-geojson-geometry-completion.md) | Proposed | AFK | G10-020 | Read and render all six approved geometry families. |
+| [G10-022 — GeoJSON deterministic writer](G10-022-geojson-deterministic-writer.md) | Proposed | AFK | G10-021 | Write bounded deterministic FeatureCollections with atomic replacement. |
+| [G10-023 — GeoJSON hostile-input and writer hardening](G10-023-geojson-hardening.md) | Proposed | AFK | G10-022 | Close reader/writer limits, diagnostics, cancellation, and cleanup. |
+| [G10-024 — GeoJSON fixtures, viewer, and consumer evidence](G10-024-geojson-fixtures-viewer-consumer.md) | Proposed | HITL | G10-023 | Prove fixture, viewer, rendering, publication, and consumer interoperability. |
+| [G10-025 — Native Image GeoJSON closeout](G10-025-native-image-geojson-closeout.md) | Proposed | HITL | G10-024 | Prove the bounded Linux native path or retain JVM-only status. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](closed/G10-003-geotiff-raster-and-elevation-profile-decision.md) | Complete | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
 | [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide whether to approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
 | [G10-005 — GPX and KML source profiles](closed/G10-005-gpx-and-kml-source-profiles.md) | Complete | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |

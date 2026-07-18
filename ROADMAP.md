@@ -359,8 +359,10 @@ separately decomposed.
   explicit raster/elevation routes, and nine later vertical slices. No GeoTIFF module exists yet.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
-- G10-002 remains Proposed. Its draft evaluates one bounded optional Jackson Core GeoJSON adapter;
-  neither that dependency nor a GeoJSON module is approved.
+- G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. Implementation is
+  decomposed serially as G10-020 through G10-025; no module exists until G10-020 delivers behavior.
+  The writer consumes one canonical EPSG:4326 FeatureSource, rejects silent data loss, and performs
+  deterministic bounded atomic local replacement; generic JSON serialization remains outside scope.
 - G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
   boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
