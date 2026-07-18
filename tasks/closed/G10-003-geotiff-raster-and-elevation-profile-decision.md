@@ -1,6 +1,6 @@
 # G10-003 — GeoTIFF raster and elevation profile decision
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004, G9-001
 Gate: G10
 Type: HITL
@@ -63,3 +63,8 @@ git diff --check
 HITL checkpoint: **G10 GeoTIFF profile and routing approval**. Approval chooses the strict pure-Java
 profile, explicit semantic openers, and nine-card implementation graph. Rejection creates no module;
 GeoTIFF remains Level 2.
+
+The maintainer approved the checkpoint on 2026-07-17 through the advance HITL authorization for
+dependency-free remaining tasks. The design records the closed profile and follow-up graph without
+creating a module, changing production code, or adding a dependency. Focused API/core checks,
+`qualityGate`, and `git diff --check` passed before closure.

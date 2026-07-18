@@ -1141,6 +1141,12 @@ BigTIFF, LZW/JPEG/predictors, palette/YCbCr/CMYK, arbitrary CRS, multiple IFDs/o
 COG/range access, persistent caches, GDAL, and format-specific acceleration require evidence and new
 tasks.
 
+Decision record (2026-07-17): **G10 GeoTIFF profile and routing approval** is approved through the
+maintainer's advance HITL authorization for dependency-free remaining tasks. Approval selects the
+strict JDK-only Classic TIFF profile, explicit `openRaster`/`openElevation` routes, and G10-030 through
+G10-038 exactly as specified above. It creates no module or production code; implementation begins
+only with a separately reviewed G10-030 task.
+
 ## SQLite container adapter profiles (G10-004)
 
 ### Approval and dependency boundary
