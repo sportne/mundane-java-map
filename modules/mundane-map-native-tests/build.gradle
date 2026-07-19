@@ -11,6 +11,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-shapefile')
     implementation project(':modules:mundane-map-io-dted')
     implementation project(':modules:mundane-map-io-svg')
+    implementation project(':modules:mundane-map-io-geojson-jackson')
 }
 
 def shapefileCorpusRoot = project(':modules:mundane-map-io-shapefile').layout.projectDirectory.dir(
@@ -63,3 +64,16 @@ application {
 }
 
 description = 'Offscreen GraalVM Native Image compatibility smoke application.'
+
+graalvmNative {
+    binaries {
+        main {
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            buildArgs.add(
+                    '-H:ServiceLoaderFeatureExcludeServices=tools.jackson.core.TokenStreamFactory')
+            buildArgs.add(
+                    '-H:ExcludeResources=\\QMETA-INF/services/tools.jackson.core.TokenStreamFactory\\E')
+            buildArgs.add('-H:-UnlockExperimentalVMOptions')
+        }
+    }
+}

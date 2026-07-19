@@ -370,8 +370,11 @@ separately decomposed.
   mutation, cancellation-transition, lifecycle, cleanup-precedence, and atomic-target evidence.
   G10-024 adds checksummed provenance fixtures, stable viewer diagnostics, independent tolerant
   rendering evidence for all six geometry families and holes, staged publication, and a clean Java
-  21 offline read/write/reopen/query/render consumer. Only G10-025 Native Image closeout remains;
-  generic JSON serialization remains outside scope.
+  21 offline read/write/reopen/query/render consumer. G10-025 closes the sequence with one Linux
+  x86-64 Native Image scenario that directly constructs Jackson, queries and renders a source,
+  writes deterministic output, reopens it, checks one exact malformed diagnostic, and excludes the
+  Jackson service descriptor/service from native registration. Generic JSON serialization remains
+  outside scope; Windows and macOS Native Image remain unclaimed.
 - G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
   boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only

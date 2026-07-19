@@ -1176,7 +1176,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactSevenExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactEightExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1185,7 +1185,8 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-image",
                         ":modules:mundane-map-io-shapefile",
                         ":modules:mundane-map-io-dted",
-                        ":modules:mundane-map-io-svg");
+                        ":modules:mundane-map-io-svg",
+                        ":modules:mundane-map-io-geojson-jackson");
         Set<String> actual =
                 Files.readAllLines(nativeSupportBuild).stream()
                         .map(String::trim)
@@ -1201,6 +1202,15 @@ class ArchitectureRulesTest {
         String build = Files.readString(nativeSupportBuild);
         assertFalse(build.contains("dtedCorpus"));
         assertFalse(build.contains("src/dtedCorpusTest"));
+        assertTrue(
+                build.contains(
+                        "-H:ServiceLoaderFeatureExcludeServices="
+                                + "tools.jackson.core.TokenStreamFactory"));
+        assertTrue(
+                build.contains(
+                        "-H:ExcludeResources=\\\\Q"
+                                + "META-INF/services/tools.jackson.core.TokenStreamFactory"
+                                + "\\\\E"));
     }
 
     @Test

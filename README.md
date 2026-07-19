@@ -123,7 +123,9 @@ JTS/PROJ/SQLite/GDAL adapters remain Level 2 work. DTED, the static SVG subset, 
 Jackson Core GeoJSON profile are implemented Level 2 capabilities and do not broaden Level 1.
 
 The implemented Level 2 GeoJSON adapter supports the bounded six-family profile documented in the
-design. Run its review viewer with the bundled fixture, or pass one local file:
+design. Its directly constructed Jackson Core reader/writer, source query, and renderer path are also
+verified by the Linux x86-64 Native Image smoke; this is not a Windows or macOS claim. Run its review
+viewer with the bundled fixture, or pass one local file:
 
 ```bash
 ./gradlew :examples:geojson-viewer:run

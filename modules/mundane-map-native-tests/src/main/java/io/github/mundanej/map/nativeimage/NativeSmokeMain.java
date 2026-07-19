@@ -57,6 +57,7 @@ public final class NativeSmokeMain {
             NativeDtedSmokeScenario.run(workspace.dtedPaths());
         }
         NativeSvgSmokeScenario.run();
+        NativeGeoJsonSmokeScenario.run();
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {

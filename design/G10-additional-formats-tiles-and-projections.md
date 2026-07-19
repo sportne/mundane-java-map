@@ -894,6 +894,35 @@ inventories follow the append-only single-owner rule. Broader properties, Geomet
 sequences, remote retrieval, generic record iterables, alternate parsers, and format-specific
 performance optimization require new evidence and tasks.
 
+### GeoJSON Native Image closeout (G10-025)
+
+The named **G10 GeoJSON Native Image claim review** checkpoint was approved in advance and closes
+with the bounded outcome **Linux x86-64 supported for the tested scenario**. On 2026-07-18 the existing
+single executable built and ran successfully with GraalVM Community Java 21.0.2 on Linux x86-64. It
+uses inline bytes and ordinary temporary files—no GeoJSON resource—to exercise the real Jackson
+parser and generator, source metadata/cursor/query lifecycle, AWT source rendering, deterministic
+two-write evidence, write/reopen, one exact duplicate-member diagnostic, and owned-source/file
+cleanup.
+
+The adapter is therefore a Level 2 optional adapter with `nativeTarget: true`; it does not enter the
+JDK-only Level 1 dependency graph. `GeoJsonFactories` directly builds private `JsonFactory` instances.
+The native binary explicitly excludes both service registration and resource inclusion for
+`META-INF/services/tools.jackson.core.TokenStreamFactory`, the metadata repository remains disabled,
+and the checked reflection/resource files gain no Jackson entry. Architecture bytecode checks cover
+the adapter and smoke code, including the removal of the parser's former `Class.getSimpleName()`
+fallback.
+
+The pinned JAR audit found three shaded FastDoubleParser classes and three Schubfach classes in the
+artifact. Both fast-number parser features remain disabled; inspection of the successful executable
+found no shaded `fdp` type. Normal deterministic double output reaches only
+`tools.jackson.core.io.schubfach.DoubleToDecimal` and `MathUtils`, which are pure-Java implementation
+details and require no registration or resource. The JAR service descriptor is upstream artifact
+content, not a MundaneJ resource contract.
+
+This evidence claims only the exact Linux x86-64 path above. It is not a Windows/macOS claim, a
+promise for arbitrary Jackson modules, service loading, reflection-driven serialization, or generic
+JSON support. A broader claim requires separate executable evidence.
+
 ## GeoTIFF raster and elevation profile decision (G10-003)
 
 ### One strict JDK reader with caller-selected semantics

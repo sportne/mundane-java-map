@@ -1,6 +1,6 @@
 # G10-025 — Native Image GeoJSON closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G10-024
 Gate: G10
 Type: HITL

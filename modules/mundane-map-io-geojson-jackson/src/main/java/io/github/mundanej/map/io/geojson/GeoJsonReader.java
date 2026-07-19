@@ -965,9 +965,7 @@ final class GeoJsonReader {
 
     private static String jacksonReason(JacksonException failure) {
         String message = failure.getMessage();
-        return failure.getClass().getSimpleName().contains("Dup")
-                        || (message != null
-                                && message.toLowerCase(java.util.Locale.ROOT).contains("duplicate"))
+        return message != null && message.toLowerCase(java.util.Locale.ROOT).contains("duplicate")
                 ? "duplicateMember"
                 : "syntax";
     }
