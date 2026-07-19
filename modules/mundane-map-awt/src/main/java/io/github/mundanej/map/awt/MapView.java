@@ -28,6 +28,8 @@ import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.HatchFillSymbol;
+import io.github.mundanej.map.api.LabelPlacementException;
+import io.github.mundanej.map.api.LabelPlacementProblem;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapCursorIntent;
@@ -53,7 +55,9 @@ import io.github.mundanej.map.api.MeasurementState;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
+import io.github.mundanej.map.api.PlacedPointLabel;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.RasterGridPlacement;
@@ -65,6 +69,7 @@ import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.ScreenBox;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.SourceDiagnostic;
@@ -88,6 +93,7 @@ import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapToolRouter;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.MarkerTransform;
+import io.github.mundanej.map.core.PointLabelLayouts;
 import io.github.mundanej.map.core.QueryEnvelopeStatus;
 import io.github.mundanej.map.core.QueryEnvelopeTransform;
 import io.github.mundanej.map.core.RasterGridWindows;
@@ -121,7 +127,6 @@ import java.awt.geom.AffineTransform;
 import java.awt.geom.Area;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
-import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayDeque;
@@ -1233,19 +1238,42 @@ public final class MapView extends JComponent implements AutoCloseable {
                             : Optional.empty();
             OverlayCandidate hoverCandidate = null;
             OverlayCandidate selectionCandidate = null;
+            List<PendingPointLabel> pendingLabels = new ArrayList<>();
+            LabelPlacementException deferredLabelFailure = null;
             if (isOpaque()) {
                 graphics2D.setColor(getBackground());
                 graphics2D.fillRect(0, 0, getWidth(), getHeight());
             }
             graphics2D.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            for (LayerSnapshot layer : content.layers()) {
+            for (int layerIndex = 0; layerIndex < content.layers().size(); layerIndex++) {
+                LayerSnapshot layer = content.layers().get(layerIndex);
                 layer.raster()
                         .ifPresent(
                                 raster -> renderRasterLayer(graphics2D, raster, viewportSnapshot));
                 for (VisualFeature feature : layer.features()) {
                     SymbolRenderResult result =
                             renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
+                    if (feature.label().isPresent()) {
+                        if (pendingLabels.size() >= 4_096) {
+                            if (deferredLabelFailure == null) {
+                                deferredLabelFailure =
+                                        labelBatchFailure(
+                                                "LABEL_REQUEST_LIMIT_EXCEEDED",
+                                                "Point-label request limit exceeded",
+                                                4_096,
+                                                4_097);
+                            }
+                        } else {
+                            pendingLabels.add(
+                                    new PendingPointLabel(
+                                            layer.id(),
+                                            layerIndex,
+                                            feature,
+                                            feature.label().orElseThrow(),
+                                            screenBox(result.nominalMarkerBounds().orElseThrow())));
+                        }
+                    }
                     if (hoverSnapshot.isPresent()
                             && matches(hoverSnapshot.orElseThrow(), layer.id(), feature.id())) {
                         hoverCandidate = new OverlayCandidate(feature, result.paintPresence());
@@ -1256,11 +1284,59 @@ public final class MapView extends JComponent implements AutoCloseable {
                     }
                 }
             }
+            if (deferredLabelFailure != null) {
+                throw deferredLabelFailure;
+            }
+            int labelCodePoints = 0;
+            for (PendingPointLabel pending : pendingLabels) {
+                int codePoints =
+                        LabelTextMetrics.validateText(
+                                pending.label().text(),
+                                pending.layerIndex(),
+                                pending.feature().featureIndex());
+                int attempted = Math.addExact(labelCodePoints, codePoints);
+                if (attempted > 262_144) {
+                    throw labelBatchFailure(
+                            "LABEL_TEXT_BUDGET_EXCEEDED",
+                            "Point-label text budget exceeded",
+                            262_144,
+                            attempted);
+                }
+                labelCodePoints = attempted;
+            }
+            List<MeasuredPointLabel> pointLabels = new ArrayList<>(pendingLabels.size());
+            for (PendingPointLabel pending : pendingLabels) {
+                ResolvedPointLabel label = pending.label();
+                LabelTextMetrics.Measurement measurement =
+                        LabelTextMetrics.measureValidated(
+                                label.text(),
+                                label.profile().style(),
+                                pending.layerIndex(),
+                                pending.feature().featureIndex());
+                PlacedPointLabel placed =
+                        PointLabelLayouts.place(
+                                pending.layerId(),
+                                pending.feature().id(),
+                                label.text(),
+                                label.profile().style(),
+                                pending.markerBounds(),
+                                measurement.relativeVisualBounds(),
+                                measurement.advance(),
+                                label.profile(),
+                                label.profile().positions().getFirst(),
+                                pending.layerIndex(),
+                                pending.feature().featureIndex(),
+                                pointLabels.size());
+                pointLabels.add(new MeasuredPointLabel(measurement, placed));
+            }
             boolean hoverPaintChanged =
                     retainInteractionPaintState(hoverSnapshot, hoverCandidate, true);
             boolean selectionPaintChanged =
                     retainInteractionPaintState(selectionSnapshot, selectionCandidate, false);
             paintStateChanged = hoverPaintChanged || selectionPaintChanged;
+            for (MeasuredPointLabel label : pointLabels) {
+                LabelTextMetrics.draw(graphics2D, label.measurement(), label.placed());
+            }
             renderOverlay(
                     graphics2D, hoverCandidate, hoverOverlay, viewportSnapshot, basisSnapshot);
             renderOverlay(
@@ -1445,10 +1521,6 @@ public final class MapView extends JComponent implements AutoCloseable {
                         screenPlan,
                         -1);
         SymbolRenderResult result = dispatch(symbol, context);
-        if (feature.geometry() instanceof PointGeometry) {
-            Envelope bounds = result.nominalMarkerBounds().orElseThrow();
-            renderPointLabel(graphics, feature.name(), rectangle(bounds));
-        }
         return result;
     }
 
@@ -3576,21 +3648,6 @@ public final class MapView extends JComponent implements AutoCloseable {
         return AwtLogicalPaintPresence.EMPTY;
     }
 
-    private static void renderPointLabel(
-            Graphics2D graphics, String featureName, Rectangle2D nominalBounds) {
-        if (featureName.isBlank()) {
-            return;
-        }
-        graphics.setColor(new Color(32, 32, 32));
-        Point2D baseline = pointLabelBaseline(nominalBounds);
-        graphics.drawString(featureName, (float) baseline.getX(), (float) baseline.getY());
-    }
-
-    static Point2D pointLabelBaseline(Rectangle2D nominalBounds) {
-        Objects.requireNonNull(nominalBounds, "nominalBounds");
-        return new Point2D.Double(nominalBounds.getMaxX() + 4.0, nominalBounds.getMinY() - 2.0);
-    }
-
     private CoordinateSequence toScreen(
             CoordinateSequence source,
             CrsOperation sourceToDisplayOperation,
@@ -3703,6 +3760,18 @@ public final class MapView extends JComponent implements AutoCloseable {
     private static Rectangle2D rectangle(Envelope bounds) {
         return new Rectangle2D.Double(
                 bounds.minX(), bounds.minY(), bounds.width(), bounds.height());
+    }
+
+    private static ScreenBox screenBox(Envelope bounds) {
+        return new ScreenBox(bounds.minX(), bounds.minY(), bounds.maxX(), bounds.maxY());
+    }
+
+    private static LabelPlacementException labelBatchFailure(
+            String code, String message, int limit, int attempted) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        context.put("limit", Integer.toString(limit));
+        context.put("attempted", Integer.toString(attempted));
+        return new LabelPlacementException(new LabelPlacementProblem(code, message, context));
     }
 
     private static Envelope envelope(Rectangle2D bounds) {
@@ -4332,9 +4401,10 @@ public final class MapView extends JComponent implements AutoCloseable {
         for (MapLayerBinding binding : sourceBindings) {
             captured.add(
                     switch (binding.kind()) {
-                        case SNAPSHOT -> captureSnapshot(binding);
-                        case FEATURE -> captureFeatureSource(binding, viewportSnapshot);
-                        case EDITABLE -> captureEditable(binding);
+                        case SNAPSHOT -> captureSnapshot(binding, viewportSnapshot, readRasters);
+                        case FEATURE ->
+                                captureFeatureSource(binding, viewportSnapshot, readRasters);
+                        case EDITABLE -> captureEditable(binding, viewportSnapshot, readRasters);
                         case RASTER ->
                                 readRasters
                                         ? captureRasterSource(
@@ -4365,7 +4435,8 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    private LayerSnapshot captureSnapshot(MapLayerBinding binding) {
+    private LayerSnapshot captureSnapshot(
+            MapLayerBinding binding, MapViewport viewportSnapshot, boolean includeLabels) {
         Layer layer = binding.layer();
         String currentLayerId = requireContentId(layer.id(), "layer.id");
         if (!binding.id().equals(currentLayerId)) {
@@ -4376,7 +4447,8 @@ public final class MapView extends JComponent implements AutoCloseable {
         Set<String> featureIds = new HashSet<>();
         List<VisualFeature> visual = new ArrayList<>(features.size());
         io.github.mundanej.map.core.FeaturePortrayalResolver resolver = binding.portrayalResolver();
-        for (Feature feature : features) {
+        for (int featureIndex = 0; featureIndex < features.size(); featureIndex++) {
+            Feature feature = features.get(featureIndex);
             Objects.requireNonNull(feature, "feature");
             String featureId = requireContentId(feature.id(), "feature.id");
             if (!featureIds.add(featureId)) {
@@ -4399,7 +4471,15 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 feature.name(),
                                 feature.geometry(),
                                 symbol,
-                                mapToDisplay));
+                                mapToDisplay,
+                                resolvePointLabel(
+                                        binding,
+                                        feature.name(),
+                                        feature.geometry(),
+                                        feature.attributes(),
+                                        viewportSnapshot,
+                                        includeLabels),
+                                featureIndex));
             }
         }
         return new LayerSnapshot(
@@ -4411,11 +4491,14 @@ public final class MapView extends JComponent implements AutoCloseable {
                 true);
     }
 
-    private LayerSnapshot captureEditable(MapLayerBinding binding) {
+    private LayerSnapshot captureEditable(
+            MapLayerBinding binding, MapViewport viewportSnapshot, boolean includeLabels) {
         FeatureEditSnapshot snapshot = binding.editSession().snapshot();
         List<VisualFeature> visual = new ArrayList<>(snapshot.records().size());
         Set<String> featureIds = new HashSet<>();
-        for (FeatureRecord record : snapshot.records()) {
+        for (int featureIndex = 0; featureIndex < snapshot.records().size(); featureIndex++) {
+            FeatureRecord record = snapshot.records().get(featureIndex);
+            int capturedFeatureIndex = featureIndex;
             featureIds.add(record.id());
             sourceSymbol(binding, record.geometry(), record.attributes())
                     .ifPresent(
@@ -4426,7 +4509,15 @@ public final class MapView extends JComponent implements AutoCloseable {
                                                     record.name(),
                                                     record.geometry(),
                                                     symbol,
-                                                    mapToDisplay)));
+                                                    mapToDisplay,
+                                                    resolvePointLabel(
+                                                            binding,
+                                                            record.name(),
+                                                            record.geometry(),
+                                                            record.attributes(),
+                                                            viewportSnapshot,
+                                                            includeLabels),
+                                                    capturedFeatureIndex)));
         }
         return new LayerSnapshot(
                 binding.id(),
@@ -4438,7 +4529,7 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private LayerSnapshot captureFeatureSource(
-            MapLayerBinding binding, MapViewport viewportSnapshot) {
+            MapLayerBinding binding, MapViewport viewportSnapshot, boolean includeLabels) {
         FeatureSource source = binding.source();
         ResolvedFeatureBinding resolved = resolvedFeatureBindings.get(binding);
         MapLayerBinding.Operation operation = binding.beginOperation();
@@ -4469,7 +4560,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             FeatureQuery query =
                     new FeatureQuery(
                             transformed.transformedEnvelope(),
-                            symbolAttributes(binding),
+                            paintAttributes(binding, viewportSnapshot, includeLabels),
                             Optional.empty());
             List<FeatureRecord> staged = new ArrayList<>();
             FeatureQueryAccounting accounting =
@@ -4499,7 +4590,9 @@ public final class MapView extends JComponent implements AutoCloseable {
             DiagnosticReport report = encountered;
             updateSourceResult(binding.id(), report, true);
             List<VisualFeature> visual = new ArrayList<>(staged.size());
-            for (FeatureRecord record : staged) {
+            for (int featureIndex = 0; featureIndex < staged.size(); featureIndex++) {
+                FeatureRecord record = staged.get(featureIndex);
+                int capturedFeatureIndex = featureIndex;
                 sourceSymbol(binding, record.geometry(), record.attributes())
                         .ifPresent(
                                 symbol ->
@@ -4509,7 +4602,15 @@ public final class MapView extends JComponent implements AutoCloseable {
                                                         record.name(),
                                                         record.geometry(),
                                                         symbol,
-                                                        resolved.sourceToDisplay())));
+                                                        resolved.sourceToDisplay(),
+                                                        resolvePointLabel(
+                                                                binding,
+                                                                record.name(),
+                                                                record.geometry(),
+                                                                record.attributes(),
+                                                                viewportSnapshot,
+                                                                includeLabels),
+                                                        capturedFeatureIndex)));
             }
             return new LayerSnapshot(
                     binding.id(), List.copyOf(visual), Optional.empty(), true, true);
@@ -4763,9 +4864,40 @@ public final class MapView extends JComponent implements AutoCloseable {
         return binding.portrayalResolver().resolve(role, attributes);
     }
 
-    private static AttributeSelection symbolAttributes(MapLayerBinding binding) {
-        List<String> attributes = binding.portrayalResolver().requiredSymbolAttributes();
+    private static AttributeSelection paintAttributes(
+            MapLayerBinding binding, MapViewport viewportSnapshot, boolean includeLabels) {
+        List<String> attributes =
+                includeLabels
+                        ? binding.portrayalResolver()
+                                .requiredPaintAttributes(viewportSnapshot.worldUnitsPerPixel())
+                        : binding.portrayalResolver().requiredSymbolAttributes();
         return attributes.isEmpty() ? AttributeSelection.NONE : AttributeSelection.only(attributes);
+    }
+
+    private static Optional<ResolvedPointLabel> resolvePointLabel(
+            MapLayerBinding binding,
+            String featureName,
+            Geometry geometry,
+            Map<String, Object> attributes,
+            MapViewport viewportSnapshot,
+            boolean includeLabels) {
+        if (!includeLabels || !(geometry instanceof PointGeometry)) {
+            return Optional.empty();
+        }
+        io.github.mundanej.map.core.FeaturePortrayalResolver resolver = binding.portrayalResolver();
+        if (resolver == null) {
+            PointLabelProfile profile = PointLabelProfile.compatibility();
+            return featureName.isBlank()
+                    ? Optional.empty()
+                    : Optional.of(new ResolvedPointLabel(featureName, profile));
+        }
+        Optional<PointLabelProfile> profile = resolver.pointLabel();
+        if (profile.isEmpty()) {
+            return Optional.empty();
+        }
+        return resolver.resolveLabelText(
+                        featureName, attributes, viewportSnapshot.worldUnitsPerPixel())
+                .map(text -> new ResolvedPointLabel(text, profile.orElseThrow()));
     }
 
     private static void preflight(
@@ -4999,7 +5131,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                 .ifPresent(
                         schema -> {
                             for (String attribute :
-                                    binding.portrayalResolver().requiredSymbolAttributes()) {
+                                    binding.portrayalResolver().requiredConfigurationAttributes()) {
                                 if (schema.field(attribute).isEmpty()) {
                                     throw new IllegalArgumentException(
                                             "portrayal attribute is absent from known schema: "
@@ -5721,7 +5853,38 @@ public final class MapView extends JComponent implements AutoCloseable {
             String name,
             Geometry geometry,
             Symbol symbol,
-            CrsOperation sourceToDisplay) {}
+            CrsOperation sourceToDisplay,
+            Optional<ResolvedPointLabel> label,
+            int featureIndex) {}
+
+    private record ResolvedPointLabel(String text, PointLabelProfile profile) {
+        private ResolvedPointLabel {
+            Objects.requireNonNull(text, "text");
+            Objects.requireNonNull(profile, "profile");
+        }
+    }
+
+    private record MeasuredPointLabel(
+            LabelTextMetrics.Measurement measurement, PlacedPointLabel placed) {
+        private MeasuredPointLabel {
+            Objects.requireNonNull(measurement, "measurement");
+            Objects.requireNonNull(placed, "placed");
+        }
+    }
+
+    private record PendingPointLabel(
+            String layerId,
+            int layerIndex,
+            VisualFeature feature,
+            ResolvedPointLabel label,
+            ScreenBox markerBounds) {
+        private PendingPointLabel {
+            Objects.requireNonNull(layerId, "layerId");
+            Objects.requireNonNull(feature, "feature");
+            Objects.requireNonNull(label, "label");
+            Objects.requireNonNull(markerBounds, "markerBounds");
+        }
+    }
 
     private record LayerSnapshot(
             String id,

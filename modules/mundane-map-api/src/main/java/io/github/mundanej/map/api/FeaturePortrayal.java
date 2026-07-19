@@ -9,6 +9,7 @@ public final class FeaturePortrayal {
     private final Optional<SymbolSelector> marker;
     private final Optional<SymbolSelector> line;
     private final Optional<SymbolSelector> fill;
+    private final Optional<PointLabelProfile> pointLabel;
 
     /**
      * Creates a portrayal with at least one role selector.
@@ -21,11 +22,32 @@ public final class FeaturePortrayal {
             Optional<? extends SymbolSelector> marker,
             Optional<? extends SymbolSelector> line,
             Optional<? extends SymbolSelector> fill) {
+        this(marker, line, fill, Optional.empty());
+    }
+
+    /**
+     * Creates a portrayal with at least one role selector and an optional singular-point label.
+     *
+     * @param marker optional marker-role selector
+     * @param line optional line-role selector
+     * @param fill optional fill-role selector
+     * @param pointLabel optional point-label profile, which requires a marker selector
+     */
+    public FeaturePortrayal(
+            Optional<? extends SymbolSelector> marker,
+            Optional<? extends SymbolSelector> line,
+            Optional<? extends SymbolSelector> fill,
+            Optional<PointLabelProfile> pointLabel) {
         this.marker = copy(marker, SymbolRole.MARKER, "marker");
         this.line = copy(line, SymbolRole.LINE, "line");
         this.fill = copy(fill, SymbolRole.FILL, "fill");
+        Objects.requireNonNull(pointLabel, "pointLabel");
+        this.pointLabel = pointLabel.map(Objects::requireNonNull);
         if (this.marker.isEmpty() && this.line.isEmpty() && this.fill.isEmpty()) {
             throw new IllegalArgumentException("portrayal requires at least one selector");
+        }
+        if (this.pointLabel.isPresent() && this.marker.isEmpty()) {
+            throw new IllegalArgumentException("pointLabel requires a marker selector");
         }
     }
 
@@ -82,6 +104,25 @@ public final class FeaturePortrayal {
     }
 
     /**
+     * Returns the optional singular-point label profile.
+     *
+     * @return optional immutable profile
+     */
+    public Optional<PointLabelProfile> pointLabel() {
+        return pointLabel;
+    }
+
+    /**
+     * Returns an equal-role portrayal with the supplied point-label profile.
+     *
+     * @param profile non-null singular-point profile
+     * @return new immutable portrayal
+     */
+    public FeaturePortrayal withPointLabel(PointLabelProfile profile) {
+        return new FeaturePortrayal(marker, line, fill, Optional.of(profile));
+    }
+
+    /**
      * Returns present selectors in marker, line, fill order.
      *
      * @return immutable ordered selector list
@@ -99,17 +140,26 @@ public final class FeaturePortrayal {
         return other instanceof FeaturePortrayal portrayal
                 && marker.equals(portrayal.marker)
                 && line.equals(portrayal.line)
-                && fill.equals(portrayal.fill);
+                && fill.equals(portrayal.fill)
+                && pointLabel.equals(portrayal.pointLabel);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(marker, line, fill);
+        return Objects.hash(marker, line, fill, pointLabel);
     }
 
     @Override
     public String toString() {
-        return "FeaturePortrayal[marker=" + marker + ", line=" + line + ", fill=" + fill + ']';
+        return "FeaturePortrayal[marker="
+                + marker
+                + ", line="
+                + line
+                + ", fill="
+                + fill
+                + ", pointLabel="
+                + pointLabel
+                + ']';
     }
 
     private static Optional<SymbolSelector> copy(

@@ -302,7 +302,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G11-013 — Point editing tool completion](G11-013-point-editing-tool-completion.md) | Proposed | HITL | G11-011, G11-012 | Complete interactive point editing and approve viewer/render/native evidence. |
 | [G11-020 — Portrayal and categorical marker slice](closed/G11-020-portrayal-and-categorical-marker-slice.md) | Complete | AFK | G11-002, G11-010 | Resolve fixed/categorical marker portrayals across source and editable bindings. |
 | [G11-021 — Graduated and complete-role portrayal](closed/G11-021-graduated-and-complete-role-portrayal.md) | Complete | AFK | G11-020 | Complete graduated marker/line/fill selection with query/interaction agreement. |
-| [G11-022 — Point-label values and global paint pass](G11-022-point-label-values-and-global-paint-pass.md) | Proposed | AFK | G11-020 | Extract, measure, place, and paint bounded singular-point labels globally. |
+| [G11-022 — Point-label values and global paint pass](closed/G11-022-point-label-values-and-global-paint-pass.md) | Complete | AFK | G11-020 | Extract, measure, place, and paint bounded singular-point labels globally. |
 | [G11-023 — Bounded label placement and example](G11-023-bounded-label-placement-and-example.md) | Proposed | HITL | G11-021, G11-022 | Add deterministic collision placement and approve the styling/label example. |
 | [G11-024 — Styling and label closeout](G11-024-styling-label-closeout.md) | Proposed | HITL | G11-023 | Close styling/label API, performance, consumer, publication, and native evidence. |
 | [G11-030 — Workspace model and secure reader](G11-030-workspace-model-and-secure-reader.md) | Proposed | AFK | G11-003 | Read a bounded secure local XML workspace into immutable values. |

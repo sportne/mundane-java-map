@@ -43,8 +43,6 @@ import java.awt.Graphics2D;
 import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
-import java.awt.geom.Point2D;
-import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -715,16 +713,6 @@ class MapViewTest {
                     assertEquals("MARKER", missingRenderer.context().get("role"));
                     assertEquals("null", missingRenderer.context().get("key"));
                 });
-    }
-
-    @Test
-    void pointLabelBaselineUsesNominalMarkerBounds() {
-        Point2D baseline =
-                MapView.pointLabelBaseline(new Rectangle2D.Double(40.0, 41.0, 20.0, 18.0));
-
-        assertEquals(64.0, baseline.getX());
-        assertEquals(39.0, baseline.getY());
-        assertThrows(NullPointerException.class, () -> MapView.pointLabelBaseline(null));
     }
 
     @Test

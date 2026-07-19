@@ -1,6 +1,6 @@
 # G11-022 — Point-label values and global paint pass
 
-Status: Proposed
+Status: Complete
 Depends on: G11-020
 Gate: G11
 Type: AFK

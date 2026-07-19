@@ -10,6 +10,7 @@ import io.github.mundanej.map.api.FillSymbol;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MarkerSymbol;
+import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.Symbol;
@@ -115,7 +116,9 @@ public final class MapLayerBinding implements AutoCloseable {
         this.line = requireRole(line, SymbolRole.LINE, "line");
         this.fill = requireRole(fill, SymbolRole.FILL, "fill");
         this.portrayalResolver =
-                FeaturePortrayalResolver.compile(FeaturePortrayal.fixed(marker, line, fill));
+                FeaturePortrayalResolver.compile(
+                        FeaturePortrayal.fixed(marker, line, fill)
+                                .withPointLabel(PointLabelProfile.compatibility()));
         this.rasterOptions = null;
         this.layer = null;
         this.rasterSource = null;
@@ -168,7 +171,9 @@ public final class MapLayerBinding implements AutoCloseable {
         this.line = requireRole(line, SymbolRole.LINE, "line");
         this.fill = requireRole(fill, SymbolRole.FILL, "fill");
         this.portrayalResolver =
-                FeaturePortrayalResolver.compile(FeaturePortrayal.fixed(marker, line, fill));
+                FeaturePortrayalResolver.compile(
+                        FeaturePortrayal.fixed(marker, line, fill)
+                                .withPointLabel(PointLabelProfile.compatibility()));
         this.layer = null;
         this.source = null;
         this.rasterSource = null;
