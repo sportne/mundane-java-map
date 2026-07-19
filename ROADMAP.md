@@ -507,3 +507,35 @@ separately decomposed.
   publication/consumer/Linux Native Image closeout.
 - See the [G14 detailed design](design/G14-maplibre-style.md) and the
   [G14 task set](tasks/README.md#g14--maplibre-style).
+
+### G15 — Live-track stress and IOU tracking
+
+- Add one JVM-only `live-track-stress` example that individually simulates, receives, and estimates
+  10,000, 100,000, or 1,000,000 fixed tracks over a simple global chart.
+- Use a bounded forward IOU-Kalman Filter state estimator based on the publicly documented
+  Integrated Ornstein-Uhlenbeck position/velocity process. G15-001 must approve
+  the exact equations, independent-implementation provenance, numerical behavior, and support
+  wording; the project does not claim equivalence to every historical Wagner implementation.
+- Schedule deterministic stochastic position reports independently per track at intervals from one
+  second through one minute. Use packed primitive truth/filter state, a due-work timing wheel, and
+  stable worker shards; data association, track birth/death, networking, and operational accuracy
+  remain excluded.
+- Bundle the official Natural Earth `ne_110m_land` shapefile with exact version, hashes, retrieval
+  record, public-domain terms, and no runtime download. Render it through the existing shapefile and
+  CRS stack.
+- Draw dense estimated positions through an example-owned detached AWT overlay rather than widening
+  the immutable `FeatureSource` contract or allocating one million feature records per frame. Keep
+  map navigation on the EDT and publish at most one generation-matched completed frame.
+- Report achieved FPS and accept an explicit maximum-FPS cap while separately reporting update
+  throughput, frame latency/skips/stale results, backlog, shard skew, logical/observed memory, and
+  deterministic error summaries. The reference target is the approximately 100,000-report/second 1m
+  workload with a 10 FPS cap; its measured outcome is evidence, not a portable timing gate.
+- G15-005 creates a sub-five-minute 10k `liveTrackSmoke` iteration lane. G15-007 creates an opt-in
+  `/tmp` `liveTrackEvidence` lane with JSON and LLM-readable Markdown for 10k, 100k, and 1m. Full
+  stress evidence remains outside `qualityGate` and ordinary CI, and FPS is evidence rather than a
+  portable pass/fail threshold.
+- G15-002/G15-003 estimator/simulator work may proceed in parallel with G15-004 chart work after the
+  G15-001 decision. G15-005 through G15-008 then deliver the 10k picture, evidence-guided 100k scale,
+  1m reports, and lifecycle/simplicity closeout.
+- See the [G15 detailed design](design/G15-live-track-stress-and-iou-tracking.md) and the
+  [G15 task set](tasks/README.md#g15--live-track-stress-and-iou-tracking).

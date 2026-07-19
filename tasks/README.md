@@ -72,6 +72,10 @@ must name supported behavior, limits, malformed-input handling, and stable diagn
   - G5-009 creates `./gradlew shapefileCorpus --console=plain`.
   - G7-001 creates `./gradlew performanceEvidence --console=plain`.
   - G9-006 creates `./gradlew dtedCorpus --console=plain`.
+  - G15-005 creates `./gradlew liveTrackSmoke --console=plain`.
+  - G15-007 creates
+    `./gradlew liveTrackEvidence -PliveTrackProfile=<10k|100k|1m> --console=plain`.
+    The evidence lane is opt-in and remains outside `qualityGate` and ordinary CI.
   - G0-001 creates `offlineRepositoryVerification` and `publicationDryRun`; the expensive offline
     proof remains separate from `qualityGate`. G8-003 hardens publication staging and creates
     `consumerSmoke`, yielding `./gradlew publicationDryRun consumerSmoke --console=plain`.
@@ -115,6 +119,11 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
   first-render work are serial and portrayal integration also waits for G11-024. Within G13 and G14,
   parser, rule/expression, rendering, hardening, and closeout tasks extend the same modules and are not
   path-safe in parallel.
+- G15 is independent of the G12–G14 standards sequence after its existing G5/G7 foundations.
+  After G15-001, G15-002/G15-003 estimator/simulator work and G15-004 Natural Earth chart work are
+  dependency-parallel. They share example registration and later converge at G15-005, so one owner
+  serializes root settings/Gradle and example inventory changes. G15-005 through G15-008 extend one
+  viewer/coordinator/evidence path and are serial.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -339,3 +348,16 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G14-005 — Symbol icons and point labels](G14-005-symbol-icons-and-point-labels.md) | Proposed | AFK | G14-004 | Resolve caller-catalog icons and place bounded G11-compatible point labels. |
 | [G14-006 — MapLibre fixtures, gallery, and hardening](G14-006-maplibre-fixtures-gallery-and-hardening.md) | Proposed | HITL | G14-005 | Close hostile/interoperability evidence and approve the MapLibre gallery. |
 | [G14-007 — MapLibre native and publication closeout](G14-007-maplibre-native-publication-closeout.md) | Proposed | HITL | G14-006 | Close dependency, staged consumer, Linux Native Image, and G12–G14 evidence. |
+
+### G15 — Live-track stress and IOU tracking
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G15-001 — Live-track stress and IOU-Kalman Filter profile decision](G15-001-live-track-stress-and-iou-kalman-profile-decision.md) | Proposed | HITL | G5-010, G7-005 | Approve the bounded IOU-Kalman Filter state estimator, stochastic workload, Natural Earth, packed execution, and evidence profile. |
+| [G15-002 — Optimized IOU-Kalman Filter kernel](G15-002-optimized-iou-kalman-kernel.md) | Proposed | AFK | G15-001 | Prove an allocation-free packed estimator against an independent dense oracle. |
+| [G15-003 — Packed stochastic track simulator](G15-003-packed-stochastic-track-simulator.md) | Proposed | AFK | G15-002 | Simulate and filter individually scheduled tracks with a timing wheel and stable shards. |
+| [G15-004 — Natural Earth global chart](G15-004-natural-earth-global-chart.md) | Proposed | HITL | G15-001, G5-010 | Bundle a provenance-backed 1:110m land chart and render it through the shapefile stack. |
+| [G15-005 — First 10k live-picture slice](G15-005-first-10k-live-picture-slice.md) | Proposed | HITL | G15-003, G15-004 | Display 10k filtered tracks with frame pacing, telemetry, and a fast smoke lane. |
+| [G15-006 — 100k sharded tracking and rendering](G15-006-100k-sharded-tracking-and-rendering.md) | Proposed | AFK | G15-005 | Scale the same deterministic behavior to 100k using measured packed sharding. |
+| [G15-007 — Million-track stress and evidence lane](G15-007-million-track-stress-and-evidence-lane.md) | Proposed | HITL | G15-006 | Run the 1m tier and produce JSON/Markdown evidence for all three populations. |
+| [G15-008 — Live-track hardening and closeout](G15-008-live-track-hardening-and-closeout.md) | Proposed | HITL | G15-007 | Close lifecycle, overload, replay, documentation, visual, and simplicity evidence. |
