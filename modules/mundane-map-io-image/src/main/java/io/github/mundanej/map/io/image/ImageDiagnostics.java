@@ -52,14 +52,21 @@ final class ImageDiagnostics {
     }
 
     static SourceException limit(String sourceId, String limit, long requested, long maximum) {
+        return limit(sourceId, "imageOpen", limit, requested, maximum);
+    }
+
+    static SourceException limit(
+            String sourceId, String scope, String limit, long requested, long maximum) {
         return failure(
                 sourceId,
                 "SOURCE_LIMIT_EXCEEDED",
                 "image",
-                "Image opening limit exceeded",
+                scope.equals("imageOpen")
+                        ? "Image opening limit exceeded"
+                        : "Image decode limit exceeded",
                 Map.of(
                         "scope",
-                        "imageOpen",
+                        scope,
                         "limit",
                         limit,
                         "requested",

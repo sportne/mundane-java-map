@@ -417,7 +417,9 @@ separately decomposed.
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native
   Image claim, or default public service URL. G10-006 completes this design and independently
   authorizes the shared G10-039 image helper before G10-060, without waiting on SQLite/Xerial work.
-  G10-039 and G10-060 through G10-062 are now Proposed task cards.
+  G10-039 is complete: bounded detached PNG/JPEG bytes now reuse the full G6 validation and explicit
+  decoder boundary with exact ownership/accounting and no file, source, cache, or toolkit coupling.
+  G10-060 through G10-062 remain Proposed task cards.
 - G10-007 is complete with outcome `DEFER`: no third CRS, formula, PROJ adapter, or raster
   warp is selected. A later proposal must supply one complete workflow/domain/accuracy/format/platform/
   conformance evidence packet, then choose `CORE_DIRECT` or `PROJ_REQUIRED` explicitly before creating

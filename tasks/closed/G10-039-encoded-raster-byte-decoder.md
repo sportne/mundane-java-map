@@ -1,6 +1,6 @@
 # G10-039 — Encoded raster byte decoder
 
-Status: Proposed
+Status: Complete
 Depends on: G6-004, G10-006
 Gate: G10
 Type: AFK
@@ -56,5 +56,9 @@ git diff --check
 
 ## Notes
 
-This card creates no module. Keep the helper synchronous and smaller than an unplaced temporary
-source; G10-040 through G10-044 remain gated by their own unapproved HITL dependencies.
+Completed with a synchronous native-size byte decoder that reuses the complete G6 header/container
+validation and the explicit decoder registry. The immutable options enforce the approved expected
+format/dimension policy and both limit families. Exact accounting, defensive ownership, closed
+diagnostic sanitization, cancellation, real ImageIO PNG/JPEG integration, and architecture boundaries
+are covered directly. No module, dependency, file/source lifecycle, discovery, or toolkit type was
+added to `mundane-map-io-image`.

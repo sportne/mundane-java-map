@@ -234,7 +234,7 @@ final class ImageHeaderProbe {
         throw invalid(sourceId, "JPEG", "SOF", "truncated", length);
     }
 
-    private static EncodedRasterFormat signature(byte[] first) {
+    static EncodedRasterFormat signature(byte[] first) {
         if (first.length >= 8 && Arrays.equals(Arrays.copyOf(first, 8), PNG_SIGNATURE)) {
             return EncodedRasterFormat.PNG;
         }

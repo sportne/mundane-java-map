@@ -1,6 +1,7 @@
 package io.github.mundanej.map.awt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,6 +11,7 @@ import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.DiagnosticSeverity;
 import io.github.mundanej.map.api.EncodedRasterDecodeContext;
 import io.github.mundanej.map.api.EncodedRasterDecoder;
+import io.github.mundanej.map.api.EncodedRasterDecoderRegistry;
 import io.github.mundanej.map.api.EncodedRasterFormat;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterInterpolation;
@@ -26,6 +28,7 @@ import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.RasterResampling;
+import io.github.mundanej.map.io.image.EncodedRasterDecodeOptions;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.ImagePlacement;
 import io.github.mundanej.map.io.image.RasterImages;
@@ -59,6 +62,74 @@ import org.junit.jupiter.api.io.TempDir;
 
 class ImageIoRasterDecoderTest {
     @TempDir Path temporaryDirectory;
+
+    @Test
+    void detachedByteHelperDecodesRealPngAndJpegAtNativeSize() throws Exception {
+        var png =
+                RasterImages.decode(
+                        fixtureBytes("rgba-2x2.png.b64"),
+                        new SourceIdentity("detached-png", "Detached PNG"),
+                        EncodedRasterDecodeOptions.defaults()
+                                .expecting(EncodedRasterFormat.PNG)
+                                .expectingDimensions(2, 2),
+                        AwtRasterDecoders.level1(),
+                        CancellationToken.none());
+        assertEquals(0xff0000ff, png.rgbaAt(0, 0));
+        assertEquals(0x00ff0080, png.rgbaAt(1, 0));
+        assertEquals(0x0000ffff, png.rgbaAt(0, 1));
+        assertEquals(0x00000000, png.rgbaAt(1, 1));
+
+        var jpeg =
+                RasterImages.decode(
+                        fixtureBytes("rgb-regions-32x16.jpeg.b64"),
+                        new SourceIdentity("detached-jpeg", "Detached JPEG"),
+                        EncodedRasterDecodeOptions.defaults()
+                                .expecting(EncodedRasterFormat.JPEG)
+                                .expectingDimensions(32, 16),
+                        AwtRasterDecoders.level1(),
+                        CancellationToken.none());
+        assertColorNear(0xff0000ff, jpeg.rgbaAt(4, 8), 20);
+        assertColorNear(0x0000ffff, jpeg.rgbaAt(27, 8), 20);
+    }
+
+    @Test
+    void detachedByteHelperPreservesTokenIdentityAndCleanupFailures() throws Exception {
+        AtomicBoolean armed = new AtomicBoolean();
+        AtomicBoolean disposed = new AtomicBoolean();
+        AtomicBoolean inputClosed = new AtomicBoolean();
+        ImageIoRasterDecoder decoder =
+                new ImageIoRasterDecoder(
+                        Map.of(
+                                EncodedRasterFormat.PNG,
+                                new CancellationCleanupReaderProvider(armed, disposed)),
+                        ignored -> new CloseFailingInput(inputClosed));
+        IllegalStateException tokenFailure = new IllegalStateException("token failure");
+
+        IllegalStateException observed =
+                assertThrows(
+                        IllegalStateException.class,
+                        () ->
+                                RasterImages.decode(
+                                        fixtureBytes("rgba-2x2.png.b64"),
+                                        new SourceIdentity("cleanup-token", "Cleanup token"),
+                                        EncodedRasterDecodeOptions.defaults(),
+                                        EncodedRasterDecoderRegistry.builder()
+                                                .register(EncodedRasterFormat.PNG, decoder)
+                                                .build(),
+                                        () -> {
+                                            if (armed.get()) {
+                                                throw tokenFailure;
+                                            }
+                                            return false;
+                                        }));
+
+        assertSame(tokenFailure, observed);
+        assertTrue(disposed.get());
+        assertTrue(inputClosed.get());
+        assertEquals(2, observed.getSuppressed().length);
+        assertEquals("dispose after cancellation", observed.getSuppressed()[0].getMessage());
+        assertEquals("input close failed", observed.getSuppressed()[1].getMessage());
+    }
 
     @Test
     void explicitlyDecodesExactPngAlphaAndNearestWindow() throws Exception {
@@ -989,6 +1060,90 @@ class ImageIoRasterDecoderTest {
             closed.set(true);
             super.close();
             throw new IOException("input close failed");
+        }
+    }
+
+    private static final class CancellationCleanupReaderProvider extends ImageReaderSpi {
+        private final AtomicBoolean armed;
+        private final AtomicBoolean disposed;
+
+        private CancellationCleanupReaderProvider(AtomicBoolean armed, AtomicBoolean disposed) {
+            this.armed = armed;
+            this.disposed = disposed;
+        }
+
+        @Override
+        public Class<?>[] getInputTypes() {
+            return new Class<?>[] {javax.imageio.stream.ImageInputStream.class};
+        }
+
+        @Override
+        public boolean canDecodeInput(Object source) {
+            return true;
+        }
+
+        @Override
+        public ImageReader createReaderInstance(Object extension) {
+            return new CancellationCleanupReader(this, armed, disposed);
+        }
+
+        @Override
+        public String getDescription(java.util.Locale locale) {
+            return "cancellation cleanup test reader";
+        }
+    }
+
+    private static final class CancellationCleanupReader extends ImageReader {
+        private final AtomicBoolean armed;
+        private final AtomicBoolean disposed;
+
+        private CancellationCleanupReader(
+                ImageReaderSpi provider, AtomicBoolean armed, AtomicBoolean disposed) {
+            super(provider);
+            this.armed = armed;
+            this.disposed = disposed;
+        }
+
+        @Override
+        public int getNumImages(boolean allowSearch) {
+            return 1;
+        }
+
+        @Override
+        public int getWidth(int imageIndex) {
+            armed.set(true);
+            return 2;
+        }
+
+        @Override
+        public int getHeight(int imageIndex) {
+            return 2;
+        }
+
+        @Override
+        public Iterator<ImageTypeSpecifier> getImageTypes(int imageIndex) {
+            return java.util.List.<ImageTypeSpecifier>of().iterator();
+        }
+
+        @Override
+        public IIOMetadata getStreamMetadata() {
+            return null;
+        }
+
+        @Override
+        public IIOMetadata getImageMetadata(int imageIndex) {
+            return null;
+        }
+
+        @Override
+        public BufferedImage read(int imageIndex, javax.imageio.ImageReadParam param) {
+            throw new AssertionError("read must not be reached");
+        }
+
+        @Override
+        public void dispose() {
+            disposed.set(true);
+            throw new IllegalStateException("dispose after cancellation");
         }
     }
 

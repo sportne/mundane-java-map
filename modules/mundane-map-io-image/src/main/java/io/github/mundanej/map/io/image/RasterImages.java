@@ -7,6 +7,7 @@ import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterPlacementException;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterSourceMetadata;
+import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.io.IOException;
@@ -30,6 +31,35 @@ import java.util.Objects;
  */
 public final class RasterImages {
     private RasterImages() {}
+
+    /**
+     * Decodes one bounded PNG or JPEG byte array at its native dimensions.
+     *
+     * <p>The operation snapshots the caller array, uses only the explicitly supplied registry, and
+     * returns toolkit-neutral independently owned pixels. It performs no file, suffix, placement,
+     * cache, or source-lifecycle work.
+     *
+     * @param encodedBytes caller-owned encoded PNG or JPEG bytes
+     * @param identity logical non-locator identity used in diagnostics
+     * @param options immutable signature, dimension, and resource policy
+     * @param decoders explicit decoder registry
+     * @param cancellation synchronous cancellation signal
+     * @return independently owned native-size RGBA pixels
+     */
+    public static RgbaPixelBuffer decode(
+            byte[] encodedBytes,
+            SourceIdentity identity,
+            EncodedRasterDecodeOptions options,
+            EncodedRasterDecoderRegistry decoders,
+            CancellationToken cancellation) {
+        Objects.requireNonNull(encodedBytes, "encodedBytes");
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(decoders, "decoders");
+        Objects.requireNonNull(cancellation, "cancellation");
+        return EncodedRasterByteDecoder.decode(
+                encodedBytes, identity, options, decoders, cancellation);
+    }
 
     /**
      * Opens an image with a non-cancelling token.

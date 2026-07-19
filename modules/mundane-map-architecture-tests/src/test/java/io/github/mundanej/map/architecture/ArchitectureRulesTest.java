@@ -917,6 +917,34 @@ class ArchitectureRulesTest {
                 formatClasses.get("io.github.mundanej.map.io.image.ImageRasterSource$CacheKey");
         JavaClass cacheEntry =
                 formatClasses.get("io.github.mundanej.map.io.image.ImageRasterSource$CacheEntry");
+        JavaClass detachedDecoder =
+                formatClasses.get("io.github.mundanej.map.io.image.EncodedRasterByteDecoder");
+        JavaClass detachedOptions =
+                formatClasses.get("io.github.mundanej.map.io.image.EncodedRasterDecodeOptions");
+        List<String> detachedInfrastructureDependencies =
+                java.util.stream.Stream.of(detachedDecoder, detachedOptions)
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.equals("java.io.File")
+                                                || target.startsWith("java.nio.file.")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.api.RasterSource")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.io.image.ImagePlacement")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.io.image.ImageCachePolicy")
+                                                || target.equals(
+                                                        "io.github.mundanej.map.io.image.ImageRasterSource"))
+                        .distinct()
+                        .sorted()
+                        .toList();
 
         assertEquals("JDK_RUNTIME", image.category());
         assertEquals(1, image.releaseLevel());
@@ -946,6 +974,22 @@ class ArchitectureRulesTest {
         assertTrue(
                 imageModuleCacheOwnership.isEmpty(),
                 () -> String.join("\n", imageModuleCacheOwnership));
+        assertTrue(
+                detachedInfrastructureDependencies.isEmpty(),
+                () -> String.join("\n", detachedInfrastructureDependencies));
+        assertTrue(
+                detachedDecoder.getModifiers().contains(JavaModifier.FINAL)
+                        && !detachedDecoder.getModifiers().contains(JavaModifier.PUBLIC),
+                "The detached byte decoder must remain final and package-private");
+        assertEquals(
+                Map.of(
+                        "DEFAULTS", "io.github.mundanej.map.io.image.EncodedRasterDecodeOptions",
+                        "expectedFormat", "java.util.Optional",
+                        "expectedWidth", "java.util.OptionalInt",
+                        "expectedHeight", "java.util.OptionalInt",
+                        "imageLimits", "io.github.mundanej.map.io.image.ImageSourceLimits",
+                        "decodeLimits", "io.github.mundanej.map.api.RasterRequestLimits"),
+                fieldShape(detachedOptions));
         assertEquals(
                 Map.of(
                         "version", "io.github.mundanej.map.io.image.ImageContentVersion",
@@ -962,6 +1006,7 @@ class ArchitectureRulesTest {
         assertEquals(
                 Set.of(
                         "RasterImages",
+                        "EncodedRasterDecodeOptions",
                         "ImageOpenOptions",
                         "ImagePlacement",
                         "ImageSourceLimits",
