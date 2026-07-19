@@ -441,7 +441,9 @@ separately decomposed.
   labels for singular points in one deterministic global pass: AWT owns logical `SansSerif` metrics
   and drawing through one fixed logical metric profile shared by paint and export capture, while
   toolkit-neutral placed-label values preserve the handoff. Later
-  G11-020 through G11-024 slices deliver selectors, complete roles, layout, regression/evidence, and
+  complete G11-020 now delivers fixed and exact categorical marker selection across snapshot, source,
+  and editable bindings with exact attribute projection and transactional renderer preflight.
+  Proposed G11-021 through G11-024 add graduated/complete roles, layout, regression/evidence, and
   native/consumer closeout without an expression language or label cache.
 - G11-003 is complete as a design decision. Persist a strict local `.mmap.xml` version 1: canonical
   CRS/view state, ordered local opener/identity/

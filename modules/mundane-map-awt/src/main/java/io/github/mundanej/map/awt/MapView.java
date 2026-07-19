@@ -4375,6 +4375,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                 List.copyOf(Objects.requireNonNull(layer.features(), "layer.features"));
         Set<String> featureIds = new HashSet<>();
         List<VisualFeature> visual = new ArrayList<>(features.size());
+        io.github.mundanej.map.core.FeaturePortrayalResolver resolver = binding.portrayalResolver();
         for (Feature feature : features) {
             Objects.requireNonNull(feature, "feature");
             String featureId = requireContentId(feature.id(), "feature.id");
@@ -4385,31 +4386,55 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 + ": "
                                 + featureId);
             }
-            visual.add(
-                    new VisualFeature(
-                            feature.id(),
-                            feature.name(),
-                            feature.geometry(),
-                            feature.symbol(),
-                            mapToDisplay));
+            Symbol symbol =
+                    resolver == null
+                            ? feature.symbol()
+                            : resolver.resolve(
+                                            geometryRole(feature.geometry()), feature.attributes())
+                                    .orElse(null);
+            if (symbol != null) {
+                visual.add(
+                        new VisualFeature(
+                                feature.id(),
+                                feature.name(),
+                                feature.geometry(),
+                                symbol,
+                                mapToDisplay));
+            }
         }
         return new LayerSnapshot(
-                currentLayerId, List.copyOf(visual), Optional.empty(), false, true);
+                currentLayerId,
+                List.copyOf(visual),
+                Set.copyOf(featureIds),
+                Optional.empty(),
+                false,
+                true);
     }
 
     private LayerSnapshot captureEditable(MapLayerBinding binding) {
         FeatureEditSnapshot snapshot = binding.editSession().snapshot();
         List<VisualFeature> visual = new ArrayList<>(snapshot.records().size());
+        Set<String> featureIds = new HashSet<>();
         for (FeatureRecord record : snapshot.records()) {
-            visual.add(
-                    new VisualFeature(
-                            record.id(),
-                            record.name(),
-                            record.geometry(),
-                            sourceSymbol(binding, record.geometry()),
-                            mapToDisplay));
+            featureIds.add(record.id());
+            sourceSymbol(binding, record.geometry(), record.attributes())
+                    .ifPresent(
+                            symbol ->
+                                    visual.add(
+                                            new VisualFeature(
+                                                    record.id(),
+                                                    record.name(),
+                                                    record.geometry(),
+                                                    symbol,
+                                                    mapToDisplay)));
         }
-        return new LayerSnapshot(binding.id(), List.copyOf(visual), Optional.empty(), false, true);
+        return new LayerSnapshot(
+                binding.id(),
+                List.copyOf(visual),
+                Set.copyOf(featureIds),
+                Optional.empty(),
+                false,
+                true);
     }
 
     private LayerSnapshot captureFeatureSource(
@@ -4444,7 +4469,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             FeatureQuery query =
                     new FeatureQuery(
                             transformed.transformedEnvelope(),
-                            AttributeSelection.NONE,
+                            symbolAttributes(binding),
                             Optional.empty());
             List<FeatureRecord> staged = new ArrayList<>();
             FeatureQueryAccounting accounting =
@@ -4475,13 +4500,16 @@ public final class MapView extends JComponent implements AutoCloseable {
             updateSourceResult(binding.id(), report, true);
             List<VisualFeature> visual = new ArrayList<>(staged.size());
             for (FeatureRecord record : staged) {
-                visual.add(
-                        new VisualFeature(
-                                record.id(),
-                                record.name(),
-                                record.geometry(),
-                                sourceSymbol(binding, record.geometry()),
-                                resolved.sourceToDisplay()));
+                sourceSymbol(binding, record.geometry(), record.attributes())
+                        .ifPresent(
+                                symbol ->
+                                        visual.add(
+                                                new VisualFeature(
+                                                        record.id(),
+                                                        record.name(),
+                                                        record.geometry(),
+                                                        symbol,
+                                                        resolved.sourceToDisplay())));
             }
             return new LayerSnapshot(
                     binding.id(), List.copyOf(visual), Optional.empty(), true, true);
@@ -4726,14 +4754,18 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    private static Symbol sourceSymbol(MapLayerBinding binding, Geometry geometry) {
-        return switch (geometryRole(geometry)) {
-            case MARKER -> binding.marker();
-            case LINE -> binding.line();
-            case FILL -> binding.fill();
-            case LEGACY_GEOMETRY ->
-                    throw new IllegalArgumentException("Unsupported source geometry");
-        };
+    private static Optional<Symbol> sourceSymbol(
+            MapLayerBinding binding, Geometry geometry, Map<String, Object> attributes) {
+        SymbolRole role = geometryRole(geometry);
+        if (role == SymbolRole.LEGACY_GEOMETRY) {
+            throw new IllegalArgumentException("Unsupported source geometry");
+        }
+        return binding.portrayalResolver().resolve(role, attributes);
+    }
+
+    private static AttributeSelection symbolAttributes(MapLayerBinding binding) {
+        List<String> attributes = binding.portrayalResolver().requiredSymbolAttributes();
+        return attributes.isEmpty() ? AttributeSelection.NONE : AttributeSelection.only(attributes);
     }
 
     private static void preflight(
@@ -4796,6 +4828,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             }
             if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
                 validateSnapshotFeatures(binding);
+                validatePortrayal(binding);
                 continue;
             }
             if (binding.kind() == MapLayerBinding.Kind.EDITABLE) {
@@ -4818,9 +4851,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                     throw new IllegalArgumentException(
                             "An edit session may be bound only once in one MapView");
                 }
-                validateSourceSymbol(binding.marker(), SymbolRole.MARKER);
-                validateSourceSymbol(binding.line(), SymbolRole.LINE);
-                validateSourceSymbol(binding.fill(), SymbolRole.FILL);
+                validatePortrayal(binding);
                 continue;
             }
             Object source = null;
@@ -4873,9 +4904,8 @@ public final class MapView extends JComponent implements AutoCloseable {
                     crsRegistry.operationFromMetadata(featureSource.metadata().crs(), displayCrs);
             CrsOperation displayToSource =
                     crsRegistry.operation(displayCrs, sourceToDisplay.sourceCrs());
-            validateSourceSymbol(binding.marker(), SymbolRole.MARKER);
-            validateSourceSymbol(binding.line(), SymbolRole.LINE);
-            validateSourceSymbol(binding.fill(), SymbolRole.FILL);
+            validateKnownSchema(binding);
+            validatePortrayal(binding);
             resolved.put(binding, new ResolvedFeatureBinding(sourceToDisplay, displayToSource));
         }
         return new CandidateBindings(Collections.unmodifiableMap(resolved));
@@ -4959,6 +4989,32 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 + ": "
                                 + featureId);
             }
+        }
+    }
+
+    private static void validateKnownSchema(MapLayerBinding binding) {
+        binding.source()
+                .metadata()
+                .schema()
+                .ifPresent(
+                        schema -> {
+                            for (String attribute :
+                                    binding.portrayalResolver().requiredSymbolAttributes()) {
+                                if (schema.field(attribute).isEmpty()) {
+                                    throw new IllegalArgumentException(
+                                            "portrayal attribute is absent from known schema: "
+                                                    + attribute);
+                                }
+                            }
+                        });
+    }
+
+    private void validatePortrayal(MapLayerBinding binding) {
+        if (binding.portrayalResolver() == null) {
+            return;
+        }
+        for (Symbol symbol : binding.portrayalResolver().reachableSymbols()) {
+            validateSourceSymbol(symbol, symbol.role());
         }
     }
 
@@ -5327,9 +5383,7 @@ public final class MapView extends JComponent implements AutoCloseable {
     private static boolean contains(ViewContentSnapshot snapshot, FeatureSelection requested) {
         for (LayerSnapshot layer : snapshot.layers()) {
             if (layer.id().equals(requested.layerId())) {
-                return layer.sourceBacked()
-                        || layer.features().stream()
-                                .anyMatch(feature -> feature.id().equals(requested.featureId()));
+                return layer.sourceBacked() || layer.featureIds().contains(requested.featureId());
             }
         }
         return false;
@@ -5672,9 +5726,19 @@ public final class MapView extends JComponent implements AutoCloseable {
     private record LayerSnapshot(
             String id,
             List<VisualFeature> features,
+            Set<String> featureIds,
             Optional<RasterSnapshot> raster,
             boolean sourceBacked,
-            boolean sourceAvailable) {}
+            boolean sourceAvailable) {
+        private LayerSnapshot(
+                String id,
+                List<VisualFeature> features,
+                Optional<RasterSnapshot> raster,
+                boolean sourceBacked,
+                boolean sourceAvailable) {
+            this(id, features, Set.of(), raster, sourceBacked, sourceAvailable);
+        }
+    }
 
     private record RasterSnapshot(
             BufferedImage image,

@@ -4,6 +4,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.ElevationRasterStyle;
 import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.FeatureEditListener;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FillSymbol;
 import io.github.mundanej.map.api.Layer;
@@ -14,6 +15,7 @@ import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.core.FeatureEditSession;
+import io.github.mundanej.map.core.FeaturePortrayalResolver;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -44,6 +46,7 @@ public final class MapLayerBinding implements AutoCloseable {
     private final MarkerSymbol marker;
     private final LineSymbol line;
     private final FillSymbol fill;
+    private final FeaturePortrayalResolver portrayalResolver;
     private final RasterRenderOptions rasterOptions;
     private final ElevationRasterStyle elevationStyle;
     private final RasterRequestLimits rasterLimits;
@@ -65,6 +68,27 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = null;
         this.line = null;
         this.fill = null;
+        this.portrayalResolver = null;
+        this.rasterOptions = null;
+        this.elevationStyle = null;
+        this.rasterLimits = null;
+        this.owned = false;
+    }
+
+    private MapLayerBinding(Layer layer, FeaturePortrayal portrayal) {
+        this.kind = Kind.SNAPSHOT;
+        this.layer = Objects.requireNonNull(layer, "layer");
+        this.id = requireText(layer.id(), "layer.id");
+        this.name = requireText(layer.name(), "layer.name");
+        this.source = null;
+        this.editSession = null;
+        this.rasterSource = null;
+        this.elevationSource = null;
+        this.marker = null;
+        this.line = null;
+        this.fill = null;
+        this.portrayalResolver =
+                FeaturePortrayalResolver.compile(Objects.requireNonNull(portrayal, "portrayal"));
         this.rasterOptions = null;
         this.elevationStyle = null;
         this.rasterLimits = null;
@@ -90,6 +114,36 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = requireRole(marker, SymbolRole.MARKER, "marker");
         this.line = requireRole(line, SymbolRole.LINE, "line");
         this.fill = requireRole(fill, SymbolRole.FILL, "fill");
+        this.portrayalResolver =
+                FeaturePortrayalResolver.compile(FeaturePortrayal.fixed(marker, line, fill));
+        this.rasterOptions = null;
+        this.layer = null;
+        this.rasterSource = null;
+        this.elevationSource = null;
+        this.elevationStyle = null;
+        this.rasterLimits = null;
+        this.owned = owned;
+    }
+
+    private MapLayerBinding(
+            String id,
+            String name,
+            FeatureSource source,
+            FeaturePortrayal portrayal,
+            boolean owned) {
+        this.kind = Kind.FEATURE;
+        this.id = requireText(id, "id");
+        this.name = requireText(name, "name");
+        this.source = Objects.requireNonNull(source, "source");
+        this.editSession = null;
+        if (source.isClosed()) {
+            throw new IllegalStateException("source is closed");
+        }
+        this.marker = null;
+        this.line = null;
+        this.fill = null;
+        this.portrayalResolver =
+                FeaturePortrayalResolver.compile(Objects.requireNonNull(portrayal, "portrayal"));
         this.rasterOptions = null;
         this.layer = null;
         this.rasterSource = null;
@@ -113,6 +167,29 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = requireRole(marker, SymbolRole.MARKER, "marker");
         this.line = requireRole(line, SymbolRole.LINE, "line");
         this.fill = requireRole(fill, SymbolRole.FILL, "fill");
+        this.portrayalResolver =
+                FeaturePortrayalResolver.compile(FeaturePortrayal.fixed(marker, line, fill));
+        this.layer = null;
+        this.source = null;
+        this.rasterSource = null;
+        this.elevationSource = null;
+        this.rasterOptions = null;
+        this.elevationStyle = null;
+        this.rasterLimits = null;
+        this.owned = false;
+    }
+
+    private MapLayerBinding(
+            String id, String name, FeatureEditSession editSession, FeaturePortrayal portrayal) {
+        this.kind = Kind.EDITABLE;
+        this.id = requireText(id, "id");
+        this.name = requireText(name, "name");
+        this.editSession = Objects.requireNonNull(editSession, "editSession");
+        this.marker = null;
+        this.line = null;
+        this.fill = null;
+        this.portrayalResolver =
+                FeaturePortrayalResolver.compile(Objects.requireNonNull(portrayal, "portrayal"));
         this.layer = null;
         this.source = null;
         this.rasterSource = null;
@@ -143,6 +220,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = null;
         this.line = null;
         this.fill = null;
+        this.portrayalResolver = null;
         this.rasterOptions = Objects.requireNonNull(rasterOptions, "rasterOptions");
         this.elevationStyle = null;
         this.rasterLimits = null;
@@ -174,6 +252,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.marker = null;
         this.line = null;
         this.fill = null;
+        this.portrayalResolver = null;
         this.owned = owned;
     }
 
@@ -187,6 +266,17 @@ public final class MapLayerBinding implements AutoCloseable {
      */
     public static MapLayerBinding snapshot(Layer layer) {
         return new MapLayerBinding(layer);
+    }
+
+    /**
+     * Creates an eager snapshot whose feature records are resolved through one binding portrayal.
+     *
+     * @param layer non-null eager layer snapshot supplying geometry, identity, and attributes
+     * @param portrayal immutable binding-level portrayal replacing feature-owned symbols
+     * @return new unattached portrayed snapshot binding
+     */
+    public static MapLayerBinding portrayedSnapshot(Layer layer, FeaturePortrayal portrayal) {
+        return new MapLayerBinding(layer, portrayal);
     }
 
     /**
@@ -214,6 +304,20 @@ public final class MapLayerBinding implements AutoCloseable {
     }
 
     /**
+     * Creates a caller-owned feature-source binding with one immutable portrayal.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source non-null open caller-owned source
+     * @param portrayal immutable selectors for the rendered geometry roles
+     * @return new unattached borrowed binding
+     */
+    public static MapLayerBinding borrowedFeature(
+            String id, String name, FeatureSource source, FeaturePortrayal portrayal) {
+        return new MapLayerBinding(id, name, source, portrayal, false);
+    }
+
+    /**
      * Creates a feature binding that assumes exclusive responsibility for closing its source.
      *
      * @param id stable non-blank layer identifier
@@ -238,6 +342,20 @@ public final class MapLayerBinding implements AutoCloseable {
     }
 
     /**
+     * Creates an exclusively owned feature-source binding with one immutable portrayal.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param source open source transferred to the binding
+     * @param portrayal immutable selectors for the rendered geometry roles
+     * @return new unattached owned binding
+     */
+    public static MapLayerBinding ownedFeature(
+            String id, String name, FeatureSource source, FeaturePortrayal portrayal) {
+        return new MapLayerBinding(id, name, source, portrayal, true);
+    }
+
+    /**
      * Creates a borrowed editable binding around an owner-thread feature-edit session.
      *
      * <p>The binding observes immutable session snapshots and never closes or mutates the session.
@@ -259,6 +377,20 @@ public final class MapLayerBinding implements AutoCloseable {
             LineSymbol line,
             FillSymbol fill) {
         return new MapLayerBinding(id, name, session, marker, line, fill);
+    }
+
+    /**
+     * Creates a borrowed editable binding with one immutable portrayal.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param session caller-owned feature-edit session
+     * @param portrayal immutable selectors for the rendered geometry roles
+     * @return new unattached borrowed editable binding
+     */
+    public static MapLayerBinding editableFeature(
+            String id, String name, FeatureEditSession session, FeaturePortrayal portrayal) {
+        return new MapLayerBinding(id, name, session, portrayal);
     }
 
     /**
@@ -528,6 +660,10 @@ public final class MapLayerBinding implements AutoCloseable {
 
     FillSymbol fill() {
         return fill;
+    }
+
+    FeaturePortrayalResolver portrayalResolver() {
+        return portrayalResolver;
     }
 
     RasterRenderOptions initialRasterOptions() {

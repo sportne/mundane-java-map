@@ -1,6 +1,6 @@
 # G11-020 — Portrayal and categorical marker slice
 
-Status: Proposed
+Status: Complete
 Depends on: G11-002, G11-010
 Gate: G11
 Type: AFK
