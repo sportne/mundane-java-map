@@ -2,6 +2,10 @@ package io.github.mundanej.map.io.geotiff;
 
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.ElevationSource;
+import io.github.mundanej.map.api.ElevationSourceLimits;
+import io.github.mundanej.map.api.ElevationSourceMetadata;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterAffineTransform;
 import io.github.mundanej.map.api.RasterGridPlacement;
@@ -10,9 +14,11 @@ import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.PackedElevationGrid;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -24,10 +30,10 @@ final class GeoTiffParser {
     private static final Map<Integer, Boolean> TAGS = supportedTags();
 
     private final String sourceId;
-    private final byte[] snapshot;
+    private byte[] snapshot;
     private final GeoTiffLimits limits;
     private final CancellationToken cancellation;
-    private final ByteBuffer data;
+    private ByteBuffer data;
     private long ifdOffset;
     private long ifdLength;
     private long workingBytes;
@@ -35,11 +41,11 @@ final class GeoTiffParser {
     private GeoTiffParser(
             SourceIdentity identity,
             byte[] snapshot,
-            GeoTiffRasterOptions options,
+            GeoTiffLimits limits,
             CancellationToken cancellation) {
         sourceId = identity.id();
         this.snapshot = snapshot;
-        limits = options.formatLimits();
+        this.limits = limits;
         this.cancellation = cancellation;
         ByteOrder byteOrder =
                 snapshot.length >= 2 && snapshot[0] == 'M' && snapshot[1] == 'M'
@@ -53,11 +59,26 @@ final class GeoTiffParser {
             byte[] snapshot,
             GeoTiffRasterOptions options,
             CancellationToken cancellation) {
-        return new GeoTiffParser(identity, snapshot, options, cancellation)
-                .parse(identity, options);
+        return (RasterSource)
+                new GeoTiffParser(identity, snapshot, options.formatLimits(), cancellation)
+                        .parse(identity, options, null);
     }
 
-    private RasterSource parse(SourceIdentity identity, GeoTiffRasterOptions options) {
+    static ElevationSource openElevation(
+            SourceIdentity identity,
+            byte[] snapshot,
+            GeoTiffElevationOptions options,
+            CancellationToken cancellation) {
+        return (ElevationSource)
+                new GeoTiffParser(identity, snapshot, options.formatLimits(), cancellation)
+                        .parse(identity, null, options);
+    }
+
+    private Object parse(
+            SourceIdentity identity,
+            GeoTiffRasterOptions rasterOptions,
+            GeoTiffElevationOptions elevationOptions) {
+        boolean elevation = elevationOptions != null;
         if (snapshot.length < 8) {
             throw GeoTiffFailures.header(sourceId, "ifdOffset", "range");
         }
@@ -138,7 +159,16 @@ final class GeoTiffParser {
         }
         requireOptionalCode(entries, 284, 1, "sampleOrganization");
         requireOptionalCode(entries, 317, 1, "predictor");
-        ColorProfile color = colorProfile(entries, samplesPerPixel);
+        CrsMetadata crs = geoKeys(entries, elevation ? 2 : 1);
+        int bytesPerCell;
+        ColorProfile color;
+        if (elevation) {
+            bytesPerCell = elevationSampleBytes(entries, samplesPerPixel);
+            color = null;
+        } else {
+            bytesPerCell = samplesPerPixel;
+            color = colorProfile(entries, samplesPerPixel);
+        }
 
         SegmentLayout layout = segmentLayout(entries, width, height);
         int segmentCount = layout.segmentCount();
@@ -150,7 +180,7 @@ final class GeoTiffParser {
         long[] decodedCounts = new long[segmentCount];
         for (int segment = 0; segment < segmentCount; segment++) {
             GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
-            long decoded = decodedBytes(layout, segment, width, height, samplesPerPixel);
+            long decoded = decodedBytes(layout, segment, width, height, bytesPerCell);
             decodedCounts[segment] = decoded;
             GeoTiffFailures.limit(
                     sourceId,
@@ -187,14 +217,28 @@ final class GeoTiffParser {
         }
         validateSegmentDisjoint(offsets, counts);
 
-        CrsMetadata crs = geoKeys(entries);
+        if (elevation) {
+            ElevationSourceMetadata metadata =
+                    elevationMetadata(identity, entries, width, height, crs, elevationOptions);
+            return decodeElevation(
+                    metadata,
+                    elevationOptions,
+                    width,
+                    height,
+                    bytesPerCell,
+                    layout,
+                    compression,
+                    offsets,
+                    counts,
+                    decodedCounts);
+        }
         GeoReference reference = georeference(entries, width, height);
         RasterSourceMetadata metadata = metadata(identity, width, height, reference, crs);
         GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
         return new GeoTiffRasterSource(
                 snapshot,
                 metadata,
-                options.requestLimits(),
+                rasterOptions.requestLimits(),
                 limits,
                 layout.tiled(),
                 layout.segmentWidth(),
@@ -335,7 +379,7 @@ final class GeoTiffParser {
         };
     }
 
-    private CrsMetadata geoKeys(Map<Integer, Entry> entries) {
+    private CrsMetadata geoKeys(Map<Integer, Entry> entries, int expectedRasterType) {
         Entry entry = entries.get(34735);
         if (entry == null) {
             throw GeoTiffFailures.tag(sourceId, 34735, "missing");
@@ -400,7 +444,7 @@ final class GeoTiffParser {
                                 sourceId, key >= 4096 && key <= 4099 ? "verticalCrs" : "geoKey");
             }
         }
-        if (raster != 1) {
+        if (raster != expectedRasterType) {
             throw GeoTiffFailures.unsupported(sourceId, "route");
         }
         if (model == 2 && geographic == 4326 && projected == -1 && !linearUnits) {
@@ -415,6 +459,198 @@ final class GeoTiffParser {
                     CrsDefinitions.EPSG_3857, Optional.empty(), Optional.empty());
         }
         throw GeoTiffFailures.unsupported(sourceId, "horizontalCrs");
+    }
+
+    private int elevationSampleBytes(Map<Integer, Entry> entries, int samplesPerPixel) {
+        if (samplesPerPixel != 1 || code(entries, 262) != 1 || entries.containsKey(338)) {
+            throw GeoTiffFailures.unsupported(sourceId, "photometric");
+        }
+        Entry bits = entries.get(258);
+        if (bits == null) {
+            throw GeoTiffFailures.tag(sourceId, 258, "missing");
+        }
+        if (bits.type != TYPE_SHORT || bits.count != 1) {
+            throw GeoTiffFailures.tag(sourceId, 258, bits.type != TYPE_SHORT ? "type" : "count");
+        }
+        Entry format = entries.get(339);
+        if (format == null) {
+            throw GeoTiffFailures.tag(sourceId, 339, "missing");
+        }
+        if (format.type != TYPE_SHORT || format.count != 1) {
+            throw GeoTiffFailures.tag(sourceId, 339, format.type != TYPE_SHORT ? "type" : "count");
+        }
+        long bitCount = bits.unsignedAt(0);
+        if ((bitCount != 16 && bitCount != 32) || format.unsignedAt(0) != 2) {
+            throw GeoTiffFailures.unsupported(sourceId, "sampleType");
+        }
+        return Math.toIntExact(bitCount / Byte.SIZE);
+    }
+
+    private ElevationSourceMetadata elevationMetadata(
+            SourceIdentity identity,
+            Map<Integer, Entry> entries,
+            int width,
+            int height,
+            CrsMetadata crs,
+            GeoTiffElevationOptions options) {
+        if (entries.containsKey(34264)) {
+            throw GeoTiffFailures.unsupported(sourceId, "georeference");
+        }
+        Entry scaleEntry = entries.get(33550);
+        Entry tieEntry = entries.get(33922);
+        if (scaleEntry == null || tieEntry == null) {
+            throw GeoTiffFailures.georeference(sourceId, "missing");
+        }
+        double[] scale = doubles(scaleEntry, 3);
+        double[] tie = doubles(tieEntry, 6);
+        for (double value : scale) {
+            if (!Double.isFinite(value)) {
+                throw GeoTiffFailures.georeference(sourceId, "nonFinite");
+            }
+        }
+        for (double value : tie) {
+            if (!Double.isFinite(value)) {
+                throw GeoTiffFailures.georeference(sourceId, "nonFinite");
+            }
+        }
+        if (!(scale[0] > 0.0)
+                || !(scale[1] > 0.0)
+                || scale[2] != 0.0
+                || tie[2] != 0.0
+                || tie[5] != 0.0) {
+            throw GeoTiffFailures.georeference(sourceId, "orientation");
+        }
+        double west = Math.fma(-tie[0], scale[0], tie[3]);
+        double east = Math.fma(width - 1.0 - tie[0], scale[0], tie[3]);
+        double north = Math.fma(tie[1], scale[1], tie[4]);
+        double south = Math.fma(tie[1] - (height - 1.0), scale[1], tie[4]);
+        if (!Double.isFinite(west)
+                || !Double.isFinite(east)
+                || !Double.isFinite(north)
+                || !Double.isFinite(south)) {
+            throw GeoTiffFailures.georeference(sourceId, "nonFinite");
+        }
+        ElevationSourceMetadata metadata;
+        try {
+            metadata =
+                    new ElevationSourceMetadata(
+                            identity,
+                            width,
+                            height,
+                            new Envelope(west, south, east, north),
+                            crs,
+                            options.elevationUnit());
+        } catch (IllegalArgumentException failure) {
+            throw GeoTiffFailures.georeference(sourceId, "collapsed");
+        }
+        Envelope domain = crs.definition().orElseThrow().coordinateDomain();
+        Envelope bounds = metadata.sampleBounds();
+        if (bounds.minX() < domain.minX()
+                || bounds.minY() < domain.minY()
+                || bounds.maxX() > domain.maxX()
+                || bounds.maxY() > domain.maxY()) {
+            throw GeoTiffFailures.georeference(sourceId, "orientation");
+        }
+        return metadata;
+    }
+
+    private ElevationSource decodeElevation(
+            ElevationSourceMetadata metadata,
+            GeoTiffElevationOptions options,
+            int width,
+            int height,
+            int sampleBytes,
+            SegmentLayout layout,
+            int compression,
+            long[] offsets,
+            long[] counts,
+            long[] decodedCounts) {
+        long sampleCount = metadata.sampleCount();
+        ElevationSourceLimits sourceLimits = options.sourceLimits();
+        GeoTiffFailures.limit(
+                sourceId, "elevationOpen", "columns", width, sourceLimits.maximumColumns());
+        GeoTiffFailures.limit(
+                sourceId, "elevationOpen", "rows", height, sourceLimits.maximumRows());
+        GeoTiffFailures.limit(
+                sourceId,
+                "elevationOpen",
+                "samples",
+                sampleCount,
+                Math.min(sourceLimits.maximumSamples(), Integer.MAX_VALUE));
+        long retained =
+                Math.addExact(
+                        Math.multiplyExact(sampleCount, Double.BYTES),
+                        Math.multiplyExact((sampleCount + 63L) / 64L, Long.BYTES));
+        GeoTiffFailures.limit(
+                sourceId,
+                "elevationOpen",
+                "retainedSampleBytes",
+                retained,
+                sourceLimits.maximumRetainedSampleBytes());
+        int maximumDecoded = 0;
+        for (long count : decodedCounts) {
+            maximumDecoded = Math.max(maximumDecoded, Math.toIntExact(count));
+        }
+        chargeWorking(Math.addExact(Math.multiplyExact(sampleCount, Double.BYTES), maximumDecoded));
+        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+        double[] samples = new double[Math.toIntExact(sampleCount)];
+        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+        byte[] decoded = new byte[maximumDecoded];
+        ByteOrder sampleOrder = data.order();
+        for (int segment = 0; segment < offsets.length; segment++) {
+            GeoTiffSegmentDecoder.decode(
+                    sourceId,
+                    segment,
+                    compression,
+                    snapshot,
+                    Math.toIntExact(offsets[segment]),
+                    Math.toIntExact(counts[segment]),
+                    decoded,
+                    Math.toIntExact(decodedCounts[segment]),
+                    "geoTiffOpen",
+                    cancellation);
+            ByteBuffer values = ByteBuffer.wrap(decoded).order(sampleOrder);
+            int originX =
+                    layout.tiled()
+                            ? (segment % layout.segmentsAcross()) * layout.segmentWidth()
+                            : 0;
+            int originY =
+                    layout.tiled()
+                            ? (segment / layout.segmentsAcross()) * layout.segmentHeight()
+                            : segment * layout.segmentHeight();
+            int rows = Math.min(layout.segmentHeight(), height - originY);
+            int columns = Math.min(layout.segmentWidth(), width - originX);
+            for (int row = 0; row < rows; row++) {
+                GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+                for (int column = 0; column < columns; column++) {
+                    if ((column & 4095) == 0) {
+                        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+                    }
+                    int encodedIndex = (row * layout.segmentWidth() + column) * sampleBytes;
+                    int destination = (originY + row) * width + originX + column;
+                    samples[destination] =
+                            sampleBytes == Short.BYTES
+                                    ? values.getShort(encodedIndex)
+                                    : values.getInt(encodedIndex);
+                }
+            }
+        }
+        snapshot = null;
+        data = null;
+        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+        PackedElevationGrid published =
+                PackedElevationGrid.copyOf(
+                        metadata, samples, new BitSet(), sourceLimits, DiagnosticReport.empty());
+        boolean cancelledAfterCopy = cancellation.isCancellationRequested();
+        if (cancelledAfterCopy) {
+            published.close();
+            throw GeoTiffFailures.failure(
+                    sourceId,
+                    "SOURCE_CANCELLED",
+                    "GeoTIFF operation was cancelled",
+                    Map.of("operation", "geoTiffOpen"));
+        }
+        return published;
     }
 
     private ColorProfile colorProfile(Map<Integer, Entry> entries, int samplesPerPixel) {

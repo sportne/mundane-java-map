@@ -1,6 +1,6 @@
 # G10-034 — GeoTIFF integer elevation slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-033, G9-002, G9-005
 Gate: G10
 Type: AFK

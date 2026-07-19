@@ -13,4 +13,4 @@ application {
     mainClass = 'io.github.mundanej.map.example.geotiff.GeoTiffViewer'
 }
 
-description = 'Runnable bounded GeoTIFF raster viewer example.'
+description = 'Runnable bounded GeoTIFF raster and signed-integer elevation viewer example.'

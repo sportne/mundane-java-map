@@ -17,9 +17,9 @@ final class GeoTiffSnapshots {
     static byte[] read(
             SourceIdentity identity,
             Path path,
-            GeoTiffRasterOptions options,
+            GeoTiffLimits limits,
             CancellationToken cancellation) {
-        long maximum = options.formatLimits().maximumInputBytes();
+        long maximum = limits.maximumInputBytes();
         long statedSize;
         try {
             statedSize = Files.size(path);

@@ -8,4 +8,4 @@ dependencies {
     implementation project(':modules:mundane-map-core')
 }
 
-description = 'Bounded JDK-only GeoTIFF raster sources.'
+description = 'Bounded JDK-only GeoTIFF raster and signed-integer elevation sources.'

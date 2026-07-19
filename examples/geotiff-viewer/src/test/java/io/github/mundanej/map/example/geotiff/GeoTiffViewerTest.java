@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.ElevationSource;
+import io.github.mundanej.map.api.ElevationUnit;
 import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.awt.MapView;
@@ -91,6 +93,86 @@ class GeoTiffViewerTest {
         assertEquals(1, view.get().layerBindings().size());
         SwingUtilities.invokeAndWait(view.get()::close);
         assertTrue(source.isClosed());
+    }
+
+    @Test
+    void elevationModeLoadsValidTiffTransfersOwnershipAndCreatesOwnedLayer(@TempDir Path directory)
+            throws Exception {
+        ArrayList<String> failures = new ArrayList<>();
+        assertFalse(
+                GeoTiffViewer.runElevationMain(
+                        new String[] {"terrain.tif"}, failures::add, ignored -> {}));
+        assertTrue(failures.getFirst().contains("--elevation-unit"));
+        Path path = directory.resolve("terrain.tif");
+        Files.write(path, elevationFixture());
+        AtomicReference<ElevationSource> launched = new AtomicReference<>();
+        assertTrue(
+                GeoTiffViewer.runElevationMain(
+                        new String[] {"--elevation-unit", "INTERNATIONAL_FOOT", path.toString()},
+                        failures::add,
+                        launched::set));
+        ElevationSource source = launched.get();
+        assertEquals(ElevationUnit.INTERNATIONAL_FOOT, source.metadata().elevationUnit());
+        assertEquals(-1000, source.sample(0, 0).orElseThrow());
+        assertFalse(source.isClosed());
+        AtomicReference<MapView> view = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> view.set(GeoTiffViewer.createElevationView(source)));
+        assertEquals(1, view.get().layerBindings().size());
+        SwingUtilities.invokeAndWait(view.get()::close);
+        assertTrue(source.isClosed());
+
+        AtomicReference<ElevationSource> rejected = new AtomicReference<>();
+        assertFalse(
+                GeoTiffViewer.runElevationMain(
+                        new String[] {"--elevation-unit", "METRE", path.toString()},
+                        failures::add,
+                        opened -> {
+                            rejected.set(opened);
+                            throw new IllegalStateException("launcher rejected source");
+                        }));
+        assertTrue(rejected.get().isClosed());
+        assertTrue(failures.getLast().contains("launcher rejected source"));
+    }
+
+    private static byte[] elevationFixture() {
+        ByteBuffer bytes = ByteBuffer.allocate(270).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.put((byte) 'I').put((byte) 'I').putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) 12);
+        entry(bytes, 256, 3, 1, 2);
+        entry(bytes, 257, 3, 1, 2);
+        entry(bytes, 258, 3, 1, 16);
+        entry(bytes, 259, 3, 1, 1);
+        entry(bytes, 262, 3, 1, 1);
+        entry(bytes, 273, 4, 1, 262);
+        entry(bytes, 278, 4, 1, 2);
+        entry(bytes, 279, 4, 1, 8);
+        entry(bytes, 339, 3, 1, 2);
+        entry(bytes, 33550, 12, 3, 158);
+        entry(bytes, 33922, 12, 6, 182);
+        entry(bytes, 34735, 3, 16, 230);
+        bytes.putInt(0);
+        bytes.position(158).putDouble(1).putDouble(1).putDouble(0);
+        bytes.position(182)
+                .putDouble(0)
+                .putDouble(0)
+                .putDouble(0)
+                .putDouble(10)
+                .putDouble(20)
+                .putDouble(0);
+        bytes.position(230)
+                .putShort((short) 1)
+                .putShort((short) 1)
+                .putShort((short) 0)
+                .putShort((short) 3);
+        key(bytes, 1024, 2);
+        key(bytes, 1025, 2);
+        key(bytes, 2048, 4326);
+        bytes.position(262)
+                .putShort((short) -1000)
+                .putShort((short) -900)
+                .putShort((short) -800)
+                .putShort((short) -700);
+        return bytes.array();
     }
 
     private static byte[] fixture() {

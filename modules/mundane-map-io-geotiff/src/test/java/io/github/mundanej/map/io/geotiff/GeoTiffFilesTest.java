@@ -338,6 +338,7 @@ class GeoTiffFilesTest {
                                             request(new RasterWindow(0, 0, 4, 3), 256, 256),
                                             duringRead));
             assertEquals("SOURCE_CANCELLED", readCancelled.terminal().code());
+            assertEquals("geoTiffRead", readCancelled.terminal().context().get("operation"));
             assertArrayEquals(
                     new int[] {gray(0)},
                     source.read(

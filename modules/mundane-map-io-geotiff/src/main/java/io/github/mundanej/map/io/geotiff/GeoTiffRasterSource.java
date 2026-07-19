@@ -232,6 +232,7 @@ final class GeoTiffRasterSource implements RasterSource {
                         Math.toIntExact(counts[segment]),
                         decoded,
                         Math.toIntExact(decodedCounts[segment]),
+                        "geoTiffRead",
                         cancellation);
                 copyIntersection(
                         window, segmentColumn, segmentRow, decoded, sourcePixels, cancellation);

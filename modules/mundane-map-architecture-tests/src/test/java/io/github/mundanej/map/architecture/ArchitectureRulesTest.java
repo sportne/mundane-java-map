@@ -635,6 +635,11 @@ class ArchitectureRulesTest {
                                         !entry.getKey().equals(api) && !entry.getKey().equals(core))
                         .flatMap(entry -> entry.getValue().stream())
                         .filter(type -> type.getSimpleName().contains("Elevation"))
+                        .filter(
+                                type ->
+                                        !type.getName()
+                                                .equals(
+                                                        "io.github.mundanej.map.io.geotiff.GeoTiffElevationOptions"))
                         .map(JavaClass::getName)
                         .sorted()
                         .toList();
@@ -1159,7 +1164,13 @@ class ArchitectureRulesTest {
         assertFalse(formatClasses.isEmpty(), "Expected the working GeoTIFF format module");
         assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
         assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty());
-        assertEquals(Set.of("GeoTiffFiles", "GeoTiffLimits", "GeoTiffRasterOptions"), publicTypes);
+        assertEquals(
+                Set.of(
+                        "GeoTiffElevationOptions",
+                        "GeoTiffFiles",
+                        "GeoTiffLimits",
+                        "GeoTiffRasterOptions"),
+                publicTypes);
         assertTrue(
                 apiClasses.stream().noneMatch(type -> type.getSimpleName().contains("GeoTiff")),
                 "GeoTIFF-specific types must not leak into mundane-map-api");

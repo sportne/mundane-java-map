@@ -19,10 +19,19 @@ final class GeoTiffSegmentDecoder {
             int encodedLength,
             byte[] decoded,
             int decodedLength,
+            String operation,
             CancellationToken cancellation) {
-        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffRead");
+        GeoTiffFailures.checkpoint(sourceId, cancellation, operation);
         switch (compression) {
-            case 1 -> copy(sourceId, encoded, encodedOffset, decoded, decodedLength, cancellation);
+            case 1 ->
+                    copy(
+                            sourceId,
+                            encoded,
+                            encodedOffset,
+                            decoded,
+                            decodedLength,
+                            operation,
+                            cancellation);
             case 8 ->
                     inflate(
                             sourceId,
@@ -32,6 +41,7 @@ final class GeoTiffSegmentDecoder {
                             encodedLength,
                             decoded,
                             decodedLength,
+                            operation,
                             cancellation);
             case 32773 ->
                     packBits(
@@ -42,10 +52,11 @@ final class GeoTiffSegmentDecoder {
                             encodedLength,
                             decoded,
                             decodedLength,
+                            operation,
                             cancellation);
             default -> throw new AssertionError("Unsupported compression reached decoder");
         }
-        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffRead");
+        GeoTiffFailures.checkpoint(sourceId, cancellation, operation);
     }
 
     private static void copy(
@@ -54,10 +65,11 @@ final class GeoTiffSegmentDecoder {
             int encodedOffset,
             byte[] decoded,
             int decodedLength,
+            String operation,
             CancellationToken cancellation) {
         int copied = 0;
         while (copied < decodedLength) {
-            GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffRead");
+            GeoTiffFailures.checkpoint(sourceId, cancellation, operation);
             int chunk = Math.min(CHECKPOINT_BYTES, decodedLength - copied);
             System.arraycopy(encoded, encodedOffset + copied, decoded, copied, chunk);
             copied += chunk;
@@ -72,12 +84,13 @@ final class GeoTiffSegmentDecoder {
             int encodedLength,
             byte[] decoded,
             int decodedLength,
+            String operation,
             CancellationToken cancellation) {
         int input = encodedOffset;
         int inputEnd = encodedOffset + encodedLength;
         int output = 0;
         while (input < inputEnd) {
-            GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffRead");
+            GeoTiffFailures.checkpoint(sourceId, cancellation, operation);
             int header = encoded[input++];
             if (header >= 0) {
                 int literal = header + 1;
@@ -115,6 +128,7 @@ final class GeoTiffSegmentDecoder {
             int encodedLength,
             byte[] decoded,
             int decodedLength,
+            String operation,
             CancellationToken cancellation) {
         Inflater inflater = new Inflater();
         int input = encodedOffset;
@@ -123,7 +137,7 @@ final class GeoTiffSegmentDecoder {
         byte[] overrunProbe = new byte[1];
         try {
             while (output < decodedLength) {
-                GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffRead");
+                GeoTiffFailures.checkpoint(sourceId, cancellation, operation);
                 if (inflater.needsInput() && input < inputEnd) {
                     int chunk = Math.min(CHECKPOINT_BYTES, inputEnd - input);
                     inflater.setInput(encoded, input, chunk);
@@ -152,7 +166,7 @@ final class GeoTiffSegmentDecoder {
                 }
             }
             while (!inflater.finished()) {
-                GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffRead");
+                GeoTiffFailures.checkpoint(sourceId, cancellation, operation);
                 if (inflater.needsInput() && input < inputEnd) {
                     int chunk = Math.min(CHECKPOINT_BYTES, inputEnd - input);
                     inflater.setInput(encoded, input, chunk);

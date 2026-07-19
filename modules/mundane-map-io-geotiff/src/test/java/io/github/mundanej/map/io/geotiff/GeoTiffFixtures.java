@@ -181,6 +181,127 @@ final class GeoTiffFixtures {
                 List.of(encoded.clone()));
     }
 
+    static byte[] elevation(ByteOrder order, int bits, boolean tiled, int compression) {
+        int width = tiled ? 17 : 4;
+        int height = tiled ? 17 : 3;
+        List<byte[]> segments = elevationSegments(order, width, height, bits, tiled);
+        if (compression != 1) {
+            segments =
+                    segments.stream()
+                            .map(value -> compression == 8 ? deflate(value) : packBits(value))
+                            .toList();
+        }
+        List<Tag> tags = new ArrayList<>();
+        tags.add(Tag.shorts(256, width));
+        tags.add(Tag.shorts(257, height));
+        tags.add(Tag.shorts(258, bits));
+        tags.add(Tag.shorts(259, compression));
+        tags.add(Tag.shorts(262, 1));
+        if (tiled) {
+            tags.add(Tag.shorts(322, 16));
+            tags.add(Tag.shorts(323, 16));
+            tags.add(Tag.longs(324, new long[segments.size()]));
+            tags.add(Tag.longs(325, segments.stream().mapToLong(value -> value.length).toArray()));
+        } else {
+            tags.add(Tag.longs(273, new long[segments.size()]));
+            tags.add(Tag.longs(278, 2));
+            tags.add(Tag.longs(279, segments.stream().mapToLong(value -> value.length).toArray()));
+        }
+        tags.add(Tag.shorts(339, 2));
+        tags.add(Tag.doubles(33550, 0.5, 0.25, 0));
+        tags.add(Tag.doubles(33922, 0, 0, 0, 10, 20, 0));
+        tags.add(Tag.shorts(34735, 1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 2, 2048, 0, 1, 4326));
+        tags.sort(Comparator.comparingInt(tag -> tag.id));
+        int position = 8 + 2 + tags.size() * 12 + 4;
+        for (Tag tag : tags) {
+            if (tag.payloadBytes() > 4) {
+                position = even(position);
+                tag.offset = position;
+                position += tag.payloadBytes();
+            }
+        }
+        Tag offsetTag =
+                tags.stream()
+                        .filter(tag -> tag.id == (tiled ? 324 : 273))
+                        .findFirst()
+                        .orElseThrow();
+        for (int index = 0; index < segments.size(); index++) {
+            position = even(position);
+            offsetTag.integers[index] = position;
+            position += segments.get(index).length;
+        }
+        ByteBuffer bytes = ByteBuffer.allocate(position).order(order);
+        bytes.put((byte) (order == ByteOrder.LITTLE_ENDIAN ? 'I' : 'M'));
+        bytes.put((byte) (order == ByteOrder.LITTLE_ENDIAN ? 'I' : 'M'));
+        bytes.putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) tags.size());
+        for (Tag tag : tags) {
+            bytes.putShort((short) tag.id).putShort((short) tag.type).putInt(tag.count());
+            if (tag.payloadBytes() > 4) {
+                bytes.putInt(tag.offset);
+            } else {
+                int start = bytes.position();
+                tag.writeValues(bytes);
+                while (bytes.position() < start + 4) {
+                    bytes.put((byte) 0);
+                }
+            }
+        }
+        bytes.putInt(0);
+        for (Tag tag : tags) {
+            if (tag.payloadBytes() > 4) {
+                bytes.position(tag.offset);
+                tag.writeValues(bytes);
+            }
+        }
+        for (int index = 0; index < segments.size(); index++) {
+            bytes.position(Math.toIntExact(offsetTag.integers[index]));
+            bytes.put(segments.get(index));
+        }
+        return bytes.array();
+    }
+
+    static int elevationValue(int column, int row, int width) {
+        return row * width + column - 1000;
+    }
+
+    private static List<byte[]> elevationSegments(
+            ByteOrder order, int width, int height, int bits, boolean tiled) {
+        List<byte[]> result = new ArrayList<>();
+        int blockWidth = tiled ? 16 : width;
+        int blockHeight = tiled ? 16 : 2;
+        int across = tiled ? (width + 15) / 16 : 1;
+        int down = (height + blockHeight - 1) / blockHeight;
+        int sampleBytes = bits / Byte.SIZE;
+        for (int blockRow = 0; blockRow < down; blockRow++) {
+            for (int blockColumn = 0; blockColumn < across; blockColumn++) {
+                int rows =
+                        tiled
+                                ? blockHeight
+                                : Math.min(blockHeight, height - blockRow * blockHeight);
+                ByteBuffer segment =
+                        ByteBuffer.allocate(blockWidth * rows * sampleBytes).order(order);
+                for (int localRow = 0; localRow < rows; localRow++) {
+                    for (int localColumn = 0; localColumn < blockWidth; localColumn++) {
+                        int column = blockColumn * blockWidth + localColumn;
+                        int row = blockRow * blockHeight + localRow;
+                        int value =
+                                column < width && row < height
+                                        ? elevationValue(column, row, width)
+                                        : 0;
+                        if (bits == 16) {
+                            segment.putShort((short) value);
+                        } else {
+                            segment.putInt(value * 100_000);
+                        }
+                    }
+                }
+                result.add(segment.array());
+            }
+        }
+        return result;
+    }
+
     static byte[] deflate(byte[] decoded) {
         Deflater deflater = new Deflater();
         try {
