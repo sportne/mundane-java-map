@@ -38,7 +38,11 @@ final class GeoTiffParser {
         this.snapshot = snapshot;
         limits = options.formatLimits();
         this.cancellation = cancellation;
-        data = ByteBuffer.wrap(snapshot).order(ByteOrder.LITTLE_ENDIAN);
+        ByteOrder byteOrder =
+                snapshot.length >= 2 && snapshot[0] == 'M' && snapshot[1] == 'M'
+                        ? ByteOrder.BIG_ENDIAN
+                        : ByteOrder.LITTLE_ENDIAN;
+        data = ByteBuffer.wrap(snapshot).order(byteOrder);
     }
 
     static RasterSource open(
@@ -54,10 +58,9 @@ final class GeoTiffParser {
         if (snapshot.length < 8) {
             throw GeoTiffFailures.header(sourceId, "ifdOffset", "range");
         }
-        if ((snapshot[0] & 0xff) != 'I' || (snapshot[1] & 0xff) != 'I') {
-            if ((snapshot[0] & 0xff) == 'M' && (snapshot[1] & 0xff) == 'M') {
-                throw GeoTiffFailures.header(sourceId, "byteOrder", "value");
-            }
+        boolean littleEndian = snapshot[0] == 'I' && snapshot[1] == 'I';
+        boolean bigEndian = snapshot[0] == 'M' && snapshot[1] == 'M';
+        if (!littleEndian && !bigEndian) {
             throw GeoTiffFailures.header(sourceId, "byteOrder", "value");
         }
         int version = ushort(2);
@@ -118,33 +121,25 @@ final class GeoTiffParser {
                 sourceId, "geoTiffOpen", "dimension", height, limits.maximumDimension());
         long pixels = Math.multiplyExact((long) width, height);
         GeoTiffFailures.limit(sourceId, "geoTiffOpen", "pixels", pixels, limits.maximumPixels());
-        requireScalar(entries, 258, 8, "sampleType");
-        requireOptionalScalar(entries, 259, 1, "compression");
-        requireScalar(entries, 262, 1, "photometric");
-        requireOptionalScalar(entries, 274, 1, "orientation");
-        requireOptionalScalar(entries, 277, 1, "sampleOrganization");
-        requireOptionalScalar(entries, 284, 1, "sampleOrganization");
-        requireOptionalScalar(entries, 317, 1, "predictor");
-        if (entries.containsKey(322)
-                || entries.containsKey(323)
-                || entries.containsKey(324)
-                || entries.containsKey(325)) {
-            throw GeoTiffFailures.unsupported(sourceId, "sampleOrganization");
+        requireOptionalCode(entries, 259, 1, "compression");
+        requireOptionalCode(entries, 274, 1, "orientation");
+        int samplesPerPixel = optionalCode(entries, 277);
+        if (samplesPerPixel == -1) {
+            samplesPerPixel = 1;
         }
+        requireOptionalCode(entries, 284, 1, "sampleOrganization");
+        requireOptionalCode(entries, 317, 1, "predictor");
+        ColorProfile color = colorProfile(entries, samplesPerPixel);
 
-        int rowsPerStrip = scalar(entries, 278, true);
-        if (rowsPerStrip <= 0) {
-            throw GeoTiffFailures.tag(sourceId, 278, "value");
-        }
-        int segmentCount = Math.toIntExact((height + (long) rowsPerStrip - 1) / rowsPerStrip);
+        SegmentLayout layout = segmentLayout(entries, width, height);
+        int segmentCount = layout.segmentCount();
         GeoTiffFailures.limit(
                 sourceId, "geoTiffOpen", "segments", segmentCount, limits.maximumSegments());
-        long[] offsets = vector(entries, 273, segmentCount);
-        long[] counts = vector(entries, 279, segmentCount);
+        long[] offsets = vector(entries, layout.offsetTag(), segmentCount);
+        long[] counts = vector(entries, layout.countTag(), segmentCount);
         for (int segment = 0; segment < segmentCount; segment++) {
             GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
-            int rows = Math.min(rowsPerStrip, height - segment * rowsPerStrip);
-            long decoded = Math.multiplyExact((long) width, rows);
+            long decoded = decodedBytes(layout, segment, width, height, samplesPerPixel);
             GeoTiffFailures.limit(
                     sourceId,
                     "geoTiffOpen",
@@ -177,17 +172,29 @@ final class GeoTiffParser {
         }
         validateSegmentDisjoint(offsets, counts);
 
-        GeoReference reference = georeference(entries, width, height);
         CrsMetadata crs = geoKeys(entries);
+        GeoReference reference = georeference(entries, width, height, crs);
         RasterSourceMetadata metadata =
                 new RasterSourceMetadata(
                         identity, width, height, Optional.of(reference.bounds()), Optional.of(crs));
         GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
         return new GeoTiffRasterSource(
-                snapshot, metadata, options.requestLimits(), limits, rowsPerStrip, offsets, counts);
+                snapshot,
+                metadata,
+                options.requestLimits(),
+                limits,
+                layout.tiled(),
+                layout.segmentWidth(),
+                layout.segmentHeight(),
+                layout.segmentsAcross(),
+                samplesPerPixel,
+                color,
+                offsets,
+                counts);
     }
 
-    private GeoReference georeference(Map<Integer, Entry> entries, int width, int height) {
+    private GeoReference georeference(
+            Map<Integer, Entry> entries, int width, int height, CrsMetadata crs) {
         if (!entries.containsKey(33550) || !entries.containsKey(33922)) {
             throw GeoTiffFailures.georeference(sourceId, "missing");
         }
@@ -220,7 +227,7 @@ final class GeoTiffParser {
             throw GeoTiffFailures.georeference(sourceId, "collapsed");
         }
         Envelope bounds = new Envelope(west, south, east, north);
-        Envelope domain = CrsDefinitions.EPSG_4326.coordinateDomain();
+        Envelope domain = crs.definition().orElseThrow().coordinateDomain();
         if (bounds.minX() < domain.minX()
                 || bounds.minY() < domain.minY()
                 || bounds.maxX() > domain.maxX()
@@ -256,6 +263,9 @@ final class GeoTiffParser {
         int model = -1;
         int raster = -1;
         int geographic = -1;
+        int projected = -1;
+        boolean angularUnits = false;
+        boolean linearUnits = false;
         for (int index = 0; index < keys; index++) {
             GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
             int base = 4 + index * 4;
@@ -275,7 +285,15 @@ final class GeoTiffParser {
                 case 1025 -> raster = value;
                 case 2048 -> geographic = value;
                 case 2054 -> {
+                    angularUnits = true;
                     if (value != 9102) {
+                        throw GeoTiffFailures.geokey(sourceId, key, "value");
+                    }
+                }
+                case 3072 -> projected = value;
+                case 3076 -> {
+                    linearUnits = true;
+                    if (value != 9001) {
                         throw GeoTiffFailures.geokey(sourceId, key, "value");
                     }
                 }
@@ -284,13 +302,150 @@ final class GeoTiffParser {
                                 sourceId, key >= 4096 && key <= 4099 ? "verticalCrs" : "geoKey");
             }
         }
-        if (model != 2 || geographic != 4326) {
-            throw GeoTiffFailures.unsupported(sourceId, "horizontalCrs");
-        }
         if (raster != 1) {
             throw GeoTiffFailures.unsupported(sourceId, "route");
         }
-        return CrsMetadata.recognized(CrsDefinitions.EPSG_4326, Optional.empty(), Optional.empty());
+        if (model == 2 && geographic == 4326 && projected == -1 && !linearUnits) {
+            return CrsMetadata.recognized(
+                    CrsDefinitions.EPSG_4326, Optional.empty(), Optional.empty());
+        }
+        if (model == 1
+                && projected == 3857
+                && (geographic == -1 || geographic == 4326)
+                && !angularUnits) {
+            return CrsMetadata.recognized(
+                    CrsDefinitions.EPSG_3857, Optional.empty(), Optional.empty());
+        }
+        throw GeoTiffFailures.unsupported(sourceId, "horizontalCrs");
+    }
+
+    private ColorProfile colorProfile(Map<Integer, Entry> entries, int samplesPerPixel) {
+        int photometric = code(entries, 262);
+        boolean supportedSamples =
+                (photometric == 0 || photometric == 1)
+                        ? samplesPerPixel == 1 || samplesPerPixel == 2
+                        : photometric == 2 && (samplesPerPixel == 3 || samplesPerPixel == 4);
+        if (!supportedSamples) {
+            throw GeoTiffFailures.unsupported(sourceId, "photometric");
+        }
+        Entry bits = entries.get(258);
+        requireShortArray(bits, 258, samplesPerPixel, 8, "sampleType");
+        Entry sampleFormat = entries.get(339);
+        if (sampleFormat != null) {
+            requireShortArray(sampleFormat, 339, samplesPerPixel, 1, "sampleType");
+        }
+        boolean alpha = samplesPerPixel == 2 || samplesPerPixel == 4;
+        Entry extra = entries.get(338);
+        if (alpha) {
+            if (extra == null) {
+                throw GeoTiffFailures.unsupported(sourceId, "alpha");
+            }
+            if (extra.type != TYPE_SHORT) {
+                throw GeoTiffFailures.tag(sourceId, 338, "type");
+            }
+            if (extra.count != 1) {
+                throw GeoTiffFailures.tag(sourceId, 338, "count");
+            }
+            if (extra.unsignedAt(0) != 2) {
+                throw GeoTiffFailures.unsupported(sourceId, "alpha");
+            }
+        } else if (extra != null) {
+            throw GeoTiffFailures.unsupported(sourceId, "alpha");
+        }
+        return switch (photometric) {
+            case 0 ->
+                    switch (samplesPerPixel) {
+                        case 1 -> ColorProfile.WHITE_GRAY;
+                        case 2 -> ColorProfile.WHITE_GRAY_ALPHA;
+                        default -> throw GeoTiffFailures.unsupported(sourceId, "photometric");
+                    };
+            case 1 ->
+                    switch (samplesPerPixel) {
+                        case 1 -> ColorProfile.BLACK_GRAY;
+                        case 2 -> ColorProfile.BLACK_GRAY_ALPHA;
+                        default -> throw GeoTiffFailures.unsupported(sourceId, "photometric");
+                    };
+            case 2 ->
+                    switch (samplesPerPixel) {
+                        case 3 -> ColorProfile.RGB;
+                        case 4 -> ColorProfile.RGBA;
+                        default -> throw GeoTiffFailures.unsupported(sourceId, "photometric");
+                    };
+            default -> throw GeoTiffFailures.unsupported(sourceId, "photometric");
+        };
+    }
+
+    private void requireShortArray(
+            Entry entry, int tag, int count, int expected, String construct) {
+        if (entry == null) {
+            throw GeoTiffFailures.tag(sourceId, tag, "missing");
+        }
+        if (entry.type != TYPE_SHORT) {
+            throw GeoTiffFailures.tag(sourceId, tag, "type");
+        }
+        if (entry.count != count) {
+            throw GeoTiffFailures.tag(sourceId, tag, "count");
+        }
+        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+        for (int index = 0; index < count; index++) {
+            if ((index & 4095) == 0) {
+                GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+            }
+            if (entry.unsignedAt(index) != expected) {
+                throw GeoTiffFailures.unsupported(sourceId, construct);
+            }
+        }
+    }
+
+    private SegmentLayout segmentLayout(Map<Integer, Entry> entries, int width, int height) {
+        boolean anyStrip =
+                entries.containsKey(273) || entries.containsKey(278) || entries.containsKey(279);
+        boolean allStrip =
+                entries.containsKey(273) && entries.containsKey(278) && entries.containsKey(279);
+        boolean anyTile =
+                entries.containsKey(322)
+                        || entries.containsKey(323)
+                        || entries.containsKey(324)
+                        || entries.containsKey(325);
+        boolean allTile =
+                entries.containsKey(322)
+                        && entries.containsKey(323)
+                        && entries.containsKey(324)
+                        && entries.containsKey(325);
+        if ((anyStrip && anyTile) || (!allStrip && !allTile)) {
+            throw GeoTiffFailures.unsupported(sourceId, "sampleOrganization");
+        }
+        if (allStrip) {
+            int rowsPerStrip = scalar(entries, 278, true);
+            int segments = Math.toIntExact((height + (long) rowsPerStrip - 1) / rowsPerStrip);
+            return new SegmentLayout(false, width, rowsPerStrip, 1, segments, 273, 279);
+        }
+        int tileWidth = scalar(entries, 322, true);
+        int tileHeight = scalar(entries, 323, true);
+        if ((tileWidth & 15) != 0 || (tileHeight & 15) != 0) {
+            throw GeoTiffFailures.unsupported(sourceId, "sampleOrganization");
+        }
+        Entry tileOffsets = entries.get(324);
+        if (tileOffsets.type != TYPE_LONG) {
+            throw GeoTiffFailures.tag(sourceId, 324, "type");
+        }
+        int across = Math.toIntExact((width + (long) tileWidth - 1) / tileWidth);
+        int down = Math.toIntExact((height + (long) tileHeight - 1) / tileHeight);
+        int segments = Math.multiplyExact(across, down);
+        return new SegmentLayout(true, tileWidth, tileHeight, across, segments, 324, 325);
+    }
+
+    private long decodedBytes(
+            SegmentLayout layout,
+            int segment,
+            int imageWidth,
+            int imageHeight,
+            int samplesPerPixel) {
+        try {
+            return layout.decodedBytes(segment, imageWidth, imageHeight, samplesPerPixel);
+        } catch (ArithmeticException failure) {
+            throw GeoTiffFailures.segment(sourceId, segment, "decodedLength");
+        }
     }
 
     private int scalar(Map<Integer, Entry> entries, int tag, boolean required) {
@@ -304,6 +459,9 @@ final class GeoTiffParser {
         if (entry.count != 1) {
             throw GeoTiffFailures.tag(sourceId, tag, "count");
         }
+        if (entry.type != TYPE_SHORT && entry.type != TYPE_LONG) {
+            throw GeoTiffFailures.tag(sourceId, tag, "type");
+        }
         long value = entry.unsignedAt(0);
         if (value <= 0 || value > Integer.MAX_VALUE) {
             throw GeoTiffFailures.tag(sourceId, tag, "value");
@@ -311,17 +469,24 @@ final class GeoTiffParser {
         return (int) value;
     }
 
-    private void requireScalar(
-            Map<Integer, Entry> entries, int tag, int expected, String construct) {
-        int actual = scalar(entries, tag, true);
-        if (actual != expected) {
-            throw GeoTiffFailures.unsupported(sourceId, construct);
+    private int code(Map<Integer, Entry> entries, int tag) {
+        Entry entry = entries.get(tag);
+        if (entry == null) {
+            throw GeoTiffFailures.tag(sourceId, tag, "missing");
         }
+        if (entry.type != TYPE_SHORT || entry.count != 1) {
+            throw GeoTiffFailures.tag(sourceId, tag, entry.type != TYPE_SHORT ? "type" : "count");
+        }
+        return Math.toIntExact(entry.unsignedAt(0));
     }
 
-    private void requireOptionalScalar(
+    private int optionalCode(Map<Integer, Entry> entries, int tag) {
+        return entries.containsKey(tag) ? code(entries, tag) : -1;
+    }
+
+    private void requireOptionalCode(
             Map<Integer, Entry> entries, int tag, int expected, String construct) {
-        int actual = scalar(entries, tag, false);
+        int actual = optionalCode(entries, tag);
         if (actual != -1 && actual != expected) {
             throw GeoTiffFailures.unsupported(sourceId, construct);
         }
@@ -484,7 +649,7 @@ final class GeoTiffParser {
         for (int tag :
                 new int[] {
                     256, 257, 258, 259, 262, 273, 274, 277, 278, 279, 284, 317, 322, 323, 324, 325,
-                    33550, 33922, 34735
+                    338, 339, 33550, 33922, 34735
                 }) {
             tags.put(tag, true);
         }
@@ -565,9 +730,41 @@ final class GeoTiffParser {
             int size = type == TYPE_SHORT ? 2 : 4;
             int offset = valueOffset();
             if (offset < 0) {
-                return type == TYPE_SHORT ? (rawValue >>> (index * 16)) & 0xffffL : rawValue;
+                if (type == TYPE_LONG) {
+                    return rawValue;
+                }
+                int shift = data.order() == ByteOrder.LITTLE_ENDIAN ? index * 16 : (1 - index) * 16;
+                return (rawValue >>> shift) & 0xffffL;
             }
             return type == TYPE_SHORT ? ushort(offset + index * size) : uint(offset + index * size);
+        }
+    }
+
+    enum ColorProfile {
+        WHITE_GRAY,
+        BLACK_GRAY,
+        WHITE_GRAY_ALPHA,
+        BLACK_GRAY_ALPHA,
+        RGB,
+        RGBA
+    }
+
+    private record SegmentLayout(
+            boolean tiled,
+            int segmentWidth,
+            int segmentHeight,
+            int segmentsAcross,
+            int segmentCount,
+            int offsetTag,
+            int countTag) {
+        private long decodedBytes(
+                int segment, int imageWidth, int imageHeight, int samplesPerPixel) {
+            if (tiled) {
+                return Math.multiplyExact(
+                        Math.multiplyExact((long) segmentWidth, segmentHeight), samplesPerPixel);
+            }
+            int rows = Math.min(segmentHeight, imageHeight - segment * segmentHeight);
+            return Math.multiplyExact(Math.multiplyExact((long) imageWidth, rows), samplesPerPixel);
         }
     }
 

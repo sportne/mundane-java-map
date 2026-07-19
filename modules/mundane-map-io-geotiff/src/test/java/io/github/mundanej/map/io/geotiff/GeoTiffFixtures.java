@@ -2,6 +2,9 @@ package io.github.mundanej.map.io.geotiff;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 
 final class GeoTiffFixtures {
     private static final int ENTRY_COUNT = 13;
@@ -94,6 +97,272 @@ final class GeoTiffFixtures {
             bytes.put((byte) (value * 20));
         }
         return bytes.array();
+    }
+
+    static byte[] bigEndianGray() {
+        return raster(ByteOrder.BIG_ENDIAN, 4, 3, 1, 1, false, false);
+    }
+
+    static byte[] whiteGray() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 0, 1, false, false);
+    }
+
+    static byte[] whiteGrayAlpha() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 0, 2, false, false);
+    }
+
+    static byte[] blackGrayAlpha() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 1, 2, false, false);
+    }
+
+    static byte[] rgb() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 2, 3, false, false);
+    }
+
+    static byte[] rgba() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 2, 4, false, false);
+    }
+
+    static byte[] tiledRgb() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 17, 17, 2, 3, true, false);
+    }
+
+    static byte[] projectedGray() {
+        return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 1, 1, false, true);
+    }
+
+    private static byte[] raster(
+            ByteOrder order,
+            int width,
+            int height,
+            int photometric,
+            int samples,
+            boolean tiled,
+            boolean projected) {
+        List<byte[]> segments = segments(width, height, photometric, samples, tiled);
+        List<Tag> tags = new ArrayList<>();
+        tags.add(Tag.shorts(256, width));
+        tags.add(Tag.shorts(257, height));
+        tags.add(Tag.repeatedShorts(258, samples, 8));
+        tags.add(Tag.shorts(259, 1));
+        tags.add(Tag.shorts(262, photometric));
+        int segmentCount = segments.size();
+        if (tiled) {
+            tags.add(Tag.shorts(322, 16));
+            tags.add(Tag.shorts(323, 16));
+            tags.add(Tag.longs(324, new long[segmentCount]));
+            tags.add(Tag.longs(325, segments.stream().mapToLong(value -> value.length).toArray()));
+        } else {
+            tags.add(Tag.longs(273, new long[segmentCount]));
+            tags.add(Tag.longs(278, 2));
+            tags.add(Tag.longs(279, segments.stream().mapToLong(value -> value.length).toArray()));
+        }
+        if (samples != 1) {
+            tags.add(Tag.shorts(277, samples));
+        }
+        tags.add(Tag.shorts(284, 1));
+        if (samples == 2 || samples == 4) {
+            tags.add(Tag.shorts(338, 2));
+        }
+        tags.add(Tag.repeatedShorts(339, samples, 1));
+        tags.add(Tag.doubles(33550, 1, 1, 0));
+        tags.add(Tag.doubles(33922, 0, 0, 0, projected ? 1_000 : 10, projected ? 2_000 : 20, 0));
+        tags.add(
+                Tag.shorts(
+                        34735,
+                        projected
+                                ? new int[] {
+                                    1, 1, 0, 4,
+                                    1024, 0, 1, 1,
+                                    1025, 0, 1, 1,
+                                    3072, 0, 1, 3857,
+                                    3076, 0, 1, 9001
+                                }
+                                : new int[] {
+                                    1, 1, 0, 3,
+                                    1024, 0, 1, 2,
+                                    1025, 0, 1, 1,
+                                    2048, 0, 1, 4326
+                                }));
+        tags.sort(Comparator.comparingInt(tag -> tag.id));
+        int position = 8 + 2 + tags.size() * 12 + 4;
+        for (Tag tag : tags) {
+            if (tag.payloadBytes() > 4) {
+                position = even(position);
+                tag.offset = position;
+                position += tag.payloadBytes();
+            }
+        }
+        int offsetTagId = tiled ? 324 : 273;
+        Tag offsetTag =
+                tags.stream().filter(tag -> tag.id == offsetTagId).findFirst().orElseThrow();
+        for (int index = 0; index < segments.size(); index++) {
+            position = even(position);
+            offsetTag.integers[index] = position;
+            position += segments.get(index).length;
+        }
+        ByteBuffer bytes = ByteBuffer.allocate(position).order(order);
+        bytes.put((byte) (order == ByteOrder.LITTLE_ENDIAN ? 'I' : 'M'));
+        bytes.put((byte) (order == ByteOrder.LITTLE_ENDIAN ? 'I' : 'M'));
+        bytes.putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) tags.size());
+        for (Tag tag : tags) {
+            bytes.putShort((short) tag.id).putShort((short) tag.type).putInt(tag.count());
+            if (tag.payloadBytes() > 4) {
+                bytes.putInt(tag.offset);
+            } else {
+                int start = bytes.position();
+                tag.writeValues(bytes);
+                while (bytes.position() < start + 4) {
+                    bytes.put((byte) 0);
+                }
+            }
+        }
+        bytes.putInt(0);
+        for (Tag tag : tags) {
+            if (tag.payloadBytes() > 4) {
+                bytes.position(tag.offset);
+                tag.writeValues(bytes);
+            }
+        }
+        for (int index = 0; index < segments.size(); index++) {
+            bytes.position(Math.toIntExact(offsetTag.integers[index]));
+            bytes.put(segments.get(index));
+        }
+        return bytes.array();
+    }
+
+    private static List<byte[]> segments(
+            int width, int height, int photometric, int samples, boolean tiled) {
+        List<byte[]> result = new ArrayList<>();
+        int blockWidth = tiled ? 16 : width;
+        int blockHeight = tiled ? 16 : 2;
+        int across = tiled ? (width + 15) / 16 : 1;
+        int down = (height + blockHeight - 1) / blockHeight;
+        for (int blockRow = 0; blockRow < down; blockRow++) {
+            for (int blockColumn = 0; blockColumn < across; blockColumn++) {
+                int rows =
+                        tiled
+                                ? blockHeight
+                                : Math.min(blockHeight, height - blockRow * blockHeight);
+                byte[] segment = new byte[blockWidth * rows * samples];
+                int target = 0;
+                for (int localRow = 0; localRow < rows; localRow++) {
+                    for (int localColumn = 0; localColumn < blockWidth; localColumn++) {
+                        int column = blockColumn * blockWidth + localColumn;
+                        int row = blockRow * blockHeight + localRow;
+                        int[] values = sample(column, row, photometric, samples);
+                        for (int value : values) {
+                            segment[target++] = (byte) value;
+                        }
+                    }
+                }
+                result.add(segment);
+            }
+        }
+        return result;
+    }
+
+    static int expectedRgba(int column, int row, int photometric, int samples) {
+        int[] values = sample(column, row, photometric, samples);
+        int red;
+        int green;
+        int blue;
+        int alpha = (samples == 2 || samples == 4) ? values[samples - 1] : 255;
+        if (photometric == 2) {
+            red = values[0];
+            green = values[1];
+            blue = values[2];
+        } else {
+            int gray = photometric == 0 ? 255 - values[0] : values[0];
+            red = gray;
+            green = gray;
+            blue = gray;
+        }
+        return (red << 24) | (green << 16) | (blue << 8) | alpha;
+    }
+
+    private static int[] sample(int column, int row, int photometric, int samples) {
+        int alpha = (64 + column * 13 + row * 19) & 0xff;
+        if (photometric == 2) {
+            return samples == 4
+                    ? new int[] {
+                        (10 + column * 7) & 0xff,
+                        (20 + row * 9) & 0xff,
+                        (30 + column + row) & 0xff,
+                        alpha
+                    }
+                    : new int[] {
+                        (10 + column * 7) & 0xff, (20 + row * 9) & 0xff, (30 + column + row) & 0xff
+                    };
+        }
+        int gray = (column * 11 + row * 17) & 0xff;
+        return samples == 2 ? new int[] {gray, alpha} : new int[] {gray};
+    }
+
+    private static int even(int value) {
+        return (value + 1) & ~1;
+    }
+
+    private static final class Tag {
+        private final int id;
+        private final int type;
+        private final long[] integers;
+        private final double[] floating;
+        private int offset;
+
+        private Tag(int id, int type, long[] integers, double[] floating) {
+            this.id = id;
+            this.type = type;
+            this.integers = integers;
+            this.floating = floating;
+        }
+
+        private static Tag shorts(int id, int... values) {
+            long[] converted = new long[values.length];
+            for (int index = 0; index < values.length; index++) {
+                converted[index] = values[index];
+            }
+            return new Tag(id, 3, converted, null);
+        }
+
+        private static Tag repeatedShorts(int id, int count, int value) {
+            int[] values = new int[count];
+            java.util.Arrays.fill(values, value);
+            return shorts(id, values);
+        }
+
+        private static Tag longs(int id, long... values) {
+            return new Tag(id, 4, values, null);
+        }
+
+        private static Tag doubles(int id, double... values) {
+            return new Tag(id, 12, null, values);
+        }
+
+        private int count() {
+            return floating == null ? integers.length : floating.length;
+        }
+
+        private int payloadBytes() {
+            return count() * (type == 3 ? 2 : type == 4 ? 4 : 8);
+        }
+
+        private void writeValues(ByteBuffer target) {
+            if (floating != null) {
+                for (double value : floating) {
+                    target.putDouble(value);
+                }
+            } else if (type == 3) {
+                for (long value : integers) {
+                    target.putShort((short) value);
+                }
+            } else {
+                for (long value : integers) {
+                    target.putInt(Math.toIntExact(value));
+                }
+            }
+        }
     }
 
     private static void entry(ByteBuffer bytes, int tag, int type, int count, int value) {

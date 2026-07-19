@@ -1,6 +1,6 @@
 # G10-031 — GeoTIFF raster layout and color completion
 
-Status: Proposed
+Status: Complete
 Depends on: G10-030
 Gate: G10
 Type: AFK

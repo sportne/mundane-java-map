@@ -247,7 +247,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-024 — GeoJSON fixtures, viewer, and consumer evidence](closed/G10-024-geojson-fixtures-viewer-consumer.md) | Complete | HITL | G10-023 | Prove fixture, viewer, rendering, publication, and consumer interoperability. |
 | [G10-025 — Native Image GeoJSON closeout](closed/G10-025-native-image-geojson-closeout.md) | Complete | HITL | G10-024 | Prove the bounded Linux native read/write/query/render path without service discovery. |
 | [G10-030 — GeoTIFF first raster slice](closed/G10-030-geotiff-first-raster-slice.md) | Complete | AFK | G10-003 | Read, query, render, publish, and consume one bounded little-endian area raster. |
-| [G10-031 — GeoTIFF raster layout and color completion](G10-031-geotiff-raster-layout-and-color-completion.md) | Proposed | AFK | G10-030 | Add big-endian, tiled, color/alpha, EPSG:3857, and exact window behavior. |
+| [G10-031 — GeoTIFF raster layout and color completion](closed/G10-031-geotiff-raster-layout-and-color-completion.md) | Complete | AFK | G10-030 | Decode both byte orders, exact strips/tiles, approved color/alpha profiles, and EPSG:3857. |
 | [G10-032 — GeoTIFF PackBits and Deflate](G10-032-geotiff-packbits-and-deflate.md) | Proposed | AFK | G10-031 | Decode and render bounded PackBits and Deflate segments with stable failures. |
 | [G10-033 — GeoTIFF affine raster placement](G10-033-geotiff-affine-raster-placement.md) | Proposed | AFK | G10-032 | Place and regress rotated/sheared ModelTransformation rasters. |
 | [G10-034 — GeoTIFF integer elevation slice](G10-034-geotiff-integer-elevation-slice.md) | Proposed | AFK | G10-033, G9-002, G9-005 | Read, query, colorize, and render signed integer PixelIsPoint elevation. |

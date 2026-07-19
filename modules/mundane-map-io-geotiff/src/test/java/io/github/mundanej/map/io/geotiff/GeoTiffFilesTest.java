@@ -11,6 +11,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRequest;
+import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.SourceException;
@@ -435,6 +436,288 @@ class GeoTiffFilesTest {
                 "nonFinite");
     }
 
+    @Test
+    void decodesBigEndianInlineAndOutOfLineValues() {
+        try (RasterSource source = open(GeoTiffFixtures.bigEndianGray())) {
+            assertEquals(4, source.metadata().width());
+            assertEquals(3, source.metadata().height());
+            assertEquals(Optional.of(new Envelope(10, 17, 14, 20)), source.metadata().mapBounds());
+            assertArrayEquals(
+                    new int[] {
+                        GeoTiffFixtures.expectedRgba(1, 0, 1, 1),
+                        GeoTiffFixtures.expectedRgba(3, 0, 1, 1),
+                        GeoTiffFixtures.expectedRgba(1, 2, 1, 1),
+                        GeoTiffFixtures.expectedRgba(3, 2, 1, 1)
+                    },
+                    source.read(
+                                    request(new RasterWindow(0, 0, 4, 3), 2, 2),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    @Test
+    void mapsEveryApprovedGrayRgbAndUnassociatedAlphaProfileExactly() {
+        assertProfile(GeoTiffFixtures.whiteGray(), 0, 1);
+        assertProfile(GeoTiffFixtures.whiteGrayAlpha(), 0, 2);
+        assertProfile(GeoTiffFixtures.blackGrayAlpha(), 1, 2);
+        assertProfile(GeoTiffFixtures.rgb(), 2, 3);
+        assertProfile(GeoTiffFixtures.rgba(), 2, 4);
+    }
+
+    @Test
+    void readsOnlyIntersectingTilesAndRetainsFullEdgeTileShape() {
+        try (RasterSource source = open(GeoTiffFixtures.tiledRgb())) {
+            RasterRequestLimits oneTile =
+                    new RasterRequestLimits(256, 8_192, 16_777_216, 268_435_456, 268_435_456, 256);
+            RasterReadAssert.assertPixels(
+                    source.read(
+                            new RasterRequest(
+                                    new RasterWindow(16, 16, 1, 1),
+                                    1,
+                                    1,
+                                    RasterInterpolation.NEAREST,
+                                    Optional.of(oneTile)),
+                            CancellationToken.none()),
+                    GeoTiffFixtures.expectedRgba(16, 16, 2, 3));
+
+            RasterRequestLimits fourTilesUnder =
+                    new RasterRequestLimits(
+                            1_023, 8_192, 16_777_216, 268_435_456, 268_435_456, 256);
+            SourceException bounded =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    source.read(
+                                            new RasterRequest(
+                                                    new RasterWindow(15, 15, 2, 2),
+                                                    2,
+                                                    2,
+                                                    RasterInterpolation.NEAREST,
+                                                    Optional.of(fourTilesUnder)),
+                                            CancellationToken.none()));
+            assertEquals("SOURCE_LIMIT_EXCEEDED", bounded.terminal().code());
+            assertArrayEquals(
+                    new int[] {
+                        GeoTiffFixtures.expectedRgba(15, 15, 2, 3),
+                        GeoTiffFixtures.expectedRgba(16, 15, 2, 3),
+                        GeoTiffFixtures.expectedRgba(15, 16, 2, 3),
+                        GeoTiffFixtures.expectedRgba(16, 16, 2, 3)
+                    },
+                    source.read(
+                                    request(new RasterWindow(15, 15, 2, 2), 2, 2),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    @Test
+    void recognizesProjectedWebMercatorPlacementWithoutReprojection() {
+        try (RasterSource source = open(GeoTiffFixtures.projectedGray())) {
+            assertEquals(
+                    "EPSG:3857",
+                    source.metadata().crs().orElseThrow().canonicalIdentifier().orElseThrow());
+            assertEquals(
+                    Optional.of(new Envelope(1_000, 1_997, 1_004, 2_000)),
+                    source.metadata().mapBounds());
+            assertArrayEquals(
+                    new int[] {GeoTiffFixtures.expectedRgba(2, 1, 1, 1)},
+                    source.read(
+                                    request(new RasterWindow(2, 1, 1, 1), 1, 1),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    @Test
+    void rejectsMalformedTileShapeCountAndDecodedLength() {
+        byte[] shape = GeoTiffFixtures.tiledRgb();
+        putShortAtEntryValue(shape, 322, 15);
+        assertFailure(shape, "GEOTIFF_PROFILE_UNSUPPORTED", "construct", "sampleOrganization");
+
+        byte[] count = GeoTiffFixtures.tiledRgb();
+        putEntryCount(count, 324, 3);
+        assertFailure(count, "GEOTIFF_TAG_INVALID", "reason", "count");
+
+        byte[] decoded = GeoTiffFixtures.tiledRgb();
+        putFirstLongPayloadValue(decoded, 325, 767);
+        assertFailure(decoded, "GEOTIFF_SEGMENT_INVALID", "reason", "decodedLength");
+    }
+
+    @Test
+    void preflightsExactOverLimitAndOverflowingTileDecodedShapes() {
+        byte[] tiled = GeoTiffFixtures.tiledRgb();
+        GeoTiffRasterOptions exact =
+                GeoTiffRasterOptions.defaults()
+                        .withFormatLimits(
+                                GeoTiffLimits.defaults().withMaximumDecodedSegmentBytes(768));
+        try (RasterSource accepted =
+                GeoTiffFiles.openRaster(IDENTITY, tiled, exact, CancellationToken.none())) {
+            assertEquals(17, accepted.metadata().width());
+        }
+        SourceException over =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoTiffFiles.openRaster(
+                                        IDENTITY,
+                                        tiled,
+                                        exact.withFormatLimits(
+                                                exact.formatLimits()
+                                                        .withMaximumDecodedSegmentBytes(767)),
+                                        CancellationToken.none()));
+        assertEquals("SOURCE_LIMIT_EXCEEDED", over.terminal().code());
+        assertEquals("decodedSegmentBytes", over.terminal().context().get("limit"));
+        assertEquals("768", over.terminal().context().get("requested"));
+        assertEquals("767", over.terminal().context().get("maximum"));
+
+        byte[] overflowing = GeoTiffFixtures.tiledRgb();
+        int largestDivisibleBySixteen = 2_147_483_632;
+        retainFirstLongValue(overflowing, 324);
+        retainFirstLongValue(overflowing, 325);
+        putLongAtEntryValue(overflowing, 322, largestDivisibleBySixteen);
+        putLongAtEntryValue(overflowing, 323, largestDivisibleBySixteen);
+        assertFailure(overflowing, "GEOTIFF_SEGMENT_INVALID", "reason", "decodedLength");
+    }
+
+    @Test
+    void checkpointsValidSampleVectorsAndRejectsImpossibleCountsBeforeTraversal() {
+        AtomicInteger vectorChecks = new AtomicInteger();
+        CancellationToken cancelInSampleVector =
+                () -> {
+                    boolean inVector =
+                            java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                                    .anyMatch(
+                                            frame ->
+                                                    frame.getClassName()
+                                                                    .equals(
+                                                                            GeoTiffParser.class
+                                                                                    .getName())
+                                                            && frame.getMethodName()
+                                                                    .equals("requireShortArray"));
+                    return inVector && vectorChecks.incrementAndGet() == 1;
+                };
+        SourceException cancelled =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoTiffFiles.openRaster(
+                                        IDENTITY,
+                                        GeoTiffFixtures.rgb(),
+                                        GeoTiffRasterOptions.defaults(),
+                                        cancelInSampleVector));
+        assertEquals("SOURCE_CANCELLED", cancelled.terminal().code());
+        assertEquals(1, vectorChecks.get());
+
+        byte[] impossible = GeoTiffFixtures.rgb();
+        putShortAtEntryValue(impossible, 277, 0xffff);
+        AtomicInteger invalidVectorChecks = new AtomicInteger();
+        CancellationToken observeSampleVector =
+                () -> {
+                    if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                            .anyMatch(
+                                    frame ->
+                                            frame.getClassName()
+                                                            .equals(GeoTiffParser.class.getName())
+                                                    && frame.getMethodName()
+                                                            .equals("requireShortArray"))) {
+                        invalidVectorChecks.incrementAndGet();
+                    }
+                    return false;
+                };
+        SourceException unsupported =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoTiffFiles.openRaster(
+                                        IDENTITY,
+                                        impossible,
+                                        GeoTiffRasterOptions.defaults(),
+                                        observeSampleVector));
+        assertEquals("GEOTIFF_PROFILE_UNSUPPORTED", unsupported.terminal().code());
+        assertEquals("photometric", unsupported.terminal().context().get("construct"));
+        assertEquals(0, invalidVectorChecks.get());
+    }
+
+    private static void assertProfile(byte[] fixture, int photometric, int samples) {
+        try (RasterSource source = open(fixture)) {
+            assertArrayEquals(
+                    new int[] {
+                        GeoTiffFixtures.expectedRgba(1, 1, photometric, samples),
+                        GeoTiffFixtures.expectedRgba(2, 1, photometric, samples)
+                    },
+                    source.read(
+                                    request(new RasterWindow(1, 1, 2, 1), 2, 1),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    private static void putShortAtEntryValue(byte[] bytes, int tag, int value) {
+        java.nio.ByteBuffer buffer = ordered(bytes);
+        buffer.putShort(entryOffset(buffer, tag) + 8, (short) value);
+    }
+
+    private static void putEntryCount(byte[] bytes, int tag, int value) {
+        java.nio.ByteBuffer buffer = ordered(bytes);
+        buffer.putInt(entryOffset(buffer, tag) + 4, value);
+    }
+
+    private static void putLongAtEntryValue(byte[] bytes, int tag, int value) {
+        java.nio.ByteBuffer buffer = ordered(bytes);
+        int entry = entryOffset(buffer, tag);
+        buffer.putShort(entry + 2, (short) 4);
+        buffer.putInt(entry + 8, value);
+    }
+
+    private static void retainFirstLongValue(byte[] bytes, int tag) {
+        java.nio.ByteBuffer buffer = ordered(bytes);
+        int entry = entryOffset(buffer, tag);
+        int payload = buffer.getInt(entry + 8);
+        int firstValue = buffer.getInt(payload);
+        buffer.putInt(entry + 4, 1);
+        buffer.putInt(entry + 8, firstValue);
+    }
+
+    private static void putFirstLongPayloadValue(byte[] bytes, int tag, int value) {
+        java.nio.ByteBuffer buffer = ordered(bytes);
+        int entry = entryOffset(buffer, tag);
+        int payload = buffer.getInt(entry + 8);
+        buffer.putInt(payload, value);
+    }
+
+    private static java.nio.ByteBuffer ordered(byte[] bytes) {
+        return java.nio.ByteBuffer.wrap(bytes)
+                .order(
+                        bytes[0] == 'M'
+                                ? java.nio.ByteOrder.BIG_ENDIAN
+                                : java.nio.ByteOrder.LITTLE_ENDIAN);
+    }
+
+    private static int entryOffset(java.nio.ByteBuffer bytes, int tag) {
+        int ifd = bytes.getInt(4);
+        int entries = Short.toUnsignedInt(bytes.getShort(ifd));
+        for (int index = 0; index < entries; index++) {
+            int offset = ifd + 2 + index * 12;
+            if (Short.toUnsignedInt(bytes.getShort(offset)) == tag) {
+                return offset;
+            }
+        }
+        throw new AssertionError("Fixture has no tag " + tag);
+    }
+
+    private static final class RasterReadAssert {
+        private RasterReadAssert() {}
+
+        private static void assertPixels(io.github.mundanej.map.api.RasterRead read, int... rgba) {
+            assertArrayEquals(rgba, read.pixels().rgba());
+        }
+    }
+
     private static void assertLimitBoundary(
             byte[] fixture,
             String limit,
@@ -498,7 +781,7 @@ class GeoTiffFilesTest {
     private static void assertFailure(
             byte[] fixture, String code, String contextKey, String contextValue) {
         SourceException failure = assertThrows(SourceException.class, () -> open(fixture));
-        assertEquals(code, failure.terminal().code());
+        assertEquals(code, failure.terminal().code(), () -> failure.terminal().toString());
         assertEquals(contextValue, failure.terminal().context().get(contextKey));
     }
 

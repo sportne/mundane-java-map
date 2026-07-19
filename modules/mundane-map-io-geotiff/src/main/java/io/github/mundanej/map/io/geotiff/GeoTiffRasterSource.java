@@ -19,7 +19,12 @@ final class GeoTiffRasterSource implements RasterSource {
     private final RasterSourceMetadata metadata;
     private final RasterSourceLimits requestLimits;
     private final GeoTiffLimits formatLimits;
-    private final int rowsPerStrip;
+    private final boolean tiled;
+    private final int segmentWidth;
+    private final int segmentHeight;
+    private final int segmentsAcross;
+    private final int samplesPerPixel;
+    private final GeoTiffParser.ColorProfile colorProfile;
     private byte[] snapshot;
     private long[] offsets;
     private long[] counts;
@@ -30,14 +35,24 @@ final class GeoTiffRasterSource implements RasterSource {
             RasterSourceMetadata metadata,
             RasterSourceLimits requestLimits,
             GeoTiffLimits formatLimits,
-            int rowsPerStrip,
+            boolean tiled,
+            int segmentWidth,
+            int segmentHeight,
+            int segmentsAcross,
+            int samplesPerPixel,
+            GeoTiffParser.ColorProfile colorProfile,
             long[] offsets,
             long[] counts) {
         this.snapshot = snapshot;
         this.metadata = metadata;
         this.requestLimits = requestLimits;
         this.formatLimits = formatLimits;
-        this.rowsPerStrip = rowsPerStrip;
+        this.tiled = tiled;
+        this.segmentWidth = segmentWidth;
+        this.segmentHeight = segmentHeight;
+        this.segmentsAcross = segmentsAcross;
+        this.samplesPerPixel = samplesPerPixel;
+        this.colorProfile = colorProfile;
         this.offsets = offsets;
         this.counts = counts;
     }
@@ -72,22 +87,31 @@ final class GeoTiffRasterSource implements RasterSource {
         accounting.checkpoint();
         RasterWindow window = request.sourceWindow();
         accounting.validateWindow(metadata, window);
-        int firstStrip = window.row() / rowsPerStrip;
-        int lastStrip = Math.toIntExact((window.endRow() - 1) / rowsPerStrip);
+        int firstSegmentColumn = tiled ? window.column() / segmentWidth : 0;
+        int lastSegmentColumn =
+                tiled ? Math.toIntExact((window.endColumn() - 1) / segmentWidth) : 0;
+        int firstSegmentRow = window.row() / segmentHeight;
+        int lastSegmentRow = Math.toIntExact((window.endRow() - 1) / segmentHeight);
         long sourceWork = 0;
-        long largestStrip = 0;
-        for (int strip = firstStrip; strip <= lastStrip; strip++) {
-            if (((strip - firstStrip) & 4095) == 0) {
-                accounting.checkpoint();
+        long largestSegment = 0;
+        int planned = 0;
+        for (int segmentRow = firstSegmentRow; segmentRow <= lastSegmentRow; segmentRow++) {
+            for (int segmentColumn = firstSegmentColumn;
+                    segmentColumn <= lastSegmentColumn;
+                    segmentColumn++) {
+                if ((planned++ & 4095) == 0) {
+                    accounting.checkpoint();
+                }
+                int segment = segmentRow * segmentsAcross + segmentColumn;
+                sourceWork = Math.addExact(sourceWork, counts[segment] / samplesPerPixel);
+                largestSegment = Math.max(largestSegment, counts[segment]);
             }
-            sourceWork = Math.addExact(sourceWork, counts[strip]);
-            largestStrip = Math.max(largestStrip, counts[strip]);
         }
         GeoTiffFailures.limit(
                 metadata.identity().id(),
                 "geoTiffRead",
                 "workingBytes",
-                largestStrip,
+                largestSegment,
                 formatLimits.maximumWorkingBytes());
         accounting.chargeSourcePixels(sourceWork);
         long outputPixels =
@@ -164,11 +188,39 @@ final class GeoTiffRasterSource implements RasterSource {
     }
 
     private int pixel(int column, int row) {
-        int strip = row / rowsPerStrip;
-        int rowInStrip = row - strip * rowsPerStrip;
-        int index = Math.toIntExact(offsets[strip] + (long) rowInStrip * metadata.width() + column);
+        int segmentColumn = tiled ? column / segmentWidth : 0;
+        int segmentRow = row / segmentHeight;
+        int segment = segmentRow * segmentsAcross + segmentColumn;
+        int localColumn = tiled ? column - segmentColumn * segmentWidth : column;
+        int localRow = row - segmentRow * segmentHeight;
+        int index =
+                Math.toIntExact(
+                        offsets[segment]
+                                + ((long) localRow * segmentWidth + localColumn) * samplesPerPixel);
+        return switch (colorProfile) {
+            case WHITE_GRAY -> gray(index, true, false);
+            case BLACK_GRAY -> gray(index, false, false);
+            case WHITE_GRAY_ALPHA -> gray(index, true, true);
+            case BLACK_GRAY_ALPHA -> gray(index, false, true);
+            case RGB -> rgba(index, false);
+            case RGBA -> rgba(index, true);
+        };
+    }
+
+    private int gray(int index, boolean invert, boolean alpha) {
         int gray = snapshot[index] & 0xff;
-        return (gray << 24) | (gray << 16) | (gray << 8) | 0xff;
+        if (invert) {
+            gray = 255 - gray;
+        }
+        int alphaValue = alpha ? snapshot[index + 1] & 0xff : 255;
+        return (gray << 24) | (gray << 16) | (gray << 8) | alphaValue;
+    }
+
+    private int rgba(int index, boolean alpha) {
+        return ((snapshot[index] & 0xff) << 24)
+                | ((snapshot[index + 1] & 0xff) << 16)
+                | ((snapshot[index + 2] & 0xff) << 8)
+                | (alpha ? snapshot[index + 3] & 0xff : 255);
     }
 
     private void requireOpen() {

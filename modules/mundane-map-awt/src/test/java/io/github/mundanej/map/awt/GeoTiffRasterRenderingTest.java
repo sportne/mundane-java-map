@@ -19,6 +19,56 @@ import org.junit.jupiter.api.Test;
 
 class GeoTiffRasterRenderingTest {
     @Test
+    void rendersProjectedRgbGeoTiffWithoutImplicitReprojection() {
+        RasterSource source =
+                GeoTiffFiles.openRaster(
+                        new SourceIdentity("awt-geotiff-rgb", "AWT projected RGB GeoTIFF"),
+                        projectedRgbFixture(),
+                        GeoTiffRasterOptions.defaults());
+        MapView view =
+                new MapView(
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+        try {
+            view.setLayerBindings(
+                    List.of(MapLayerBinding.ownedRaster("geotiff-rgb", "GeoTIFF RGB", source)));
+            view.setSize(120, 90);
+            view.fitToData(8);
+            view.setOpaque(false);
+            BufferedImage image = new BufferedImage(120, 90, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = image.createGraphics();
+            try {
+                graphics.setColor(Color.MAGENTA);
+                graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                view.paint(graphics);
+            } finally {
+                graphics.dispose();
+            }
+            int colored = 0;
+            int changed = 0;
+            for (int row = 0; row < image.getHeight(); row++) {
+                for (int column = 0; column < image.getWidth(); column++) {
+                    int rgb = image.getRGB(column, row);
+                    if (rgb != Color.MAGENTA.getRGB()) {
+                        changed++;
+                        int red = (rgb >>> 16) & 0xff;
+                        int green = (rgb >>> 8) & 0xff;
+                        int blue = rgb & 0xff;
+                        if (red != green || green != blue) {
+                            colored++;
+                        }
+                    }
+                }
+            }
+            assertEquals(Color.MAGENTA.getRGB(), image.getRGB(2, 2));
+            assertTrue(changed > 6_000, "too few projected raster pixels " + changed);
+            assertTrue(colored > 4_000, "RGB channels were not retained " + colored);
+        } finally {
+            view.close();
+        }
+        assertTrue(source.isClosed());
+    }
+
+    @Test
     void rendersFirstGeoTiffAreaRasterThroughMapView() {
         RasterSource source =
                 GeoTiffFiles.openRaster(
@@ -122,6 +172,56 @@ class GeoTiffRasterRenderingTest {
         bytes.position(274);
         for (int value = 0; value < 12; value++) {
             bytes.put((byte) (value * 20));
+        }
+        return bytes.array();
+    }
+
+    private static byte[] projectedRgbFixture() {
+        ByteBuffer bytes = ByteBuffer.allocate(354).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.put((byte) 'I').put((byte) 'I').putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) 15);
+        entry(bytes, 256, 3, 1, 4);
+        entry(bytes, 257, 3, 1, 3);
+        entry(bytes, 258, 3, 3, 194);
+        entry(bytes, 259, 3, 1, 1);
+        entry(bytes, 262, 3, 1, 2);
+        entry(bytes, 273, 4, 1, 318);
+        entry(bytes, 274, 3, 1, 1);
+        entry(bytes, 277, 3, 1, 3);
+        entry(bytes, 278, 4, 1, 3);
+        entry(bytes, 279, 4, 1, 36);
+        entry(bytes, 284, 3, 1, 1);
+        entry(bytes, 339, 3, 3, 200);
+        entry(bytes, 33550, 12, 3, 206);
+        entry(bytes, 33922, 12, 6, 230);
+        entry(bytes, 34735, 3, 20, 278);
+        bytes.putInt(0);
+        bytes.position(194).putShort((short) 8).putShort((short) 8).putShort((short) 8);
+        bytes.position(200).putShort((short) 1).putShort((short) 1).putShort((short) 1);
+        bytes.position(206).putDouble(1).putDouble(1).putDouble(0);
+        bytes.position(230)
+                .putDouble(0)
+                .putDouble(0)
+                .putDouble(0)
+                .putDouble(1_000)
+                .putDouble(2_000)
+                .putDouble(0);
+        bytes.position(278)
+                .putShort((short) 1)
+                .putShort((short) 1)
+                .putShort((short) 0)
+                .putShort((short) 4);
+        key(bytes, 1024, 1);
+        key(bytes, 1025, 1);
+        key(bytes, 3072, 3857);
+        key(bytes, 3076, 9001);
+        bytes.position(318);
+        for (int row = 0; row < 3; row++) {
+            for (int column = 0; column < 4; column++) {
+                bytes.put((byte) (30 + column * 40));
+                bytes.put((byte) (50 + row * 60));
+                bytes.put((byte) (180 - column * 20));
+            }
         }
         return bytes.array();
     }
