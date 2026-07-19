@@ -374,7 +374,12 @@ separately decomposed.
   truncation evidence. G10-037 adds a four-file independent-writer corpus with pinned provenance,
   licenses, recipes, and hashes; completes raster/elevation viewer outcomes and tolerant rendering;
   and extends the existing quick/canonical performance lane with bounded raster-window and eager
-  elevation evidence. G10-038 remains Proposed for Native Image closeout.
+  elevation evidence. G10-038 closes the approved GeoTIFF sequence in the one shared native
+  executable with four literal, checksummed independent fixtures: raster None/Deflate and elevation
+  PackBits/Deflate open, query, render, cleanup, and exact malformed-header evidence. The supplemental
+  no-fallback result is limited to GraalVM CE Java 21.0.2 on Ubuntu 24.04.1 WSL2 Linux x86-64; the
+  pinned Ubuntu 24.04 x86-64 Oracle GraalVM Java 21 CI lane remains the authoritative repository
+  evidence, and no Windows/macOS or cross-platform claim is made.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021

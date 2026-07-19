@@ -151,6 +151,33 @@ class NativeSmokeMainTest {
                           "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
                         },
                         "pattern": "\\\\Qio/github/mundanej/map/nativeimage/dted/zone-v-l0-smoke.dt0\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/geotiff/gdal-rgb-strip-none-4326.tif\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/geotiff/gdal-gray-tile-\
+                deflate-3857.tif\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/geotiff/gdal-int16-strip-\
+                packbits-4326.tif\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/geotiff/gdal-float32-tile-\
+                deflate-3857.tif\\\\E"
                       }
                     ]
                   }

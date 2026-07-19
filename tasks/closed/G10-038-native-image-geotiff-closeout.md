@@ -1,6 +1,6 @@
 # G10-038 — Native Image GeoTIFF closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G10-037
 Gate: G10
 Type: HITL
@@ -50,5 +50,22 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: **G10 GeoTIFF Native Image claim review**. A maintainer reviews the exact executable
-evidence and platform wording before compatibility is claimed.
+HITL checkpoint: **G10 GeoTIFF Native Image claim review**. The maintainer approved this checkpoint
+in advance for the requested implementation sequence.
+
+Implementation evidence (2026-07-19): the one shared native executable now directly runs one
+package-private GeoTIFF scenario. Its exact four-resource addition reuses the independently authored,
+SHA-256-pinned G10-037 corpus fixtures: RGB strips/None and grayscale tiles/Deflate through the raster
+route, plus Int16 strips/PackBits and Float32 tiles/Deflate through the elevation route. JVM parity
+and the executable both assert public open/read/query/render behavior, owned-source and workspace
+cleanup, and the exact `GEOTIFF_HEADER_INVALID {field=version, reason=value}` malformed outcome.
+Architecture checks retain literal resource registration, direct construction, and the prohibited-
+mechanism audit; the module inventory now classifies GeoTIFF as native-targeted.
+
+A supplemental no-fallback run used GraalVM CE Java 21.0.2+13.1 / Native Image 21.0.2 on Ubuntu
+24.04.1 WSL2 Linux x86-64. It built the 48.26 MiB executable in 26.8 seconds and printed
+`mundane-map native smoke: OK`; the complete Gradle lane took 40 seconds. This evidence supports only
+the approved bounded GeoTIFF profile on that exact Linux toolchain/platform. Windows, macOS, Linux
+AArch64, other distributions, and cross-platform Native Image compatibility remain unclaimed. The
+project's pinned Ubuntu 24.04 x86-64 Oracle GraalVM Java 21 CI lane remains authoritative once this
+candidate runs there.

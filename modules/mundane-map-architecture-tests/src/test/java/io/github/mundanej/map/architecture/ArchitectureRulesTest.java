@@ -48,6 +48,12 @@ class ArchitectureRulesTest {
                     NATIVE_RESOURCE_DIRECTORY + "raster/malformed-idat-crc.png");
     private static final Set<String> NATIVE_DTED_RESOURCES =
             Set.of(NATIVE_RESOURCE_DIRECTORY + "dted/zone-v-l0-smoke.dt0");
+    private static final Set<String> NATIVE_GEOTIFF_RESOURCES =
+            Set.of(
+                    NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-rgb-strip-none-4326.tif",
+                    NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-gray-tile-deflate-3857.tif",
+                    NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-int16-strip-packbits-4326.tif",
+                    NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-float32-tile-deflate-3857.tif");
 
     private static List<ModuleDescriptor> modules;
     private static Map<ModuleDescriptor, JavaClasses> classesByModule;
@@ -1157,7 +1163,7 @@ class ArchitectureRulesTest {
 
         assertEquals("JDK_RUNTIME", geoTiff.category());
         assertEquals(2, geoTiff.releaseLevel());
-        assertFalse(geoTiff.nativeTarget(), "Native evidence belongs to G10-038");
+        assertTrue(geoTiff.nativeTarget(), "G10-038 supplies the Native Image evidence");
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 geoTiff.allowedRuntimeProjects());
@@ -1235,7 +1241,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactEightExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactNineExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1245,7 +1251,8 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-shapefile",
                         ":modules:mundane-map-io-dted",
                         ":modules:mundane-map-io-svg",
-                        ":modules:mundane-map-io-geojson-jackson");
+                        ":modules:mundane-map-io-geojson-jackson",
+                        ":modules:mundane-map-io-geotiff");
         Set<String> actual =
                 Files.readAllLines(nativeSupportBuild).stream()
                         .map(String::trim)
@@ -1350,8 +1357,9 @@ class ArchitectureRulesTest {
                         .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
         Set<String> processed =
-                java.util.stream.Stream.concat(
-                                checkedIn.stream(), NATIVE_SHAPEFILE_RESOURCES.stream())
+                java.util.stream.Stream.of(
+                                checkedIn, NATIVE_SHAPEFILE_RESOURCES, NATIVE_GEOTIFF_RESOURCES)
+                        .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
 
         assertEquals(checkedIn, resourceInventory(sourceResources));
@@ -1375,7 +1383,9 @@ class ArchitectureRulesTest {
                                         NATIVE_SHAPEFILE_RESOURCES.stream(),
                                         java.util.stream.Stream.concat(
                                                 NATIVE_RASTER_RESOURCES.stream(),
-                                                NATIVE_DTED_RESOURCES.stream())))
+                                                java.util.stream.Stream.concat(
+                                                        NATIVE_DTED_RESOURCES.stream(),
+                                                        NATIVE_GEOTIFF_RESOURCES.stream()))))
                         .collect(Collectors.toUnmodifiableSet());
         List<String> violations =
                 ArchitecturePolicy.explicitResourceConfigViolations(

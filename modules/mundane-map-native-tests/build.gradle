@@ -12,6 +12,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-dted')
     implementation project(':modules:mundane-map-io-svg')
     implementation project(':modules:mundane-map-io-geojson-jackson')
+    implementation project(':modules:mundane-map-io-geotiff')
 }
 
 def shapefileCorpusRoot = project(':modules:mundane-map-io-shapefile').layout.projectDirectory.dir(
@@ -31,6 +32,14 @@ def shapefileSourceFiles = shapefileComponents.collect { extension ->
 def shapefileManifest = shapefileCorpusRoot.file('manifest.tsv')
 def shapefileLicense = shapefileCorpusRoot.file('licenses/BSD-3-Clause.txt')
 def rootLicense = rootProject.layout.projectDirectory.file('LICENSE')
+def geoTiffCorpusData = project(':modules:mundane-map-io-geotiff').layout.projectDirectory.dir(
+        'src/test/resources/geotiff-corpus/data')
+def geoTiffFixtures = [
+    'gdal-rgb-strip-none-4326.tif',
+    'gdal-gray-tile-deflate-3857.tif',
+    'gdal-int16-strip-packbits-4326.tif',
+    'gdal-float32-tile-deflate-3857.tif'
+].collect { geoTiffCorpusData.file(it) }
 
 tasks.named('processResources') {
     shapefileComponents.eachWithIndex { extension, index ->
@@ -40,6 +49,13 @@ tasks.named('processResources') {
         }
     }
     inputs.files(shapefileSourceFiles)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    geoTiffFixtures.each { fixture ->
+        from(fixture) {
+            into 'io/github/mundanej/map/nativeimage/geotiff'
+        }
+    }
+    inputs.files(geoTiffFixtures)
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

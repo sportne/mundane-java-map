@@ -58,6 +58,9 @@ public final class NativeSmokeMain {
         }
         NativeSvgSmokeScenario.run();
         NativeGeoJsonSmokeScenario.run();
+        try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGeoTiff()) {
+            NativeGeoTiffSmokeScenario.run(workspace.geoTiffPaths());
+        }
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {

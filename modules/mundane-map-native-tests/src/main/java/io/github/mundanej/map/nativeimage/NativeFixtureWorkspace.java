@@ -54,6 +54,13 @@ final class NativeFixtureWorkspace implements AutoCloseable {
                 new JdkWorkspaceFiles("mundane-map-dted-native-"));
     }
 
+    static NativeFixtureWorkspace openGeoTiff() {
+        return open(
+                NativeGeoTiffResources.INVENTORY,
+                NativeSmokeMain.class::getResourceAsStream,
+                new JdkWorkspaceFiles("mundane-map-geotiff-native-"));
+    }
+
     static NativeFixtureWorkspace openDted(ResourceReader resources, WorkspaceFiles files) {
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(files, "files");
@@ -137,6 +144,15 @@ final class NativeFixtureWorkspace implements AutoCloseable {
         return new NativeDtedPaths(
                 required(NativeDtedResources.LEVEL_ZERO),
                 required(NativeDtedResources.TRUNCATED_LOCAL_NAME));
+    }
+
+    NativeGeoTiffPaths geoTiffPaths() {
+        requireOpen();
+        return new NativeGeoTiffPaths(
+                required(NativeGeoTiffResources.RASTER_NONE),
+                required(NativeGeoTiffResources.RASTER_DEFLATE),
+                required(NativeGeoTiffResources.ELEVATION_PACKBITS),
+                required(NativeGeoTiffResources.ELEVATION_DEFLATE));
     }
 
     @Override
