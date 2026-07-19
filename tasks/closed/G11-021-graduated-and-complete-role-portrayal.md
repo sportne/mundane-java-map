@@ -1,6 +1,6 @@
 # G11-021 — Graduated and complete-role portrayal
 
-Status: Proposed
+Status: Complete
 Depends on: G11-020
 Gate: G11
 Type: AFK
