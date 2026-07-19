@@ -99,6 +99,17 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
 - G9-003, G10-001, and later tasks that publish Level 2 modules follow the same append-only rule for
   the staged artifact manifest and consumer scenarios. Baseline artifact counts are task-required
   subsets; shared publication files have one owner and are not path-safe.
+- The GeoTIFF slices G10-030 through G10-038 are deliberately serial because each extends the same
+  bounded reader, diagnostics, fixtures, and publication/native inventory.
+- G10-039 is a dependency-neutral image helper. After it lands, the GPX and KML branches may proceed
+  together after G10-005, and the HTTP XYZ branch may proceed independently; shared module inventory,
+  examples, rendering, publication, and native files still require one integration owner.
+- G10-040 through G10-044 may not begin until their Proposed G10-004/G11-004 decisions complete.
+  Once approved, the GeoPackage and MBTiles branches are logically parallel after their distinct
+  roots, but Xerial dependency locking, publication, fixture, and support-evidence files are shared.
+- After their approved profile roots, G11 editing/history and snapping branches converge at G11-013;
+  graduated portrayal and label metrics may proceed together before collision placement; workspace
+  persistence stays serial; and SVG export stays serial after the required label slices.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -199,12 +210,11 @@ Level 1 is complete only when G8-004 is complete.
 
 ## Level 2 backlog
 
-Level 2 starts after G8-004. DTED is decomposed because its model and binary profile are known;
-other speculative capabilities stop at a supported-profile decision or first vertical slice.
-A decision-only card is decomposed after approval only when it selects implementation; an approved
-`DEFER` outcome creates no implementation card or module. G10-001 remains a working implementation
-task; G10-006 records the defined acquisition design and delegates working code to G10-039 and
-G10-060 through G10-062. Any broader follow-up still requires a new card.
+Level 2 starts after G8-004. Approved profiles with implementation outcomes are decomposed below into
+reviewable vertical slices; an approved `DEFER` outcome creates no implementation card or module.
+The G10-040 through G10-044 SQLite-format cards are planning records only until both Proposed
+G10-004 and G11-004 complete, so their existence does not approve Xerial, GeoPackage, or MBTiles.
+Every card remains subject to its dependencies, and broader follow-up still requires a new card.
 
 ### G9 — Elevation and DTED
 
@@ -225,17 +235,43 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | --- | --- | --- | --- | --- |
 | [G10-001 — Secure SVG import profile and first slice](closed/G10-001-secure-svg-import-profile-and-first-slice.md) | Complete | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
 | [G10-002 — GeoJSON feature-source profile decision](closed/G10-002-geojson-feature-source-profile-decision.md) | Complete | HITL | G8-004 | Approve a strict 2D RFC 7946 reader/writer and one isolated Jackson Core adapter. |
+| [G10-003 — GeoTIFF raster/elevation profile decision](closed/G10-003-geotiff-raster-and-elevation-profile-decision.md) | Complete | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
+| [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide whether to approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
+| [G10-005 — GPX and KML source profiles](closed/G10-005-gpx-and-kml-source-profiles.md) | Complete | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
+| [G10-006 — Remote tile source first slice](closed/G10-006-remote-tile-source-first-slice.md) | Complete | AFK | G8-004 | Design explicit bounded HTTP XYZ acquisition into detached raster snapshots. |
+| [G10-007 — Additional projection selection](closed/G10-007-additional-projection-selection.md) | Complete | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |
 | [G10-020 — GeoJSON adapter and first read slice](closed/G10-020-geojson-adapter-first-read-slice.md) | Complete | AFK | G10-002 | Publish a working bounded Point/MultiPoint Jackson adapter. |
 | [G10-021 — GeoJSON geometry completion](closed/G10-021-geojson-geometry-completion.md) | Complete | AFK | G10-020 | Read and render all six approved geometry families. |
 | [G10-022 — GeoJSON deterministic writer](closed/G10-022-geojson-deterministic-writer.md) | Complete | AFK | G10-021 | Write bounded deterministic FeatureCollections with atomic replacement. |
 | [G10-023 — GeoJSON hostile-input and writer hardening](closed/G10-023-geojson-hardening.md) | Complete | AFK | G10-022 | Close reader/writer limits, diagnostics, cancellation, and cleanup. |
 | [G10-024 — GeoJSON fixtures, viewer, and consumer evidence](closed/G10-024-geojson-fixtures-viewer-consumer.md) | Complete | HITL | G10-023 | Prove fixture, viewer, rendering, publication, and consumer interoperability. |
 | [G10-025 — Native Image GeoJSON closeout](closed/G10-025-native-image-geojson-closeout.md) | Complete | HITL | G10-024 | Prove the bounded Linux native read/write/query/render path without service discovery. |
-| [G10-003 — GeoTIFF raster/elevation profile decision](closed/G10-003-geotiff-raster-and-elevation-profile-decision.md) | Complete | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
-| [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide whether to approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
-| [G10-005 — GPX and KML source profiles](closed/G10-005-gpx-and-kml-source-profiles.md) | Complete | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
-| [G10-006 — Remote tile source first slice](closed/G10-006-remote-tile-source-first-slice.md) | Complete | AFK | G8-004 | Design explicit bounded HTTP XYZ acquisition into detached raster snapshots. |
-| [G10-007 — Additional projection selection](closed/G10-007-additional-projection-selection.md) | Complete | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |
+| [G10-030 — GeoTIFF first raster slice](G10-030-geotiff-first-raster-slice.md) | Proposed | AFK | G10-003 | Read, query, render, publish, and consume one bounded little-endian area raster. |
+| [G10-031 — GeoTIFF raster layout and color completion](G10-031-geotiff-raster-layout-and-color-completion.md) | Proposed | AFK | G10-030 | Add big-endian, tiled, color/alpha, EPSG:3857, and exact window behavior. |
+| [G10-032 — GeoTIFF PackBits and Deflate](G10-032-geotiff-packbits-and-deflate.md) | Proposed | AFK | G10-031 | Decode and render bounded PackBits and Deflate segments with stable failures. |
+| [G10-033 — GeoTIFF affine raster placement](G10-033-geotiff-affine-raster-placement.md) | Proposed | AFK | G10-032 | Place and regress rotated/sheared ModelTransformation rasters. |
+| [G10-034 — GeoTIFF integer elevation slice](G10-034-geotiff-integer-elevation-slice.md) | Proposed | AFK | G10-033, G9-002, G9-005 | Read, query, colorize, and render signed integer PixelIsPoint elevation. |
+| [G10-035 — GeoTIFF floating elevation and no-data](G10-035-geotiff-floating-elevation-and-no-data.md) | Proposed | AFK | G10-034 | Add floating samples, no-data, hillshade, and compressed/tiled parity. |
+| [G10-036 — GeoTIFF hardening](G10-036-geotiff-hardening.md) | Proposed | AFK | G10-035 | Close limits, diagnostics, cancellation, cleanup, aliasing, and hostile mutation. |
+| [G10-037 — GeoTIFF corpus, viewers, and performance](G10-037-geotiff-corpus-viewers-and-performance.md) | Proposed | HITL | G10-036 | Approve an independent corpus and complete viewer/performance evidence. |
+| [G10-038 — Native Image GeoTIFF closeout](G10-038-native-image-geotiff-closeout.md) | Proposed | HITL | G10-037 | Prove the bounded raster/elevation/codec Linux Native Image paths. |
+| [G10-039 — Encoded raster byte decoder](G10-039-encoded-raster-byte-decoder.md) | Proposed | AFK | G6-004, G10-006 | Decode bounded detached PNG/JPEG bytes through the explicit image registry. |
+| [G10-040 — GeoPackage catalog and point features](G10-040-geopackage-catalog-and-point-features.md) | Proposed | AFK | G10-004, G11-004 | Qualify Xerial and deliver bounded GeoPackage catalog/point feature behavior. |
+| [G10-041 — GeoPackage feature completion](G10-041-geopackage-feature-completion.md) | Proposed | AFK | G10-040 | Complete geometry, attributes, CRS, query, viewer, and feature hardening. |
+| [G10-042 — GeoPackage tiles and hardening](G10-042-geopackage-tiles-and-hardening.md) | Proposed | HITL | G10-041, G10-039 | Render bounded sparse tile matrices and approve independent container evidence. |
+| [G10-043 — MBTiles raster slice](G10-043-mbtiles-raster-slice.md) | Proposed | AFK | G10-039, G11-004 | Read and render bounded TMS PNG/JPEG MBTiles through a staged adapter. |
+| [G10-044 — SQLite adapter hardening and Linux evidence](G10-044-sqlite-adapter-hardening-and-linux-evidence.md) | Proposed | HITL | G10-042, G10-043 | Close MBTiles hardening and approve exact Linux JVM support for both adapters. |
+| [G10-050 — GPX waypoint first slice](G10-050-gpx-waypoint-first-slice.md) | Proposed | AFK | G10-005 | Read, query, render, publish, and consume bounded GPX waypoints. |
+| [G10-051 — GPX track rendering slice](G10-051-gpx-track-rendering-slice.md) | Proposed | AFK | G10-050 | Render bounded track segments with fixed attributes and warned omissions. |
+| [G10-052 — GPX hardening and fixtures](G10-052-gpx-hardening-and-fixtures.md) | Proposed | HITL | G10-051 | Close grammar and hostile-input behavior and approve fixture provenance. |
+| [G10-053 — Native Image GPX smoke](G10-053-native-image-gpx-smoke.md) | Proposed | HITL | G10-052 | Prove bounded GPX success, warning, and malformed Linux native paths. |
+| [G10-054 — KML point and line first slice](G10-054-kml-point-line-first-slice.md) | Proposed | AFK | G10-005 | Read, query, render, publish, and consume bounded KML points and lines. |
+| [G10-055 — KML polygon and MultiGeometry slice](G10-055-kml-polygon-multigeometry-slice.md) | Proposed | AFK | G10-054 | Render bounded polygons and homogeneous MultiGeometry values. |
+| [G10-056 — KML hardening and fixtures](G10-056-kml-hardening-and-fixtures.md) | Proposed | HITL | G10-055 | Close KML warning/rejection/security behavior and approve fixture provenance. |
+| [G10-057 — Native Image KML closeout](G10-057-native-image-kml-closeout.md) | Proposed | HITL | G10-053, G10-056 | Prove bounded KML native paths and close shared XML security evidence. |
+| [G10-060 — HTTP tile one-tile slice](G10-060-http-tile-one-tile-slice.md) | Proposed | AFK | G10-039 | Acquire one bounded PNG/JPEG tile into a detached source through loopback HTTP. |
+| [G10-061 — HTTP tile regions, cache, and rendering](G10-061-http-tile-region-cache-rendering.md) | Proposed | AFK | G10-060 | Add exact region math, deterministic batches, missing tiles, LRU, and rendering. |
+| [G10-062 — HTTP tile hardening and JVM closeout](G10-062-http-tile-hardening-jvm-closeout.md) | Proposed | AFK | G10-061 | Close HTTP limits/lifecycle failures and document the JVM-only boundary. |
 
 ### G11 — Editing, styling, persistence, adapters, and export
 
@@ -246,3 +282,21 @@ G10-060 through G10-062. Any broader follow-up still requires a new card.
 | [G11-003 — Workspace persistence profile](closed/G11-003-workspace-persistence-profile.md) | Complete | HITL | G8-004 | Approve strict local XML v1 persistence with explicit application openers and atomic replacement. |
 | [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-003, G10-004, G10-007, G11-001 | Decide whether to accept two Xerial format adapters and defer JTS, PROJ, and GDAL. |
 | [G11-005 — Vector map export profile](closed/G11-005-vector-map-export-profile.md) | Complete | HITL | G10-001, G11-002 | Approve detached AWT capture and canonical static SVG export in the existing SVG module. |
+| [G11-010 — Immutable point-edit session slice](G11-010-immutable-point-edit-session-slice.md) | Proposed | AFK | G11-001 | Create, replace, and delete immutable point features through a real editable map binding. |
+| [G11-011 — Bounded undo/redo slice](G11-011-bounded-undo-redo-slice.md) | Proposed | AFK | G11-010 | Add bounded delta history, eviction, rollback evidence, and viewer undo/redo. |
+| [G11-012 — Same-CRS snap resolver slice](G11-012-same-crs-snap-resolver-slice.md) | Proposed | AFK | G11-010 | Resolve bounded deterministic vertex/segment snaps with visible preview. |
+| [G11-013 — Point editing tool completion](G11-013-point-editing-tool-completion.md) | Proposed | HITL | G11-011, G11-012 | Complete interactive point editing and approve viewer/render/native evidence. |
+| [G11-020 — Portrayal and categorical marker slice](G11-020-portrayal-and-categorical-marker-slice.md) | Proposed | AFK | G11-002, G11-010 | Resolve fixed/categorical marker portrayals across source and editable bindings. |
+| [G11-021 — Graduated and complete-role portrayal](G11-021-graduated-and-complete-role-portrayal.md) | Proposed | AFK | G11-020 | Complete graduated marker/line/fill selection with query/interaction agreement. |
+| [G11-022 — Point-label values and global paint pass](G11-022-point-label-values-and-global-paint-pass.md) | Proposed | AFK | G11-020 | Extract, measure, place, and paint bounded singular-point labels globally. |
+| [G11-023 — Bounded label placement and example](G11-023-bounded-label-placement-and-example.md) | Proposed | HITL | G11-021, G11-022 | Add deterministic collision placement and approve the styling/label example. |
+| [G11-024 — Styling and label closeout](G11-024-styling-label-closeout.md) | Proposed | HITL | G11-023 | Close styling/label API, performance, consumer, publication, and native evidence. |
+| [G11-030 — Workspace model and secure reader](G11-030-workspace-model-and-secure-reader.md) | Proposed | AFK | G11-003 | Read a bounded secure local XML workspace into immutable values. |
+| [G11-031 — Canonical workspace writer](G11-031-canonical-workspace-writer.md) | Proposed | AFK | G11-030 | Serialize canonical workspace XML with atomic replacement and failure evidence. |
+| [G11-032 — Workspace registries and session opening](G11-032-workspace-registries-and-session-opening.md) | Proposed | AFK | G11-031 | Open all workspace sources through explicit registries with all-or-nothing ownership. |
+| [G11-033 — Workspace viewer and local restore](G11-033-workspace-viewer-and-local-restore.md) | Proposed | AFK | G11-032 | Restore a useful local shapefile/raster workspace in a runnable viewer. |
+| [G11-034 — Workspace hardening and closeout](G11-034-workspace-hardening-and-closeout.md) | Proposed | HITL | G11-033 | Close hostile input, docs, publication/consumer, and Linux native evidence. |
+| [G11-040 — Programmatic SVG map-export slice](G11-040-programmatic-svg-map-export-slice.md) | Proposed | AFK | G11-005, G11-022 | Encode and atomically write a bounded programmatic vector-map snapshot. |
+| [G11-041 — AWT capture and complete vector profile](G11-041-awt-capture-and-complete-vector-profile.md) | Proposed | AFK | G11-023, G11-040 | Capture a real map and export the complete approved vector/symbol/label profile. |
+| [G11-042 — SVG export hardening](G11-042-svg-export-hardening.md) | Proposed | AFK | G11-041 | Close export limits, accounting, cancellation, diagnostics, cleanup, and atomicity. |
+| [G11-043 — SVG export closeout](G11-043-svg-export-closeout.md) | Proposed | HITL | G11-024, G11-042 | Approve browser rendering and close native/publication/consumer evidence. |

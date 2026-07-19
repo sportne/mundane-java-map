@@ -291,10 +291,11 @@ architectural requirement. Level 1 completed at
 
 ## Level 2 backlog
 
-Level 2 begins after G8-004. A decision-only profile that selects implementation must be followed by
-newly decomposed vertical slices; an approved `DEFER` outcome creates none. G10-001 defines its working
-first slice; G10-006 is a design-only acquisition profile whose implementation is decomposed into
-G10-039 and G10-060 through G10-062. No task creates an empty module, and broader follow-up remains
+Level 2 begins after G8-004. Approved profiles that select implementation now have linked vertical
+slices in the [task index](tasks/README.md#level-2-backlog); an approved `DEFER` outcome creates none.
+The G10-040 through G10-044 SQLite-format cards document the reviewed design but remain gated by the
+Proposed G10-004 and G11-004 decisions. Their presence does not approve an external dependency,
+adapter, artifact, or platform claim. No task creates an empty module, and broader follow-up remains
 separately decomposed.
 
 ### G9 — Elevation and DTED
@@ -356,7 +357,8 @@ separately decomposed.
   SVG marker subset into ordinary immutable vector/composite symbols through bounded JVM, render,
   Native Image, publication, and consumer paths. General SVG is not promised.
 - G10-003 is complete as a profile decision only: it approves a strict JDK-only Classic TIFF reader,
-  explicit raster/elevation routes, and nine later vertical slices. No GeoTIFF module exists yet.
+  explicit raster/elevation routes, and the Proposed G10-030 through G10-038 vertical slices. No
+  GeoTIFF module exists yet.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021
@@ -376,7 +378,9 @@ separately decomposed.
   Jackson service descriptor/service from native registration. Generic JSON serialization remains
   outside scope; Windows and macOS Native Image remain unclaimed.
 - G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
-  boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.
+  boundary; G10-040 through G10-044 record the conditional working graph but cannot execute while
+  G10-004 or G11-004 is incomplete. No adapter, artifact coordinate/classifier set, or platform claim
+  is approved.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly
@@ -384,11 +388,15 @@ separately decomposed.
   EPSG:4326 features; GPX
   routes/extensions and KML network, temporal, region, altitude, style, and presentation semantics
   remain explicit rejects or warned omissions rather than implicit behavior.
+- G10-050 through G10-057 are the Proposed GPX/KML implementation, hardening, fixture, viewer, and
+  Native Image slices. Their separate parser branches converge only for shared final security/native
+  evidence.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native
   Image claim, or default public service URL. G10-006 completes this design and independently
   authorizes the shared G10-039 image helper before G10-060, without waiting on SQLite/Xerial work.
+  G10-039 and G10-060 through G10-062 are now Proposed task cards.
 - G10-007 is complete with outcome `DEFER`: no third CRS, formula, PROJ adapter, or raster
   warp is selected. A later proposal must supply one complete workflow/domain/accuracy/format/platform/
   conformance evidence packet, then choose `CORE_DIRECT` or `PROJ_REQUIRED` explicitly before creating
@@ -400,7 +408,8 @@ separately decomposed.
   record session: atomic revision-checked transactions, bounded delta undo/redo, and explicit same-CRS
   vertex/segment snapping precede any
   mutable workflow. Read-only sources are never written or disguised as edit state. The approved
-  design decomposes implementation into session, history, snapping, and point-tool vertical slices.
+  design is recorded in Proposed G11-010 through G11-013 session, history, snapping, and point-tool
+  vertical slices.
 - G11-002 is complete as a design decision. Use one immutable binding-owned portrayal with closed
   fixed/categorical/graduated role selectors,
   exact canonical-scalar matching, and projected source attributes. Place bounded name/text-attribute

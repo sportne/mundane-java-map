@@ -64,6 +64,12 @@ design task; there are no empty speculative design files.
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
 
+Implementation-planning record (2026-07-18): the approved G10/G11 decompositions are represented by
+Proposed G10-030 through G10-039, G10-050 through G10-057, G10-060 through G10-062, G11-010 through
+G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through G11-043 task cards.
+Conditional G10-040 through G10-044 cards also record the reviewed SQLite working graph, but remain
+non-executable until Proposed G10-004 and G11-004 complete; authoring those cards approves nothing.
+
 ## Decisions
 
 | Date | Decision | Reason |

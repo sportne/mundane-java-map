@@ -2895,3 +2895,9 @@ Native Image claims remain evidence-specific. Removing any approved boundary wou
 format/security/lifecycle concerns, while adding a general plug-in, scene, XML, database, network,
 warp, or CRS framework would have no demonstrated consumer. G10 is therefore simple enough and no
 simpler, and G11 may build on these explicit outputs without reopening their scopes.
+
+Task-authoring record (2026-07-18): the approved implementation graphs are now materialized as
+Proposed G10-030 through G10-039, G10-050 through G10-057, and G10-060 through G10-062 cards.
+G10-040 through G10-044 also exist as conditional planning cards so the GeoPackage/MBTiles graph is
+reviewable, but they cannot execute until Proposed G10-004 and G11-004 complete and do not approve
+the Xerial boundary.

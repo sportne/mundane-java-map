@@ -2340,3 +2340,8 @@ custom native library. Later work follows the task index and approved decomposit
 profile through its named HITL checkpoint whenever evidence invalidates an assumption rather than
 silently widening the design. G10-002, G10-004, and G11-004 remain proposed and are not silently
 approved by this cross-gate review.
+
+Task-authoring record (2026-07-18): the approved G11 working graphs are now materialized as Proposed
+G11-010 through G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through
+G11-043 cards. Conditional G10-040 through G10-044 cards record the reviewed SQLite graph only; they
+remain non-executable until Proposed G10-004 and G11-004 complete.
