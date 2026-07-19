@@ -368,7 +368,9 @@ separately decomposed.
   local replacement with stable failure and cleanup behavior. G10-023 completes the hostile-input
   envelope with exact reader/writer ceilings, stable closed diagnostics, bounded deterministic
   mutation, cancellation-transition, lifecycle, cleanup-precedence, and atomic-target evidence.
-  Fixture/viewer/consumer and native closeout remain serially decomposed as G10-024 and G10-025;
+  G10-024 adds checksummed provenance fixtures, stable viewer diagnostics, independent tolerant
+  rendering evidence for all six geometry families and holes, staged publication, and a clean Java
+  21 offline read/write/reopen/query/render consumer. Only G10-025 Native Image closeout remains;
   generic JSON serialization remains outside scope.
 - G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
   boundary; no adapter, artifact coordinate/classifier set, or platform claim is approved.

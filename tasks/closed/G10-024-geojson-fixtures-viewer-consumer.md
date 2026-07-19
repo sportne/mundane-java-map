@@ -1,6 +1,6 @@
 # G10-024 — GeoJSON fixtures, viewer, and consumer evidence
 
-Status: Proposed
+Status: Complete
 Depends on: G10-023
 Gate: G10
 Type: HITL

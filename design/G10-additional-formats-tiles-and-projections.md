@@ -762,6 +762,18 @@ adversarial writer source covers every borrowed-call phase, cancellation transit
 precedence, cursor cleanup, suppressed cleanup failures, and old-target preservation. The harness is
 deterministic and remains in the ordinary module test lane.
 
+G10-024 adds interoperability evidence without changing that envelope. One project-authored
+all-geometry fixture and one independently serialized CPython `json` fixture have checked-in
+provenance and SHA-256 digests; project-authored malformed and unsupported fixtures lock their stable
+outcomes. The new support-only GeoJSON viewer opens a caller-selected local file or the bundled
+all-geometry fixture, transfers source ownership to `MapView`, and uses only the existing explicit
+CRS and symbol paths. Normal viewer tests verify every fixture, lifecycle, geometry-family rendering,
+and polygon-hole topology; `renderRegression` independently uses tolerant region/color/topology
+assertions. Publication verification stages the adapter with its controlled Jackson Core POM edge,
+and the clean Java 21 offline consumer now reads, writes, reopens, queries, and renders through staged
+artifacts only. No corpus lane, remote fixture fetch, format expansion, or Native Image claim is
+introduced here.
+
 ### Deterministic bounded FeatureSource writer
 
 The same optional adapter writes one caller-owned `FeatureSource` as a strict RFC 7946

@@ -16,8 +16,14 @@ import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
+import io.github.mundanej.map.api.SolidFillSymbol;
+import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.SymbolLength;
+import io.github.mundanej.map.api.SymbolStroke;
+import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
+import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.awt.SymbolRendererRegistry;
 import io.github.mundanej.map.core.BuiltInMarkers;
@@ -30,6 +36,7 @@ import io.github.mundanej.map.io.dted.DtedFiles;
 import io.github.mundanej.map.io.dted.DtedOpenOptions;
 import io.github.mundanej.map.io.geojson.GeoJsonFiles;
 import io.github.mundanej.map.io.geojson.GeoJsonOpenOptions;
+import io.github.mundanej.map.io.geojson.GeoJsonWriteLimits;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
@@ -59,9 +66,9 @@ public final class MundaneMapConsumerSmoke {
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
         testSvg();
-        testGeoJson();
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
+            testGeoJson(directory, registry);
             testShapefile(directory);
             testMalformedShapefile(directory);
             testImages(directory, decoders);
@@ -85,7 +92,7 @@ public final class MundaneMapConsumerSmoke {
         require(symbol.role() == io.github.mundanej.map.api.SymbolRole.MARKER, "SVG role changed");
     }
 
-    private static void testGeoJson() {
+    private static void testGeoJson(Path directory, CrsRegistry registry) throws Exception {
         byte[] document =
                 """
                 {"type":"FeatureCollection","features":[
@@ -101,6 +108,7 @@ public final class MundaneMapConsumerSmoke {
                         new SourceIdentity("consumer-geojson", "Consumer GeoJSON"),
                         GeoJsonOpenOptions.defaults(),
                         CancellationToken.none());
+        Path written = directory.resolve("consumer.geojson");
         try {
             FeatureCursor cursor = source.openCursor(FeatureQuery.all(), CancellationToken.none());
             try {
@@ -118,9 +126,94 @@ public final class MundaneMapConsumerSmoke {
             } finally {
                 cursor.close();
             }
+            GeoJsonFiles.write(
+                    written,
+                    source,
+                    GeoJsonWriteLimits.defaults(),
+                    CancellationToken.none());
+            require(!source.isClosed(), "GeoJSON writer closed its borrowed source");
         } finally {
             source.close();
         }
+
+        FeatureSource reopened =
+                GeoJsonFiles.open(
+                        written,
+                        new SourceIdentity("consumer-geojson-reopened", "Consumer GeoJSON reopened"),
+                        GeoJsonOpenOptions.defaults(),
+                        CancellationToken.none());
+        FeatureCursor reopenedCursor =
+                reopened.openCursor(FeatureQuery.all(), CancellationToken.none());
+        try {
+            require(reopenedCursor.advance(), "reopened GeoJSON source was empty");
+            require(
+                    reopenedCursor.current().id().equals("string:string:consumer-point"),
+                    "reopened GeoJSON id did not apply the documented string prefix");
+            require(!reopenedCursor.advance(), "reopened GeoJSON source had an extra record");
+        } finally {
+            reopenedCursor.close();
+        }
+        renderGeoJson(reopened, registry);
+        require(reopened.isClosed(), "owned GeoJSON render source did not close");
+    }
+
+    private static void renderGeoJson(FeatureSource source, CrsRegistry registry) throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view =
+                            new MapView(
+                                    registry,
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_3857);
+                    SolidLineSymbol line =
+                            SolidLineSymbol.of(
+                                    new SymbolStroke(
+                                            Rgba.rgb(20, 120, 220),
+                                            new SymbolLength(2, SymbolUnit.SCREEN_PIXEL)),
+                                    1);
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.ownedFeature(
+                                            "consumer-geojson",
+                                            "Consumer GeoJSON",
+                                            source,
+                                            BuiltInMarkers.filledScreen(
+                                                    BuiltInMarker.DIAMOND,
+                                                    Rgba.rgb(20, 120, 220),
+                                                    18,
+                                                    1),
+                                            line,
+                                            SolidFillSymbol.of(
+                                                    new Rgba(20, 120, 220, 80),
+                                                    Optional.of(line),
+                                                    1))));
+                    try {
+                        view.setSize(96, 96);
+                        view.fitToData(16);
+                        BufferedImage image =
+                                new BufferedImage(96, 96, BufferedImage.TYPE_INT_ARGB);
+                        Graphics2D graphics = image.createGraphics();
+                        try {
+                            graphics.setColor(java.awt.Color.WHITE);
+                            graphics.fillRect(0, 0, 96, 96);
+                            view.paint(graphics);
+                        } finally {
+                            graphics.dispose();
+                        }
+                        int colored = 0;
+                        for (int y = 24; y < 72; y++) {
+                            for (int x = 24; x < 72; x++) {
+                                int rgb = image.getRGB(x, y);
+                                int red = (rgb >>> 16) & 0xff;
+                                int blue = rgb & 0xff;
+                                if (blue > red + 40) colored++;
+                            }
+                        }
+                        require(colored > 20, "reopened GeoJSON did not render");
+                    } finally {
+                        view.close();
+                    }
+                });
     }
 
     private static void renderVector(CrsRegistry registry, SymbolRendererRegistry renderers)

@@ -24,6 +24,9 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-awt` | Swing `MapView`, Java2D renderers, explicit symbol/decoder registries, interaction routing, and measurement UI. |
 | `mundane-map-io-shapefile` | Bounded read-only SHP/SHX/DBF/CPG/PRJ feature sources. |
 | `mundane-map-io-image` | Bounded PNG/JPEG metadata, world-file placement, requests, lifecycle, and caches through an explicit decoder boundary. |
+| `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
+| `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
+| `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
 
 The format modules contain no AWT types and do not discover implementations. Applications explicitly
 construct their CRS, symbol-renderer, and encoded-raster-decoder registries. Callers close opened
@@ -114,13 +117,22 @@ and bounded decode/resample caching. `ImageIO` and packed-pixel conversion remai
 decoder implementation.
 
 Level 1 recognizes only explicitly registered EPSG:4326 and EPSG:3857 definitions and operations.
-Unknown definitions are retained when available but are not guessed or transformed. GeoJSON,
-GeoTIFF, DTED, SVG import, GeoPackage, MBTiles, GPX/KML, remote tiles, additional projections,
-editing/persistence, and optional JTS/PROJ/SQLite/GDAL adapters remain Level 2 work.
+Unknown definitions are retained when available but are not guessed or transformed. GeoTIFF,
+GeoPackage, MBTiles, GPX/KML, remote tiles, additional projections, editing/persistence, and optional
+JTS/PROJ/SQLite/GDAL adapters remain Level 2 work. DTED, the static SVG subset, and the optional
+Jackson Core GeoJSON profile are implemented Level 2 capabilities and do not broaden Level 1.
+
+The implemented Level 2 GeoJSON adapter supports the bounded six-family profile documented in the
+design. Run its review viewer with the bundled fixture, or pass one local file:
+
+```bash
+./gradlew :examples:geojson-viewer:run
+./gradlew :examples:geojson-viewer:run --args=/absolute/path/data.geojson
+```
 
 ## Examples
 
-Five independent examples consume the published APIs without copying parsers or renderers:
+Seven independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -128,10 +140,12 @@ Five independent examples consume the published APIs without copying parsers or 
 ./gradlew :examples:measurement-viewer:run
 ./gradlew :examples:shapefile-viewer:run --args='<path.shp> [EPSG:4326|EPSG:3857]'
 ./gradlew :examples:raster-viewer:run --args='<image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857]'
+./gradlew :examples:elevation-viewer:run
+./gradlew :examples:geojson-viewer:run --args='<optional-path.geojson>'
 ```
 
-The basic, symbol, and measurement examples are deterministic no-argument demonstrations. The two
-format viewers are real file consumers, apply the format modules' limits, present structured
+The basic, symbol, measurement, and elevation examples are deterministic no-argument demonstrations.
+The three format viewers are real file consumers, apply the format modules' limits, present structured
 diagnostics under fixed non-path source identities, and transfer source ownership to their views.
 
 ## Design and roadmap
