@@ -94,7 +94,7 @@ public final class GeoTiffFiles {
     }
 
     /**
-     * Opens a local signed-integer PixelIsPoint GeoTIFF elevation grid.
+     * Opens a local signed-integer or floating-point PixelIsPoint GeoTIFF elevation grid.
      *
      * @param identity logical non-sensitive source identity
      * @param path local file snapshotted before parsing
@@ -107,7 +107,8 @@ public final class GeoTiffFiles {
     }
 
     /**
-     * Opens a local signed-integer PixelIsPoint GeoTIFF elevation grid with cancellation.
+     * Opens a local signed-integer or floating-point PixelIsPoint GeoTIFF elevation grid with
+     * cancellation.
      *
      * @param identity logical non-sensitive source identity
      * @param path local file snapshotted before parsing
@@ -133,7 +134,8 @@ public final class GeoTiffFiles {
     }
 
     /**
-     * Opens a defensive copy of signed-integer PixelIsPoint GeoTIFF elevation bytes.
+     * Opens a defensive copy of signed-integer or floating-point PixelIsPoint GeoTIFF elevation
+     * bytes.
      *
      * @param identity logical non-sensitive source identity
      * @param encoded encoded GeoTIFF bytes copied before parsing
@@ -146,8 +148,8 @@ public final class GeoTiffFiles {
     }
 
     /**
-     * Opens a defensive copy of signed-integer PixelIsPoint GeoTIFF elevation bytes with
-     * cancellation.
+     * Opens a defensive copy of signed-integer or floating-point PixelIsPoint GeoTIFF elevation
+     * bytes with cancellation.
      *
      * @param identity logical non-sensitive source identity
      * @param encoded encoded GeoTIFF bytes copied before parsing

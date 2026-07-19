@@ -5,7 +5,7 @@ import io.github.mundanej.map.api.ElevationUnit;
 import java.util.Objects;
 
 /**
- * Immutable options captured by one signed-integer GeoTIFF elevation open.
+ * Immutable options captured by one signed-integer or floating-point GeoTIFF elevation open.
  *
  * @param elevationUnit caller-declared unit of every decoded elevation sample
  * @param formatLimits format parser, decoder, and working-memory ceilings

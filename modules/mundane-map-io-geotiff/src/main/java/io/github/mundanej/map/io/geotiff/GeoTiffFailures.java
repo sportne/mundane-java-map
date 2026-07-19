@@ -121,4 +121,12 @@ final class GeoTiffFailures {
                 "GeoTIFF georeference is invalid",
                 Map.of("reason", reason));
     }
+
+    static SourceException sample(String sourceId, int segment, String reason) {
+        return failure(
+                sourceId,
+                "GEOTIFF_SAMPLE_INVALID",
+                "GeoTIFF elevation sample is invalid",
+                Map.of("segment", Integer.toString(segment), "reason", reason));
+    }
 }

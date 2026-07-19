@@ -182,9 +182,59 @@ final class GeoTiffFixtures {
     }
 
     static byte[] elevation(ByteOrder order, int bits, boolean tiled, int compression) {
+        return elevation(order, bits, 2, tiled, compression, null, null, 2);
+    }
+
+    static byte[] floatingElevation(
+            ByteOrder order,
+            int bits,
+            boolean tiled,
+            int compression,
+            String noData,
+            Double specialValue) {
+        return elevation(
+                order,
+                bits,
+                3,
+                tiled,
+                compression,
+                noData == null ? null : Tag.ascii(42113, noData),
+                specialValue,
+                2);
+    }
+
+    static byte[] floatingAreaWithNoData(String noData) {
+        return elevation(
+                ByteOrder.LITTLE_ENDIAN, 32, 3, false, 1, Tag.ascii(42113, noData), null, 1);
+    }
+
+    static byte[] integerElevationWithNoData(int bits, String noData) {
+        return elevation(
+                ByteOrder.LITTLE_ENDIAN, bits, 2, false, 1, Tag.ascii(42113, noData), null, 2);
+    }
+
+    static byte[] floatingElevationWithRawNoData(int bits, byte[] raw) {
+        return elevation(
+                ByteOrder.LITTLE_ENDIAN, bits, 3, false, 1, Tag.asciiRaw(42113, raw), null, 2);
+    }
+
+    static byte[] floatingElevationWithWrongNoDataType() {
+        return elevation(ByteOrder.LITTLE_ENDIAN, 32, 3, false, 1, Tag.shorts(42113, 1), null, 2);
+    }
+
+    private static byte[] elevation(
+            ByteOrder order,
+            int bits,
+            int sampleFormat,
+            boolean tiled,
+            int compression,
+            Tag noData,
+            Double specialValue,
+            int rasterType) {
         int width = tiled ? 17 : 4;
         int height = tiled ? 17 : 3;
-        List<byte[]> segments = elevationSegments(order, width, height, bits, tiled);
+        List<byte[]> segments =
+                elevationSegments(order, width, height, bits, sampleFormat, tiled, specialValue);
         if (compression != 1) {
             segments =
                     segments.stream()
@@ -207,10 +257,31 @@ final class GeoTiffFixtures {
             tags.add(Tag.longs(278, 2));
             tags.add(Tag.longs(279, segments.stream().mapToLong(value -> value.length).toArray()));
         }
-        tags.add(Tag.shorts(339, 2));
+        tags.add(Tag.shorts(339, sampleFormat));
         tags.add(Tag.doubles(33550, 0.5, 0.25, 0));
         tags.add(Tag.doubles(33922, 0, 0, 0, 10, 20, 0));
-        tags.add(Tag.shorts(34735, 1, 1, 0, 3, 1024, 0, 1, 2, 1025, 0, 1, 2, 2048, 0, 1, 4326));
+        tags.add(
+                Tag.shorts(
+                        34735,
+                        1,
+                        1,
+                        0,
+                        3,
+                        1024,
+                        0,
+                        1,
+                        2,
+                        1025,
+                        0,
+                        1,
+                        rasterType,
+                        2048,
+                        0,
+                        1,
+                        4326));
+        if (noData != null) {
+            tags.add(noData);
+        }
         tags.sort(Comparator.comparingInt(tag -> tag.id));
         int position = 8 + 2 + tags.size() * 12 + 4;
         for (Tag tag : tags) {
@@ -266,7 +337,13 @@ final class GeoTiffFixtures {
     }
 
     private static List<byte[]> elevationSegments(
-            ByteOrder order, int width, int height, int bits, boolean tiled) {
+            ByteOrder order,
+            int width,
+            int height,
+            int bits,
+            int sampleFormat,
+            boolean tiled,
+            Double specialValue) {
         List<byte[]> result = new ArrayList<>();
         int blockWidth = tiled ? 16 : width;
         int blockHeight = tiled ? 16 : 2;
@@ -285,14 +362,22 @@ final class GeoTiffFixtures {
                     for (int localColumn = 0; localColumn < blockWidth; localColumn++) {
                         int column = blockColumn * blockWidth + localColumn;
                         int row = blockRow * blockHeight + localRow;
-                        int value =
+                        double value =
                                 column < width && row < height
-                                        ? elevationValue(column, row, width)
+                                        ? row == 1 && column == 1 && specialValue != null
+                                                ? specialValue
+                                                : sampleFormat == 3
+                                                        ? floatingElevationValue(column, row, width)
+                                                        : elevationValue(column, row, width)
                                         : 0;
-                        if (bits == 16) {
+                        if (sampleFormat == 2 && bits == 16) {
                             segment.putShort((short) value);
+                        } else if (sampleFormat == 2) {
+                            segment.putInt(((int) value) * 100_000);
+                        } else if (bits == 32) {
+                            segment.putFloat((float) value);
                         } else {
-                            segment.putInt(value * 100_000);
+                            segment.putDouble(value);
                         }
                     }
                 }
@@ -300,6 +385,10 @@ final class GeoTiffFixtures {
             }
         }
         return result;
+    }
+
+    static double floatingElevationValue(int column, int row, int width) {
+        return row * width + column - 4.5;
     }
 
     static byte[] deflate(byte[] decoded) {
@@ -616,13 +705,15 @@ final class GeoTiffFixtures {
         private final int type;
         private final long[] integers;
         private final double[] floating;
+        private final byte[] text;
         private int offset;
 
-        private Tag(int id, int type, long[] integers, double[] floating) {
+        private Tag(int id, int type, long[] integers, double[] floating, byte[] text) {
             this.id = id;
             this.type = type;
             this.integers = integers;
             this.floating = floating;
+            this.text = text;
         }
 
         private static Tag shorts(int id, int... values) {
@@ -630,7 +721,7 @@ final class GeoTiffFixtures {
             for (int index = 0; index < values.length; index++) {
                 converted[index] = values[index];
             }
-            return new Tag(id, 3, converted, null);
+            return new Tag(id, 3, converted, null, null);
         }
 
         private static Tag repeatedShorts(int id, int count, int value) {
@@ -640,23 +731,39 @@ final class GeoTiffFixtures {
         }
 
         private static Tag longs(int id, long... values) {
-            return new Tag(id, 4, values, null);
+            return new Tag(id, 4, values, null, null);
         }
 
         private static Tag doubles(int id, double... values) {
-            return new Tag(id, 12, null, values);
+            return new Tag(id, 12, null, values, null);
+        }
+
+        private static Tag ascii(int id, String value) {
+            byte[] encoded = new byte[value.length() + 1];
+            for (int index = 0; index < value.length(); index++) {
+                encoded[index] = (byte) value.charAt(index);
+            }
+            return new Tag(id, 2, null, null, encoded);
+        }
+
+        private static Tag asciiRaw(int id, byte[] value) {
+            return new Tag(id, 2, null, null, value.clone());
         }
 
         private int count() {
-            return floating == null ? integers.length : floating.length;
+            return text != null
+                    ? text.length
+                    : floating == null ? integers.length : floating.length;
         }
 
         private int payloadBytes() {
-            return count() * (type == 3 ? 2 : type == 4 ? 4 : 8);
+            return count() * (type == 2 ? 1 : type == 3 ? 2 : type == 4 ? 4 : 8);
         }
 
         private void writeValues(ByteBuffer target) {
-            if (floating != null) {
+            if (text != null) {
+                target.put(text);
+            } else if (floating != null) {
                 for (double value : floating) {
                     target.putDouble(value);
                 }

@@ -1,6 +1,6 @@
 # G10-035 — GeoTIFF floating elevation and no-data
 
-Status: Proposed
+Status: Complete
 Depends on: G10-034
 Gate: G10
 Type: AFK

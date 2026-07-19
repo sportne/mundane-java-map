@@ -366,8 +366,10 @@ separately decomposed.
   pixel-center conversion, conservative affine bounds, and tolerant rotated/sheared rendering
   evidence. G10-034 adds eager signed Int16/Int32 PixelIsPoint terrain with explicit elevation
   units, exact post bounds, existing query/colorization rendering, and viewer integration. G10-035
-  through G10-038 remain Proposed for floating/no-data elevation, hardening, corpus/performance
-  evidence, and Native Image closeout.
+  completes the elevation sample matrix with Float32/Float64, bounded finite or lowercase `nan`
+  GDAL no-data masking, non-finite diagnostics, and compressed/tiled color and hillshade parity.
+  G10-036 through G10-038 remain Proposed for hardening, corpus/performance evidence, and Native
+  Image closeout.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021

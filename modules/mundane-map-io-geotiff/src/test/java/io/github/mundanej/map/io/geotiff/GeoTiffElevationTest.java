@@ -262,9 +262,9 @@ class GeoTiffElevationTest {
     void cancellationArbitratesBeforeTemporaryStorageBeforeCopyAndExactlyOnceAfterCopy() {
         byte[] fixture = GeoTiffFixtures.elevation(ByteOrder.LITTLE_ENDIAN, 16, false, 1);
         assertElevationPhaseCancellation(fixture, 1);
-        assertElevationPhaseCancellation(fixture, 9);
+        assertElevationPhaseCancellation(fixture, 10);
         AtomicInteger checks = new AtomicInteger();
-        CancellationToken nonMonotonicAfterCopy = elevationParserCheck(checks, 10);
+        CancellationToken nonMonotonicAfterCopy = elevationParserCheck(checks, 11);
         SourceException cancelled =
                 assertThrows(
                         SourceException.class,
@@ -273,7 +273,7 @@ class GeoTiffElevationTest {
                                         ID, fixture, OPTIONS, nonMonotonicAfterCopy));
         assertEquals("SOURCE_CANCELLED", cancelled.terminal().code());
         assertEquals("geoTiffOpen", cancelled.terminal().context().get("operation"));
-        assertEquals(10, checks.get());
+        assertEquals(11, checks.get());
     }
 
     private static void assertElevationPhaseCancellation(byte[] fixture, int target) {
