@@ -344,7 +344,7 @@ class MapViewTest {
                     Feature transparent =
                             new Feature(
                                     "transparent",
-                                    "Label",
+                                    "L",
                                     new PointGeometry(new Coordinate(0.0, 0.0)),
                                     Map.of(),
                                     vectorSquareSymbol(placement, null, 0.0));
@@ -352,7 +352,7 @@ class MapViewTest {
                     int[] labelBounds = paintedBounds(render(transparent));
 
                     assertTrue(labelBounds[0] >= 72);
-                    assertTrue(labelBounds[2] > 90);
+                    assertTrue(labelBounds[2] > 75);
                     assertTrue(labelBounds[3] <= 50);
                 });
     }

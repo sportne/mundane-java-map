@@ -137,7 +137,7 @@ class MapViewPointLabelTest {
                                     new FeatureRecord(
                                             "source",
                                             "name",
-                                            new PointGeometry(new Coordinate(0, 0)),
+                                            new PointGeometry(new Coordinate(-20, 0)),
                                             Map.of("label", "Attribute")),
                                     Optional.of(schema("label")));
                     PointLabelProfile visible =
@@ -166,8 +166,8 @@ class MapViewPointLabelTest {
                     assertEquals(
                             AttributeSelection.only(List.of("label")),
                             source.lastQuery.attributes());
-                    assertTrue(hasDarkInk(image, 58, 25, 100, 50));
-                    view.hitTest(50, 50, 0);
+                    assertTrue(hasDarkInk(image, 38, 25, 100, 50));
+                    view.hitTest(30, 50, 0);
                     assertEquals(AttributeSelection.NONE, source.lastQuery.attributes());
 
                     view.setViewport(new MapViewport(100, 100, 0, 0, 3));
@@ -220,7 +220,7 @@ class MapViewPointLabelTest {
                             new CapturingSource(
                                     new FeatureRecord(
                                             "source",
-                                            "Source",
+                                            "S",
                                             new PointGeometry(new Coordinate(-20, 0)),
                                             Map.of()),
                                     Optional.empty());
@@ -230,7 +230,7 @@ class MapViewPointLabelTest {
                                     List.of(
                                             new FeatureRecord(
                                                     "editable",
-                                                    "Editable",
+                                                    "E",
                                                     new PointGeometry(new Coordinate(20, 0)),
                                                     Map.of())));
                     MapView view = view();
@@ -255,6 +255,61 @@ class MapViewPointLabelTest {
                     assertEquals(AttributeSelection.NONE, source.lastQuery.attributes());
                     assertTrue(hasDarkInk(image, 38, 25, 68, 50));
                     assertTrue(hasDarkInk(image, 78, 25, 100, 50));
+                    view.close();
+                    source.close();
+                });
+    }
+
+    @Test
+    void collisionAdmissionIsGlobalAcrossSnapshotSourceAndEditableBindings() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    Rgba snapshotColor = Rgba.rgb(35, 70, 190);
+                    Rgba sourceColor = Rgba.rgb(25, 155, 65);
+                    Rgba editableColor = Rgba.rgb(195, 35, 45);
+                    Feature shared = feature("snapshot", "WIN", -20, RED);
+                    CapturingSource source =
+                            new CapturingSource(
+                                    new FeatureRecord(
+                                            "source",
+                                            "WIN",
+                                            new PointGeometry(new Coordinate(-20, 0)),
+                                            Map.of()),
+                                    Optional.empty());
+                    FeatureEditSession edits =
+                            FeatureEditSession.open(
+                                    CrsDefinitions.EPSG_3857,
+                                    List.of(
+                                            new FeatureRecord(
+                                                    "editable",
+                                                    "WIN",
+                                                    new PointGeometry(new Coordinate(-20, 0)),
+                                                    Map.of())));
+                    MapView view = view();
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.portrayedSnapshot(
+                                            new InMemoryLayer(
+                                                    "snapshot", "snapshot", List.of(shared)),
+                                            FeaturePortrayal.markers(new FixedSymbolSelector(RED))
+                                                    .withPointLabel(profile(snapshotColor, 5))),
+                                    MapLayerBinding.borrowedFeature(
+                                            "source",
+                                            "source",
+                                            source,
+                                            FeaturePortrayal.markers(new FixedSymbolSelector(RED))
+                                                    .withPointLabel(profile(sourceColor, 10))),
+                                    MapLayerBinding.editableFeature(
+                                            "editable",
+                                            "editable",
+                                            edits,
+                                            FeaturePortrayal.markers(new FixedSymbolSelector(RED))
+                                                    .withPointLabel(profile(editableColor, 0)))));
+
+                    BufferedImage image = paint(view);
+                    assertTrue(hasInkNear(image, sourceColor, 38, 25, 70, 50));
+                    assertFalse(hasInkNear(image, snapshotColor, 38, 25, 70, 50));
+                    assertFalse(hasInkNear(image, editableColor, 38, 25, 70, 50));
                     view.close();
                     source.close();
                 });
@@ -430,6 +485,19 @@ class MapViewPointLabelTest {
                 ResolutionRange.ALL);
     }
 
+    private static PointLabelProfile profile(Rgba color, int priority) {
+        return new PointLabelProfile(
+                FeatureName.INSTANCE,
+                new LabelTextStyle(color, LabelWeight.BOLD, 12),
+                List.of(PointLabelPosition.NE),
+                4,
+                0,
+                0,
+                1,
+                priority,
+                ResolutionRange.ALL);
+    }
+
     private static BufferedImage paint(MapView view) {
         BufferedImage image = new BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
@@ -501,6 +569,25 @@ class MapViewPointLabelTest {
                         && color.getRed() < 100
                         && color.getGreen() < 100
                         && color.getBlue() < 100) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasInkNear(
+            BufferedImage image, Rgba expected, int minX, int minY, int maxX, int maxY) {
+        for (int y = minY; y < maxY; y++) {
+            for (int x = minX; x < maxX; x++) {
+                Color actual = new Color(image.getRGB(x, y), true);
+                int distance =
+                        Math.max(
+                                Math.max(
+                                        Math.abs(expected.red() - actual.getRed()),
+                                        Math.abs(expected.green() - actual.getGreen())),
+                                Math.abs(expected.blue() - actual.getBlue()));
+                if (distance <= 48) {
                     return true;
                 }
             }

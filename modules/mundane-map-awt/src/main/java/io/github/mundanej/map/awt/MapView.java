@@ -85,6 +85,7 @@ import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.ElevationRasterization;
 import io.github.mundanej.map.core.FeatureQueryAccounting;
+import io.github.mundanej.map.core.GreedyPointLabelPlacement;
 import io.github.mundanej.map.core.HatchLayouts;
 import io.github.mundanej.map.core.HatchSegments;
 import io.github.mundanej.map.core.LineEndpointBearings;
@@ -93,7 +94,7 @@ import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MapToolRouter;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.MarkerTransform;
-import io.github.mundanej.map.core.PointLabelLayouts;
+import io.github.mundanej.map.core.PointLabelPlacementRequest;
 import io.github.mundanej.map.core.QueryEnvelopeStatus;
 import io.github.mundanej.map.core.QueryEnvelopeTransform;
 import io.github.mundanej.map.core.RasterGridWindows;
@@ -1255,14 +1256,14 @@ public final class MapView extends JComponent implements AutoCloseable {
                     SymbolRenderResult result =
                             renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
                     if (feature.label().isPresent()) {
-                        if (pendingLabels.size() >= 4_096) {
+                        if (pendingLabels.size() >= GreedyPointLabelPlacement.MAXIMUM_REQUESTS) {
                             if (deferredLabelFailure == null) {
                                 deferredLabelFailure =
                                         labelBatchFailure(
                                                 "LABEL_REQUEST_LIMIT_EXCEEDED",
                                                 "Point-label request limit exceeded",
-                                                4_096,
-                                                4_097);
+                                                GreedyPointLabelPlacement.MAXIMUM_REQUESTS,
+                                                GreedyPointLabelPlacement.MAXIMUM_REQUESTS + 1);
                             }
                         } else {
                             pendingLabels.add(
@@ -1304,7 +1305,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                 }
                 labelCodePoints = attempted;
             }
-            List<MeasuredPointLabel> pointLabels = new ArrayList<>(pendingLabels.size());
+            List<LabelTextMetrics.Measurement> measurements = new ArrayList<>(pendingLabels.size());
+            List<PointLabelPlacementRequest> placementRequests =
+                    new ArrayList<>(pendingLabels.size());
             for (PendingPointLabel pending : pendingLabels) {
                 ResolvedPointLabel label = pending.label();
                 LabelTextMetrics.Measurement measurement =
@@ -1313,8 +1316,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 label.profile().style(),
                                 pending.layerIndex(),
                                 pending.feature().featureIndex());
-                PlacedPointLabel placed =
-                        PointLabelLayouts.place(
+                int paintOrdinal = measurements.size();
+                measurements.add(measurement);
+                placementRequests.add(
+                        new PointLabelPlacementRequest(
                                 pending.layerId(),
                                 pending.feature().id(),
                                 label.text(),
@@ -1323,11 +1328,18 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 measurement.relativeVisualBounds(),
                                 measurement.advance(),
                                 label.profile(),
-                                label.profile().positions().getFirst(),
                                 pending.layerIndex(),
                                 pending.feature().featureIndex(),
-                                pointLabels.size());
-                pointLabels.add(new MeasuredPointLabel(measurement, placed));
+                                paintOrdinal));
+            }
+            List<PlacedPointLabel> placedLabels =
+                    GreedyPointLabelPlacement.place(
+                            new ScreenBox(0, 0, getWidth(), getHeight()), placementRequests);
+            List<MeasuredPointLabel> pointLabels = new ArrayList<>(placedLabels.size());
+            for (PlacedPointLabel placed : placedLabels) {
+                pointLabels.add(
+                        new MeasuredPointLabel(
+                                measurements.get(placed.ordinaryPaintOrdinal()), placed));
             }
             boolean hoverPaintChanged =
                     retainInteractionPaintState(hoverSnapshot, hoverCandidate, true);

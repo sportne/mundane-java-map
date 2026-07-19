@@ -1,6 +1,6 @@
 # G11-023 — Bounded label placement and example
 
-Status: Proposed
+Status: Complete
 Depends on: G11-021, G11-022
 Gate: G11
 Type: HITL

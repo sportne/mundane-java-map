@@ -446,9 +446,11 @@ separately decomposed.
   Complete G11-021 adds normalized graduated selection across marker, line, and fill roles while
   keeping source projection, interaction, omission, and extent semantics aligned. Complete G11-022
   adds bounded name/attribute extraction, toolkit-neutral label values and candidate geometry, fixed
-  Java2D metrics, and one global post-geometry label paint pass across every binding kind. Proposed
-  G11-023 and G11-024 add collision admission, the review example, regression/evidence, and
-  native/consumer closeout without an expression language or label cache.
+  Java2D metrics, and one global post-geometry label paint pass across every binding kind. Complete
+  G11-023 adds fixed-limit deterministic priority/topmost collision admission, declared-position
+  fallback, clipping, a reviewed styling/label viewer, and tolerant rendering regression. Proposed
+  G11-024 adds performance, native, consumer, and publication closeout without an expression language
+  or label cache.
 - G11-003 is complete as a design decision. Persist a strict local `.mmap.xml` version 1: canonical
   CRS/view state, ordered local opener/identity/
   path references, fixed external catalog symbols, and raster presentation only. One AWT-free module
