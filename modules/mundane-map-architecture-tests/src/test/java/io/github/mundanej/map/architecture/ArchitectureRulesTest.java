@@ -1118,6 +1118,54 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void geoTiffModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndDoesNotLeakIntoApi() {
+        ModuleDescriptor geoTiff = moduleEndingWith("mundane-map-io-geotiff");
+        JavaClasses formatClasses = classesByModule.get(geoTiff);
+        List<String> toolkitDependencies =
+                formatClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                formatClasses.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.geotiff"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+
+        assertEquals("JDK_RUNTIME", geoTiff.category());
+        assertEquals(2, geoTiff.releaseLevel());
+        assertFalse(geoTiff.nativeTarget(), "Native evidence belongs to G10-038");
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                geoTiff.allowedRuntimeProjects());
+        assertFalse(formatClasses.isEmpty(), "Expected the working GeoTIFF format module");
+        assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(formatClasses).isEmpty());
+        assertEquals(Set.of("GeoTiffFiles", "GeoTiffLimits", "GeoTiffRasterOptions"), publicTypes);
+        assertTrue(
+                apiClasses.stream().noneMatch(type -> type.getSimpleName().contains("GeoTiff")),
+                "GeoTIFF-specific types must not leak into mundane-map-api");
+    }
+
+    @Test
     void svgModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndStreamingOnly() {
         ModuleDescriptor svg = moduleEndingWith("mundane-map-io-svg");
         JavaClasses classes = classesByModule.get(svg);

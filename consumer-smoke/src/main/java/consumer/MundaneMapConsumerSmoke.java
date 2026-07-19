@@ -37,6 +37,8 @@ import io.github.mundanej.map.io.dted.DtedOpenOptions;
 import io.github.mundanej.map.io.geojson.GeoJsonFiles;
 import io.github.mundanej.map.io.geojson.GeoJsonOpenOptions;
 import io.github.mundanej.map.io.geojson.GeoJsonWriteLimits;
+import io.github.mundanej.map.io.geotiff.GeoTiffFiles;
+import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
@@ -73,6 +75,7 @@ public final class MundaneMapConsumerSmoke {
             testMalformedShapefile(directory);
             testImages(directory, decoders);
             testDted(directory);
+            testGeoTiff();
         } finally {
             try (var paths = Files.walk(directory)) {
                 paths.sorted(Comparator.reverseOrder()).forEach(MundaneMapConsumerSmoke::delete);
@@ -401,6 +404,71 @@ public final class MundaneMapConsumerSmoke {
         source.close();
         require(source.isClosed(), "DTED source did not close");
         require(source.metadata().equals(metadata), "DTED metadata changed after close");
+    }
+
+    private static void testGeoTiff() {
+        RasterSource source =
+                GeoTiffFiles.openRaster(
+                        new SourceIdentity("consumer-geotiff", "Consumer GeoTIFF"),
+                        geoTiffFixture(),
+                        GeoTiffRasterOptions.defaults());
+        try {
+            require(source.metadata().width() == 4, "unexpected GeoTIFF width");
+            require(
+                    source.metadata().crs().orElseThrow().canonicalIdentifier().orElseThrow()
+                            .equals("EPSG:4326"),
+                    "unexpected GeoTIFF CRS");
+            var read =
+                    source.read(
+                            new RasterRequest(
+                                    new RasterWindow(1, 1, 2, 2), 2, 2, Optional.empty()),
+                            CancellationToken.none());
+            require(read.pixels().rgbaAt(0, 0) == 0x646464ff, "unexpected GeoTIFF sample");
+        } finally {
+            source.close();
+        }
+    }
+
+    private static byte[] geoTiffFixture() {
+        ByteBuffer bytes = ByteBuffer.allocate(286).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.put((byte) 'I').put((byte) 'I').putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) 13);
+        tiffEntry(bytes, 256, 3, 1, 4);
+        tiffEntry(bytes, 257, 3, 1, 3);
+        tiffEntry(bytes, 258, 3, 1, 8);
+        tiffEntry(bytes, 259, 3, 1, 1);
+        tiffEntry(bytes, 262, 3, 1, 1);
+        tiffEntry(bytes, 273, 4, 1, 274);
+        tiffEntry(bytes, 277, 3, 1, 1);
+        tiffEntry(bytes, 278, 4, 1, 3);
+        tiffEntry(bytes, 279, 4, 1, 12);
+        tiffEntry(bytes, 284, 3, 1, 1);
+        tiffEntry(bytes, 33550, 12, 3, 170);
+        tiffEntry(bytes, 33922, 12, 6, 194);
+        tiffEntry(bytes, 34735, 3, 16, 242);
+        bytes.putInt(0);
+        bytes.position(170).putDouble(1).putDouble(1).putDouble(0);
+        bytes.position(194)
+                .putDouble(0).putDouble(0).putDouble(0)
+                .putDouble(10).putDouble(20).putDouble(0);
+        bytes.position(242)
+                .putShort((short) 1).putShort((short) 1).putShort((short) 0).putShort((short) 3);
+        tiffKey(bytes, 1024, 2);
+        tiffKey(bytes, 1025, 1);
+        tiffKey(bytes, 2048, 4326);
+        bytes.position(274);
+        for (int value = 0; value < 12; value++) {
+            bytes.put((byte) (value * 20));
+        }
+        return bytes.array();
+    }
+
+    private static void tiffEntry(ByteBuffer bytes, int tag, int type, int count, int value) {
+        bytes.putShort((short) tag).putShort((short) type).putInt(count).putInt(value);
+    }
+
+    private static void tiffKey(ByteBuffer bytes, int key, int value) {
+        bytes.putShort((short) key).putShort((short) 0).putShort((short) 1).putShort((short) value);
     }
 
     private static byte[] levelZeroDted() {

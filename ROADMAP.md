@@ -356,9 +356,10 @@ separately decomposed.
 - G10-001 is complete: published AWT-free `mundane-map-io-svg` securely imports the approved static
   SVG marker subset into ordinary immutable vector/composite symbols through bounded JVM, render,
   Native Image, publication, and consumer paths. General SVG is not promised.
-- G10-003 is complete as a profile decision only: it approves a strict JDK-only Classic TIFF reader,
-  explicit raster/elevation routes, and the Proposed G10-030 through G10-038 vertical slices. No
-  GeoTIFF module exists yet.
+- G10-003 is complete as the profile decision. G10-030 publishes the first working JDK-only GeoTIFF
+  slice: little-endian uncompressed stripped BlackIsZero area rasters with EPSG:4326 scale/tiepoint
+  placement, strict window reads, rendering, a viewer, and staged consumer evidence. G10-031 through
+  G10-038 remain Proposed for the rest of the approved profile and Native Image closeout.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021

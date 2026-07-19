@@ -1,6 +1,6 @@
 # G10-030 — GeoTIFF first raster slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-003
 Gate: G10
 Type: AFK
