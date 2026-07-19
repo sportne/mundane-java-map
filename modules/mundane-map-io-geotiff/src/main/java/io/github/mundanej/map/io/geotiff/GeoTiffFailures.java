@@ -78,6 +78,22 @@ final class GeoTiffFailures {
                 Map.of("construct", construct));
     }
 
+    static SourceException unsupportedTag(String sourceId, int tag, String construct) {
+        return failure(
+                sourceId,
+                "GEOTIFF_PROFILE_UNSUPPORTED",
+                "GeoTIFF tag is outside the supported profile",
+                Map.of("construct", construct, "tag", Integer.toString(tag)));
+    }
+
+    static SourceException unsupportedKey(String sourceId, int key, String construct) {
+        return failure(
+                sourceId,
+                "GEOTIFF_PROFILE_UNSUPPORTED",
+                "GeoTIFF key is outside the supported profile",
+                Map.of("construct", construct, "key", Integer.toString(key)));
+    }
+
     static SourceException unsupportedCompression(String sourceId, int compression) {
         return failure(
                 sourceId,

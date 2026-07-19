@@ -1,6 +1,6 @@
 # G10-036 — GeoTIFF hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G10-035
 Gate: G10
 Type: AFK

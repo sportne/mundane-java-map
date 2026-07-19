@@ -27,6 +27,7 @@ final class GeoTiffParser {
     private static final int TYPE_ASCII = 2;
     private static final int TYPE_SHORT = 3;
     private static final int TYPE_LONG = 4;
+    private static final int TYPE_RATIONAL = 5;
     private static final int TYPE_DOUBLE = 12;
     private static final Map<Integer, Boolean> TAGS = supportedTags();
 
@@ -128,7 +129,8 @@ final class GeoTiffParser {
             }
             previous = tag;
             if (!TAGS.containsKey(tag)) {
-                throw GeoTiffFailures.unsupported(sourceId, tag == 330 ? "subIfd" : "tag");
+                String construct = tag == 330 ? "subIfd" : tag == 34736 ? "geoDoubleParams" : "tag";
+                throw GeoTiffFailures.unsupportedTag(sourceId, tag, construct);
             }
             Entry entry =
                     new Entry(
@@ -143,6 +145,7 @@ final class GeoTiffParser {
         validateTagPayloadDisjoint(entries);
         long nextOffset = uint(Math.toIntExact(ifdOffset + 2L + 12L * entryCount));
         validateNextIfd(nextOffset);
+        validateAncillaryTags(entries);
 
         int width = scalar(entries, 256, true);
         int height = scalar(entries, 257, true);
@@ -312,6 +315,78 @@ final class GeoTiffParser {
                 RasterGridPlacement.axisAligned(new Envelope(west, south, east, north)));
     }
 
+    private void validateAncillaryTags(Map<Integer, Entry> entries) {
+        Entry subfile = entries.get(254);
+        if (subfile != null) {
+            if (subfile.type != TYPE_LONG) {
+                throw GeoTiffFailures.tag(sourceId, 254, "type");
+            }
+            if (subfile.count != 1) {
+                throw GeoTiffFailures.tag(sourceId, 254, "count");
+            }
+            long value = subfile.unsignedAt(0);
+            if (value != 0) {
+                throw GeoTiffFailures.unsupportedTag(
+                        sourceId, 254, value == 1 ? "overview" : value == 4 ? "mask" : "tag");
+            }
+        }
+        requireOptionalCode(entries, 266, 1, "sampleOrganization");
+        for (int tag : new int[] {269, 270, 271, 272, 305, 306, 315, 316, 33432}) {
+            Entry text = entries.get(tag);
+            if (text != null) {
+                validateAscii(text, false, "tagPayloadBytes");
+            }
+        }
+        for (int tag : new int[] {282, 283}) {
+            Entry rational = entries.get(tag);
+            if (rational != null) {
+                if (rational.type != TYPE_RATIONAL) {
+                    throw GeoTiffFailures.tag(sourceId, tag, "type");
+                }
+                if (rational.count != 1) {
+                    throw GeoTiffFailures.tag(sourceId, tag, "count");
+                }
+                if (rational.unsignedIntAt(1) == 0) {
+                    throw GeoTiffFailures.tag(sourceId, tag, "value");
+                }
+            }
+        }
+        Entry resolutionUnit = entries.get(296);
+        if (resolutionUnit != null) {
+            int value = code(entries, 296);
+            if (value < 1 || value > 3) {
+                throw GeoTiffFailures.tag(sourceId, 296, "value");
+            }
+        }
+    }
+
+    private int validateAscii(Entry entry, boolean geoAscii, String limitName) {
+        if (entry.type != TYPE_ASCII) {
+            throw GeoTiffFailures.tag(sourceId, entry.tag, "type");
+        }
+        if (entry.count < 2 || entry.count > Integer.MAX_VALUE) {
+            throw GeoTiffFailures.tag(sourceId, entry.tag, "count");
+        }
+        int length = Math.toIntExact(entry.count);
+        if (geoAscii) {
+            GeoTiffFailures.limit(
+                    sourceId, "geoTiffOpen", limitName, length, limits.maximumGeoAsciiBytes());
+        }
+        if (entry.byteAt(length - 1) != 0) {
+            throw GeoTiffFailures.tag(sourceId, entry.tag, "encoding");
+        }
+        for (int index = 0; index < length - 1; index++) {
+            if ((index & 4095) == 0) {
+                GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+            }
+            int value = entry.byteAt(index);
+            if (value == 0 || value > 0x7f) {
+                throw GeoTiffFailures.tag(sourceId, entry.tag, "encoding");
+            }
+        }
+        return length;
+    }
+
     private GeoReference transformation(Entry entry, int width, int height) {
         double[] matrix = doubles(entry, 16);
         for (double value : matrix) {
@@ -423,6 +498,11 @@ final class GeoTiffParser {
         int projected = -1;
         boolean angularUnits = false;
         boolean linearUnits = false;
+        Entry asciiEntry = entries.get(34737);
+        int asciiLength = asciiEntry == null ? 0 : validateAscii(asciiEntry, true, "geoAsciiBytes");
+        long citationEnd = 0;
+        int firstCitationKey = -1;
+        int citationCount = 0;
         for (int index = 0; index < keys; index++) {
             GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
             int base = 4 + index * 4;
@@ -432,11 +512,44 @@ final class GeoTiffParser {
                         sourceId, key, key == previous ? "duplicate" : "order");
             }
             previous = key;
-            if (entry.unsignedAt(base + 1) != 0 || entry.unsignedAt(base + 2) != 1) {
-                throw GeoTiffFailures.geokey(
-                        sourceId, key, entry.unsignedAt(base + 1) != 0 ? "location" : "count");
+            boolean citation = key == 1026 || key == 2049 || key == 3073;
+            long location = entry.unsignedAt(base + 1);
+            long count = entry.unsignedAt(base + 2);
+            long rawValue = entry.unsignedAt(base + 3);
+            if (citation) {
+                if (firstCitationKey < 0) {
+                    firstCitationKey = key;
+                }
+                if (location != 34737) {
+                    throw GeoTiffFailures.geokey(sourceId, key, "location");
+                }
+                if (count == 0) {
+                    throw GeoTiffFailures.geokey(sourceId, key, "count");
+                }
+                long end = Math.addExact(rawValue, count);
+                if (asciiEntry == null || end > asciiLength - 1L) {
+                    throw GeoTiffFailures.geokey(sourceId, key, "range");
+                }
+                if (rawValue != citationEnd || asciiEntry.byteAt(Math.toIntExact(end - 1)) != '|') {
+                    throw GeoTiffFailures.geokey(sourceId, key, "range");
+                }
+                for (long position = rawValue; position < end; position++) {
+                    if ((position & 4095) == 0) {
+                        GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
+                    }
+                    int character = asciiEntry.byteAt(Math.toIntExact(position));
+                    if (character < 0x20 || character > 0x7e) {
+                        throw GeoTiffFailures.geokey(sourceId, key, "value");
+                    }
+                }
+                citationEnd = end;
+                citationCount++;
+                continue;
             }
-            int value = Math.toIntExact(entry.unsignedAt(base + 3));
+            if (location != 0 || count != 1) {
+                throw GeoTiffFailures.geokey(sourceId, key, location != 0 ? "location" : "count");
+            }
+            int value = Math.toIntExact(rawValue);
             switch (key) {
                 case 1024 -> model = value;
                 case 1025 -> raster = value;
@@ -455,10 +568,14 @@ final class GeoTiffParser {
                     }
                 }
                 default ->
-                        throw GeoTiffFailures.unsupported(
-                                sourceId, key >= 4096 && key <= 4099 ? "verticalCrs" : "geoKey");
+                        throw GeoTiffFailures.unsupportedKey(
+                                sourceId,
+                                key,
+                                key >= 4096 && key <= 4099 ? "verticalCrs" : "geoKey");
             }
         }
+        validateCitationCoverage(
+                asciiEntry, asciiLength, citationEnd, citationCount, firstCitationKey);
         if (raster != expectedRasterType) {
             throw GeoTiffFailures.unsupported(sourceId, "route");
         }
@@ -474,6 +591,23 @@ final class GeoTiffParser {
                     CrsDefinitions.EPSG_3857, Optional.empty(), Optional.empty());
         }
         throw GeoTiffFailures.unsupported(sourceId, "horizontalCrs");
+    }
+
+    private void validateCitationCoverage(
+            Entry asciiEntry,
+            int asciiLength,
+            long citationEnd,
+            int rangeCount,
+            int firstCitationKey) {
+        if (asciiEntry == null) {
+            return;
+        }
+        if (rangeCount == 0) {
+            throw GeoTiffFailures.tag(sourceId, 34737, "value");
+        }
+        if (citationEnd != asciiLength - 1L) {
+            throw GeoTiffFailures.geokey(sourceId, firstCitationKey, "range");
+        }
     }
 
     private NumericSampleProfile elevationProfile(
@@ -1100,8 +1234,9 @@ final class GeoTiffParser {
         Map<Integer, Boolean> tags = new LinkedHashMap<>();
         for (int tag :
                 new int[] {
-                    256, 257, 258, 259, 262, 273, 274, 277, 278, 279, 284, 317, 322, 323, 324, 325,
-                    338, 339, 33550, 33922, 34264, 34735, 42113
+                    254, 256, 257, 258, 259, 262, 266, 269, 270, 271, 272, 273, 274, 277, 278, 279,
+                    282, 283, 284, 296, 305, 306, 315, 316, 317, 322, 323, 324, 325, 338, 339,
+                    33432, 33550, 33922, 34264, 34735, 34737, 42113
                 }) {
             tags.put(tag, true);
         }
@@ -1129,7 +1264,9 @@ final class GeoTiffParser {
                             ? 1
                             : type == TYPE_SHORT
                                     ? 2
-                                    : type == TYPE_LONG ? 4 : type == TYPE_DOUBLE ? 8 : -1;
+                                    : type == TYPE_LONG
+                                            ? 4
+                                            : type == TYPE_RATIONAL || type == TYPE_DOUBLE ? 8 : -1;
             if (size < 0) {
                 throw GeoTiffFailures.tag(sourceId, tag, "type");
             }
@@ -1159,6 +1296,12 @@ final class GeoTiffParser {
                 if (overlaps(rawValue, bytes, 0, 8)
                         || overlaps(rawValue, bytes, ifdOffset, ifdLength)) {
                     throw GeoTiffFailures.tag(sourceId, tag, "overlap");
+                }
+            } else {
+                for (int index = Math.toIntExact(bytes); index < 4; index++) {
+                    if (data.get(inlineValueOffset + index) != 0) {
+                        throw GeoTiffFailures.tag(sourceId, tag, "value");
+                    }
                 }
             }
         }
@@ -1192,6 +1335,13 @@ final class GeoTiffParser {
             int payloadOffset = valueOffset();
             return Byte.toUnsignedInt(
                     data.get((payloadOffset < 0 ? inlineValueOffset : payloadOffset) + index));
+        }
+
+        private long unsignedIntAt(int index) {
+            if (type != TYPE_RATIONAL || index < 0 || index >= count * 2L) {
+                throw new IndexOutOfBoundsException("TIFF rational index is outside its entry");
+            }
+            return uint(Math.addExact(valueOffset(), index * Integer.BYTES));
         }
 
         private long unsignedAt(int index) {

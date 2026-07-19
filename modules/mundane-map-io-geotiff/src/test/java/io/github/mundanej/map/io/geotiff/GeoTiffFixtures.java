@@ -181,6 +181,77 @@ final class GeoTiffFixtures {
                 List.of(encoded.clone()));
     }
 
+    static byte[] ancillaryRaster() {
+        return rasterWithExtras(
+                Tag.longs(254, 0),
+                Tag.shorts(266, 1),
+                Tag.ascii(269, "document"),
+                Tag.ascii(305, "mundane"),
+                Tag.rational(282, 72, 1),
+                Tag.rational(283, 72, 1),
+                Tag.shorts(296, 2));
+    }
+
+    static byte[] ancillaryAscii(byte[] encoded) {
+        return rasterWithExtras(Tag.asciiRaw(269, encoded));
+    }
+
+    static byte[] citationRaster(String ascii, int offset, int count) {
+        return rasterWithExtras(
+                Tag.shorts(
+                        34735, 1, 1, 0, 4, 1024, 0, 1, 2, 1025, 0, 1, 1, 1026, 34737, count, offset,
+                        2048, 0, 1, 4326),
+                Tag.ascii(34737, ascii));
+    }
+
+    static byte[] twoCitationRaster(
+            String ascii, int firstOffset, int firstCount, int secondOffset, int secondCount) {
+        return rasterWithExtras(
+                Tag.shorts(
+                        34735,
+                        1,
+                        1,
+                        0,
+                        5,
+                        1024,
+                        0,
+                        1,
+                        2,
+                        1025,
+                        0,
+                        1,
+                        1,
+                        1026,
+                        34737,
+                        firstCount,
+                        firstOffset,
+                        2048,
+                        0,
+                        1,
+                        4326,
+                        2049,
+                        34737,
+                        secondCount,
+                        secondOffset),
+                Tag.ascii(34737, ascii));
+    }
+
+    private static byte[] rasterWithExtras(Tag... extras) {
+        return raster(
+                ByteOrder.LITTLE_ENDIAN,
+                4,
+                3,
+                1,
+                1,
+                false,
+                false,
+                1,
+                segments(4, 3, 1, 1, false),
+                null,
+                false,
+                List.of(extras));
+    }
+
     static byte[] elevation(ByteOrder order, int bits, boolean tiled, int compression) {
         return elevation(order, bits, 2, tiled, compression, null, null, 2);
     }
@@ -492,6 +563,34 @@ final class GeoTiffFixtures {
             List<byte[]> segments,
             double[] transformation,
             boolean conflict) {
+        return raster(
+                order,
+                width,
+                height,
+                photometric,
+                samples,
+                tiled,
+                projected,
+                compression,
+                segments,
+                transformation,
+                conflict,
+                List.of());
+    }
+
+    private static byte[] raster(
+            ByteOrder order,
+            int width,
+            int height,
+            int photometric,
+            int samples,
+            boolean tiled,
+            boolean projected,
+            int compression,
+            List<byte[]> segments,
+            double[] transformation,
+            boolean conflict,
+            List<Tag> extras) {
         List<Tag> tags = new ArrayList<>();
         tags.add(Tag.shorts(256, width));
         tags.add(Tag.shorts(257, height));
@@ -525,23 +624,26 @@ final class GeoTiffFixtures {
         if (transformation != null) {
             tags.add(Tag.doubles(34264, transformation));
         }
-        tags.add(
-                Tag.shorts(
-                        34735,
-                        projected
-                                ? new int[] {
-                                    1, 1, 0, 4,
-                                    1024, 0, 1, 1,
-                                    1025, 0, 1, 1,
-                                    3072, 0, 1, 3857,
-                                    3076, 0, 1, 9001
-                                }
-                                : new int[] {
-                                    1, 1, 0, 3,
-                                    1024, 0, 1, 2,
-                                    1025, 0, 1, 1,
-                                    2048, 0, 1, 4326
-                                }));
+        if (extras.stream().noneMatch(tag -> tag.id == 34735)) {
+            tags.add(
+                    Tag.shorts(
+                            34735,
+                            projected
+                                    ? new int[] {
+                                        1, 1, 0, 4,
+                                        1024, 0, 1, 1,
+                                        1025, 0, 1, 1,
+                                        3072, 0, 1, 3857,
+                                        3076, 0, 1, 9001
+                                    }
+                                    : new int[] {
+                                        1, 1, 0, 3,
+                                        1024, 0, 1, 2,
+                                        1025, 0, 1, 1,
+                                        2048, 0, 1, 4326
+                                    }));
+        }
+        tags.addAll(extras);
         tags.sort(Comparator.comparingInt(tag -> tag.id));
         int position = 8 + 2 + tags.size() * 12 + 4;
         for (Tag tag : tags) {
@@ -738,6 +840,10 @@ final class GeoTiffFixtures {
             return new Tag(id, 12, null, values, null);
         }
 
+        private static Tag rational(int id, long numerator, long denominator) {
+            return new Tag(id, 5, new long[] {numerator, denominator}, null, null);
+        }
+
         private static Tag ascii(int id, String value) {
             byte[] encoded = new byte[value.length() + 1];
             for (int index = 0; index < value.length(); index++) {
@@ -753,7 +859,9 @@ final class GeoTiffFixtures {
         private int count() {
             return text != null
                     ? text.length
-                    : floating == null ? integers.length : floating.length;
+                    : floating == null
+                            ? type == 5 ? integers.length / 2 : integers.length
+                            : floating.length;
         }
 
         private int payloadBytes() {

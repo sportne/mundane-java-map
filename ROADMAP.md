@@ -368,8 +368,11 @@ separately decomposed.
   units, exact post bounds, existing query/colorization rendering, and viewer integration. G10-035
   completes the elevation sample matrix with Float32/Float64, bounded finite or lowercase `nan`
   GDAL no-data masking, non-finite diagnostics, and compressed/tiled color and hillshade parity.
-  G10-036 through G10-038 remain Proposed for hardening, corpus/performance evidence, and Native
-  Image closeout.
+  G10-036 closes the parser envelope with exact ancillary-tag and citation validation, numeric
+  unsupported-tag/key context, a single-buffer snapshot transaction with explicit cleanup
+  arbitration, data-leak canaries, and deterministic raster/elevation mutation and every-cut
+  truncation evidence. G10-037 and G10-038 remain Proposed for corpus/performance evidence and
+  Native Image closeout.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021
