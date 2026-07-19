@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.awt.MapView;
 import java.nio.ByteBuffer;
@@ -77,6 +78,21 @@ class GeoTiffViewerTest {
         assertTrue(source.isClosed());
     }
 
+    @Test
+    void loadsAffineFixtureThroughViewerOwnershipPath(@TempDir Path directory) throws Exception {
+        Path path = directory.resolve("affine.tif");
+        Files.write(path, affineFixture());
+        RasterSource source = GeoTiffViewer.load(path);
+        assertEquals(
+                RasterGridPlacement.Kind.AFFINE,
+                source.metadata().gridPlacement().orElseThrow().kind());
+        AtomicReference<MapView> view = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> view.set(GeoTiffViewer.createView(source)));
+        assertEquals(1, view.get().layerBindings().size());
+        SwingUtilities.invokeAndWait(view.get()::close);
+        assertTrue(source.isClosed());
+    }
+
     private static byte[] fixture() {
         ByteBuffer bytes = ByteBuffer.allocate(286).order(ByteOrder.LITTLE_ENDIAN);
         bytes.put((byte) 'I').put((byte) 'I').putShort((short) 42).putInt(8);
@@ -114,6 +130,51 @@ class GeoTiffViewerTest {
         bytes.position(274);
         for (int value = 0; value < 12; value++) {
             bytes.put((byte) (value * 20));
+        }
+        return bytes.array();
+    }
+
+    private static byte[] affineFixture() {
+        ByteBuffer bytes = ByteBuffer.allocate(390).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.put((byte) 'I').put((byte) 'I').putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) 14);
+        entry(bytes, 256, 3, 1, 4);
+        entry(bytes, 257, 3, 1, 3);
+        entry(bytes, 258, 3, 3, 182);
+        entry(bytes, 259, 3, 1, 1);
+        entry(bytes, 262, 3, 1, 2);
+        entry(bytes, 273, 4, 1, 354);
+        entry(bytes, 274, 3, 1, 1);
+        entry(bytes, 277, 3, 1, 3);
+        entry(bytes, 278, 4, 1, 3);
+        entry(bytes, 279, 4, 1, 36);
+        entry(bytes, 284, 3, 1, 1);
+        entry(bytes, 339, 3, 3, 188);
+        entry(bytes, 34264, 12, 16, 194);
+        entry(bytes, 34735, 3, 16, 322);
+        bytes.putInt(0);
+        bytes.position(182).putShort((short) 8).putShort((short) 8).putShort((short) 8);
+        bytes.position(188).putShort((short) 1).putShort((short) 1).putShort((short) 1);
+        bytes.position(194);
+        for (double value :
+                new double[] {2, 0.5, 0, 10, 0.25, -1.5, 0, 20, 0, 0, 1, 0, 0, 0, 0, 1}) {
+            bytes.putDouble(value);
+        }
+        bytes.position(322)
+                .putShort((short) 1)
+                .putShort((short) 1)
+                .putShort((short) 0)
+                .putShort((short) 3);
+        key(bytes, 1024, 2);
+        key(bytes, 1025, 1);
+        key(bytes, 2048, 4326);
+        bytes.position(354);
+        for (int row = 0; row < 3; row++) {
+            for (int column = 0; column < 4; column++) {
+                bytes.put((byte) (30 + column * 40));
+                bytes.put((byte) (50 + row * 60));
+                bytes.put((byte) (180 - column * 20));
+            }
         }
         return bytes.array();
     }

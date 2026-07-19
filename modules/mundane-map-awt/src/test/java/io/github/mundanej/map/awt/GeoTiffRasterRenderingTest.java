@@ -1,8 +1,11 @@
 package io.github.mundanej.map.awt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.CrsDefinitions;
@@ -19,6 +22,123 @@ import java.util.zip.Deflater;
 import org.junit.jupiter.api.Test;
 
 class GeoTiffRasterRenderingTest {
+    @Test
+    void rendersGeographicAffineAndRejectsMismatchedDisplayWithoutWarp() {
+        RasterSource geographic =
+                GeoTiffFiles.openRaster(
+                        new SourceIdentity("awt-geotiff-affine-4326", "AWT geographic affine"),
+                        geographicAffineRgbFixture(),
+                        GeoTiffRasterOptions.defaults());
+        MapView geographicView =
+                new MapView(
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_4326);
+        try {
+            geographicView.setLayerBindings(
+                    List.of(
+                            MapLayerBinding.borrowedRaster(
+                                    "geotiff-affine-4326", "Geographic affine", geographic)));
+            geographicView.setSize(120, 90);
+            geographicView.fitToData(8);
+            BufferedImage image = new BufferedImage(120, 90, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = image.createGraphics();
+            try {
+                graphics.setColor(Color.WHITE);
+                graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                geographicView.paint(graphics);
+            } finally {
+                graphics.dispose();
+            }
+            int colored = 0;
+            for (int row = 0; row < image.getHeight(); row++) {
+                for (int column = 0; column < image.getWidth(); column++) {
+                    int rgb = image.getRGB(column, row);
+                    int red = (rgb >>> 16) & 0xff;
+                    int green = (rgb >>> 8) & 0xff;
+                    int blue = rgb & 0xff;
+                    if (red != green || green != blue) {
+                        colored++;
+                    }
+                }
+            }
+            assertTrue(colored > 4_000, "geographic affine color footprint was lost " + colored);
+        } finally {
+            geographicView.close();
+        }
+        assertFalse(geographic.isClosed());
+
+        MapView projectedView =
+                new MapView(
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+        CrsException mismatch =
+                assertThrows(
+                        CrsException.class,
+                        () ->
+                                projectedView.setLayerBindings(
+                                        List.of(
+                                                MapLayerBinding.borrowedRaster(
+                                                        "geotiff-affine-4326",
+                                                        "Geographic affine",
+                                                        geographic))));
+        assertEquals("CRS_RASTER_WARP_UNSUPPORTED", mismatch.problem().code());
+        assertTrue(projectedView.layerBindings().isEmpty());
+        assertFalse(geographic.isClosed());
+        projectedView.close();
+        geographic.close();
+        assertTrue(geographic.isClosed());
+    }
+
+    @Test
+    void rendersShearedAffineGeoTiffAsAParallelogram() {
+        RasterSource source =
+                GeoTiffFiles.openRaster(
+                        new SourceIdentity("awt-geotiff-affine", "AWT affine GeoTIFF"),
+                        affineRgbFixture(),
+                        GeoTiffRasterOptions.defaults());
+        MapView view =
+                new MapView(
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+        try {
+            view.setLayerBindings(
+                    List.of(
+                            MapLayerBinding.ownedRaster(
+                                    "geotiff-affine", "GeoTIFF affine", source)));
+            view.setSize(180, 140);
+            view.fitToData(12);
+            view.setOpaque(false);
+            BufferedImage image = new BufferedImage(180, 140, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = image.createGraphics();
+            try {
+                graphics.setColor(Color.MAGENTA);
+                graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                view.paint(graphics);
+            } finally {
+                graphics.dispose();
+            }
+            int colored = 0;
+            int background = 0;
+            for (int row = 0; row < image.getHeight(); row++) {
+                for (int column = 0; column < image.getWidth(); column++) {
+                    int rgb = image.getRGB(column, row);
+                    if (rgb == Color.MAGENTA.getRGB()) {
+                        background++;
+                    } else {
+                        int red = (rgb >>> 16) & 0xff;
+                        int green = (rgb >>> 8) & 0xff;
+                        int blue = rgb & 0xff;
+                        if (red != green || green != blue) {
+                            colored++;
+                        }
+                    }
+                }
+            }
+            assertTrue(colored > 8_000, "affine color footprint was lost " + colored);
+            assertTrue(background > 5_000, "affine envelope was incorrectly filled " + background);
+        } finally {
+            view.close();
+        }
+        assertTrue(source.isClosed());
+    }
+
     @Test
     void rendersDeflateGeoTiffThroughTheOrdinaryRasterLayer() {
         RasterSource source =
@@ -297,6 +417,65 @@ class GeoTiffRasterRenderingTest {
         bytes.putShort(54, (short) 8);
         bytes.putInt(126, compressed.length);
         bytes.position(318).put(compressed);
+        return fixture;
+    }
+
+    private static byte[] affineRgbFixture() {
+        ByteBuffer bytes = ByteBuffer.allocate(398).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.put((byte) 'I').put((byte) 'I').putShort((short) 42).putInt(8);
+        bytes.position(8).putShort((short) 14);
+        entry(bytes, 256, 3, 1, 4);
+        entry(bytes, 257, 3, 1, 3);
+        entry(bytes, 258, 3, 3, 182);
+        entry(bytes, 259, 3, 1, 1);
+        entry(bytes, 262, 3, 1, 2);
+        entry(bytes, 273, 4, 1, 362);
+        entry(bytes, 274, 3, 1, 1);
+        entry(bytes, 277, 3, 1, 3);
+        entry(bytes, 278, 4, 1, 3);
+        entry(bytes, 279, 4, 1, 36);
+        entry(bytes, 284, 3, 1, 1);
+        entry(bytes, 339, 3, 3, 188);
+        entry(bytes, 34264, 12, 16, 194);
+        entry(bytes, 34735, 3, 20, 322);
+        bytes.putInt(0);
+        bytes.position(182).putShort((short) 8).putShort((short) 8).putShort((short) 8);
+        bytes.position(188).putShort((short) 1).putShort((short) 1).putShort((short) 1);
+        bytes.position(194);
+        for (double value :
+                new double[] {2, 0.5, 0, 1_000, 0.25, -1.5, 0, 2_000, 0, 0, 1, 0, 0, 0, 0, 1}) {
+            bytes.putDouble(value);
+        }
+        bytes.position(322)
+                .putShort((short) 1)
+                .putShort((short) 1)
+                .putShort((short) 0)
+                .putShort((short) 4);
+        key(bytes, 1024, 1);
+        key(bytes, 1025, 1);
+        key(bytes, 3072, 3857);
+        key(bytes, 3076, 9001);
+        bytes.position(362);
+        for (int row = 0; row < 3; row++) {
+            for (int column = 0; column < 4; column++) {
+                bytes.put((byte) (30 + column * 40));
+                bytes.put((byte) (50 + row * 60));
+                bytes.put((byte) (180 - column * 20));
+            }
+        }
+        return bytes.array();
+    }
+
+    private static byte[] geographicAffineRgbFixture() {
+        byte[] fixture = affineRgbFixture();
+        ByteBuffer bytes = ByteBuffer.wrap(fixture).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.putDouble(218, 10);
+        bytes.putDouble(250, 20);
+        bytes.putInt(170, 16);
+        bytes.putShort(328, (short) 3);
+        bytes.putShort(336, (short) 2);
+        bytes.putShort(346, (short) 2048);
+        bytes.putShort(352, (short) 4326);
         return fixture;
     }
 

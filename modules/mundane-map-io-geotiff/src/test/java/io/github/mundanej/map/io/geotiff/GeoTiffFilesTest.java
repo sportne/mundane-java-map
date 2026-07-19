@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.mundanej.map.api.CancellationSource;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterRequestLimits;
@@ -822,6 +823,124 @@ class GeoTiffFilesTest {
         }
     }
 
+    @Test
+    void mapsAffineCellCornersToPixelCentersAndPreservesOuterBounds() {
+        double[] geographic = affineMatrix(10, 20);
+        try (RasterSource source = open(GeoTiffFixtures.affineRgb(false, geographic))) {
+            assertEquals(
+                    RasterGridPlacement.Kind.AFFINE,
+                    source.metadata().gridPlacement().orElseThrow().kind());
+            var transform =
+                    source.metadata().gridPlacement().orElseThrow().affineTransform().orElseThrow();
+            assertEquals(2.0, transform.a());
+            assertEquals(0.25, transform.d());
+            assertEquals(0.5, transform.b());
+            assertEquals(-1.5, transform.e());
+            assertEquals(11.25, transform.c());
+            assertEquals(19.375, transform.f());
+            assertEquals(
+                    Optional.of(new Envelope(10, 15.5, 19.5, 21)), source.metadata().mapBounds());
+            assertEquals(10.0, transform.gridToMap(-0.5, -0.5).x());
+            assertEquals(20.0, transform.gridToMap(-0.5, -0.5).y());
+            assertArrayEquals(
+                    new int[] {GeoTiffFixtures.expectedRgba(2, 1, 2, 3)},
+                    source.read(
+                                    request(new RasterWindow(2, 1, 1, 1), 1, 1),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+
+        try (RasterSource source =
+                open(GeoTiffFixtures.affineRgb(true, affineMatrix(1_000, 2_000)))) {
+            assertEquals(
+                    "EPSG:3857",
+                    source.metadata().crs().orElseThrow().canonicalIdentifier().orElseThrow());
+            assertEquals(
+                    Optional.of(new Envelope(1_000, 1_995.5, 1_009.5, 2_001)),
+                    source.metadata().mapBounds());
+        }
+
+        double[] northUp = affineMatrix(10, 20);
+        northUp[1] = 0;
+        northUp[4] = 0;
+        try (RasterSource source = open(GeoTiffFixtures.affineRgb(false, northUp))) {
+            assertEquals(
+                    RasterGridPlacement.Kind.AXIS_ALIGNED,
+                    source.metadata().gridPlacement().orElseThrow().kind());
+            assertEquals(
+                    Optional.of(new Envelope(10, 15.5, 18, 20)), source.metadata().mapBounds());
+        }
+    }
+
+    @Test
+    void classifiesAffineConflictsMatrixShapeAndPlacementFailures() {
+        double[] valid = affineMatrix(10, 20);
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, valid, true),
+                "GEOTIFF_GEOREFERENCE_INVALID",
+                "reason",
+                "conflict");
+
+        byte[] wrongType = GeoTiffFixtures.affineRgb(false, valid);
+        putEntryType(wrongType, 34264, 4);
+        assertFailure(wrongType, "GEOTIFF_TAG_INVALID", "reason", "type");
+        byte[] wrongCount = GeoTiffFixtures.affineRgb(false, valid);
+        putEntryCount(wrongCount, 34264, 15);
+        assertFailure(wrongCount, "GEOTIFF_TAG_INVALID", "reason", "count");
+
+        double[] nonFinite = valid.clone();
+        nonFinite[0] = Double.NaN;
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, nonFinite),
+                "GEOTIFF_GEOREFERENCE_INVALID",
+                "reason",
+                "nonFinite");
+        double[] perspective = valid.clone();
+        perspective[12] = 0.01;
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, perspective),
+                "GEOTIFF_PROFILE_UNSUPPORTED",
+                "construct",
+                "georeference");
+        double[] zCoupling = valid.clone();
+        zCoupling[2] = 1;
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, zCoupling),
+                "GEOTIFF_PROFILE_UNSUPPORTED",
+                "construct",
+                "georeference");
+        double[] singular = valid.clone();
+        singular[4] = 4;
+        singular[5] = 1;
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, singular),
+                "GEOTIFF_GEOREFERENCE_INVALID",
+                "reason",
+                "singular");
+        double[] collapsed = valid.clone();
+        collapsed[3] = 1e300;
+        collapsed[7] = 1e300;
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, collapsed),
+                "GEOTIFF_GEOREFERENCE_INVALID",
+                "reason",
+                "collapsed");
+        double[] outsideCrs = valid.clone();
+        outsideCrs[3] = 180;
+        assertFailure(
+                GeoTiffFixtures.affineRgb(false, outsideCrs),
+                "GEOTIFF_GEOREFERENCE_INVALID",
+                "reason",
+                "orientation");
+    }
+
+    private static double[] affineMatrix(double translationX, double translationY) {
+        return new double[] {
+            2, 0.5, 0, translationX, 0.25, -1.5, 0, translationY, 0, 0, 1, 0, 0, 0, 0, 1
+        };
+    }
+
     private static void assertRasterParity(byte[] uncompressed, byte[] compressed) {
         try (RasterSource expected = open(uncompressed);
                 RasterSource actual = open(compressed)) {
@@ -899,6 +1018,11 @@ class GeoTiffFilesTest {
     private static void putEntryCount(byte[] bytes, int tag, int value) {
         java.nio.ByteBuffer buffer = ordered(bytes);
         buffer.putInt(entryOffset(buffer, tag) + 4, value);
+    }
+
+    private static void putEntryType(byte[] bytes, int tag, int type) {
+        java.nio.ByteBuffer buffer = ordered(bytes);
+        buffer.putShort(entryOffset(buffer, tag) + 2, (short) type);
     }
 
     private static void putLongAtEntryValue(byte[] bytes, int tag, int value) {

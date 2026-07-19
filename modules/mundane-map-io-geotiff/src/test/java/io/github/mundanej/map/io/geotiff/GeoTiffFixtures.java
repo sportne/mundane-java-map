@@ -149,6 +149,25 @@ final class GeoTiffFixtures {
         return compressedRaster(4, 3, 2, 4, false, 8);
     }
 
+    static byte[] affineRgb(boolean projected, double[] transformation) {
+        return affineRgb(projected, transformation, false);
+    }
+
+    static byte[] affineRgb(boolean projected, double[] transformation, boolean conflict) {
+        return raster(
+                ByteOrder.LITTLE_ENDIAN,
+                4,
+                3,
+                2,
+                3,
+                false,
+                projected,
+                1,
+                segments(4, 3, 2, 3, false),
+                transformation.clone(),
+                conflict);
+    }
+
     static byte[] compressedGray(int compression, byte[] encoded) {
         return raster(
                 ByteOrder.LITTLE_ENDIAN,
@@ -237,6 +256,32 @@ final class GeoTiffFixtures {
             boolean projected,
             int compression,
             List<byte[]> segments) {
+        return raster(
+                order,
+                width,
+                height,
+                photometric,
+                samples,
+                tiled,
+                projected,
+                compression,
+                segments,
+                null,
+                false);
+    }
+
+    private static byte[] raster(
+            ByteOrder order,
+            int width,
+            int height,
+            int photometric,
+            int samples,
+            boolean tiled,
+            boolean projected,
+            int compression,
+            List<byte[]> segments,
+            double[] transformation,
+            boolean conflict) {
         List<Tag> tags = new ArrayList<>();
         tags.add(Tag.shorts(256, width));
         tags.add(Tag.shorts(257, height));
@@ -262,8 +307,14 @@ final class GeoTiffFixtures {
             tags.add(Tag.shorts(338, 2));
         }
         tags.add(Tag.repeatedShorts(339, samples, 1));
-        tags.add(Tag.doubles(33550, 1, 1, 0));
-        tags.add(Tag.doubles(33922, 0, 0, 0, projected ? 1_000 : 10, projected ? 2_000 : 20, 0));
+        if (transformation == null || conflict) {
+            tags.add(Tag.doubles(33550, 1, 1, 0));
+            tags.add(
+                    Tag.doubles(33922, 0, 0, 0, projected ? 1_000 : 10, projected ? 2_000 : 20, 0));
+        }
+        if (transformation != null) {
+            tags.add(Tag.doubles(34264, transformation));
+        }
         tags.add(
                 Tag.shorts(
                         34735,

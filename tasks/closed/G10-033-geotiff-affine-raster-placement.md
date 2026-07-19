@@ -1,6 +1,6 @@
 # G10-033 — GeoTIFF affine raster placement
 
-Status: Proposed
+Status: Complete
 Depends on: G10-032
 Gate: G10
 Type: AFK

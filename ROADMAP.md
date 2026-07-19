@@ -362,8 +362,10 @@ separately decomposed.
   EPSG:3857 scale/tiepoint placement, segment-selective strict windows, and tolerant rendering.
   G10-032 completes the closed raster codec matrix with bounded PackBits and Adobe Deflate,
   decode-once window staging, exact stream-consumption diagnostics, and ordinary AWT rendering.
-  G10-033 through G10-038 remain Proposed for affine placement, elevation, hardening,
-  corpus/performance evidence, and Native Image closeout.
+  G10-033 adds the mutually exclusive finite 2D ModelTransformation path, exact cell-corner to
+  pixel-center conversion, conservative affine bounds, and tolerant rotated/sheared rendering
+  evidence. G10-034 through G10-038 remain Proposed for elevation, hardening, corpus/performance
+  evidence, and Native Image closeout.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021

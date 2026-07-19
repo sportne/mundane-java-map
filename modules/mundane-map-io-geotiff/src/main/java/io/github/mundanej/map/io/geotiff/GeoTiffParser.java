@@ -3,6 +3,9 @@ package io.github.mundanej.map.io.geotiff;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.RasterAffineTransform;
+import io.github.mundanej.map.api.RasterGridPlacement;
+import io.github.mundanej.map.api.RasterPlacementException;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterSourceMetadata;
 import io.github.mundanej.map.api.SourceIdentity;
@@ -185,10 +188,8 @@ final class GeoTiffParser {
         validateSegmentDisjoint(offsets, counts);
 
         CrsMetadata crs = geoKeys(entries);
-        GeoReference reference = georeference(entries, width, height, crs);
-        RasterSourceMetadata metadata =
-                new RasterSourceMetadata(
-                        identity, width, height, Optional.of(reference.bounds()), Optional.of(crs));
+        GeoReference reference = georeference(entries, width, height);
+        RasterSourceMetadata metadata = metadata(identity, width, height, reference, crs);
         GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
         return new GeoTiffRasterSource(
                 snapshot,
@@ -207,9 +208,17 @@ final class GeoTiffParser {
                 decodedCounts);
     }
 
-    private GeoReference georeference(
-            Map<Integer, Entry> entries, int width, int height, CrsMetadata crs) {
-        if (!entries.containsKey(33550) || !entries.containsKey(33922)) {
+    private GeoReference georeference(Map<Integer, Entry> entries, int width, int height) {
+        boolean hasScale = entries.containsKey(33550);
+        boolean hasTie = entries.containsKey(33922);
+        boolean transformation = entries.containsKey(34264);
+        if (transformation && (hasScale || hasTie)) {
+            throw GeoTiffFailures.georeference(sourceId, "conflict");
+        }
+        if (transformation) {
+            return transformation(entries.get(34264), width, height);
+        }
+        if (!hasScale || !hasTie) {
             throw GeoTiffFailures.georeference(sourceId, "missing");
         }
         double[] scale = doubles(entries.get(33550), 3);
@@ -240,7 +249,73 @@ final class GeoTiffParser {
         if (!(east > west) || !(north > south)) {
             throw GeoTiffFailures.georeference(sourceId, "collapsed");
         }
-        Envelope bounds = new Envelope(west, south, east, north);
+        return new GeoReference(
+                RasterGridPlacement.axisAligned(new Envelope(west, south, east, north)));
+    }
+
+    private GeoReference transformation(Entry entry, int width, int height) {
+        double[] matrix = doubles(entry, 16);
+        for (double value : matrix) {
+            if (!Double.isFinite(value)) {
+                throw GeoTiffFailures.georeference(sourceId, "nonFinite");
+            }
+        }
+        if (matrix[12] != 0 || matrix[13] != 0 || matrix[14] != 0 || matrix[15] != 1) {
+            throw GeoTiffFailures.unsupported(sourceId, "georeference");
+        }
+        if (matrix[2] != 0
+                || matrix[6] != 0
+                || matrix[8] != 0
+                || matrix[9] != 0
+                || matrix[10] != 1
+                || matrix[11] != 0) {
+            throw GeoTiffFailures.unsupported(sourceId, "georeference");
+        }
+        double centerX = Math.fma(0.5, matrix[0], Math.fma(0.5, matrix[1], matrix[3]));
+        double centerY = Math.fma(0.5, matrix[4], Math.fma(0.5, matrix[5], matrix[7]));
+        if (!Double.isFinite(centerX) || !Double.isFinite(centerY)) {
+            throw GeoTiffFailures.georeference(sourceId, "nonFinite");
+        }
+        RasterAffineTransform affine;
+        try {
+            affine =
+                    RasterAffineTransform.of(
+                            matrix[0], matrix[4], matrix[1], matrix[5], centerX, centerY);
+        } catch (RasterPlacementException failure) {
+            throw placementFailure(failure);
+        }
+        if (matrix[0] > 0 && matrix[1] == 0 && matrix[4] == 0 && matrix[5] < 0) {
+            double west = matrix[3];
+            double east = Math.fma(width, matrix[0], matrix[3]);
+            double north = matrix[7];
+            double south = Math.fma(height, matrix[5], matrix[7]);
+            if (!Double.isFinite(east) || !Double.isFinite(south)) {
+                throw GeoTiffFailures.georeference(sourceId, "nonFinite");
+            }
+            if (!(east > west) || !(north > south)) {
+                throw GeoTiffFailures.georeference(sourceId, "collapsed");
+            }
+            return new GeoReference(
+                    RasterGridPlacement.axisAligned(new Envelope(west, south, east, north)));
+        }
+        return new GeoReference(RasterGridPlacement.affine(affine));
+    }
+
+    private RasterSourceMetadata metadata(
+            SourceIdentity identity,
+            int width,
+            int height,
+            GeoReference reference,
+            CrsMetadata crs) {
+        RasterSourceMetadata metadata;
+        try {
+            metadata =
+                    RasterSourceMetadata.withPlacement(
+                            identity, width, height, reference.placement(), Optional.of(crs));
+        } catch (RasterPlacementException failure) {
+            throw placementFailure(failure);
+        }
+        Envelope bounds = metadata.mapBounds().orElseThrow();
         Envelope domain = crs.definition().orElseThrow().coordinateDomain();
         if (bounds.minX() < domain.minX()
                 || bounds.minY() < domain.minY()
@@ -248,7 +323,16 @@ final class GeoTiffParser {
                 || bounds.maxY() > domain.maxY()) {
             throw GeoTiffFailures.georeference(sourceId, "orientation");
         }
-        return new GeoReference(bounds);
+        return metadata;
+    }
+
+    private RuntimeException placementFailure(RasterPlacementException failure) {
+        return switch (failure.reason()) {
+            case SINGULAR -> GeoTiffFailures.georeference(sourceId, "singular");
+            case ENVELOPE_NON_POSITIVE -> GeoTiffFailures.georeference(sourceId, "collapsed");
+            case INVERSE_NON_FINITE, CORNER_NON_FINITE, ENVELOPE_NON_FINITE ->
+                    GeoTiffFailures.georeference(sourceId, "nonFinite");
+        };
     }
 
     private CrsMetadata geoKeys(Map<Integer, Entry> entries) {
@@ -663,7 +747,7 @@ final class GeoTiffParser {
         for (int tag :
                 new int[] {
                     256, 257, 258, 259, 262, 273, 274, 277, 278, 279, 284, 317, 322, 323, 324, 325,
-                    338, 339, 33550, 33922, 34735
+                    338, 339, 33550, 33922, 34264, 34735
                 }) {
             tags.put(tag, true);
         }
@@ -782,5 +866,5 @@ final class GeoTiffParser {
         }
     }
 
-    private record GeoReference(Envelope bounds) {}
+    private record GeoReference(RasterGridPlacement placement) {}
 }
