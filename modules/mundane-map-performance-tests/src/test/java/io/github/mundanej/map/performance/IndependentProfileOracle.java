@@ -5,6 +5,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.ElevationUnit;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
@@ -36,6 +37,9 @@ import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.io.geotiff.GeoTiffElevationOptions;
+import io.github.mundanej.map.io.geotiff.GeoTiffFiles;
+import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
 import io.github.mundanej.map.io.image.ImageCachePolicy;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
@@ -94,7 +98,116 @@ final class IndependentProfileOracle {
             result.put(
                     "symbol-heavy-render-template-cache-warm", result.get("symbol-heavy-render"));
             result.putAll(IndependentDtedOracle.derive(profile));
+            result.putAll(independentGeoTiff(profile, workspace.resolve("geotiff")));
             return Map.copyOf(result);
+        }
+    }
+
+    private static Map<String, String> independentGeoTiff(
+            EvidenceConfiguration.Profile profile, Path workspace) throws Exception {
+        GeoTiffEvidenceFixture.Fixture fixture = GeoTiffEvidenceFixture.write(workspace, profile);
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        result.put("geotiff-raster-window-read", independentGeoTiffRaster(profile, fixture));
+        result.put("geotiff-eager-elevation-open", independentGeoTiffElevation(profile, fixture));
+        return result;
+    }
+
+    private static String independentGeoTiffRaster(
+            EvidenceConfiguration.Profile profile, GeoTiffEvidenceFixture.Fixture fixture) {
+        int window = profile == EvidenceConfiguration.Profile.BASELINE ? 64 : 32;
+        int windows = profile == EvidenceConfiguration.Profile.BASELINE ? 4 : 2;
+        long outputPixels = (long) windows * window * window;
+        Map<String, Long> counters =
+                counters(
+                        "windowsRead",
+                        windows,
+                        "outputPixels",
+                        outputPixels,
+                        "decodedSegmentBytes",
+                        (long) windows * window * fixture.rasterSize(),
+                        "encodedBytes",
+                        fixture.rasterBytes());
+        try (RasterSource source =
+                GeoTiffFiles.openRaster(
+                        new SourceIdentity("independent-geotiff-raster", ""),
+                        fixture.raster(),
+                        GeoTiffRasterOptions.defaults())) {
+            ReferenceDigest timed =
+                    new ReferenceDigest(EvidenceConfiguration.SEED)
+                            .text("geotiff-raster-window-read");
+            for (int index = 0; index < windows; index++) {
+                int column = Math.floorMod(index * 193, fixture.rasterSize() - window + 1);
+                int row =
+                        16
+                                * Math.floorMod(
+                                        index * 19,
+                                        Math.floorDiv(fixture.rasterSize() - window, 16) + 1);
+                RasterRead read =
+                        source.read(
+                                new RasterRequest(
+                                        new RasterWindow(column, row, window, window),
+                                        window,
+                                        window,
+                                        Optional.empty()),
+                                CancellationToken.none());
+                for (int y = 0; y < window; y++) {
+                    for (int x = 0; x < window; x++) {
+                        timed.packedRgba(read.pixels().rgbaAt(x, y));
+                    }
+                }
+            }
+            return digest(
+                    profile,
+                    "geotiff-raster-window-read",
+                    counters,
+                    value -> value.longInteger(timed.value()));
+        }
+    }
+
+    private static String independentGeoTiffElevation(
+            EvidenceConfiguration.Profile profile, GeoTiffEvidenceFixture.Fixture fixture) {
+        long samples = (long) fixture.elevationSize() * fixture.elevationSize();
+        long publishedMask = 8L * Math.ceilDiv(samples, 64L);
+        long published = samples * 8L + publishedMask;
+        long temporary = samples * 8L;
+        long scratch = 32L * fixture.elevationSize() * 2L;
+        long segments = Math.ceilDiv(fixture.elevationSize(), 32L);
+        long parserPlan = 13L * 64L + 9L * Double.BYTES + 4L * Long.BYTES * segments;
+        long formatWorking = parserPlan + temporary + scratch;
+        long snapshotAndFormat = fixture.elevationBytes() + formatWorking;
+        long formatAndPublished = formatWorking + published;
+        Map<String, Long> counters =
+                counters(
+                        "samplesPublished", samples,
+                        "encodedBytes", fixture.elevationBytes(),
+                        "logicalTemporaryBytes", temporary,
+                        "logicalPublishedBytes", published,
+                        "logicalDecoderScratchBytes", scratch,
+                        "logicalParserPlanBytes", parserPlan,
+                        "logicalFormatWorkingBytes", formatWorking,
+                        "logicalSnapshotAndFormatPeakBytes", snapshotAndFormat,
+                        "logicalFormatAndPublishedPeakBytes", formatAndPublished,
+                        "logicalOpenPeakBytes", Math.max(snapshotAndFormat, formatAndPublished));
+        try (var source =
+                GeoTiffFiles.openElevation(
+                        new SourceIdentity("independent-geotiff-elevation", ""),
+                        fixture.elevation(),
+                        GeoTiffElevationOptions.of(ElevationUnit.METRE))) {
+            return digest(
+                    profile,
+                    "geotiff-eager-elevation-open",
+                    counters,
+                    value -> {
+                        value.integer(source.metadata().columnCount())
+                                .integer(source.metadata().rowCount())
+                                .decimal(source.sample(0, 0).orElseThrow())
+                                .decimal(
+                                        source.sample(
+                                                        source.metadata().columnCount() - 1,
+                                                        source.metadata().rowCount() - 1)
+                                                .orElseThrow());
+                        ReferenceDigest.diagnostics(value, source.openingDiagnostics());
+                    });
         }
     }
 

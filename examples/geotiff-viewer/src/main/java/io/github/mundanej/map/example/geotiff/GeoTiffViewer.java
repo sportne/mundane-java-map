@@ -27,14 +27,14 @@ import java.util.function.Consumer;
 import javax.swing.JFrame;
 import javax.swing.WindowConstants;
 
-/** Minimal viewer for the first bounded GeoTIFF raster profile. */
+/** Runnable viewer for the bounded GeoTIFF raster and elevation profiles. */
 public final class GeoTiffViewer {
     private GeoTiffViewer() {}
 
     /**
      * Opens the supplied local GeoTIFF and launches a Swing map view.
      *
-     * @param arguments one local GeoTIFF path
+     * @param arguments either one raster path or {@code --elevation-unit UNIT terrain.tif}
      */
     public static void main(String[] arguments) {
         if (arguments.length == 3 && "--elevation-unit".equals(arguments[0])) {
@@ -218,7 +218,15 @@ public final class GeoTiffViewer {
 
     private static String summary(RuntimeException failure) {
         if (failure instanceof io.github.mundanej.map.api.SourceException sourceFailure) {
-            return sourceFailure.terminal().code() + ": " + sourceFailure.terminal().message();
+            String context =
+                    sourceFailure.terminal().context().entrySet().stream()
+                            .sorted(java.util.Map.Entry.comparingByKey())
+                            .map(entry -> entry.getKey() + '=' + entry.getValue())
+                            .collect(java.util.stream.Collectors.joining(","));
+            return sourceFailure.terminal().code()
+                    + (context.isEmpty() ? "" : " [" + context + ']')
+                    + ": "
+                    + sourceFailure.terminal().message();
         }
         String message = failure.getMessage();
         return failure.getClass().getSimpleName()

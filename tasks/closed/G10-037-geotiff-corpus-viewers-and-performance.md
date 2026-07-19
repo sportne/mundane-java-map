@@ -1,6 +1,6 @@
 # G10-037 — GeoTIFF corpus, viewers, and performance
 
-Status: Proposed
+Status: Complete
 Depends on: G10-036
 Gate: G10
 Type: HITL
@@ -55,3 +55,10 @@ git diff --check
 HITL checkpoint: **G10 GeoTIFF interoperability and performance review**. A maintainer approves the
 fixture provenance/redistribution record, manually checks both viewer modes, and reviews the bounded
 performance evidence before the task closes.
+
+Implementation evidence (2026-07-19): the final canonical five-warmup/twenty-measurement lane and
+`qualityGate` completed together in 2 minutes 23 seconds. Four aligned 64-by-64 raster windows had a
+0.552 ms median and reported 262,144 decoded segment bytes. Eager publication of a 512-by-512 Int16
+grid had a 1.670 ms median and an exact 4,261,256-byte logical open peak. These are environment-bound
+measurements, not release thresholds. Both frozen semantics also passed the independent BASELINE
+oracle; this bounded evidence does not justify a GeoTIFF optimization task.

@@ -13,4 +13,7 @@ application {
     mainClass = 'io.github.mundanej.map.example.geotiff.GeoTiffViewer'
 }
 
+sourceSets.test.resources.srcDir rootProject.file(
+        'modules/mundane-map-io-geotiff/src/test/resources')
+
 description = 'Runnable bounded GeoTIFF raster and numeric elevation viewer example.'

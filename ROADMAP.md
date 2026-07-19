@@ -371,8 +371,10 @@ separately decomposed.
   G10-036 closes the parser envelope with exact ancillary-tag and citation validation, numeric
   unsupported-tag/key context, a single-buffer snapshot transaction with explicit cleanup
   arbitration, data-leak canaries, and deterministic raster/elevation mutation and every-cut
-  truncation evidence. G10-037 and G10-038 remain Proposed for corpus/performance evidence and
-  Native Image closeout.
+  truncation evidence. G10-037 adds a four-file independent-writer corpus with pinned provenance,
+  licenses, recipes, and hashes; completes raster/elevation viewer outcomes and tolerant rendering;
+  and extends the existing quick/canonical performance lane with bounded raster-window and eager
+  elevation evidence. G10-038 remains Proposed for Native Image closeout.
 - G10-005 is complete as two profile decisions only: bounded GPX 1.1 and static KML 2.2 sources stay
   separate, use direct hardened JDK StAX, and begin later with G10-050 and G10-054 respectively.
 - G10-002 approves one bounded optional Jackson Core GeoJSON read/write adapter. G10-020 and G10-021

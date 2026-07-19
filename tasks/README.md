@@ -253,7 +253,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-034 — GeoTIFF integer elevation slice](closed/G10-034-geotiff-integer-elevation-slice.md) | Complete | AFK | G10-033, G9-002, G9-005 | Read, query, colorize, and render signed integer PixelIsPoint elevation. |
 | [G10-035 — GeoTIFF floating elevation and no-data](closed/G10-035-geotiff-floating-elevation-and-no-data.md) | Complete | AFK | G10-034 | Add floating samples, no-data, hillshade, and compressed/tiled parity. |
 | [G10-036 — GeoTIFF hardening](closed/G10-036-geotiff-hardening.md) | Complete | AFK | G10-035 | Close limits, diagnostics, cancellation, cleanup, aliasing, and hostile mutation. |
-| [G10-037 — GeoTIFF corpus, viewers, and performance](G10-037-geotiff-corpus-viewers-and-performance.md) | Proposed | HITL | G10-036 | Approve an independent corpus and complete viewer/performance evidence. |
+| [G10-037 — GeoTIFF corpus, viewers, and performance](closed/G10-037-geotiff-corpus-viewers-and-performance.md) | Complete | HITL | G10-036 | Approve an independent corpus and complete viewer/performance evidence. |
 | [G10-038 — Native Image GeoTIFF closeout](G10-038-native-image-geotiff-closeout.md) | Proposed | HITL | G10-037 | Prove the bounded raster/elevation/codec Linux Native Image paths. |
 | [G10-039 — Encoded raster byte decoder](G10-039-encoded-raster-byte-decoder.md) | Proposed | AFK | G6-004, G10-006 | Decode bounded detached PNG/JPEG bytes through the explicit image registry. |
 | [G10-040 — GeoPackage catalog and point features](G10-040-geopackage-catalog-and-point-features.md) | Proposed | AFK | G10-004, G11-004 | Qualify Xerial and deliver bounded GeoPackage catalog/point feature behavior. |

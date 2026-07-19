@@ -14,6 +14,7 @@ dependencies {
 sourceSets {
     renderRegressionTest {
         java.srcDir 'src/renderRegressionTest/java'
+        resources.srcDir rootProject.file('modules/mundane-map-io-geotiff/src/test/resources')
         compileClasspath += sourceSets.main.output
         runtimeClasspath += output + compileClasspath
     }

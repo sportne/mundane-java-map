@@ -1,0 +1,5 @@
+id	path	route	width	height	layout	compression	crs	profile	bytes	sha256	generator	generatorVersion	artifactLicense	recipe	toolchainInventory
+gdal-rgb-strip-none-4326	data/gdal-rgb-strip-none-4326.tif	raster	24	16	strips	none	EPSG:4326	RGB8	1450	d71b92274a28d39a17b1b189092adb7e5e4a46b6a414e21cdc2b044bceba1616	GDAL-GTiff	3.13.0	Apache-2.0	recipes/gdal-3.13.0-geotiff.sh	toolchain.tsv
+gdal-gray-tile-deflate-3857	data/gdal-gray-tile-deflate-3857.tif	raster	16	16	tiles	deflate	EPSG:3857	BlackIsZero8	567	9791990e4efff48ba80cd7665766da81aba570381c8d6fd895ccba1bf328d885	GDAL-GTiff	3.13.0	Apache-2.0	recipes/gdal-3.13.0-geotiff.sh	toolchain.tsv
+gdal-int16-strip-packbits-4326	data/gdal-int16-strip-packbits-4326.tif	elevation	16	16	strips	packbits	EPSG:4326	Int16	814	690bb35cc0b91053f2b5236c259af6931714b8ebd6c811f907c204519be7cb4f	GDAL-GTiff	3.13.0	Apache-2.0	recipes/gdal-3.13.0-geotiff.sh	toolchain.tsv
+gdal-float32-tile-deflate-3857	data/gdal-float32-tile-deflate-3857.tif	elevation	16	16	tiles	deflate	EPSG:3857	Float32	453	2cb8508be0580e66c31e2808544927b20debbfb82afa58a89f2b6d18c8914646	GDAL-GTiff	3.13.0	Apache-2.0	recipes/gdal-3.13.0-geotiff.sh	toolchain.tsv

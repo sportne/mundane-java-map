@@ -1,0 +1,11 @@
+component	versionOrIdentity	role	licenseRecord
+generator-image	linux/amd64@sha256:fd205102ddfaa537e18dac37a9f648e79989e99a4e6f6a2375e5f7e0e511616c;config=sha256:be85b2a4b798f1d2f10bb9b724336976ce1bf1b0791298b8ad8379fc012d3138	complete external generator image identity; image is not redistributed	NOT_DISTRIBUTED
+python3.14-minimal	3.14.4-1	orchestration and deterministic sample buffers	licenses/python3.14-minimal-copyright.txt
+GDAL-GTiff	3.13.0	final TIFF/IFD/GeoKey/segment writer	licenses/GDAL-MIT.txt
+internal-PROJ	9.8.1	GDAL CRS construction runtime	licenses/proj-copyright.txt
+libproj25	9.7.1-1	linked PROJ runtime	licenses/proj-copyright.txt
+proj-data	9.7.1-1	EPSG CRS definitions	licenses/proj-copyright.txt
+libgeotiff5	1.7.4-1build1	GeoKey encoding	licenses/libgeotiff5-copyright.txt
+libtiff6	4.7.0-3ubuntu4	TIFF container and None/PackBits/Deflate encoding	licenses/libtiff6-copyright.txt
+zlib1g	1:1.3.dfsg+really1.3.1-1ubuntu3	Deflate codec runtime	licenses/zlib1g-copyright.txt
+libdeflate0	1.23-2ubuntu1	linked Deflate codec runtime	licenses/libdeflate0-copyright.txt

@@ -211,8 +211,9 @@ final class ScenarioRegistry {
         appendRenderCacheScenarios(result, profile, selected);
         try {
             DtedEvidenceScenarios.append(result, profile, selected, workspace);
+            GeoTiffEvidenceScenarios.append(result, profile, selected, workspace);
         } catch (Exception failure) {
-            throw new IllegalStateException("Cannot create DTED evidence scenarios", failure);
+            throw new IllegalStateException("Cannot create format evidence scenarios", failure);
         }
     }
 
@@ -444,6 +445,8 @@ final class ScenarioRegistry {
         result.add("dted-eager-open");
         result.add("dted-sequential-scan");
         result.add("dted-position-query");
+        result.add("geotiff-raster-window-read");
+        result.add("geotiff-eager-elevation-open");
         return List.copyOf(result);
     }
 

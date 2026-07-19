@@ -65,7 +65,40 @@ class GeoTiffViewerTest {
         assertFalse(
                 GeoTiffViewer.runMain(
                         new String[] {malformed.toString()}, summaries::add, ignored -> {}));
-        assertTrue(summaries.getLast().startsWith("GEOTIFF_HEADER_INVALID:"));
+        assertTrue(
+                summaries
+                        .getLast()
+                        .startsWith("GEOTIFF_HEADER_INVALID [field=ifdOffset,reason=range]:"));
+
+        Path unsupported = directory.resolve("unsupported.tif");
+        Files.write(unsupported, new byte[] {'I', 'I', 43, 0, 8, 0, 0, 0});
+        assertFalse(
+                GeoTiffViewer.runMain(
+                        new String[] {unsupported.toString()}, summaries::add, ignored -> {}));
+        assertTrue(
+                summaries.getLast().startsWith("GEOTIFF_PROFILE_UNSUPPORTED [construct=bigTiff]:"));
+    }
+
+    @Test
+    void bothModesLoadIndependentCorpusFixturesAndTransferOwnership(@TempDir Path directory)
+            throws Exception {
+        Path raster = copyCorpus(directory, "gdal-rgb-strip-none-4326.tif");
+        AtomicReference<RasterSource> rasterSource = new AtomicReference<>();
+        assertTrue(
+                GeoTiffViewer.runMain(
+                        new String[] {raster.toString()}, ignored -> {}, rasterSource::set));
+        assertEquals(24, rasterSource.get().metadata().width());
+        rasterSource.get().close();
+
+        Path elevation = copyCorpus(directory, "gdal-int16-strip-packbits-4326.tif");
+        AtomicReference<ElevationSource> elevationSource = new AtomicReference<>();
+        assertTrue(
+                GeoTiffViewer.runElevationMain(
+                        new String[] {"--elevation-unit", "METRE", elevation.toString()},
+                        ignored -> {},
+                        elevationSource::set));
+        assertEquals(16, elevationSource.get().metadata().columnCount());
+        elevationSource.get().close();
     }
 
     @Test
@@ -173,6 +206,18 @@ class GeoTiffViewerTest {
                 .putShort((short) -800)
                 .putShort((short) -700);
         return bytes.array();
+    }
+
+    private static Path copyCorpus(Path directory, String name) throws Exception {
+        Path path = directory.resolve(name);
+        try (var input =
+                GeoTiffViewerTest.class.getResourceAsStream("/geotiff-corpus/data/" + name)) {
+            if (input == null) {
+                throw new AssertionError("Missing corpus fixture " + name);
+            }
+            Files.write(path, input.readAllBytes());
+        }
+        return path;
     }
 
     private static byte[] fixture() {
