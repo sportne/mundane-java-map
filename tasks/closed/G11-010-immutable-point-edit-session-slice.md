@@ -1,6 +1,6 @@
 # G11-010 — Immutable point-edit session slice
 
-Status: Proposed
+Status: Complete
 Depends on: G11-001
 Gate: G11
 Type: AFK

@@ -16,6 +16,10 @@ import io.github.mundanej.map.api.ElevationSourceMetadata;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeatureEditConfigurationException;
+import io.github.mundanej.map.api.FeatureEditEvent;
+import io.github.mundanej.map.api.FeatureEditProblem;
+import io.github.mundanej.map.api.FeatureEditSnapshot;
 import io.github.mundanej.map.api.FeatureOverlaySymbols;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
@@ -692,9 +696,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         LinkedHashMap<String, DiagnosticReport> ordered = new LinkedHashMap<>();
         for (MapLayerBinding binding : bindings) {
             DiagnosticReport report = sourceReports.get(binding.id());
-            if (binding.kind() != MapLayerBinding.Kind.SNAPSHOT
-                    && report != null
-                    && !report.entries().isEmpty()) {
+            if (isSourceBinding(binding) && report != null && !report.entries().isEmpty()) {
                 ordered.put(binding.id(), report);
             }
         }
@@ -969,6 +971,16 @@ public final class MapView extends JComponent implements AutoCloseable {
             if (binding.kind() == MapLayerBinding.Kind.ELEVATION) {
                 Envelope elevationBounds = binding.elevationSource().metadata().sampleBounds();
                 projected = projected == null ? elevationBounds : projected.union(elevationBounds);
+                continue;
+            }
+            if (binding.kind() == MapLayerBinding.Kind.EDITABLE) {
+                FeatureEditSnapshot editSnapshot = binding.editSession().snapshot();
+                for (FeatureRecord record : editSnapshot.records()) {
+                    Envelope recordEnvelope =
+                            mapToDisplay.transformEnvelopeStrict(record.geometry().envelope());
+                    projected =
+                            projected == null ? recordEnvelope : projected.union(recordEnvelope);
+                }
                 continue;
             }
             Optional<Envelope> extent;
@@ -4322,6 +4334,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                     switch (binding.kind()) {
                         case SNAPSHOT -> captureSnapshot(binding);
                         case FEATURE -> captureFeatureSource(binding, viewportSnapshot);
+                        case EDITABLE -> captureEditable(binding);
                         case RASTER ->
                                 readRasters
                                         ? captureRasterSource(
@@ -4382,6 +4395,21 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         return new LayerSnapshot(
                 currentLayerId, List.copyOf(visual), Optional.empty(), false, true);
+    }
+
+    private LayerSnapshot captureEditable(MapLayerBinding binding) {
+        FeatureEditSnapshot snapshot = binding.editSession().snapshot();
+        List<VisualFeature> visual = new ArrayList<>(snapshot.records().size());
+        for (FeatureRecord record : snapshot.records()) {
+            visual.add(
+                    new VisualFeature(
+                            record.id(),
+                            record.name(),
+                            record.geometry(),
+                            sourceSymbol(binding, record.geometry()),
+                            mapToDisplay));
+        }
+        return new LayerSnapshot(binding.id(), List.copyOf(visual), Optional.empty(), false, true);
     }
 
     private LayerSnapshot captureFeatureSource(
@@ -4770,6 +4798,31 @@ public final class MapView extends JComponent implements AutoCloseable {
                 validateSnapshotFeatures(binding);
                 continue;
             }
+            if (binding.kind() == MapLayerBinding.Kind.EDITABLE) {
+                if (!EventQueue.isDispatchThread()) {
+                    throw new IllegalStateException(
+                            "Editable bindings must be attached on the event-dispatch thread");
+                }
+                FeatureEditSnapshot editSnapshot = binding.editSession().snapshot();
+                if (!editSnapshot.crs().equals(mapCrs)) {
+                    throw new FeatureEditConfigurationException(
+                            new FeatureEditProblem(
+                                    "EDIT_CRS_MISMATCH",
+                                    "Editable session CRS must equal the view map CRS",
+                                    Map.of(
+                                            "expectedCrs", mapCrs.canonicalIdentifier(),
+                                            "actualCrs",
+                                                    editSnapshot.crs().canonicalIdentifier())));
+                }
+                if (!sources.add(binding.editSession())) {
+                    throw new IllegalArgumentException(
+                            "An edit session may be bound only once in one MapView");
+                }
+                validateSourceSymbol(binding.marker(), SymbolRole.MARKER);
+                validateSourceSymbol(binding.line(), SymbolRole.LINE);
+                validateSourceSymbol(binding.fill(), SymbolRole.FILL);
+                continue;
+            }
             Object source = null;
             String sourceId = null;
             boolean sourceClosed = false;
@@ -4789,6 +4842,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                     sourceId = binding.elevationSource().metadata().identity().id();
                     sourceClosed = binding.elevationSource().isClosed();
                 }
+                case EDITABLE -> throw new AssertionError("editable handled above");
                 case SNAPSHOT -> throw new AssertionError("snapshot handled above");
             }
             if (sourceClosed) {
@@ -4831,6 +4885,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         return switch (binding.kind()) {
             case SNAPSHOT -> false;
             case FEATURE -> binding.source() == source;
+            case EDITABLE -> binding.editSession() == source;
             case RASTER -> binding.rasterSource() == source;
             case ELEVATION -> binding.elevationSource() == source;
         };
@@ -4943,6 +4998,15 @@ public final class MapView extends JComponent implements AutoCloseable {
         if (old == null) {
             return Optional.empty();
         }
+        if (old.kind() == MapLayerBinding.Kind.EDITABLE) {
+            if (!identitySet(candidate).contains(old)) {
+                return Optional.empty();
+            }
+            return old.editSession().snapshot().records().stream()
+                            .anyMatch(record -> record.id().equals(selected.featureId()))
+                    ? current
+                    : Optional.empty();
+        }
         if (old.kind() != MapLayerBinding.Kind.SNAPSHOT) {
             return old.kind() == MapLayerBinding.Kind.FEATURE
                             && identitySet(candidate).contains(old)
@@ -4989,13 +5053,13 @@ public final class MapView extends JComponent implements AutoCloseable {
             List<MapLayerBinding> previous, List<MapLayerBinding> candidate) {
         Set<MapLayerBinding> oldIdentities = identitySet(previous);
         for (MapLayerBinding binding : candidate) {
-            if (binding.kind() != MapLayerBinding.Kind.SNAPSHOT
-                    && !oldIdentities.contains(binding)) {
+            if (isSourceBinding(binding) && !oldIdentities.contains(binding)) {
                 DiagnosticReport opening =
                         switch (binding.kind()) {
                             case FEATURE -> binding.source().openingDiagnostics();
                             case RASTER -> binding.rasterSource().openingDiagnostics();
                             case ELEVATION -> binding.elevationSource().openingDiagnostics();
+                            case EDITABLE -> throw new AssertionError("source binding required");
                             case SNAPSHOT -> throw new AssertionError("snapshot excluded above");
                         };
                 if (!opening.entries().isEmpty()) {
@@ -5003,6 +5067,30 @@ public final class MapView extends JComponent implements AutoCloseable {
                 }
                 sourceAvailability.put(binding.id(), true);
             }
+        }
+    }
+
+    void onEditableFeatureEdit(MapLayerBinding binding, FeatureEditEvent event) {
+        Objects.requireNonNull(binding, "binding");
+        Objects.requireNonNull(event, "event");
+        if (!identitySet(bindings).contains(binding)) {
+            return;
+        }
+        Optional<FeatureSelection> nextSelection = selection;
+        if (selection.isPresent() && selection.orElseThrow().layerId().equals(binding.id())) {
+            String featureId = selection.orElseThrow().featureId();
+            boolean retained =
+                    event.current().records().stream()
+                            .anyMatch(record -> record.id().equals(featureId));
+            if (!retained) {
+                nextSelection = Optional.empty();
+            }
+        }
+        hoverProbe = Optional.empty();
+        if (!transitionInteraction(nextSelection, Optional.empty(), true)) {
+            hoverPaintState = Optional.empty();
+            selectionPaintState = Optional.empty();
+            repaint();
         }
     }
 
@@ -5031,12 +5119,18 @@ public final class MapView extends JComponent implements AutoCloseable {
                     suppressDistinct(primary, failure);
                 }
             }
-            if (binding.kind() != MapLayerBinding.Kind.SNAPSHOT) {
+            if (isSourceBinding(binding)) {
                 transitionSourceReport(binding.id(), Optional.empty());
                 sourceAvailability.remove(binding.id());
             }
         }
         return primary;
+    }
+
+    private static boolean isSourceBinding(MapLayerBinding binding) {
+        return binding.kind() == MapLayerBinding.Kind.FEATURE
+                || binding.kind() == MapLayerBinding.Kind.RASTER
+                || binding.kind() == MapLayerBinding.Kind.ELEVATION;
     }
 
     private void updateSourceResult(String layerId, DiagnosticReport report, boolean available) {

@@ -1,0 +1,15 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.edit.PointEditViewer'
+}
+
+description = 'Runnable immutable point-edit session example.'

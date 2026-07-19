@@ -3,6 +3,7 @@ package io.github.mundanej.map.awt;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.ElevationRasterStyle;
 import io.github.mundanej.map.api.ElevationSource;
+import io.github.mundanej.map.api.FeatureEditListener;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FillSymbol;
 import io.github.mundanej.map.api.Layer;
@@ -12,6 +13,7 @@ import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.core.FeatureEditSession;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,6 +28,7 @@ public final class MapLayerBinding implements AutoCloseable {
     enum Kind {
         SNAPSHOT,
         FEATURE,
+        EDITABLE,
         RASTER,
         ELEVATION
     }
@@ -35,6 +38,7 @@ public final class MapLayerBinding implements AutoCloseable {
     private final String name;
     private final Layer layer;
     private final FeatureSource source;
+    private final FeatureEditSession editSession;
     private final RasterSource rasterSource;
     private final ElevationSource elevationSource;
     private final MarkerSymbol marker;
@@ -46,6 +50,7 @@ public final class MapLayerBinding implements AutoCloseable {
     private final boolean owned;
     private final AtomicReference<Operation> operation = new AtomicReference<>();
     private Object owner;
+    private FeatureEditListener editListener;
     private boolean closed;
 
     private MapLayerBinding(Layer layer) {
@@ -54,6 +59,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.id = requireText(layer.id(), "layer.id");
         this.name = requireText(layer.name(), "layer.name");
         this.source = null;
+        this.editSession = null;
         this.rasterSource = null;
         this.elevationSource = null;
         this.marker = null;
@@ -77,6 +83,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
         this.source = Objects.requireNonNull(source, "source");
+        this.editSession = null;
         if (source.isClosed()) {
             throw new IllegalStateException("source is closed");
         }
@@ -95,6 +102,30 @@ public final class MapLayerBinding implements AutoCloseable {
     private MapLayerBinding(
             String id,
             String name,
+            FeatureEditSession editSession,
+            MarkerSymbol marker,
+            LineSymbol line,
+            FillSymbol fill) {
+        this.kind = Kind.EDITABLE;
+        this.id = requireText(id, "id");
+        this.name = requireText(name, "name");
+        this.editSession = Objects.requireNonNull(editSession, "editSession");
+        this.marker = requireRole(marker, SymbolRole.MARKER, "marker");
+        this.line = requireRole(line, SymbolRole.LINE, "line");
+        this.fill = requireRole(fill, SymbolRole.FILL, "fill");
+        this.layer = null;
+        this.source = null;
+        this.rasterSource = null;
+        this.elevationSource = null;
+        this.rasterOptions = null;
+        this.elevationStyle = null;
+        this.rasterLimits = null;
+        this.owned = false;
+    }
+
+    private MapLayerBinding(
+            String id,
+            String name,
             RasterSource source,
             RasterRenderOptions rasterOptions,
             boolean owned) {
@@ -102,6 +133,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
         this.rasterSource = Objects.requireNonNull(source, "source");
+        this.editSession = null;
         this.elevationSource = null;
         if (source.isClosed()) {
             throw new IllegalStateException("source is closed");
@@ -129,6 +161,7 @@ public final class MapLayerBinding implements AutoCloseable {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
         this.elevationSource = Objects.requireNonNull(source, "source");
+        this.editSession = null;
         if (source.isClosed()) {
             throw new IllegalStateException("source is closed");
         }
@@ -202,6 +235,30 @@ public final class MapLayerBinding implements AutoCloseable {
             LineSymbol line,
             FillSymbol fill) {
         return new MapLayerBinding(id, name, source, marker, line, fill, true);
+    }
+
+    /**
+     * Creates a borrowed editable binding around an owner-thread feature-edit session.
+     *
+     * <p>The binding observes immutable session snapshots and never closes or mutates the session.
+     * Attachment requires the session owner thread and an exact view map-CRS match.
+     *
+     * @param id stable non-blank layer identifier
+     * @param name non-blank display name
+     * @param session caller-owned feature-edit session
+     * @param marker marker-role symbol for point and multipoint records
+     * @param line line-role symbol for line and polygon boundaries
+     * @param fill fill-role symbol for polygon interiors
+     * @return new unattached borrowed editable binding
+     */
+    public static MapLayerBinding editableFeature(
+            String id,
+            String name,
+            FeatureEditSession session,
+            MarkerSymbol marker,
+            LineSymbol line,
+            FillSymbol fill) {
+        return new MapLayerBinding(id, name, session, marker, line, fill);
     }
 
     /**
@@ -449,6 +506,10 @@ public final class MapLayerBinding implements AutoCloseable {
         return source;
     }
 
+    FeatureEditSession editSession() {
+        return editSession;
+    }
+
     RasterSource rasterSource() {
         return rasterSource;
     }
@@ -494,11 +555,26 @@ public final class MapLayerBinding implements AutoCloseable {
             throw new IllegalStateException("binding is already attached to another MapView");
         }
         owner = requestedOwner;
+        if (kind == Kind.EDITABLE) {
+            MapView view = (MapView) requestedOwner;
+            FeatureEditListener listener = event -> view.onEditableFeatureEdit(this, event);
+            try {
+                editSession.addFeatureEditListener(listener);
+                editListener = listener;
+            } catch (RuntimeException | Error failure) {
+                owner = null;
+                throw failure;
+            }
+        }
     }
 
     synchronized void release(Object requestedOwner) {
         if (owner != requestedOwner) {
             throw new IllegalStateException("binding is not attached to this MapView");
+        }
+        if (editListener != null) {
+            editSession.removeFeatureEditListener(editListener);
+            editListener = null;
         }
         owner = null;
     }
@@ -511,9 +587,14 @@ public final class MapLayerBinding implements AutoCloseable {
         close();
     }
 
+    synchronized boolean isObservingEditSession() {
+        return editListener != null;
+    }
+
     Operation beginOperation() {
-        if (kind == Kind.SNAPSHOT) {
-            throw new IllegalStateException("Snapshot bindings do not have source operations");
+        if (kind == Kind.SNAPSHOT || kind == Kind.EDITABLE) {
+            throw new IllegalStateException(
+                    "Snapshot and editable bindings do not have source operations");
         }
         synchronized (this) {
             if (closed || owner == null) {
