@@ -5,6 +5,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.zip.Deflater;
 
 final class GeoTiffFixtures {
     private static final int ENTRY_COUNT = 13;
@@ -131,6 +132,63 @@ final class GeoTiffFixtures {
         return raster(ByteOrder.LITTLE_ENDIAN, 4, 3, 1, 1, false, true);
     }
 
+    static byte[] packBitsTiledRgb() {
+        return compressedRaster(17, 17, 2, 3, true, 32773);
+    }
+
+    static byte[] packBitsTiledRgbWithFirstSegment(byte[] firstSegment) {
+        List<byte[]> encoded = new ArrayList<>();
+        for (byte[] segment : segments(17, 17, 2, 3, true)) {
+            encoded.add(packBits(segment));
+        }
+        encoded.set(0, firstSegment.clone());
+        return raster(ByteOrder.LITTLE_ENDIAN, 17, 17, 2, 3, true, false, 32773, encoded);
+    }
+
+    static byte[] deflateRgba() {
+        return compressedRaster(4, 3, 2, 4, false, 8);
+    }
+
+    static byte[] compressedGray(int compression, byte[] encoded) {
+        return raster(
+                ByteOrder.LITTLE_ENDIAN,
+                4,
+                2,
+                1,
+                1,
+                false,
+                false,
+                compression,
+                List.of(encoded.clone()));
+    }
+
+    static byte[] deflate(byte[] decoded) {
+        Deflater deflater = new Deflater();
+        try {
+            deflater.setInput(decoded);
+            deflater.finish();
+            byte[] buffer = new byte[decoded.length * 2 + 32];
+            int length = deflater.deflate(buffer);
+            return java.util.Arrays.copyOf(buffer, length);
+        } finally {
+            deflater.end();
+        }
+    }
+
+    static byte[] deflateWithDictionary(byte[] decoded) {
+        Deflater deflater = new Deflater();
+        try {
+            deflater.setDictionary(new byte[] {1, 2, 3, 4, 5, 6, 7, 8});
+            deflater.setInput(decoded);
+            deflater.finish();
+            byte[] buffer = new byte[decoded.length * 2 + 32];
+            int length = deflater.deflate(buffer);
+            return java.util.Arrays.copyOf(buffer, length);
+        } finally {
+            deflater.end();
+        }
+    }
+
     private static byte[] raster(
             ByteOrder order,
             int width,
@@ -139,12 +197,51 @@ final class GeoTiffFixtures {
             int samples,
             boolean tiled,
             boolean projected) {
-        List<byte[]> segments = segments(width, height, photometric, samples, tiled);
+        return raster(
+                order,
+                width,
+                height,
+                photometric,
+                samples,
+                tiled,
+                projected,
+                1,
+                segments(width, height, photometric, samples, tiled));
+    }
+
+    private static byte[] compressedRaster(
+            int width, int height, int photometric, int samples, boolean tiled, int compression) {
+        List<byte[]> encoded = new ArrayList<>();
+        for (byte[] segment : segments(width, height, photometric, samples, tiled)) {
+            encoded.add(compression == 8 ? deflate(segment) : packBits(segment));
+        }
+        return raster(
+                ByteOrder.LITTLE_ENDIAN,
+                width,
+                height,
+                photometric,
+                samples,
+                tiled,
+                false,
+                compression,
+                encoded);
+    }
+
+    private static byte[] raster(
+            ByteOrder order,
+            int width,
+            int height,
+            int photometric,
+            int samples,
+            boolean tiled,
+            boolean projected,
+            int compression,
+            List<byte[]> segments) {
         List<Tag> tags = new ArrayList<>();
         tags.add(Tag.shorts(256, width));
         tags.add(Tag.shorts(257, height));
         tags.add(Tag.repeatedShorts(258, samples, 8));
-        tags.add(Tag.shorts(259, 1));
+        tags.add(Tag.shorts(259, compression));
         tags.add(Tag.shorts(262, photometric));
         int segmentCount = segments.size();
         if (tiled) {
@@ -230,6 +327,44 @@ final class GeoTiffFixtures {
             bytes.put(segments.get(index));
         }
         return bytes.array();
+    }
+
+    private static byte[] packBits(byte[] decoded) {
+        java.io.ByteArrayOutputStream encoded = new java.io.ByteArrayOutputStream();
+        encoded.write(0x80);
+        int index = 0;
+        while (index < decoded.length) {
+            int run = 1;
+            while (index + run < decoded.length
+                    && decoded[index + run] == decoded[index]
+                    && run < 128) {
+                run++;
+            }
+            if (run >= 3) {
+                encoded.write(1 - run);
+                encoded.write(decoded[index]);
+                index += run;
+                continue;
+            }
+            int literalStart = index;
+            index += run;
+            while (index < decoded.length && index - literalStart < 128) {
+                int nextRun = 1;
+                while (index + nextRun < decoded.length
+                        && decoded[index + nextRun] == decoded[index]
+                        && nextRun < 128) {
+                    nextRun++;
+                }
+                if (nextRun >= 3) {
+                    break;
+                }
+                index += nextRun;
+            }
+            int literal = index - literalStart;
+            encoded.write(literal - 1);
+            encoded.write(decoded, literalStart, literal);
+        }
+        return encoded.toByteArray();
     }
 
     private static List<byte[]> segments(

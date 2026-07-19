@@ -25,9 +25,11 @@ final class GeoTiffRasterSource implements RasterSource {
     private final int segmentsAcross;
     private final int samplesPerPixel;
     private final GeoTiffParser.ColorProfile colorProfile;
+    private final int compression;
     private byte[] snapshot;
     private long[] offsets;
     private long[] counts;
+    private long[] decodedCounts;
     private boolean closed;
 
     GeoTiffRasterSource(
@@ -41,8 +43,10 @@ final class GeoTiffRasterSource implements RasterSource {
             int segmentsAcross,
             int samplesPerPixel,
             GeoTiffParser.ColorProfile colorProfile,
+            int compression,
             long[] offsets,
-            long[] counts) {
+            long[] counts,
+            long[] decodedCounts) {
         this.snapshot = snapshot;
         this.metadata = metadata;
         this.requestLimits = requestLimits;
@@ -53,8 +57,10 @@ final class GeoTiffRasterSource implements RasterSource {
         this.segmentsAcross = segmentsAcross;
         this.samplesPerPixel = samplesPerPixel;
         this.colorProfile = colorProfile;
+        this.compression = compression;
         this.offsets = offsets;
         this.counts = counts;
+        this.decodedCounts = decodedCounts;
     }
 
     @Override
@@ -103,20 +109,24 @@ final class GeoTiffRasterSource implements RasterSource {
                     accounting.checkpoint();
                 }
                 int segment = segmentRow * segmentsAcross + segmentColumn;
-                sourceWork = Math.addExact(sourceWork, counts[segment] / samplesPerPixel);
-                largestSegment = Math.max(largestSegment, counts[segment]);
+                sourceWork = Math.addExact(sourceWork, decodedCounts[segment] / samplesPerPixel);
+                largestSegment = Math.max(largestSegment, decodedCounts[segment]);
             }
         }
+        accounting.chargeSourcePixels(sourceWork);
+        long outputPixels =
+                accounting.validateOutput(request.outputWidth(), request.outputHeight());
+        long windowPixels = Math.multiplyExact((long) window.width(), window.height());
+        long windowBytes = Math.multiplyExact(windowPixels, 4L);
+        long outputBytes = Math.multiplyExact(outputPixels, 4L);
+        long formatWorking = Math.addExact(largestSegment, windowBytes);
         GeoTiffFailures.limit(
                 metadata.identity().id(),
                 "geoTiffRead",
                 "workingBytes",
-                largestSegment,
+                formatWorking,
                 formatLimits.maximumWorkingBytes());
-        accounting.chargeSourcePixels(sourceWork);
-        long outputPixels =
-                accounting.validateOutput(request.outputWidth(), request.outputHeight());
-        long outputBytes = Math.multiplyExact(outputPixels, 4L);
+        accounting.chargeIntermediateBytes(windowBytes);
         accounting.chargeIntermediateBytes(outputBytes);
         accounting.chargePublishedBytes(outputBytes);
         RasterResampling.validatePlan(
@@ -125,6 +135,17 @@ final class GeoTiffRasterSource implements RasterSource {
                 request.outputWidth(),
                 request.outputHeight(),
                 request.interpolation());
+        byte[] decoded = new byte[Math.toIntExact(largestSegment)];
+        int[] sourcePixels = new int[Math.toIntExact(windowPixels)];
+        decodeWindow(
+                window,
+                firstSegmentColumn,
+                lastSegmentColumn,
+                firstSegmentRow,
+                lastSegmentRow,
+                decoded,
+                sourcePixels,
+                cancellation);
         RgbaPixelBuffer.Builder builder =
                 RgbaPixelBuffer.builder(request.outputWidth(), request.outputHeight());
         long generated = 0;
@@ -149,7 +170,7 @@ final class GeoTiffRasterSource implements RasterSource {
                             window.row()
                                     + RasterResampling.nearestIndex(
                                             outputRow, window.height(), request.outputHeight());
-                    rgba = pixel(column, row);
+                    rgba = stagedPixel(sourcePixels, window, column, row);
                 } else {
                     RasterResampling.AxisWeights x =
                             RasterResampling.bilinearAxis(
@@ -160,10 +181,10 @@ final class GeoTiffRasterSource implements RasterSource {
                     int south = window.row() + y.upperIndex();
                     rgba =
                             RasterResampling.bilinearRgba(
-                                    pixel(west, north),
-                                    pixel(east, north),
-                                    pixel(west, south),
-                                    pixel(east, south),
+                                    stagedPixel(sourcePixels, window, west, north),
+                                    stagedPixel(sourcePixels, window, east, north),
+                                    stagedPixel(sourcePixels, window, west, south),
+                                    stagedPixel(sourcePixels, window, east, south),
                                     x,
                                     y);
                 }
@@ -185,42 +206,99 @@ final class GeoTiffRasterSource implements RasterSource {
         snapshot = null;
         offsets = null;
         counts = null;
+        decodedCounts = null;
     }
 
-    private int pixel(int column, int row) {
-        int segmentColumn = tiled ? column / segmentWidth : 0;
-        int segmentRow = row / segmentHeight;
-        int segment = segmentRow * segmentsAcross + segmentColumn;
-        int localColumn = tiled ? column - segmentColumn * segmentWidth : column;
-        int localRow = row - segmentRow * segmentHeight;
-        int index =
-                Math.toIntExact(
-                        offsets[segment]
-                                + ((long) localRow * segmentWidth + localColumn) * samplesPerPixel);
+    private void decodeWindow(
+            RasterWindow window,
+            int firstSegmentColumn,
+            int lastSegmentColumn,
+            int firstSegmentRow,
+            int lastSegmentRow,
+            byte[] decoded,
+            int[] sourcePixels,
+            CancellationToken cancellation) {
+        for (int segmentRow = firstSegmentRow; segmentRow <= lastSegmentRow; segmentRow++) {
+            for (int segmentColumn = firstSegmentColumn;
+                    segmentColumn <= lastSegmentColumn;
+                    segmentColumn++) {
+                int segment = segmentRow * segmentsAcross + segmentColumn;
+                GeoTiffSegmentDecoder.decode(
+                        metadata.identity().id(),
+                        segment,
+                        compression,
+                        snapshot,
+                        Math.toIntExact(offsets[segment]),
+                        Math.toIntExact(counts[segment]),
+                        decoded,
+                        Math.toIntExact(decodedCounts[segment]),
+                        cancellation);
+                copyIntersection(
+                        window, segmentColumn, segmentRow, decoded, sourcePixels, cancellation);
+            }
+        }
+    }
+
+    private void copyIntersection(
+            RasterWindow window,
+            int segmentColumn,
+            int segmentRow,
+            byte[] decoded,
+            int[] sourcePixels,
+            CancellationToken cancellation) {
+        int segmentStartColumn = tiled ? segmentColumn * segmentWidth : 0;
+        int segmentStartRow = segmentRow * segmentHeight;
+        int segmentEndColumn = Math.min(metadata.width(), segmentStartColumn + segmentWidth);
+        int segmentEndRow = Math.min(metadata.height(), segmentStartRow + segmentHeight);
+        int firstColumn = Math.max(window.column(), segmentStartColumn);
+        int lastColumn = Math.min(Math.toIntExact(window.endColumn()), segmentEndColumn);
+        int firstRow = Math.max(window.row(), segmentStartRow);
+        int lastRow = Math.min(Math.toIntExact(window.endRow()), segmentEndRow);
+        long copied = 0;
+        for (int row = firstRow; row < lastRow; row++) {
+            GeoTiffFailures.checkpoint(metadata.identity().id(), cancellation, "geoTiffRead");
+            int decodedCell =
+                    (row - segmentStartRow) * segmentWidth + firstColumn - segmentStartColumn;
+            int target = (row - window.row()) * window.width() + firstColumn - window.column();
+            for (int column = firstColumn; column < lastColumn; column++) {
+                if ((copied++ & 4095) == 0) {
+                    GeoTiffFailures.checkpoint(
+                            metadata.identity().id(), cancellation, "geoTiffRead");
+                }
+                sourcePixels[target++] = decodedRgba(decoded, decodedCell++ * samplesPerPixel);
+            }
+        }
+    }
+
+    private static int stagedPixel(int[] pixels, RasterWindow window, int column, int row) {
+        return pixels[(row - window.row()) * window.width() + column - window.column()];
+    }
+
+    private int decodedRgba(byte[] decoded, int index) {
         return switch (colorProfile) {
-            case WHITE_GRAY -> gray(index, true, false);
-            case BLACK_GRAY -> gray(index, false, false);
-            case WHITE_GRAY_ALPHA -> gray(index, true, true);
-            case BLACK_GRAY_ALPHA -> gray(index, false, true);
-            case RGB -> rgba(index, false);
-            case RGBA -> rgba(index, true);
+            case WHITE_GRAY -> gray(decoded, index, true, false);
+            case BLACK_GRAY -> gray(decoded, index, false, false);
+            case WHITE_GRAY_ALPHA -> gray(decoded, index, true, true);
+            case BLACK_GRAY_ALPHA -> gray(decoded, index, false, true);
+            case RGB -> rgba(decoded, index, false);
+            case RGBA -> rgba(decoded, index, true);
         };
     }
 
-    private int gray(int index, boolean invert, boolean alpha) {
-        int gray = snapshot[index] & 0xff;
+    private static int gray(byte[] decoded, int index, boolean invert, boolean alpha) {
+        int gray = decoded[index] & 0xff;
         if (invert) {
             gray = 255 - gray;
         }
-        int alphaValue = alpha ? snapshot[index + 1] & 0xff : 255;
+        int alphaValue = alpha ? decoded[index + 1] & 0xff : 255;
         return (gray << 24) | (gray << 16) | (gray << 8) | alphaValue;
     }
 
-    private int rgba(int index, boolean alpha) {
-        return ((snapshot[index] & 0xff) << 24)
-                | ((snapshot[index + 1] & 0xff) << 16)
-                | ((snapshot[index + 2] & 0xff) << 8)
-                | (alpha ? snapshot[index + 3] & 0xff : 255);
+    private static int rgba(byte[] decoded, int index, boolean alpha) {
+        return ((decoded[index] & 0xff) << 24)
+                | ((decoded[index + 1] & 0xff) << 16)
+                | ((decoded[index + 2] & 0xff) << 8)
+                | (alpha ? decoded[index + 3] & 0xff : 255);
     }
 
     private void requireOpen() {

@@ -121,7 +121,13 @@ final class GeoTiffParser {
                 sourceId, "geoTiffOpen", "dimension", height, limits.maximumDimension());
         long pixels = Math.multiplyExact((long) width, height);
         GeoTiffFailures.limit(sourceId, "geoTiffOpen", "pixels", pixels, limits.maximumPixels());
-        requireOptionalCode(entries, 259, 1, "compression");
+        int compression = optionalCode(entries, 259);
+        if (compression == -1) {
+            compression = 1;
+        }
+        if (compression != 1 && compression != 8 && compression != 32773) {
+            throw GeoTiffFailures.unsupportedCompression(sourceId, compression);
+        }
         requireOptionalCode(entries, 274, 1, "orientation");
         int samplesPerPixel = optionalCode(entries, 277);
         if (samplesPerPixel == -1) {
@@ -137,9 +143,12 @@ final class GeoTiffParser {
                 sourceId, "geoTiffOpen", "segments", segmentCount, limits.maximumSegments());
         long[] offsets = vector(entries, layout.offsetTag(), segmentCount);
         long[] counts = vector(entries, layout.countTag(), segmentCount);
+        chargeWorking(Math.multiplyExact(8L, segmentCount));
+        long[] decodedCounts = new long[segmentCount];
         for (int segment = 0; segment < segmentCount; segment++) {
             GeoTiffFailures.checkpoint(sourceId, cancellation, "geoTiffOpen");
             long decoded = decodedBytes(layout, segment, width, height, samplesPerPixel);
+            decodedCounts[segment] = decoded;
             GeoTiffFailures.limit(
                     sourceId,
                     "geoTiffOpen",
@@ -152,7 +161,10 @@ final class GeoTiffParser {
                     "encodedSegmentBytes",
                     counts[segment],
                     limits.maximumEncodedSegmentBytes());
-            if (counts[segment] != decoded) {
+            if (counts[segment] == 0) {
+                throw GeoTiffFailures.segment(sourceId, segment, "encodedLength");
+            }
+            if (compression == 1 && counts[segment] != decoded) {
                 throw GeoTiffFailures.segment(sourceId, segment, "decodedLength");
             }
             if ((offsets[segment] & 1) != 0) {
@@ -189,8 +201,10 @@ final class GeoTiffParser {
                 layout.segmentsAcross(),
                 samplesPerPixel,
                 color,
+                compression,
                 offsets,
-                counts);
+                counts,
+                decodedCounts);
     }
 
     private GeoReference georeference(

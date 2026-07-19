@@ -222,10 +222,10 @@ class GeoTiffFilesTest {
         assertLimitBoundary(
                 fixture,
                 "workingBytes",
-                928,
-                927,
-                limits -> limits.withMaximumWorkingBytes(928),
-                limits -> limits.withMaximumWorkingBytes(927));
+                936,
+                935,
+                limits -> limits.withMaximumWorkingBytes(936),
+                limits -> limits.withMaximumWorkingBytes(935));
     }
 
     @Test
@@ -640,6 +640,240 @@ class GeoTiffFilesTest {
         assertEquals("GEOTIFF_PROFILE_UNSUPPORTED", unsupported.terminal().code());
         assertEquals("photometric", unsupported.terminal().context().get("construct"));
         assertEquals(0, invalidVectorChecks.get());
+    }
+
+    @Test
+    void packBitsAndDeflateMatchUncompressedWindowsExactly() {
+        assertRasterParity(GeoTiffFixtures.tiledRgb(), GeoTiffFixtures.packBitsTiledRgb());
+        assertRasterParity(GeoTiffFixtures.rgba(), GeoTiffFixtures.deflateRgba());
+
+        byte[] repeated = {(byte) -7, 42};
+        try (RasterSource source = open(GeoTiffFixtures.compressedGray(32773, repeated))) {
+            assertArrayEquals(
+                    new int[] {
+                        gray(42), gray(42), gray(42), gray(42),
+                        gray(42), gray(42), gray(42), gray(42)
+                    },
+                    source.read(
+                                    request(new RasterWindow(0, 0, 4, 2), 4, 2),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    @Test
+    void classifiesEveryClosedPackBitsAndDeflateFailure() {
+        assertDecodeFailure(32773, new byte[] {0}, "packet");
+        assertDecodeFailure(32773, new byte[] {2, 0, 11, 22}, "truncated");
+        assertDecodeFailure(32773, new byte[] {(byte) -9, 42}, "overrun");
+
+        byte[] eight = {0, 11, 22, 33, 17, 28, 39, 50};
+        byte[] seven = {0, 11, 22, 33, 17, 28, 39};
+        byte[] nine = {0, 11, 22, 33, 17, 28, 39, 50, 61};
+        assertDecodeFailure(8, GeoTiffFixtures.deflateWithDictionary(eight), "dictionary");
+        assertDecodeFailure(8, GeoTiffFixtures.deflate(seven), "truncated");
+        byte[] unfinished = GeoTiffFixtures.deflate(eight);
+        assertDecodeFailure(
+                8, java.util.Arrays.copyOf(unfinished, unfinished.length - 1), "unfinished");
+        assertDecodeFailure(8, GeoTiffFixtures.deflate(nine), "overrun");
+        byte[] trailing =
+                java.util.Arrays.copyOf(GeoTiffFixtures.deflate(eight), unfinished.length + 1);
+        trailing[trailing.length - 1] = 1;
+        assertDecodeFailure(8, trailing, "trailing");
+        byte[] stream = GeoTiffFixtures.deflate(eight);
+        byte[] concatenated = java.util.Arrays.copyOf(stream, stream.length * 2);
+        System.arraycopy(stream, 0, concatenated, stream.length, stream.length);
+        assertDecodeFailure(8, concatenated, "trailing");
+        assertDecodeFailure(8, new byte[] {1, 2, 3, 4}, "packet");
+    }
+
+    @Test
+    void rejectsUnapprovedCompressionAndReusesSourceAfterDecodeFailure() {
+        byte[] lzw = GeoTiffFixtures.areaGray();
+        putShortAtEntryValue(lzw, 259, 5);
+        assertFailure(lzw, "GEOTIFF_PROFILE_UNSUPPORTED", "compression", "5");
+        byte[] oldDeflate = GeoTiffFixtures.areaGray();
+        putShortAtEntryValue(oldDeflate, 259, 32946);
+        assertFailure(oldDeflate, "GEOTIFF_PROFILE_UNSUPPORTED", "compression", "32946");
+
+        try (RasterSource source =
+                open(GeoTiffFixtures.packBitsTiledRgbWithFirstSegment(new byte[] {0}))) {
+            SourceException malformed =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    source.read(
+                                            request(new RasterWindow(0, 0, 1, 1), 1, 1),
+                                            CancellationToken.none()));
+            assertEquals("GEOTIFF_DECODE_FAILED", malformed.terminal().code());
+            assertEquals("packet", malformed.terminal().context().get("reason"));
+            assertArrayEquals(
+                    new int[] {GeoTiffFixtures.expectedRgba(16, 16, 2, 3)},
+                    source.read(
+                                    request(new RasterWindow(16, 16, 1, 1), 1, 1),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    @Test
+    void preflightsCompressedLimitsAndCancellationLeavesSourceReusable() {
+        byte[] encoded = GeoTiffFixtures.deflate(new byte[] {0, 11, 22, 33, 17, 28, 39, 50});
+        byte[] fixture = GeoTiffFixtures.compressedGray(8, encoded);
+        GeoTiffLimits exactLimits =
+                GeoTiffLimits.defaults()
+                        .withMaximumEncodedSegmentBytes(encoded.length)
+                        .withMaximumDecodedSegmentBytes(8);
+        try (RasterSource source =
+                GeoTiffFiles.openRaster(
+                        IDENTITY,
+                        fixture,
+                        GeoTiffRasterOptions.defaults().withFormatLimits(exactLimits))) {
+            assertArrayEquals(
+                    new int[] {gray(0)},
+                    source.read(
+                                    request(new RasterWindow(0, 0, 1, 1), 1, 1),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+        assertCompressedLimit(
+                fixture,
+                exactLimits.withMaximumEncodedSegmentBytes(encoded.length - 1),
+                "encodedSegmentBytes",
+                encoded.length,
+                encoded.length - 1);
+        assertCompressedLimit(
+                fixture,
+                exactLimits.withMaximumDecodedSegmentBytes(7),
+                "decodedSegmentBytes",
+                8,
+                7);
+
+        byte[] tiled = GeoTiffFixtures.packBitsTiledRgb();
+        GeoTiffLimits exactWorking =
+                GeoTiffLimits.defaults()
+                        .withMaximumDecodedSegmentBytes(768)
+                        .withMaximumWorkingBytes(1_924);
+        try (RasterSource source =
+                GeoTiffFiles.openRaster(
+                        IDENTITY,
+                        tiled,
+                        GeoTiffRasterOptions.defaults().withFormatLimits(exactWorking))) {
+            assertEquals(
+                    17 * 17,
+                    source.read(
+                                    request(new RasterWindow(0, 0, 17, 17), 17, 17),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba()
+                            .length);
+        }
+        try (RasterSource source =
+                GeoTiffFiles.openRaster(
+                        IDENTITY,
+                        tiled,
+                        GeoTiffRasterOptions.defaults()
+                                .withFormatLimits(exactWorking.withMaximumWorkingBytes(1_923)))) {
+            SourceException working =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    source.read(
+                                            request(new RasterWindow(0, 0, 17, 17), 17, 17),
+                                            CancellationToken.none()));
+            assertEquals("SOURCE_LIMIT_EXCEEDED", working.terminal().code());
+            assertEquals("workingBytes", working.terminal().context().get("limit"));
+            assertEquals("1924", working.terminal().context().get("requested"));
+            assertEquals("1923", working.terminal().context().get("maximum"));
+        }
+
+        try (RasterSource source = open(GeoTiffFixtures.packBitsTiledRgb())) {
+            AtomicInteger codecChecks = new AtomicInteger();
+            CancellationToken duringCodec =
+                    () -> {
+                        boolean decoding =
+                                java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                                        .anyMatch(
+                                                frame ->
+                                                        frame.getClassName()
+                                                                .equals(
+                                                                        GeoTiffSegmentDecoder.class
+                                                                                .getName()));
+                        return decoding && codecChecks.incrementAndGet() >= 2;
+                    };
+            SourceException cancelled =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    source.read(
+                                            request(new RasterWindow(0, 0, 16, 16), 16, 16),
+                                            duringCodec));
+            assertEquals("SOURCE_CANCELLED", cancelled.terminal().code());
+            assertArrayEquals(
+                    new int[] {GeoTiffFixtures.expectedRgba(16, 16, 2, 3)},
+                    source.read(
+                                    request(new RasterWindow(16, 16, 1, 1), 1, 1),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    private static void assertRasterParity(byte[] uncompressed, byte[] compressed) {
+        try (RasterSource expected = open(uncompressed);
+                RasterSource actual = open(compressed)) {
+            RasterWindow window =
+                    new RasterWindow(
+                            0, 0, expected.metadata().width(), expected.metadata().height());
+            assertArrayEquals(
+                    expected.read(
+                                    request(window, window.width(), window.height()),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba(),
+                    actual.read(
+                                    request(window, window.width(), window.height()),
+                                    CancellationToken.none())
+                            .pixels()
+                            .rgba());
+        }
+    }
+
+    private static void assertDecodeFailure(int compression, byte[] encoded, String reason) {
+        try (RasterSource source = open(GeoTiffFixtures.compressedGray(compression, encoded))) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    source.read(
+                                            request(new RasterWindow(0, 0, 4, 2), 4, 2),
+                                            CancellationToken.none()));
+            assertEquals("GEOTIFF_DECODE_FAILED", failure.terminal().code());
+            assertEquals("0", failure.terminal().context().get("segment"));
+            assertEquals(
+                    Integer.toString(compression), failure.terminal().context().get("compression"));
+            assertEquals(reason, failure.terminal().context().get("reason"));
+            assertFalse(source.isClosed());
+        }
+    }
+
+    private static void assertCompressedLimit(
+            byte[] fixture, GeoTiffLimits limits, String limit, long requested, long maximum) {
+        SourceException failure =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoTiffFiles.openRaster(
+                                        IDENTITY,
+                                        fixture,
+                                        GeoTiffRasterOptions.defaults().withFormatLimits(limits)));
+        assertEquals("SOURCE_LIMIT_EXCEEDED", failure.terminal().code());
+        assertEquals(limit, failure.terminal().context().get("limit"));
+        assertEquals(Long.toString(requested), failure.terminal().context().get("requested"));
+        assertEquals(Long.toString(maximum), failure.terminal().context().get("maximum"));
     }
 
     private static void assertProfile(byte[] fixture, int photometric, int samples) {

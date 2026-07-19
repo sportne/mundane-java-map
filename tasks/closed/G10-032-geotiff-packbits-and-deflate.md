@@ -1,6 +1,6 @@
 # G10-032 — GeoTIFF PackBits and Deflate
 
-Status: Proposed
+Status: Complete
 Depends on: G10-031
 Gate: G10
 Type: AFK

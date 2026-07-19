@@ -15,9 +15,62 @@ import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
+import java.util.zip.Deflater;
 import org.junit.jupiter.api.Test;
 
 class GeoTiffRasterRenderingTest {
+    @Test
+    void rendersDeflateGeoTiffThroughTheOrdinaryRasterLayer() {
+        RasterSource source =
+                GeoTiffFiles.openRaster(
+                        new SourceIdentity("awt-geotiff-deflate", "AWT Deflate GeoTIFF"),
+                        projectedDeflateRgbFixture(),
+                        GeoTiffRasterOptions.defaults());
+        MapView view =
+                new MapView(
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+        try {
+            view.setLayerBindings(
+                    List.of(
+                            MapLayerBinding.ownedRaster(
+                                    "geotiff-deflate", "GeoTIFF Deflate", source)));
+            view.setSize(120, 90);
+            view.fitToData(8);
+            view.setOpaque(false);
+            BufferedImage image = new BufferedImage(120, 90, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = image.createGraphics();
+            try {
+                graphics.setColor(Color.MAGENTA);
+                graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                view.paint(graphics);
+            } finally {
+                graphics.dispose();
+            }
+            int changed = 0;
+            int colored = 0;
+            for (int row = 0; row < image.getHeight(); row++) {
+                for (int column = 0; column < image.getWidth(); column++) {
+                    int rgb = image.getRGB(column, row);
+                    if (rgb != Color.MAGENTA.getRGB()) {
+                        changed++;
+                        int red = (rgb >>> 16) & 0xff;
+                        int green = (rgb >>> 8) & 0xff;
+                        int blue = rgb & 0xff;
+                        if (red != green || green != blue) {
+                            colored++;
+                        }
+                    }
+                }
+            }
+            assertEquals(Color.MAGENTA.getRGB(), image.getRGB(2, 2));
+            assertTrue(changed > 6_000, "too few decoded raster pixels " + changed);
+            assertTrue(colored > 4_000, "decoded RGB channels were not retained " + colored);
+        } finally {
+            view.close();
+        }
+        assertTrue(source.isClosed());
+    }
+
     @Test
     void rendersProjectedRgbGeoTiffWithoutImplicitReprojection() {
         RasterSource source =
@@ -224,6 +277,27 @@ class GeoTiffRasterRenderingTest {
             }
         }
         return bytes.array();
+    }
+
+    private static byte[] projectedDeflateRgbFixture() {
+        byte[] uncompressed = projectedRgbFixture();
+        byte[] pixels = java.util.Arrays.copyOfRange(uncompressed, 318, uncompressed.length);
+        Deflater deflater = new Deflater();
+        byte[] compressed;
+        try {
+            deflater.setInput(pixels);
+            deflater.finish();
+            byte[] target = new byte[pixels.length * 2 + 32];
+            compressed = java.util.Arrays.copyOf(target, deflater.deflate(target));
+        } finally {
+            deflater.end();
+        }
+        byte[] fixture = java.util.Arrays.copyOf(uncompressed, 318 + compressed.length);
+        ByteBuffer bytes = ByteBuffer.wrap(fixture).order(ByteOrder.LITTLE_ENDIAN);
+        bytes.putShort(54, (short) 8);
+        bytes.putInt(126, compressed.length);
+        bytes.position(318).put(compressed);
+        return fixture;
     }
 
     private static void entry(ByteBuffer bytes, int tag, int type, int count, int value) {

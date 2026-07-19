@@ -248,7 +248,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-025 — Native Image GeoJSON closeout](closed/G10-025-native-image-geojson-closeout.md) | Complete | HITL | G10-024 | Prove the bounded Linux native read/write/query/render path without service discovery. |
 | [G10-030 — GeoTIFF first raster slice](closed/G10-030-geotiff-first-raster-slice.md) | Complete | AFK | G10-003 | Read, query, render, publish, and consume one bounded little-endian area raster. |
 | [G10-031 — GeoTIFF raster layout and color completion](closed/G10-031-geotiff-raster-layout-and-color-completion.md) | Complete | AFK | G10-030 | Decode both byte orders, exact strips/tiles, approved color/alpha profiles, and EPSG:3857. |
-| [G10-032 — GeoTIFF PackBits and Deflate](G10-032-geotiff-packbits-and-deflate.md) | Proposed | AFK | G10-031 | Decode and render bounded PackBits and Deflate segments with stable failures. |
+| [G10-032 — GeoTIFF PackBits and Deflate](closed/G10-032-geotiff-packbits-and-deflate.md) | Complete | AFK | G10-031 | Decode and render bounded PackBits and Adobe Deflate with exact stream diagnostics. |
 | [G10-033 — GeoTIFF affine raster placement](G10-033-geotiff-affine-raster-placement.md) | Proposed | AFK | G10-032 | Place and regress rotated/sheared ModelTransformation rasters. |
 | [G10-034 — GeoTIFF integer elevation slice](G10-034-geotiff-integer-elevation-slice.md) | Proposed | AFK | G10-033, G9-002, G9-005 | Read, query, colorize, and render signed integer PixelIsPoint elevation. |
 | [G10-035 — GeoTIFF floating elevation and no-data](G10-035-geotiff-floating-elevation-and-no-data.md) | Proposed | AFK | G10-034 | Add floating samples, no-data, hillshade, and compressed/tiled parity. |

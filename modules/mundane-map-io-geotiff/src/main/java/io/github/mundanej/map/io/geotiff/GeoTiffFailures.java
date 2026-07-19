@@ -78,6 +78,14 @@ final class GeoTiffFailures {
                 Map.of("construct", construct));
     }
 
+    static SourceException unsupportedCompression(String sourceId, int compression) {
+        return failure(
+                sourceId,
+                "GEOTIFF_PROFILE_UNSUPPORTED",
+                "GeoTIFF compression is outside the supported profile",
+                Map.of("construct", "compression", "compression", Integer.toString(compression)));
+    }
+
     static SourceException geokey(String sourceId, Integer key, String reason) {
         Map<String, String> context =
                 key == null
@@ -93,6 +101,17 @@ final class GeoTiffFailures {
                 "GEOTIFF_SEGMENT_INVALID",
                 "GeoTIFF strip is invalid",
                 Map.of("segment", Integer.toString(segment), "reason", reason));
+    }
+
+    static SourceException decode(String sourceId, int segment, int compression, String reason) {
+        return failure(
+                sourceId,
+                "GEOTIFF_DECODE_FAILED",
+                "GeoTIFF segment decoding failed",
+                Map.of(
+                        "segment", Integer.toString(segment),
+                        "compression", Integer.toString(compression),
+                        "reason", reason));
     }
 
     static SourceException georeference(String sourceId, String reason) {
