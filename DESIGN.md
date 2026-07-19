@@ -60,6 +60,9 @@ design task; there are no empty speculative design files.
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001, G10-003, and G10-005 through G10-007 approved; G10-002 and G10-004 reviewed proposals; holistic closeout approved with those exclusions |
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
+| G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 through G12-006 draft proposal |
+| G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
+| G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -69,6 +72,12 @@ Proposed G10-030 through G10-039, G10-050 through G10-057, G10-060 through G10-0
 G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through G11-043 task cards.
 Conditional G10-040 through G10-044 cards also record the reviewed SQLite working graph, but remain
 non-executable until Proposed G10-004 and G11-004 complete; authoring those cards approves nothing.
+
+Symbology-planning record (2026-07-19): draft G12-001 through G12-006, G13-001 through G13-006, and
+G14-001 through G14-007 define three sequential standards tracks. MIL-STD-2525E Change 1 closes
+first, OGC SE 1.1 then establishes the shared standards-neutral rule bridge, and MapLibre Style v8
+reuses it through an isolated Jackson adapter. These designs and Proposed cards do not approve their
+HITL profile checkpoints or claim standard conformance.
 
 ## Decisions
 
@@ -151,6 +160,9 @@ non-executable until Proposed G10-004 and G11-004 complete; authoring those card
 | 2026-07-13 | Propose accepting two Xerial SQLite format adapters while deferring JTS, PROJ, and GDAL; approval remains pending. | Exact classifiers, private JDBC/native boundaries, and a Linux JVM-only claim could serve the proposed GeoPackage/MBTiles profiles; the other libraries currently have no demonstrated gap requiring a framework, dependency, module, or task. |
 | 2026-07-13 | Export one detached viewport snapshot as canonical static SVG 1.1 through the existing SVG module. | An API-owned immutable vector-export handoff, AWT-owned synchronous capture, exact built-in vector profile, core algorithm reuse, and bounded atomic writer preserve visible map order without a scene graph, renderer callback, raster fallback, or new module. |
 | 2026-07-17 | Approve `0.1.0` candidate `a5d10791d6cf811b438cb72504ff8b00b2ab8d75` for the bounded Level 1 support statement. | Six independent exact-revision lanes, byte-identical publication manifests, clean consumer evidence, and narrow Linux Native Image wording satisfy the release gate without release automation or a broader platform/capability claim. |
+| 2026-07-19 | Propose a bounded MIL-STD-2525E Change 1 point-symbol module as the first standards-based symbology gate. | Canonical 30-position SIDCs, finite explicit land/activity tables, existing vector symbols, and honest profile wording can add tactical value without a second renderer or complete-standard claim. |
+| 2026-07-19 | Propose a read-only OGC SE 1.1 adapter and one standards-neutral closed rule-portrayal bridge. | Secure JDK StAX and direct translation to existing symbols can provide formal GIS style interchange without SLD/WMS, remote resources, callbacks, or a parallel style engine. |
+| 2026-07-19 | Propose an isolated MapLibre Style v8 Jackson adapter after OGC SE. | Reusing the proven rule bridge for a bounded JSON layer/expression profile adds modern interoperability without network sources, sprites, glyph services, 3D, or Jackson leakage. |
 
 ## Task design traceability
 
@@ -221,3 +233,22 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G11-003 | AWT-free XML v1 model, portable field exclusions, guarded local paths, application openers/session ownership, atomic writer, and five later slices | Approved |
 | G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Reviewed |
 | G11-005 | Detached vector-export snapshot, AWT capture, canonical static SVG, exact effect/text/limit/failure policy, four later slices, and G11/G0–G11 simplicity closeout | Approved |
+| G12-001 | Exact 2525E Change 1 point profile, code-table inventory, fixture rights, diagnostics, and conformance wording | Draft |
+| G12-002 | Canonical packed 30-position SIDC parsing, retained fields, support classification, and module boundary | Draft |
+| G12-003 | Existing-vector standard-identity frames, palette/status behavior, first entity, paint, and hit testing | Draft |
+| G12-004 | Finite land/activity entity and graphical-modifier tables plus SIDC-attribute portrayal | Draft |
+| G12-005 | Provenance-backed reference matrix, hostile/table hardening, gallery, and tolerant regression | Draft |
+| G12-006 | Publication/consumer/native evidence, exact support statement, and G12 simplicity closeout | Draft |
+| G13-001 | Exact SE 1.1 feature-style profile and shared closed rule/filter/scale portrayal bridge | Draft |
+| G13-002 | Secure bounded StAX reader, literal point symbolizer, first rendering slice, and module creation | Draft |
+| G13-003 | Ordered rules, bounded Filter predicates, ElseFilter, scale context, and query projection | Draft |
+| G13-004 | Solid line/polygon symbolizers and explicit catalog-only external graphics | Draft |
+| G13-005 | Licensed examples, hostile XML/mutation hardening, gallery, and tolerant regression | Draft |
+| G13-006 | Publication/consumer/native evidence, subset wording, and reusable-bridge closeout | Draft |
+| G14-001 | Exact MapLibre v8 root/source/layer/property/expression matrix and Jackson boundary | Draft |
+| G14-002 | Direct bounded JSON reader, literal circle/line/fill layers, rendering, and module creation | Draft |
+| G14-003 | Explicit transactional source registry, filters, zoom context, ordering, and ownership | Draft |
+| G14-004 | Closed typed expression subset, limits, required attributes, and deterministic evaluation | Draft |
+| G14-005 | Explicit-catalog icons and bounded G11-compatible point labels | Draft |
+| G14-006 | Provenance fixtures, hostile JSON/mutation hardening, gallery, and tolerant regression | Draft |
+| G14-007 | Dependency/service audit, publication/consumer/native evidence, and G12–G14 closeout | Draft |

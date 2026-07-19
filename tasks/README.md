@@ -110,6 +110,11 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
 - After their approved profile roots, G11 editing/history and snapping branches converge at G11-013;
   graduated portrayal and label metrics may proceed together before collision placement; workspace
   persistence stays serial; and SVG export stays serial after the required label slices.
+- Standards symbology is intentionally serial: G12 MIL-STD-2525 closes before G13 OGC SE begins,
+  and G13 establishes the shared rule bridge before G14 MapLibre starts. Within G12, SIDC/parser and
+  first-render work are serial and portrayal integration also waits for G11-024. Within G13 and G14,
+  parser, rule/expression, rendering, hardening, and closeout tasks extend the same modules and are not
+  path-safe in parallel.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -300,3 +305,37 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G11-041 — AWT capture and complete vector profile](G11-041-awt-capture-and-complete-vector-profile.md) | Proposed | AFK | G11-023, G11-040 | Capture a real map and export the complete approved vector/symbol/label profile. |
 | [G11-042 — SVG export hardening](G11-042-svg-export-hardening.md) | Proposed | AFK | G11-041 | Close export limits, accounting, cancellation, diagnostics, cleanup, and atomicity. |
 | [G11-043 — SVG export closeout](G11-043-svg-export-closeout.md) | Proposed | HITL | G11-024, G11-042 | Approve browser rendering and close native/publication/consumer evidence. |
+
+### G12 — MIL-STD-2525 symbology
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G12-001 — MIL-STD-2525 profile and legal decision](G12-001-milstd2525-profile-and-legal-decision.md) | Proposed | HITL | G2-007 | Approve the exact 2525E Change 1 point profile, tables, fixture rights, and support wording. |
+| [G12-002 — Canonical SIDC model and parser](G12-002-canonical-sidc-model-and-parser.md) | Proposed | AFK | G12-001 | Create the working JDK-only module with canonical 30-position SIDC parsing and classification. |
+| [G12-003 — First frame and entity rendering slice](G12-003-first-frame-and-entity-rendering-slice.md) | Proposed | AFK | G12-002 | Render and hit-test standard-identity frames and a first entity through ordinary symbols. |
+| [G12-004 — Land/activity catalog and portrayal](G12-004-land-activity-catalog-and-portrayal.md) | Proposed | AFK | G12-003, G11-024 | Complete the finite inventory and select symbols from an explicit feature SIDC attribute. |
+| [G12-005 — Reference matrix, gallery, and hardening](G12-005-reference-matrix-gallery-and-hardening.md) | Proposed | HITL | G12-004 | Harden tables/SIDCs and approve the provenance matrix and runnable gallery. |
+| [G12-006 — MIL-STD-2525 native and publication closeout](G12-006-milstd2525-native-publication-closeout.md) | Proposed | HITL | G12-005 | Close staged consumer, Linux Native Image, documentation, and support evidence. |
+
+### G13 — OGC Symbology Encoding
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G13-001 — SE profile and portrayal-bridge decision](G13-001-se-profile-and-portrayal-bridge-decision.md) | Proposed | HITL | G12-006, G11-024 | Approve the SE 1.1 subset and one shared closed rule/filter/scale bridge. |
+| [G13-002 — Secure SE point-symbolizer slice](G13-002-secure-se-point-symbolizer-slice.md) | Proposed | AFK | G13-001 | Create the secure JDK-only adapter and render a literal well-known point marker. |
+| [G13-003 — SE rules, filters, and scale](G13-003-se-rules-filters-and-scale.md) | Proposed | AFK | G13-002 | Apply ordered bounded rules by attributes and explicit scale context. |
+| [G13-004 — SE line, polygon, and catalog graphics](G13-004-se-line-polygon-and-catalog-graphics.md) | Proposed | AFK | G13-003 | Complete vector symbolizers and explicit catalog-only external graphics. |
+| [G13-005 — SE fixtures, gallery, and hardening](G13-005-se-fixtures-gallery-and-hardening.md) | Proposed | HITL | G13-004 | Close hostile/interoperability evidence and approve the SE gallery. |
+| [G13-006 — SE native and publication closeout](G13-006-se-native-publication-closeout.md) | Proposed | HITL | G13-005 | Close staged consumer, Linux Native Image, subset wording, and bridge evidence. |
+
+### G14 — MapLibre Style
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G14-001 — MapLibre Style profile decision](G14-001-maplibre-style-profile-decision.md) | Proposed | HITL | G13-006, G10-025 | Approve the v8 root/source/layer/property/expression matrix and Jackson boundary. |
+| [G14-002 — Literal vector-layer slice](G14-002-literal-vector-layer-slice.md) | Proposed | AFK | G14-001 | Create the optional adapter and render literal circle, line, and fill layers. |
+| [G14-003 — Explicit source, filter, and zoom binding](G14-003-explicit-source-filter-and-zoom-binding.md) | Proposed | AFK | G14-002 | Bind caller sources transactionally and apply filters, zoom ranges, and layer order. |
+| [G14-004 — Bounded MapLibre expressions](G14-004-bounded-maplibre-expressions.md) | Proposed | AFK | G14-003 | Evaluate the approved closed typed expression subset with exact limits and types. |
+| [G14-005 — Symbol icons and point labels](G14-005-symbol-icons-and-point-labels.md) | Proposed | AFK | G14-004 | Resolve caller-catalog icons and place bounded G11-compatible point labels. |
+| [G14-006 — MapLibre fixtures, gallery, and hardening](G14-006-maplibre-fixtures-gallery-and-hardening.md) | Proposed | HITL | G14-005 | Close hostile/interoperability evidence and approve the MapLibre gallery. |
+| [G14-007 — MapLibre native and publication closeout](G14-007-maplibre-native-publication-closeout.md) | Proposed | HITL | G14-006 | Close dependency, staged consumer, Linux Native Image, and G12–G14 evidence. |

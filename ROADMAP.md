@@ -463,3 +463,47 @@ separately decomposed.
   consumer closeout without a new module or export framework.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
+
+### G12 — MIL-STD-2525 symbology
+
+- G12 is the first standards-based symbology track. It proposes a JDK-only, AWT-free
+  `mundane-map-symbology-milstd2525` module for MIL-STD-2525E with Change 1 incorporated, using
+  canonical 30-position SIDCs and a finite icon-based Land Unit, Land Equipment, and Activities
+  profile.
+- Resolved frames, icons, and graphical modifiers become ordinary toolkit-neutral marker/composite
+  symbols. There is no military-specific AWT renderer, runtime table discovery, remote update, legacy
+  SIDC translation, APP-6 mapping, text-amplifier engine, or multipoint tactical-graphics claim.
+- G12-001 is the required profile/legal/conformance-wording decision. G12-002 through G12-006 then
+  deliver parsing, first rendering, the finite catalog and portrayal integration, reference/gallery
+  hardening, and publication/consumer/Linux Native Image closeout.
+- G13 is deliberately dependent on G12-006 so the requested MIL-STD-2525-first order is explicit.
+- See the [G12 detailed design](design/G12-milstd2525-symbology.md) and the
+  [G12 task set](tasks/README.md#g12--mil-std-2525-symbology).
+
+### G13 — OGC Symbology Encoding
+
+- After G12, G13 proposes a bounded read-only OGC SE 1.1 `FeatureTypeStyle` adapter in
+  `mundane-map-io-se`, using secure directly constructed JDK StAX and no schema/network resolution.
+- The supported profile covers ordered rules, bounded attribute filters and explicit scale context,
+  point/line/polygon symbolizers, and caller-catalog graphics. Coverage, SLD/WMS, text/raster
+  symbolizers, arbitrary functions, and remote resources remain excluded.
+- G13-001 approves the profile and the smallest closed standards-neutral rule-portrayal bridge.
+  G13-002 through G13-006 deliver the first point slice, rules/scale, complete vector roles,
+  hostile/interoperability/gallery evidence, and publication/consumer/Linux Native Image closeout.
+- See the [G13 detailed design](design/G13-ogc-symbology-encoding.md) and the
+  [G13 task set](tasks/README.md#g13--ogc-symbology-encoding).
+
+### G14 — MapLibre Style
+
+- G14 follows G13 and proposes an optional `mundane-map-io-maplibre-style-jackson` adapter for a
+  bounded MapLibre Style Specification v8 subset. It reuses the existing locked Jackson Core
+  boundary and G13's standards-neutral portrayal plan.
+- The first profile supports explicit caller-bound feature sources, circle/line/fill and bounded
+  symbol layers, filters, zoom ranges, a closed typed expression subset, caller-catalog icons, and
+  G11-compatible point labels. It never fetches sources, tiles, sprites, glyphs, or fonts and does
+  not claim 3D, terrain, heatmap, vector-tile, Mapbox-extension, or complete MapLibre compatibility.
+- G14-001 approves the exact matrix. G14-002 through G14-007 deliver literal layers, transactional
+  source binding, expressions, icons/labels, hostile/interoperability/gallery evidence, and
+  publication/consumer/Linux Native Image closeout.
+- See the [G14 detailed design](design/G14-maplibre-style.md) and the
+  [G14 task set](tasks/README.md#g14--maplibre-style).
