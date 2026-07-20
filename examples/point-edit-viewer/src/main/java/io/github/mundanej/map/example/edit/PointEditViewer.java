@@ -8,9 +8,15 @@ import io.github.mundanej.map.api.FeatureEditResult;
 import io.github.mundanej.map.api.FeatureEditStatus;
 import io.github.mundanej.map.api.FeatureEditTransaction;
 import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.ReplaceFeature;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SnapFeature;
+import io.github.mundanej.map.api.SnapLimits;
+import io.github.mundanej.map.api.SnapQueryResult;
+import io.github.mundanej.map.api.SnapReferenceLayer;
+import io.github.mundanej.map.api.SnapReferenceSet;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.SymbolLength;
@@ -22,8 +28,15 @@ import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.FeatureEditSession;
+import io.github.mundanej.map.core.FeatureSnapper;
+import io.github.mundanej.map.core.SnapQuery;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
@@ -31,10 +44,12 @@ import java.util.Map;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JLayer;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
+import javax.swing.plaf.LayerUI;
 
 /** Demonstrates immutable atomic point edits with bounded undo and redo history. */
 public final class PointEditViewer {
@@ -78,7 +93,7 @@ public final class PointEditViewer {
         ViewerState state = createState();
         JFrame frame = new JFrame("Mundane Map — Immutable Point Edit Session");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        frame.add(state.view(), BorderLayout.CENTER);
+        frame.add(createPreviewLayer(state), BorderLayout.CENTER);
         JLabel status = new JLabel("Initial snapshot; revision 0");
         frame.add(status, BorderLayout.SOUTH);
         HistoryControls historyControls = createHistoryControls(state, status);
@@ -149,6 +164,10 @@ public final class PointEditViewer {
                     refreshHistory.run();
                 });
         return new HistoryControls(controls, undo, redo, refreshHistory);
+    }
+
+    static JLayer<MapView> createPreviewLayer(ViewerState state) {
+        return new JLayer<>(state.view(), new PreviewLayerUi(state));
     }
 
     private static FeatureRecord record(String id, double x, double y) {
@@ -239,7 +258,113 @@ public final class PointEditViewer {
                     .map(problem -> problem.code() + "; revision " + result.snapshot().revision())
                     .orElse(lastDescription + "; revision " + result.snapshot().revision());
         }
+
+        PreviewScenario previewScenario() {
+            var operation =
+                    CrsRegistry.level1()
+                            .operation(CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+            SnapReferenceSet references =
+                    new SnapReferenceSet(
+                            CrsDefinitions.EPSG_3857,
+                            List.of(
+                                    new SnapReferenceLayer(
+                                            "preview-reference",
+                                            List.of(
+                                                    new SnapFeature(
+                                                            "preview-line",
+                                                            new LineStringGeometry(
+                                                                    io.github.mundanej.map.api
+                                                                            .CoordinateSequence.of(
+                                                                            -500_000, -250_000,
+                                                                            500_000,
+                                                                            -250_000)))))));
+            SnapQueryResult snapped =
+                    new FeatureSnapper()
+                            .find(
+                                    new SnapQuery(
+                                            450,
+                                            346,
+                                            8,
+                                            operation,
+                                            operation,
+                                            view.viewport(),
+                                            references,
+                                            java.util.Set.of(),
+                                            SnapLimits.DEFAULT,
+                                            io.github.mundanej.map.api.CancellationToken.none()));
+            SnapQueryResult unsnapped =
+                    new FeatureSnapper()
+                            .find(
+                                    new SnapQuery(
+                                            700,
+                                            100,
+                                            8,
+                                            operation,
+                                            operation,
+                                            view.viewport(),
+                                            references,
+                                            java.util.Set.of(),
+                                            SnapLimits.DEFAULT,
+                                            io.github.mundanej.map.api.CancellationToken.none()));
+            return new PreviewScenario(450, 346, snapped, 700, 100, unsnapped);
+        }
     }
 
     record HistoryControls(JPanel panel, JButton undo, JButton redo, Runnable refresh) {}
+
+    record PreviewScenario(
+            double snappedPointerX,
+            double snappedPointerY,
+            SnapQueryResult snapped,
+            double unsnappedPointerX,
+            double unsnappedPointerY,
+            SnapQueryResult unsnapped) {}
+
+    @SuppressWarnings("serial")
+    private static final class PreviewLayerUi extends LayerUI<MapView> {
+        private final ViewerState state;
+
+        private PreviewLayerUi(ViewerState state) {
+            this.state = state;
+        }
+
+        @Override
+        public void paint(Graphics graphics, javax.swing.JComponent component) {
+            super.paint(graphics, component);
+            PreviewScenario scenario = state.previewScenario();
+            Graphics2D overlay = (Graphics2D) graphics.create();
+            try {
+                overlay.setRenderingHint(
+                        RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                overlay.setStroke(new BasicStroke(2));
+                scenario.snapped()
+                        .result()
+                        .ifPresent(
+                                result -> {
+                                    Coordinate screen =
+                                            state.view()
+                                                    .viewport()
+                                                    .worldToScreen(result.coordinate());
+                                    overlay.setColor(new Color(30, 160, 75));
+                                    overlay.drawLine(
+                                            (int) scenario.snappedPointerX(),
+                                            (int) scenario.snappedPointerY(),
+                                            (int) Math.round(screen.x()),
+                                            (int) Math.round(screen.y()));
+                                    overlay.fillOval(
+                                            (int) Math.round(screen.x()) - 5,
+                                            (int) Math.round(screen.y()) - 5,
+                                            10,
+                                            10);
+                                });
+                overlay.setColor(new Color(220, 115, 20));
+                int unsnappedX = (int) scenario.unsnappedPointerX();
+                int unsnappedY = (int) scenario.unsnappedPointerY();
+                overlay.drawLine(unsnappedX - 5, unsnappedY - 5, unsnappedX + 5, unsnappedY + 5);
+                overlay.drawLine(unsnappedX - 5, unsnappedY + 5, unsnappedX + 5, unsnappedY - 5);
+            } finally {
+                overlay.dispose();
+            }
+        }
+    }
 }

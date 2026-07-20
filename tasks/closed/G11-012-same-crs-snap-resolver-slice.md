@@ -1,6 +1,6 @@
 # G11-012 — Same-CRS snap resolver slice
 
-Status: Proposed
+Status: Complete
 Depends on: G11-010
 Gate: G11
 Type: AFK

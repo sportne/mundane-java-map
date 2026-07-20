@@ -298,7 +298,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G11-005 — Vector map export profile](closed/G11-005-vector-map-export-profile.md) | Complete | HITL | G10-001, G11-002 | Approve detached AWT capture and canonical static SVG export in the existing SVG module. |
 | [G11-010 — Immutable point-edit session slice](closed/G11-010-immutable-point-edit-session-slice.md) | Complete | AFK | G11-001 | Create, replace, and delete immutable point features through a real editable map binding. |
 | [G11-011 — Bounded undo/redo slice](closed/G11-011-bounded-undo-redo-slice.md) | Complete | AFK | G11-010 | Add bounded delta history, eviction, rollback evidence, and viewer undo/redo. |
-| [G11-012 — Same-CRS snap resolver slice](G11-012-same-crs-snap-resolver-slice.md) | Proposed | AFK | G11-010 | Resolve bounded deterministic vertex/segment snaps with visible preview. |
+| [G11-012 — Same-CRS snap resolver slice](closed/G11-012-same-crs-snap-resolver-slice.md) | Complete | AFK | G11-010 | Resolve bounded deterministic vertex/segment snaps with visible preview. |
 | [G11-013 — Point editing tool completion](G11-013-point-editing-tool-completion.md) | Proposed | HITL | G11-011, G11-012 | Complete interactive point editing and approve viewer/render/native evidence. |
 | [G11-020 — Portrayal and categorical marker slice](closed/G11-020-portrayal-and-categorical-marker-slice.md) | Complete | AFK | G11-002, G11-010 | Resolve fixed/categorical marker portrayals across source and editable bindings. |
 | [G11-021 — Graduated and complete-role portrayal](closed/G11-021-graduated-and-complete-role-portrayal.md) | Complete | AFK | G11-020 | Complete graduated marker/line/fill selection with query/interaction agreement. |
