@@ -469,7 +469,9 @@ separately decomposed.
   registries, bounded secure StAX parsing, all-or-nothing owned sessions, and mandatory atomic
   replacement; edit/history, thematic labels,
   data, limits, caches, diagnostics, credentials, remote sources, and later formats remain excluded.
-  G11-030 through G11-034 deliver reader, writer, session, viewer, and hardening/native/consumer slices.
+  Complete G11-030 now delivers the immutable workspace model, bounded local file snapshot, strict
+  UTF-8/XML 1.0 grammar, hardened JDK StAX reader, stable problems, and an AWT-free published module.
+  G11-031 through G11-034 deliver the writer, session, viewer, and hardening/native/consumer slices.
 - G11-004 remains Proposed. Its draft evaluates whether to accept bounded Xerial-backed GeoPackage/
   MBTiles adapters and defer JTS, PROJ, and GDAL; no adapter disposition, classifier, platform claim,
   generic adapter API, or module is approved.

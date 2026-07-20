@@ -1,6 +1,6 @@
 # G11-030 — Workspace model and secure reader
 
-Status: Proposed
+Status: Complete
 Depends on: G11-003
 Gate: G11
 Type: AFK

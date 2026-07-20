@@ -1286,7 +1286,61 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactNineExplicitProductionDependencies() throws IOException {
+    void workspaceModuleIsJdkOnlyAwtFreeFormatNeutralAndWorking() {
+        ModuleDescriptor workspace = moduleEndingWith("mundane-map-workspace");
+        JavaClasses classes = classesByModule.get(workspace);
+        List<String> prohibitedDependencies =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(
+                                name ->
+                                        name.startsWith("java.awt.")
+                                                || name.startsWith("javax.swing.")
+                                                || name.startsWith("javax.imageio.")
+                                                || name.startsWith("io.github.mundanej.map.awt.")
+                                                || name.startsWith("io.github.mundanej.map.io."))
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                classes.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.workspace"))
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals("JDK_RUNTIME", workspace.category());
+        assertEquals(2, workspace.releaseLevel());
+        assertTrue(workspace.nativeTarget());
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                workspace.allowedRuntimeProjects());
+        assertFalse(classes.isEmpty(), "Expected the working workspace read module");
+        assertTrue(prohibitedDependencies.isEmpty(), prohibitedDependencies::toString);
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        assertEquals(
+                Set.of(
+                        "WorkspaceDocument",
+                        "WorkspaceException",
+                        "WorkspaceFeatureLayer",
+                        "WorkspaceFile",
+                        "WorkspaceFiles",
+                        "WorkspaceLayerDefinition",
+                        "WorkspaceLimits",
+                        "WorkspaceProblem",
+                        "WorkspaceRasterLayer",
+                        "WorkspaceRelativePath",
+                        "WorkspaceSourceReference",
+                        "WorkspaceSymbolReferences",
+                        "WorkspaceViewState"),
+                publicTypes);
+    }
+
+    @Test
+    void nativeSmokeHasTheExactTenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1297,7 +1351,8 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-dted",
                         ":modules:mundane-map-io-svg",
                         ":modules:mundane-map-io-geojson-jackson",
-                        ":modules:mundane-map-io-geotiff");
+                        ":modules:mundane-map-io-geotiff",
+                        ":modules:mundane-map-workspace");
         Set<String> actual =
                 Files.readAllLines(nativeSupportBuild).stream()
                         .map(String::trim)

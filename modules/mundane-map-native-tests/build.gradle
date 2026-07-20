@@ -13,6 +13,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-svg')
     implementation project(':modules:mundane-map-io-geojson-jackson')
     implementation project(':modules:mundane-map-io-geotiff')
+    implementation project(':modules:mundane-map-workspace')
 }
 
 def shapefileCorpusRoot = project(':modules:mundane-map-io-shapefile').layout.projectDirectory.dir(
