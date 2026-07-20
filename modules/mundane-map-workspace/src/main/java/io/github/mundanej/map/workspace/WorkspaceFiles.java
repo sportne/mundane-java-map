@@ -7,6 +7,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Objects;
@@ -26,6 +27,19 @@ public final class WorkspaceFiles {
      */
     public static WorkspaceFile read(Path path, WorkspaceLimits limits) {
         return read(path, limits, WorkspaceInputAccess.JDK);
+    }
+
+    /**
+     * Canonically encodes and atomically replaces one local version 1 workspace.
+     *
+     * @param path non-symlink {@code .mmap.xml} target under an existing directory
+     * @param document immutable portable workspace document
+     * @param limits bounded encoding limits
+     * @throws WorkspaceException for a stable encoding, limit, target, write, force, cleanup, or
+     *     atomic-move failure
+     */
+    public static void write(Path path, WorkspaceDocument document, WorkspaceLimits limits) {
+        write(path, document, limits, WorkspaceOutputAccess.JDK);
     }
 
     static WorkspaceFile read(Path path, WorkspaceLimits limits, WorkspaceInputAccess access) {
@@ -74,6 +88,155 @@ public final class WorkspaceFiles {
             throw WorkspaceFailures.io("open", failure);
         }
         return new WorkspaceFile(document, base);
+    }
+
+    static void write(
+            Path path,
+            WorkspaceDocument document,
+            WorkspaceLimits limits,
+            WorkspaceOutputAccess access) {
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(document, "document");
+        Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(access, "access");
+        Path absolute = path.toAbsolutePath().normalize();
+        Path fileName = absolute.getFileName();
+        if (fileName == null || !fileName.toString().endsWith(WorkspaceText.SUFFIX)) {
+            throw WorkspaceFailures.write("validate", "target", null);
+        }
+        byte[] bytes = WorkspaceXmlWriter.encode(document, limits);
+        Path parent = absolute.getParent();
+        if (parent == null) {
+            throw WorkspaceFailures.write("validate", "target", null);
+        }
+        Path realParent;
+        try {
+            realParent = access.realParent(parent);
+        } catch (IOException failure) {
+            throw WorkspaceFailures.write("validate", "target", failure);
+        }
+        BasicFileAttributes parentAttributes;
+        try {
+            parentAttributes = access.attributes(realParent);
+        } catch (IOException failure) {
+            throw WorkspaceFailures.write("validate", "target", failure);
+        }
+        if (parentAttributes == null || !parentAttributes.isDirectory()) {
+            throw WorkspaceFailures.write("validate", "target", null);
+        }
+        Path target = realParent.resolve(fileName);
+        BasicFileAttributes before = targetAttributes(target, access, "validate");
+        if (before != null && (!before.isRegularFile() || before.isSymbolicLink())) {
+            throw WorkspaceFailures.write("validate", "target", null);
+        }
+
+        WorkspaceTemporary temporary;
+        try {
+            temporary = access.createTemporary(realParent);
+        } catch (IOException failure) {
+            WorkspaceException primary = WorkspaceFailures.write("temporary", "io", failure);
+            for (Throwable cleanup : failure.getSuppressed()) {
+                primary.addSuppressed(WorkspaceFailures.write("cleanup", "io", cleanup));
+            }
+            throw primary;
+        }
+        WorkspaceException primary = writeTemporary(temporary.channel(), bytes);
+        if (primary == null) {
+            try {
+                BasicFileAttributes written = access.attributes(temporary.path());
+                if (written == null
+                        || !written.isRegularFile()
+                        || written.isSymbolicLink()
+                        || written.size() != bytes.length
+                        || !temporary.fileKey().equals(written.fileKey())) {
+                    primary = WorkspaceFailures.write("move", "changed", null);
+                }
+            } catch (IOException failure) {
+                primary = WorkspaceFailures.write("move", "io", failure);
+            }
+        }
+        if (primary == null) {
+            try {
+                BasicFileAttributes after = targetAttributes(target, access, "move");
+                if (!sameTarget(before, after)) {
+                    primary = WorkspaceFailures.write("move", "changed", null);
+                }
+            } catch (WorkspaceException failure) {
+                primary = failure;
+            }
+        }
+        if (primary == null) {
+            try {
+                access.moveAtomic(temporary.path(), target);
+                return;
+            } catch (AtomicMoveNotSupportedException failure) {
+                primary = WorkspaceFailures.atomicMove(failure);
+            } catch (IOException failure) {
+                primary = WorkspaceFailures.write("move", "io", failure);
+            }
+        }
+        try {
+            access.deleteTemporary(temporary.path());
+        } catch (IOException failure) {
+            primary.addSuppressed(WorkspaceFailures.write("cleanup", "io", failure));
+        }
+        throw primary;
+    }
+
+    private static WorkspaceException writeTemporary(WorkspaceOutputChannel channel, byte[] bytes) {
+        WorkspaceException primary = null;
+        try {
+            ByteBuffer source = ByteBuffer.wrap(bytes);
+            while (source.hasRemaining()) {
+                int count = channel.write(source);
+                if (count <= 0) {
+                    throw new IOException("temporary output made no progress");
+                }
+            }
+        } catch (IOException failure) {
+            primary = WorkspaceFailures.write("write", "io", failure);
+        }
+        if (primary == null) {
+            try {
+                channel.force(true);
+            } catch (IOException failure) {
+                primary = WorkspaceFailures.write("force", "io", failure);
+            }
+        }
+        try {
+            channel.close();
+        } catch (IOException failure) {
+            WorkspaceException close = WorkspaceFailures.write("write", "io", failure);
+            if (primary == null) {
+                primary = close;
+            } else {
+                primary.addSuppressed(close);
+            }
+        }
+        return primary;
+    }
+
+    private static BasicFileAttributes targetAttributes(
+            Path target, WorkspaceOutputAccess access, String phase) {
+        try {
+            return access.attributes(target);
+        } catch (IOException failure) {
+            throw WorkspaceFailures.write(
+                    phase, phase.equals("validate") ? "target" : "io", failure);
+        }
+    }
+
+    private static boolean sameTarget(BasicFileAttributes before, BasicFileAttributes after) {
+        if (before == null || after == null) {
+            return before == after;
+        }
+        return after.isRegularFile()
+                && !after.isSymbolicLink()
+                && before.fileKey() != null
+                && after.fileKey() != null
+                && before.size() == after.size()
+                && before.lastModifiedTime().equals(after.lastModifiedTime())
+                && Objects.equals(before.fileKey(), after.fileKey());
     }
 
     private static void operationBytes(

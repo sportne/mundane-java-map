@@ -54,6 +54,14 @@ final class WorkspaceFailures {
                 null);
     }
 
+    static WorkspaceException write(String phase, String reason, Throwable cause) {
+        return failure("WORKSPACE_WRITE_FAILED", ordered("phase", phase, "reason", reason), cause);
+    }
+
+    static WorkspaceException atomicMove(Throwable cause) {
+        return failure("WORKSPACE_ATOMIC_MOVE_UNSUPPORTED", Map.of(), cause);
+    }
+
     private static WorkspaceException failure(
             String code, Map<String, String> context, Throwable cause) {
         return new WorkspaceException(

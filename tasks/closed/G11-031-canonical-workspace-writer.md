@@ -1,6 +1,6 @@
 # G11-031 — Canonical workspace writer
 
-Status: Proposed
+Status: Complete
 Depends on: G11-030
 Gate: G11
 Type: AFK

@@ -27,7 +27,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
 | `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
-| `mundane-map-workspace` | Immutable workspace values and a bounded secure local `.mmap.xml` version 1 reader. |
+| `mundane-map-workspace` | Immutable workspace values plus bounded secure read and canonical atomic write for local `.mmap.xml` version 1. |
 
 The format modules contain no AWT types and do not discover implementations. Applications explicitly
 construct their CRS, symbol-renderer, and encoded-raster-decoder registries. Callers close opened
