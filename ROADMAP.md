@@ -431,10 +431,11 @@ separately decomposed.
   record session: atomic revision-checked transactions, bounded delta undo/redo, and explicit same-CRS
   vertex/segment snapping precede any
   mutable workflow. Read-only sources are never written or disguised as edit state. The approved
-  design is delivered first by complete G11-010: bounded create/replace/delete transactions now
+  design is delivered by complete G11-010 and G11-011: bounded create/replace/delete transactions now
   publish immutable revisioned snapshots through a borrowed editable map binding, with deterministic
-  selection/hover reconciliation and a live point-edit example. Proposed G11-011 through G11-013 add
-  history, snapping, and the interactive point-tool slices.
+  selection/hover reconciliation and a live point-edit example. Private per-command deltas now provide
+  bounded undo/redo with prospective whole-entry eviction, monotonic replay revisions, and explicit
+  history descriptions. Proposed G11-012 and G11-013 add snapping and the interactive point-tool slice.
 - G11-002 is complete as a design decision. Use one immutable binding-owned portrayal with closed
   fixed/categorical/graduated role selectors,
   exact canonical-scalar matching, and projected source attributes. Place bounded name/text-attribute

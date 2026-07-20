@@ -1,6 +1,6 @@
 # G11-011 — Bounded undo/redo slice
 
-Status: Proposed
+Status: Complete
 Depends on: G11-010
 Gate: G11
 Type: AFK

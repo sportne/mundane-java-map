@@ -4,6 +4,8 @@ import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CreateFeature;
 import io.github.mundanej.map.api.DeleteFeature;
+import io.github.mundanej.map.api.FeatureEditResult;
+import io.github.mundanej.map.api.FeatureEditStatus;
 import io.github.mundanej.map.api.FeatureEditTransaction;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.PointGeometry;
@@ -26,13 +28,15 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.Map;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
 
-/** Demonstrates immutable atomic point creation, replacement, and deletion. */
+/** Demonstrates immutable atomic point edits with bounded undo and redo history. */
 public final class PointEditViewer {
     private PointEditViewer() {}
 
@@ -77,6 +81,9 @@ public final class PointEditViewer {
         frame.add(state.view(), BorderLayout.CENTER);
         JLabel status = new JLabel("Initial snapshot; revision 0");
         frame.add(status, BorderLayout.SOUTH);
+        HistoryControls historyControls = createHistoryControls(state, status);
+        frame.add(historyControls.panel(), BorderLayout.NORTH);
+        historyControls.refresh().run();
         Timer timer =
                 new Timer(
                         900,
@@ -90,6 +97,7 @@ public final class PointEditViewer {
                                             + state.lastDescription()
                                             + "; revision "
                                             + state.session().snapshot().revision());
+                            historyControls.refresh().run();
                             state.view().repaint();
                         });
         timer.setInitialDelay(900);
@@ -105,6 +113,42 @@ public final class PointEditViewer {
         frame.setLocationByPlatform(true);
         frame.setVisible(true);
         timer.start();
+    }
+
+    static HistoryControls createHistoryControls(ViewerState state, JLabel status) {
+        JButton undo = new JButton("Undo");
+        JButton redo = new JButton("Redo");
+        JPanel controls = new JPanel();
+        controls.add(undo);
+        controls.add(redo);
+        Runnable refreshHistory =
+                () -> {
+                    undo.setEnabled(state.scriptComplete() && state.session().canUndo());
+                    redo.setEnabled(state.scriptComplete() && state.session().canRedo());
+                    undo.setText(
+                            state.session()
+                                    .undoDescription()
+                                    .map(value -> "Undo " + value)
+                                    .orElse("Undo"));
+                    redo.setText(
+                            state.session()
+                                    .redoDescription()
+                                    .map(value -> "Redo " + value)
+                                    .orElse("Redo"));
+                };
+        undo.addActionListener(
+                event -> {
+                    FeatureEditResult result = state.undo(state.session().snapshot().revision());
+                    status.setText(state.statusText(result));
+                    refreshHistory.run();
+                });
+        redo.addActionListener(
+                event -> {
+                    FeatureEditResult result = state.redo(state.session().snapshot().revision());
+                    status.setText(state.statusText(result));
+                    refreshHistory.run();
+                });
+        return new HistoryControls(controls, undo, redo, refreshHistory);
     }
 
     private static FeatureRecord record(String id, double x, double y) {
@@ -136,16 +180,17 @@ public final class PointEditViewer {
         }
 
         boolean applyNext() {
+            long revision = session.snapshot().revision();
             FeatureEditTransaction transaction =
                     switch (nextStep) {
                         case 0 ->
                                 new FeatureEditTransaction(
-                                        0,
+                                        revision,
                                         "create beta",
                                         List.of(new CreateFeature(record("beta", 1_000_000, 0))));
                         case 1 ->
                                 new FeatureEditTransaction(
-                                        1,
+                                        revision,
                                         "move alpha",
                                         List.of(
                                                 new ReplaceFeature(
@@ -153,16 +198,48 @@ public final class PointEditViewer {
                                                         record("alpha", -500_000, 500_000))));
                         case 2 ->
                                 new FeatureEditTransaction(
-                                        2, "delete beta", List.of(new DeleteFeature("beta")));
+                                        revision,
+                                        "delete beta",
+                                        List.of(new DeleteFeature("beta")));
                         default -> null;
                     };
             if (transaction == null) {
                 return false;
             }
-            session.apply(transaction);
+            FeatureEditResult result = session.apply(transaction);
+            if (result.status() == FeatureEditStatus.REJECTED) {
+                lastDescription = result.problem().orElseThrow().code();
+                return false;
+            }
             nextStep++;
             lastDescription = transaction.description();
             return true;
         }
+
+        boolean scriptComplete() {
+            return nextStep >= 3;
+        }
+
+        FeatureEditResult undo(long expectedRevision) {
+            FeatureEditResult result = session.undo(expectedRevision);
+            lastDescription = session.redoDescription().orElse("nothing to undo");
+            view.repaint();
+            return result;
+        }
+
+        FeatureEditResult redo(long expectedRevision) {
+            FeatureEditResult result = session.redo(expectedRevision);
+            lastDescription = session.undoDescription().orElse("nothing to redo");
+            view.repaint();
+            return result;
+        }
+
+        String statusText(FeatureEditResult result) {
+            return result.problem()
+                    .map(problem -> problem.code() + "; revision " + result.snapshot().revision())
+                    .orElse(lastDescription + "; revision " + result.snapshot().revision());
+        }
     }
+
+    record HistoryControls(JPanel panel, JButton undo, JButton redo, Runnable refresh) {}
 }

@@ -87,6 +87,11 @@ class FeatureEditValuesTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new FeatureEditLimits(0, limits.maximumCommandsPerTransaction(), 100));
+        FeatureEditHistoryLimits historyLimits =
+                FeatureEditHistoryLimits.DEFAULT.withMaximumEntries(3).withMaximumBytes(1_024);
+        assertEquals(new FeatureEditHistoryLimits(3, 1_024), historyLimits);
+        assertThrows(IllegalArgumentException.class, () -> new FeatureEditHistoryLimits(0, 1_024));
+        assertThrows(IllegalArgumentException.class, () -> new FeatureEditHistoryLimits(3, 0));
         FeatureEditConfigurationException exception =
                 new FeatureEditConfigurationException(problem);
         assertNotSame(problem, exception);
