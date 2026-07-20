@@ -229,6 +229,10 @@ public final class MapView extends JComponent implements AutoCloseable {
     private final Set<MeasurementTool> measurementClaims =
             Collections.newSetFromMap(new IdentityHashMap<>());
 
+    /** Identity set of point-edit controllers claimed by this view. */
+    private final Set<PointEditController> pointEditClaims =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+
     /** Immutable ordered installed binding list. */
     private List<MapLayerBinding> bindings = List.of();
 
@@ -463,6 +467,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             measurement.claim(this);
             measurementClaims.add(measurement);
         }
+        if (tool instanceof PointEditController pointEditor) {
+            pointEditor.claim(this);
+            pointEditClaims.add(pointEditor);
+        }
         try {
             ToolContextSnapshot context = toolContextSnapshot();
             applyToolOutcome(
@@ -480,6 +488,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             dragAnchor = null;
             if (routerCallDepth == 0) {
                 reconcileMeasurementClaims();
+                reconcilePointEditClaims();
             }
         }
     }
@@ -505,6 +514,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             throw failure;
         } finally {
             dragAnchor = null;
+            if (routerCallDepth == 0) {
+                reconcileMeasurementClaims();
+                reconcilePointEditClaims();
+            }
         }
     }
 
@@ -568,6 +581,18 @@ public final class MapView extends JComponent implements AutoCloseable {
         requireOpen();
         List<MapLayerBinding> candidate =
                 List.copyOf(Objects.requireNonNull(requested, "bindings"));
+        MapTool activeTool = toolRouter.activeTool().orElse(null);
+        PointEditController activeEditor =
+                activeTool instanceof PointEditController pointEditor ? pointEditor : null;
+        boolean removesActiveEditor =
+                activeEditor != null
+                        && !identitySet(candidate).contains(activeEditor.targetBinding());
+        if (removesActiveEditor) {
+            if (routerCallDepth != 0) {
+                throw new IllegalStateException(
+                        "Cannot remove an active point-edit target during tool dispatch");
+            }
+        }
         CandidateBindings validated = validateBindings(candidate);
         Set<MapLayerBinding> oldIdentities = identitySet(bindings);
         List<MapLayerBinding> acquired = new ArrayList<>();
@@ -577,6 +602,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                     binding.claim(this);
                     acquired.add(binding);
                 }
+            }
+            if (removesActiveEditor) {
+                clearActiveTool();
             }
         } catch (RuntimeException | Error failure) {
             for (int index = acquired.size() - 1; index >= 0; index--) {
@@ -1237,6 +1265,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                     activeToolSnapshot instanceof MeasurementTool measurement
                             ? Optional.of(measurement.state())
                             : Optional.empty();
+            Optional<PointEditController.Preview> pointEditPreview =
+                    activeToolSnapshot instanceof PointEditController pointEditor
+                            ? pointEditor.visiblePreview(viewportSnapshot)
+                            : Optional.empty();
             OverlayCandidate hoverCandidate = null;
             OverlayCandidate selectionCandidate = null;
             List<PendingPointLabel> pendingLabels = new ArrayList<>();
@@ -1349,6 +1381,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             for (MeasuredPointLabel label : pointLabels) {
                 LabelTextMetrics.draw(graphics2D, label.measurement(), label.placed());
             }
+            pointEditPreview.ifPresent(
+                    preview ->
+                            PointEditOverlayRenderer.render(
+                                    graphics2D, preview, mapToDisplay, viewportSnapshot));
             renderOverlay(
                     graphics2D, hoverCandidate, hoverOverlay, viewportSnapshot, basisSnapshot);
             renderOverlay(
@@ -4277,6 +4313,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             routerCallDepth--;
             if (routerCallDepth == 0) {
                 reconcileMeasurementClaims();
+                reconcilePointEditClaims();
             }
         }
     }
@@ -4437,6 +4474,30 @@ public final class MapView extends JComponent implements AutoCloseable {
         return new ViewContentSnapshot(List.copyOf(captured));
     }
 
+    private ViewContentSnapshot captureContentForEditing(
+            MapLayerBinding target,
+            FeatureEditSnapshot targetSnapshot,
+            MapViewport viewportSnapshot) {
+        if (closed) {
+            return new ViewContentSnapshot(List.of());
+        }
+        List<LayerSnapshot> captured = new ArrayList<>(bindings.size());
+        for (MapLayerBinding binding : bindings) {
+            if (binding == target) {
+                captured.add(captureEditable(binding, viewportSnapshot, false, targetSnapshot));
+                continue;
+            }
+            captured.add(
+                    switch (binding.kind()) {
+                        case SNAPSHOT -> captureSnapshot(binding, viewportSnapshot, false);
+                        case FEATURE -> captureFeatureSource(binding, viewportSnapshot, false);
+                        case EDITABLE -> captureEditable(binding, viewportSnapshot, false);
+                        case RASTER, ELEVATION -> emptyRasterSnapshot(binding.id());
+                    });
+        }
+        return new ViewContentSnapshot(List.copyOf(captured));
+    }
+
     private ViewContentSnapshot captureContentAtBoundary(
             List<MapLayerBinding> sourceBindings, MapViewport viewportSnapshot) {
         try {
@@ -4505,7 +4566,15 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private LayerSnapshot captureEditable(
             MapLayerBinding binding, MapViewport viewportSnapshot, boolean includeLabels) {
-        FeatureEditSnapshot snapshot = binding.editSession().snapshot();
+        return captureEditable(
+                binding, viewportSnapshot, includeLabels, binding.editSession().snapshot());
+    }
+
+    private LayerSnapshot captureEditable(
+            MapLayerBinding binding,
+            MapViewport viewportSnapshot,
+            boolean includeLabels,
+            FeatureEditSnapshot snapshot) {
         List<VisualFeature> visual = new ArrayList<>(snapshot.records().size());
         Set<String> featureIds = new HashSet<>();
         for (int featureIndex = 0; featureIndex < snapshot.records().size(); featureIndex++) {
@@ -5291,6 +5360,107 @@ public final class MapView extends JComponent implements AutoCloseable {
             hoverPaintState = Optional.empty();
             selectionPaintState = Optional.empty();
             repaint();
+        }
+    }
+
+    boolean hasBinding(MapLayerBinding binding) {
+        return identitySet(bindings).contains(binding);
+    }
+
+    CrsOperation mapToDisplayOperation() {
+        return mapToDisplay;
+    }
+
+    CrsOperation displayToMapOperation() {
+        return displayToMap;
+    }
+
+    MapHitResults hitTestForEditing(
+            MapLayerBinding target,
+            FeatureEditSnapshot targetSnapshot,
+            double screenX,
+            double screenY,
+            double tolerancePixels) {
+        requireOpen();
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(targetSnapshot, "targetSnapshot");
+        if (!hasBinding(target) || !target.isEditable()) {
+            throw new IllegalStateException("edit target is not installed");
+        }
+        if (!targetSnapshot.crs().equals(mapCrs)) {
+            throw new IllegalArgumentException("edit snapshot CRS does not match the view");
+        }
+        if (!Double.isFinite(screenX)
+                || !Double.isFinite(screenY)
+                || !Double.isFinite(tolerancePixels)
+                || tolerancePixels < 0.0) {
+            throw new IllegalArgumentException("hit coordinates and tolerance must be finite");
+        }
+        Dimension size = effectiveSize();
+        MapViewport viewportSnapshot = viewport();
+        ViewContentSnapshot content;
+        try {
+            content = captureContentForEditing(target, targetSnapshot, viewportSnapshot);
+        } catch (RuntimeException | Error failure) {
+            throwUnchecked(drainSourceReportNotifications(failure));
+            throw new AssertionError("unreachable");
+        }
+        reconcileInteraction(content, true, true);
+        if (screenX < 0.0 || screenX >= size.width || screenY < 0.0 || screenY >= size.height) {
+            drainSourceReportNotifications();
+            return MapHitResults.of(List.of());
+        }
+        double cappedTolerance = Math.min(tolerancePixels, Math.hypot(size.width, size.height));
+        MapHitResults result =
+                hitTestSnapshot(content, viewportSnapshot, size, screenX, screenY, cappedTolerance);
+        drainSourceReportNotifications();
+        return result;
+    }
+
+    void clearSelectionForEditing(FeatureSelection expected) {
+        if (selection.isPresent() && selection.orElseThrow().equals(expected)) {
+            transitionInteraction(Optional.empty(), hover, true);
+        }
+    }
+
+    void selectForEditing(MapLayerBinding target, FeatureEditSnapshot snapshot, String featureId) {
+        requireOpen();
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(snapshot, "snapshot");
+        Objects.requireNonNull(featureId, "featureId");
+        if (!hasBinding(target) || !target.isEditable()) {
+            throw new IllegalStateException("edit target is not installed");
+        }
+        boolean point =
+                snapshot.records().stream()
+                        .filter(record -> record.id().equals(featureId))
+                        .anyMatch(record -> record.geometry() instanceof PointGeometry);
+        if (!point) {
+            throw new IllegalStateException("committed snapshot does not contain the point");
+        }
+        transitionInteraction(
+                Optional.of(new FeatureSelection(target.id(), featureId)), hover, true);
+    }
+
+    Optional<FeatureSelection> selectionForEditing() {
+        return selection;
+    }
+
+    void reconcileEditingInteraction() {
+        ViewContentSnapshot snapshot = captureContentAtBoundary(bindings, viewport());
+        reconcileInteraction(snapshot, true, true);
+        drainSourceReportNotifications();
+    }
+
+    private void reconcilePointEditClaims() {
+        MapTool active = toolRouter.activeTool().orElse(null);
+        var iterator = pointEditClaims.iterator();
+        while (iterator.hasNext()) {
+            PointEditController editor = iterator.next();
+            if (editor != active) {
+                editor.release(this);
+                iterator.remove();
+            }
         }
     }
 

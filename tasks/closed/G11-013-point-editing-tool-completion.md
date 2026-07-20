@@ -1,6 +1,6 @@
 # G11-013 — Point editing tool completion
 
-Status: Proposed
+Status: Complete
 Depends on: G11-011, G11-012
 Gate: G11
 Type: HITL

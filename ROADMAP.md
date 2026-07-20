@@ -437,7 +437,9 @@ separately decomposed.
   bounded undo/redo with prospective whole-entry eviction, monotonic replay revisions, and explicit
   history descriptions. Complete G11-012 adds the stateless bounded same-CRS vertex/segment resolver,
   exact semantic target indexes, cancellation/limit diagnostics, and visible snapped/unsnapped preview
-  evidence. Proposed G11-013 adds the interactive point-tool slice.
+  evidence. Complete G11-013 closes the interactive point-tool slice with view-bound create, selected-
+  point drag/move, delete, undo/redo, deterministic snapping, transient overlays, stable diagnostics,
+  a reviewed live viewer, tolerant rendering regression, and Linux Native Image smoke evidence.
 - G11-002 is complete as a design decision. Use one immutable binding-owned portrayal with closed
   fixed/categorical/graduated role selectors,
   exact canonical-scalar matching, and projected source attributes. Place bounded name/text-attribute

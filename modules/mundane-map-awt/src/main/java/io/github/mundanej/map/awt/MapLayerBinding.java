@@ -647,6 +647,10 @@ public final class MapLayerBinding implements AutoCloseable {
         return editSession;
     }
 
+    boolean isEditable() {
+        return kind == Kind.EDITABLE;
+    }
+
     RasterSource rasterSource() {
         return rasterSource;
     }

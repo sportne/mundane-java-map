@@ -59,9 +59,36 @@ public final class NativeSmokeMain {
         NativeSvgSmokeScenario.run();
         NativeGeoJsonSmokeScenario.run();
         NativePortrayalSmokeScenario.run();
+        runOnEdt(NativePointEditSmokeScenario::run);
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGeoTiff()) {
             NativeGeoTiffSmokeScenario.run(workspace.geoTiffPaths());
         }
+    }
+
+    private static void runOnEdt(Runnable scenario) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            scenario.run();
+            return;
+        }
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch completed = new CountDownLatch(1);
+        SwingUtilities.invokeLater(
+                () -> {
+                    try {
+                        scenario.run();
+                    } catch (Throwable thrown) {
+                        failure.set(thrown);
+                    } finally {
+                        completed.countDown();
+                    }
+                });
+        try {
+            completed.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while running EDT smoke", exception);
+        }
+        rethrow(failure.get());
     }
 
     static void runScenario(NativeSymbolSmokeScenario scenario) {

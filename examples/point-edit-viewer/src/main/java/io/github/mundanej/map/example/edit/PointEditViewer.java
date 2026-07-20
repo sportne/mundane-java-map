@@ -4,11 +4,14 @@ import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CreateFeature;
 import io.github.mundanej.map.api.DeleteFeature;
+import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureEditResult;
 import io.github.mundanej.map.api.FeatureEditStatus;
 import io.github.mundanej.map.api.FeatureEditTransaction;
 import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.PointFeatureDraft;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.ReplaceFeature;
 import io.github.mundanej.map.api.Rgba;
@@ -24,11 +27,13 @@ import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.awt.PointEditController;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.FeatureEditSession;
 import io.github.mundanej.map.core.FeatureSnapper;
+import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.SnapQuery;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
@@ -41,17 +46,18 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.Map;
+import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JLayer;
 import javax.swing.JPanel;
+import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import javax.swing.WindowConstants;
 import javax.swing.plaf.LayerUI;
 
-/** Demonstrates immutable atomic point edits with bounded undo and redo history. */
+/** Demonstrates interactive point create, move, delete, snapping, undo, and redo. */
 public final class PointEditViewer {
     private PointEditViewer() {}
 
@@ -81,53 +87,196 @@ public final class PointEditViewer {
                                 new SymbolLength(2, SymbolUnit.SCREEN_PIXEL)),
                         1);
         var fill = SolidFillSymbol.of(Rgba.rgb(25, 115, 210), 1);
-        view.setLayerBindings(
-                List.of(
-                        MapLayerBinding.editableFeature(
-                                "editable", "Editable points", session, marker, line, fill)));
+        LineStringGeometry guideGeometry =
+                new LineStringGeometry(
+                        io.github.mundanej.map.api.CoordinateSequence.of(
+                                -1_500_000, -750_000, 1_500_000, -750_000));
+        var guideLine =
+                SolidLineSymbol.of(
+                        new SymbolStroke(
+                                Rgba.rgb(80, 150, 90),
+                                new SymbolLength(2, SymbolUnit.SCREEN_PIXEL)),
+                        0.75);
+        MapLayerBinding guide =
+                MapLayerBinding.snapshot(
+                        new InMemoryLayer(
+                                "reference",
+                                "Visible snapping guide",
+                                List.of(
+                                        new Feature(
+                                                "guide",
+                                                "Snap guide",
+                                                guideGeometry,
+                                                Map.of(),
+                                                guideLine))));
+        MapLayerBinding editable =
+                MapLayerBinding.editableFeature(
+                        "editable", "Editable points", session, marker, line, fill);
+        view.setLayerBindings(List.of(guide, editable));
         view.setViewport(new io.github.mundanej.map.core.MapViewport(900, 600, 0, 0, 5_000));
-        return new ViewerState(view, session, 0);
+        view.setSelection(new FeatureSelection("editable", "alpha"));
+        SnapReferenceSet references =
+                new SnapReferenceSet(
+                        CrsDefinitions.EPSG_3857,
+                        List.of(
+                                new SnapReferenceLayer(
+                                        "reference",
+                                        List.of(new SnapFeature("guide", guideGeometry)))));
+        PointEditController controller =
+                new PointEditController(
+                        view,
+                        editable,
+                        references,
+                        SnapLimits.DEFAULT,
+                        PointEditController.DEFAULT_SNAP_TOLERANCE_PIXELS);
+        view.setActiveTool(controller);
+        return new ViewerState(view, session, controller, 0);
     }
 
     private static void show() {
         ViewerState state = createState();
         JFrame frame = new JFrame("Mundane Map — Immutable Point Edit Session");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        frame.add(createPreviewLayer(state), BorderLayout.CENTER);
-        JLabel status = new JLabel("Initial snapshot; revision 0");
+        frame.add(state.view(), BorderLayout.CENTER);
+        JLabel status = new JLabel("Selected alpha; choose Create, Move, or Navigate");
         frame.add(status, BorderLayout.SOUTH);
-        HistoryControls historyControls = createHistoryControls(state, status);
-        frame.add(historyControls.panel(), BorderLayout.NORTH);
-        historyControls.refresh().run();
-        Timer timer =
-                new Timer(
-                        900,
-                        event -> {
-                            if (!state.applyNext()) {
-                                ((Timer) event.getSource()).stop();
-                                return;
-                            }
-                            status.setText(
-                                    "Applied "
-                                            + state.lastDescription()
-                                            + "; revision "
-                                            + state.session().snapshot().revision());
-                            historyControls.refresh().run();
-                            state.view().repaint();
-                        });
-        timer.setInitialDelay(900);
+        frame.add(createInteractiveControls(state, status), BorderLayout.NORTH);
         frame.addWindowListener(
                 new WindowAdapter() {
                     @Override
                     public void windowClosed(WindowEvent event) {
-                        timer.stop();
                         state.view().close();
                     }
                 });
         frame.pack();
         frame.setLocationByPlatform(true);
         frame.setVisible(true);
-        timer.start();
+    }
+
+    static JPanel createInteractiveControls(ViewerState state, JLabel status) {
+        JToggleButton create = new JToggleButton("Create Point");
+        JToggleButton move = new JToggleButton("Move Selected (drag)");
+        JButton delete = new JButton("Delete Selected");
+        JButton undo = new JButton("Undo");
+        JButton redo = new JButton("Redo");
+        JToggleButton navigate = new JToggleButton("Navigate", true);
+        ButtonGroup modes = new ButtonGroup();
+        modes.add(create);
+        modes.add(move);
+        modes.add(navigate);
+        JPanel controls = new JPanel();
+        controls.add(create);
+        controls.add(move);
+        controls.add(delete);
+        controls.add(undo);
+        controls.add(redo);
+        controls.add(navigate);
+        create.addActionListener(
+                event -> {
+                    String id = state.nextInteractiveId();
+                    state.controller()
+                            .create(
+                                    new PointFeatureDraft(
+                                            id, "Point " + id, Map.of("created", true)));
+                    status.setText(
+                            "CREATE active — click open map space to place "
+                                    + id
+                                    + " (green guide snaps)");
+                });
+        move.addActionListener(
+                event -> {
+                    state.controller().moveSelected();
+                    status.setText(
+                            selectedText(state)
+                                    + " — drag that selected point; green preview means snapped");
+                });
+        delete.addActionListener(event -> state.controller().deleteSelected());
+        undo.addActionListener(event -> state.controller().undo());
+        redo.addActionListener(event -> state.controller().redo());
+        navigate.addActionListener(
+                event -> {
+                    state.controller().clearMode();
+                    status.setText(
+                            "NAVIGATE active — click a point to select it, drag blank space to pan, or use the wheel");
+                });
+        Runnable refresh =
+                () -> {
+                    boolean selectedEditable = selectedEditablePoint(state);
+                    move.setEnabled(selectedEditable);
+                    delete.setEnabled(selectedEditable);
+                    undo.setEnabled(state.session().canUndo());
+                    redo.setEnabled(state.session().canRedo());
+                    undo.setText(
+                            state.session()
+                                    .undoDescription()
+                                    .map(value -> "Undo " + value)
+                                    .orElse("Undo"));
+                    redo.setText(
+                            state.session()
+                                    .redoDescription()
+                                    .map(value -> "Redo " + value)
+                                    .orElse("Redo"));
+                };
+        state.view()
+                .addMapSelectionListener(
+                        event -> {
+                            refresh.run();
+                            if (state.controller().mode() == PointEditController.Mode.NONE) {
+                                status.setText(
+                                        event.current()
+                                                .map(
+                                                        selection ->
+                                                                "Selected "
+                                                                        + selection.featureId()
+                                                                        + "; choose Move to drag or Delete")
+                                                .orElse(
+                                                        "No point selected; click one in Navigate mode"));
+                            }
+                        });
+        state.controller()
+                .addResultListener(
+                        result -> {
+                            refresh.run();
+                            String outcome =
+                                    result.problem()
+                                            .map(
+                                                    problem ->
+                                                            problem.code()
+                                                                    + ": "
+                                                                    + problem.message())
+                                            .orElse(result.status().toString());
+                            status.setText(
+                                    outcome
+                                            + "; revision "
+                                            + result.snapshot().revision()
+                                            + "; points "
+                                            + result.snapshot().records().size()
+                                            + "; "
+                                            + selectedText(state));
+                        });
+        refresh.run();
+        return controls;
+    }
+
+    private static boolean selectedEditablePoint(ViewerState state) {
+        return state.view()
+                .selection()
+                .filter(selection -> selection.layerId().equals("editable"))
+                .flatMap(
+                        selection ->
+                                state.session().snapshot().records().stream()
+                                        .filter(record -> record.id().equals(selection.featureId()))
+                                        .findFirst())
+                .filter(record -> record.geometry() instanceof PointGeometry)
+                .isPresent();
+    }
+
+    private static String selectedText(ViewerState state) {
+        return state.view()
+                .selection()
+                .filter(selection -> selection.layerId().equals("editable"))
+                .map(selection -> "selected " + selection.featureId())
+                .orElse("no editable point selected");
     }
 
     static HistoryControls createHistoryControls(ViewerState state, JLabel status) {
@@ -177,12 +326,19 @@ public final class PointEditViewer {
     static final class ViewerState {
         private final MapView view;
         private final FeatureEditSession session;
+        private final PointEditController controller;
         private int nextStep;
+        private int nextInteractive;
         private String lastDescription = "initial snapshot";
 
-        private ViewerState(MapView view, FeatureEditSession session, int nextStep) {
+        private ViewerState(
+                MapView view,
+                FeatureEditSession session,
+                PointEditController controller,
+                int nextStep) {
             this.view = view;
             this.session = session;
+            this.controller = controller;
             this.nextStep = nextStep;
         }
 
@@ -192,6 +348,14 @@ public final class PointEditViewer {
 
         FeatureEditSession session() {
             return session;
+        }
+
+        PointEditController controller() {
+            return controller;
+        }
+
+        String nextInteractiveId() {
+            return "point-" + ++nextInteractive;
         }
 
         String lastDescription() {

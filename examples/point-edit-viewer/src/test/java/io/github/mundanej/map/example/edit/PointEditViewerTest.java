@@ -7,10 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.mundanej.map.api.SnapQueryStatus;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.AbstractButton;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JLayer;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
@@ -96,6 +101,85 @@ class PointEditViewerTest {
                         controls.redo().doClick();
                         assertTrue(status.getText().contains("revision 5"));
                         controlled.view().close();
+
+                        PointEditViewer.ViewerState interactive = PointEditViewer.createState();
+                        interactive.view().setSize(900, 600);
+                        JLabel interactiveStatus = new JLabel();
+                        JPanel interactiveControls =
+                                PointEditViewer.createInteractiveControls(
+                                        interactive, interactiveStatus);
+                        AbstractButton create =
+                                (AbstractButton) interactiveControls.getComponent(0);
+                        AbstractButton move = (AbstractButton) interactiveControls.getComponent(1);
+                        JButton delete = (JButton) interactiveControls.getComponent(2);
+                        JButton undo = (JButton) interactiveControls.getComponent(3);
+                        JButton redo = (JButton) interactiveControls.getComponent(4);
+                        AbstractButton navigate =
+                                (AbstractButton) interactiveControls.getComponent(5);
+                        assertEquals(
+                                "alpha", interactive.view().selection().orElseThrow().featureId());
+                        assertTrue(move.isEnabled());
+                        assertTrue(delete.isEnabled());
+                        assertFalse(undo.isEnabled());
+                        assertFalse(redo.isEnabled());
+                        create.doClick();
+                        click(interactive.view(), 700, 300);
+                        assertEquals(2, interactive.session().snapshot().records().size());
+                        assertEquals(
+                                "point-1",
+                                interactive.view().selection().orElseThrow().featureId());
+                        assertTrue(interactiveStatus.getText().contains("points 2"));
+                        assertEquals("Undo Create point", undo.getText());
+                        move.doClick();
+                        mouse(
+                                interactive.view(),
+                                MouseEvent.MOUSE_PRESSED,
+                                700,
+                                300,
+                                MouseEvent.BUTTON1,
+                                0,
+                                1);
+                        mouse(
+                                interactive.view(),
+                                MouseEvent.MOUSE_DRAGGED,
+                                500,
+                                448,
+                                MouseEvent.NOBUTTON,
+                                InputEvent.BUTTON1_DOWN_MASK,
+                                0);
+                        mouse(
+                                interactive.view(),
+                                MouseEvent.MOUSE_RELEASED,
+                                500,
+                                448,
+                                MouseEvent.BUTTON1,
+                                0,
+                                1);
+                        io.github.mundanej.map.api.FeatureRecord moved =
+                                interactive.session().snapshot().records().stream()
+                                        .filter(record -> record.id().equals("point-1"))
+                                        .findFirst()
+                                        .orElseThrow();
+                        assertEquals(
+                                -750_000,
+                                ((io.github.mundanej.map.api.PointGeometry) moved.geometry())
+                                        .coordinate()
+                                        .y());
+                        assertTrue(interactiveStatus.getText().contains("selected point-1"));
+                        delete.doClick();
+                        assertEquals(1, interactive.session().snapshot().records().size());
+                        assertFalse(delete.isEnabled());
+                        assertEquals("Undo Delete point", undo.getText());
+                        undo.doClick();
+                        assertEquals(2, interactive.session().snapshot().records().size());
+                        assertTrue(redo.isEnabled());
+                        redo.doClick();
+                        assertEquals(1, interactive.session().snapshot().records().size());
+                        navigate.doClick();
+                        assertEquals(
+                                io.github.mundanej.map.awt.PointEditController.Mode.NONE,
+                                interactive.controller().mode());
+                        interactive.view().close();
                     } catch (Throwable thrown) {
                         failure.set(thrown);
                     }
@@ -103,6 +187,40 @@ class PointEditViewerTest {
         if (failure.get() != null) {
             throw new AssertionError(failure.get());
         }
+    }
+
+    private static void mouse(
+            io.github.mundanej.map.awt.MapView view,
+            int type,
+            int x,
+            int y,
+            int button,
+            int modifiers,
+            int clickCount) {
+        view.dispatchEvent(
+                new MouseEvent(
+                        view,
+                        type,
+                        System.currentTimeMillis(),
+                        modifiers,
+                        x,
+                        y,
+                        clickCount,
+                        false,
+                        button));
+    }
+
+    private static void click(io.github.mundanej.map.awt.MapView view, int x, int y) {
+        mouse(
+                view,
+                MouseEvent.MOUSE_PRESSED,
+                x,
+                y,
+                MouseEvent.BUTTON1,
+                InputEvent.BUTTON1_DOWN_MASK,
+                1);
+        mouse(view, MouseEvent.MOUSE_RELEASED, x, y, MouseEvent.BUTTON1, 0, 1);
+        mouse(view, MouseEvent.MOUSE_CLICKED, x, y, MouseEvent.BUTTON1, 0, 1);
     }
 
     private static void paint(PointEditViewer.ViewerState state, BufferedImage image) {
