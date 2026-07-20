@@ -113,17 +113,17 @@ class DtedEvidenceSupportTest {
     @Test
     void smokeRegistryAppendsDtedScenariosWithoutCorpusProperties() throws Exception {
         ListIds ids = new ListIds(ScenarioRegistry.ids());
-        assertEquals(47, ids.values().size());
+        assertEquals(49, ids.values().size());
         assertEquals(
                 java.util.List.of(
                         "dted-corpus-open",
                         "dted-eager-open",
                         "dted-sequential-scan",
                         "dted-position-query"),
-                ids.values().subList(41, 45));
+                ids.values().subList(43, 47));
         assertEquals(
                 java.util.List.of("geotiff-raster-window-read", "geotiff-eager-elevation-open"),
-                ids.values().subList(45, 47));
+                ids.values().subList(47, 49));
         assertFalse(System.getProperties().containsKey("performanceDtedCorpus.l0"));
     }
 

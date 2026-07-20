@@ -14,7 +14,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** Bounded deterministic greedy placement for singular-point labels. */
+/**
+ * Bounded deterministic greedy placement for singular-point labels.
+ *
+ * <p>Requests are admitted by descending priority and then descending ordinary paint ordinal. The
+ * first declared, wholly contained, non-colliding candidate wins; expected clipping and collisions
+ * omit a label. Results return in ascending ordinary paint order. This implementation retains no
+ * cache or index and throws a stable {@link LabelPlacementException} before fixed request,
+ * candidate, or comparison limits can be exceeded.
+ */
 public final class GreedyPointLabelPlacement {
     /** Maximum eligible requests in one operation. */
     public static final int MAXIMUM_REQUESTS = 4_096;

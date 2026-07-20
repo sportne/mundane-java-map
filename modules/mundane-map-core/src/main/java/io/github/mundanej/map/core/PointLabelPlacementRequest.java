@@ -9,6 +9,10 @@ import java.util.Objects;
 /**
  * Immutable measured input for one bounded point-label placement request.
  *
+ * <p>The request owns only immutable toolkit-neutral values. Callers retain no lifecycle
+ * obligation, and the placement operation defensively copies the request list after enforcing its
+ * batch-size limit.
+ *
  * @param layerId stable layer identifier
  * @param featureId stable feature identifier
  * @param text exact bounded single-line text

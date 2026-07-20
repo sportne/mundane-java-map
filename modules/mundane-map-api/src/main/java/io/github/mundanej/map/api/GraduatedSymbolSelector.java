@@ -4,7 +4,14 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Greatest-lower-bound numeric selector with bounded ordered steps and explicit fallback. */
+/**
+ * Greatest-lower-bound numeric selector with bounded ordered steps and explicit fallback.
+ *
+ * <p>Canonical numeric values select the last step whose normalized threshold is less than or equal
+ * to the value. A below-range, missing, null, or non-numeric value selects {@link #fallback()} when
+ * present and otherwise omits that geometry role; omission does not filter source content or
+ * extents.
+ */
 public final class GraduatedSymbolSelector implements SymbolSelector {
     /** Maximum number of lower-inclusive threshold steps. */
     public static final int MAXIMUM_STEPS = 64;

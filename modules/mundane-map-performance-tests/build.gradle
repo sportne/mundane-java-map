@@ -78,6 +78,8 @@ def evidenceScenarioIds = [
     'vector-zoom-sequence-optimized',
     'symbol-heavy-render-template-cache-cold',
     'symbol-heavy-render-template-cache-warm',
+    'portrayed-label-render-sparse',
+    'portrayed-label-render-colliding',
     'dted-corpus-open',
     'dted-eager-open',
     'dted-sequential-scan',

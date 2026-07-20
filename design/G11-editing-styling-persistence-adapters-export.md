@@ -989,6 +989,19 @@ closed selectors, singular-point label profile, deterministic global placement, 
 migration, and G11-020 through G11-024 exactly as specified above. It creates no production API,
 module, later task file, styling language, label cache, font dependency, or external dependency.
 
+Closeout record (2026-07-19): G11-024 retains the deliberately simple bounded linear placement
+algorithm. The canonical baseline evidence measured a 2.63 ms median for 256 sparse portrayed labels
+and a 6.33 ms median for 1,024 fully colliding labels on its recorded WSL/Linux environment; this does
+not justify a placement index, result cache, background layout, or a new performance dependency. The
+staged Java 21 consumer exercises categorical portrayal, priority collision placement, and logical
+`SansSerif` rendering from published API/core/AWT artifacts. The Linux Native Image executable
+exercises resource-free categorical portrayal rendering, toolkit-neutral priority placement, and the
+stable oversized-request diagnostic. It intentionally does not claim Java2D glyph execution under
+Native Image: GraalVM 21 requires internal `sun.font` JNI/reflection metadata for that path, which is
+outside the native-target rules. No Windows/macOS Native Image or cross-platform glyph identity claim
+is made. This is the smallest supported boundary that preserves the prior profile without weakening
+the project's explicit-registration and no-internal-JDK constraints.
+
 ## Workspace persistence profile (G11-003)
 
 ### Portable configuration boundary

@@ -4,7 +4,15 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Immutable closed selectors for the marker, line, and fill roles of one vector binding. */
+/**
+ * Immutable closed selectors for the marker, line, and fill roles of one vector binding.
+ *
+ * <p>Each present selector is resolved independently for its geometry role. An absent selector or
+ * an omitted selector result paints and hits no symbol for that role, while the underlying feature
+ * remains available to source queries, extents, fit operations, and identity-based application
+ * state. The optional point label is an annotation for a successfully selected singular-point
+ * marker; it never contributes to hit, hover, click-selection, or overlay footprints.
+ */
 public final class FeaturePortrayal {
     private final Optional<SymbolSelector> marker;
     private final Optional<SymbolSelector> line;

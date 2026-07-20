@@ -3,26 +3,36 @@ package io.github.mundanej.map.performance;
 import io.github.mundanej.map.api.AttributeSelection;
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CategoricalSymbolRule;
+import io.github.mundanej.map.api.CategoricalSymbolSelector;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeatureName;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureQueryLimits;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FillSymbol;
+import io.github.mundanej.map.api.LabelTextStyle;
+import io.github.mundanej.map.api.LabelWeight;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MapHit;
 import io.github.mundanej.map.api.MarkerSymbol;
+import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PointLabelPosition;
+import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterWindow;
+import io.github.mundanej.map.api.ResolutionRange;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
@@ -31,6 +41,7 @@ import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.awt.ScreenGeometryEvidenceSupport;
@@ -209,11 +220,24 @@ final class ScenarioRegistry {
         appendIndexScenarios(result, profile, selected);
         appendScreenGeometryScenarios(result, profile, selected);
         appendRenderCacheScenarios(result, profile, selected);
+        appendPointLabelScenarios(result, profile, selected);
         try {
             DtedEvidenceScenarios.append(result, profile, selected, workspace);
             GeoTiffEvidenceScenarios.append(result, profile, selected, workspace);
         } catch (Exception failure) {
             throw new IllegalStateException("Cannot create format evidence scenarios", failure);
+        }
+    }
+
+    private static void appendPointLabelScenarios(
+            List<EvidenceScenario> result,
+            EvidenceConfiguration.Profile profile,
+            Optional<String> selected) {
+        if (selected(selected, "portrayed-label-render-sparse")) {
+            result.add(new PointLabelRenderScenario(profile, false));
+        }
+        if (selected(selected, "portrayed-label-render-colliding")) {
+            result.add(new PointLabelRenderScenario(profile, true));
         }
     }
 
@@ -441,6 +465,8 @@ final class ScenarioRegistry {
         result.add("vector-zoom-sequence-optimized");
         result.add("symbol-heavy-render-template-cache-cold");
         result.add("symbol-heavy-render-template-cache-warm");
+        result.add("portrayed-label-render-sparse");
+        result.add("portrayed-label-render-colliding");
         result.add("dted-corpus-open");
         result.add("dted-eager-open");
         result.add("dted-sequential-scan");
@@ -1059,6 +1085,248 @@ final class ScenarioRegistry {
             }
         }
     }
+
+    private static final class PointLabelRenderScenario extends BaseScenario {
+        private final List<LabelLayerFixture> bindings;
+        private final long labelRequests;
+        private MapView view;
+        private MapViewport expectedViewport;
+        private BufferedImage surface;
+
+        PointLabelRenderScenario(EvidenceConfiguration.Profile profile, boolean colliding) {
+            this(profile, labelFixture(profile, colliding), colliding);
+        }
+
+        private PointLabelRenderScenario(
+                EvidenceConfiguration.Profile profile, LabelFixture fixture, boolean colliding) {
+            super(
+                    profile,
+                    colliding
+                            ? "portrayed-label-render-colliding"
+                            : "portrayed-label-render-sparse",
+                    "retain bounded linear placement; profile again before adding an index or cache",
+                    1,
+                    "frames",
+                    "NOT_APPLICABLE",
+                    expectedLabelCounters(fixture.featureCount(), colliding));
+            this.bindings = fixture.bindings();
+            this.labelRequests = fixture.featureCount();
+        }
+
+        @Override
+        public boolean runsOnEdt() {
+            return true;
+        }
+
+        @Override
+        public void setupScenario() throws Exception {
+            onEdt(
+                    () -> {
+                        view = view(false, false);
+                        view.setSize(800, 600);
+                        view.setLayerBindings(
+                                bindings.stream()
+                                        .map(
+                                                binding ->
+                                                        MapLayerBinding.portrayedSnapshot(
+                                                                binding.layer(),
+                                                                binding.portrayal()))
+                                        .toList());
+                        view.fitToData(24);
+                        expectedViewport = view.viewport();
+                        surface = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
+                    });
+        }
+
+        @Override
+        public void prepareSample() throws Exception {
+            onEdt(
+                    () -> {
+                        clear(surface);
+                        view.fitToData(24);
+                    });
+        }
+
+        @Override
+        public void runTimedBatch() {
+            paint(view, surface);
+        }
+
+        @Override
+        public EvidenceObservation observeSample() {
+            ObservationDigests.RenderInvariants render =
+                    ObservationDigests.renderInvariants(surface, view.viewport(), expectedViewport);
+            LabelImageFacts imageFacts = labelImageFacts(surface);
+            Map<String, Long> semanticCounters =
+                    labelCounters(labelRequests, id.endsWith("colliding"), imageFacts);
+            return observation(
+                    semanticCounters,
+                    digest -> {
+                        for (LabelLayerFixture binding : bindings) {
+                            digest.add(binding.layer().id()).add(binding.layer().name());
+                            for (Feature feature : binding.layer().features()) {
+                                ObservationDigests.addFeature(digest, feature);
+                            }
+                        }
+                        ObservationDigests.addRenderInvariants(digest, render);
+                    });
+        }
+
+        @Override
+        public void close() {
+            if (view != null) {
+                onEdtUnchecked(view::close);
+            }
+        }
+
+        private static Map<String, Long> expectedLabelCounters(long requests, boolean colliding) {
+            return labelCounters(
+                    requests,
+                    colliding,
+                    colliding
+                            ? new LabelImageFacts(true, false, true, false)
+                            : new LabelImageFacts(true, true, true, false));
+        }
+
+        private static Map<String, Long> labelCounters(
+                long requests, boolean colliding, LabelImageFacts facts) {
+            return counters(
+                    "frames",
+                    1,
+                    "features",
+                    requests,
+                    "labelRequests",
+                    requests,
+                    "declaredCandidates",
+                    requests,
+                    "collisionFixture",
+                    colliding ? 1 : 0,
+                    "selectedBlueInk",
+                    facts.blue() ? 1 : 0,
+                    "selectedRedInk",
+                    facts.red() ? 1 : 0,
+                    "acceptedLabelInk",
+                    facts.green() ? 1 : 0,
+                    "rejectedLowerPriorityLabelInk",
+                    facts.yellow() ? 1 : 0,
+                    "portableInvariants",
+                    10);
+        }
+    }
+
+    private static LabelFixture labelFixture(
+            EvidenceConfiguration.Profile profile, boolean colliding) {
+        int count;
+        if (colliding) {
+            count = profile == EvidenceConfiguration.Profile.BASELINE ? 1_024 : 256;
+        } else {
+            count = profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 64;
+        }
+        MarkerSymbol blue =
+                BuiltInMarkers.filledScreen(BuiltInMarker.CIRCLE, Rgba.rgb(35, 105, 205), 10, 1);
+        MarkerSymbol red =
+                BuiltInMarkers.filledScreen(BuiltInMarker.DIAMOND, Rgba.rgb(195, 45, 45), 10, 1);
+        CategoricalSymbolSelector selector =
+                new CategoricalSymbolSelector(
+                        "kind",
+                        List.of(
+                                new CategoricalSymbolRule(ThematicValue.text("blue"), blue),
+                                new CategoricalSymbolRule(ThematicValue.text("red"), red)),
+                        Optional.empty());
+        MarkerSymbol stored =
+                BuiltInMarkers.filledScreen(BuiltInMarker.SQUARE, Rgba.rgb(115, 115, 115), 8, 1);
+        if (!colliding) {
+            List<Feature> features = new ArrayList<>(count);
+            for (int index = 0; index < count; index++) {
+                int column = index % 16;
+                int row = index / 16;
+                features.add(
+                        labelFeature(
+                                index,
+                                column * 60.0,
+                                row * 40.0,
+                                index % 2 == 0 ? "blue" : "red",
+                                stored));
+            }
+            return new LabelFixture(
+                    List.of(
+                            new LabelLayerFixture(
+                                    new InMemoryLayer("label-sparse", "Sparse labels", features),
+                                    FeaturePortrayal.markers(selector)
+                                            .withPointLabel(
+                                                    labelProfile(Rgba.rgb(20, 170, 40), 0)))),
+                    count);
+        }
+        List<Feature> lower = new ArrayList<>(count - 1);
+        for (int index = 0; index < count - 1; index++) {
+            lower.add(labelFeature(index, 0, 0, "red", stored));
+        }
+        return new LabelFixture(
+                List.of(
+                        new LabelLayerFixture(
+                                new InMemoryLayer(
+                                        "label-colliding-lower", "Colliding lower labels", lower),
+                                FeaturePortrayal.markers(selector)
+                                        .withPointLabel(labelProfile(Rgba.rgb(180, 180, 20), 0))),
+                        new LabelLayerFixture(
+                                new InMemoryLayer(
+                                        "label-colliding-upper",
+                                        "Colliding upper label",
+                                        List.of(labelFeature(count - 1, 0, 0, "blue", stored))),
+                                FeaturePortrayal.markers(selector)
+                                        .withPointLabel(labelProfile(Rgba.rgb(20, 170, 40), 10)))),
+                count);
+    }
+
+    private static Feature labelFeature(
+            int index, double x, double y, String kind, MarkerSymbol stored) {
+        String id = String.format(java.util.Locale.ROOT, "label-%04d", index);
+        return new Feature(
+                id, id, new PointGeometry(new Coordinate(x, y)), Map.of("kind", kind), stored);
+    }
+
+    private static PointLabelProfile labelProfile(Rgba color, int priority) {
+        return new PointLabelProfile(
+                FeatureName.INSTANCE,
+                new LabelTextStyle(color, LabelWeight.NORMAL, 12),
+                List.of(PointLabelPosition.NE),
+                2,
+                0,
+                0,
+                1,
+                priority,
+                ResolutionRange.ALL);
+    }
+
+    private static LabelImageFacts labelImageFacts(BufferedImage image) {
+        boolean blue = false;
+        boolean red = false;
+        boolean green = false;
+        boolean yellow = false;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int packed = image.getRGB(x, y);
+                int r = packed >>> 16 & 0xff;
+                int g = packed >>> 8 & 0xff;
+                int b = packed & 0xff;
+                blue |= b > r + 40 && b > g + 40;
+                red |= r > g + 40 && r > b + 40;
+                green |= g > r + 50 && g > b + 50;
+                yellow |= r > b + 50 && g > b + 50;
+            }
+        }
+        return new LabelImageFacts(blue, red, green, yellow);
+    }
+
+    private record LabelLayerFixture(InMemoryLayer layer, FeaturePortrayal portrayal) {}
+
+    private record LabelFixture(List<LabelLayerFixture> bindings, int featureCount) {
+        private LabelFixture {
+            bindings = List.copyOf(bindings);
+        }
+    }
+
+    private record LabelImageFacts(boolean blue, boolean red, boolean green, boolean yellow) {}
 
     private static class SourceVectorRenderScenario extends BaseScenario {
         final List<FeatureRecord> declaredRecords;

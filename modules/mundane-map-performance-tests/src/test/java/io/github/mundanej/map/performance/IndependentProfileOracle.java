@@ -2,26 +2,36 @@ package io.github.mundanej.map.performance;
 
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CategoricalSymbolRule;
+import io.github.mundanej.map.api.CategoricalSymbolSelector;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.ElevationUnit;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeatureName;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FillSymbol;
+import io.github.mundanej.map.api.LabelTextStyle;
+import io.github.mundanej.map.api.LabelWeight;
 import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MapHit;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PointLabelPosition;
+import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterWindow;
+import io.github.mundanej.map.api.ResolutionRange;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
@@ -29,6 +39,7 @@ import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.BuiltInMarkers;
@@ -97,6 +108,8 @@ final class IndependentProfileOracle {
                     "symbol-heavy-render-template-cache-cold", result.get("symbol-heavy-render"));
             result.put(
                     "symbol-heavy-render-template-cache-warm", result.get("symbol-heavy-render"));
+            result.put("portrayed-label-render-sparse", labelRender(profile, false));
+            result.put("portrayed-label-render-colliding", labelRender(profile, true));
             result.putAll(IndependentDtedOracle.derive(profile));
             result.putAll(independentGeoTiff(profile, workspace.resolve("geotiff")));
             return Map.copyOf(result);
@@ -418,6 +431,186 @@ final class IndependentProfileOracle {
             onEdt(view::close);
         }
     }
+
+    private static String labelRender(EvidenceConfiguration.Profile profile, boolean colliding)
+            throws Exception {
+        LabelOracleFixture fixture = labelFixture(profile, colliding);
+        String id =
+                colliding ? "portrayed-label-render-colliding" : "portrayed-label-render-sparse";
+        MapView view = view();
+        BufferedImage image = new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
+        MapViewport[] expected = new MapViewport[1];
+        try {
+            onEdt(
+                    () -> {
+                        view.setSize(800, 600);
+                        view.setLayerBindings(
+                                fixture.bindings().stream()
+                                        .map(
+                                                binding ->
+                                                        MapLayerBinding.portrayedSnapshot(
+                                                                binding.layer(),
+                                                                binding.portrayal()))
+                                        .toList());
+                        view.fitToData(24);
+                        expected[0] = view.viewport();
+                        paint(view, image);
+                    });
+            LabelOracleImageFacts facts = labelImageFacts(image);
+            Map<String, Long> counters =
+                    counters(
+                            "frames",
+                            1,
+                            "features",
+                            fixture.featureCount(),
+                            "labelRequests",
+                            fixture.featureCount(),
+                            "declaredCandidates",
+                            fixture.featureCount(),
+                            "collisionFixture",
+                            colliding ? 1 : 0,
+                            "selectedBlueInk",
+                            facts.blue() ? 1 : 0,
+                            "selectedRedInk",
+                            facts.red() ? 1 : 0,
+                            "acceptedLabelInk",
+                            facts.green() ? 1 : 0,
+                            "rejectedLowerPriorityLabelInk",
+                            facts.yellow() ? 1 : 0,
+                            "portableInvariants",
+                            10);
+            ReferenceDigest.RenderInvariants render =
+                    referenceRenderInvariants(image, view.viewport(), expected[0]);
+            return digest(
+                    profile,
+                    id,
+                    counters,
+                    oracle -> {
+                        for (LabelOracleLayer binding : fixture.bindings()) {
+                            oracle.text(binding.layer().id()).text(binding.layer().name());
+                            binding.layer()
+                                    .features()
+                                    .forEach(feature -> ReferenceDigest.feature(oracle, feature));
+                        }
+                        ReferenceDigest.renderInvariants(oracle, render);
+                    });
+        } finally {
+            onEdt(view::close);
+        }
+    }
+
+    private static LabelOracleFixture labelFixture(
+            EvidenceConfiguration.Profile profile, boolean colliding) {
+        int count =
+                colliding
+                        ? (profile == EvidenceConfiguration.Profile.BASELINE ? 1_024 : 256)
+                        : (profile == EvidenceConfiguration.Profile.BASELINE ? 256 : 64);
+        MarkerSymbol blue =
+                BuiltInMarkers.filledScreen(BuiltInMarker.CIRCLE, Rgba.rgb(35, 105, 205), 10, 1);
+        MarkerSymbol red =
+                BuiltInMarkers.filledScreen(BuiltInMarker.DIAMOND, Rgba.rgb(195, 45, 45), 10, 1);
+        CategoricalSymbolSelector selector =
+                new CategoricalSymbolSelector(
+                        "kind",
+                        List.of(
+                                new CategoricalSymbolRule(ThematicValue.text("blue"), blue),
+                                new CategoricalSymbolRule(ThematicValue.text("red"), red)),
+                        Optional.empty());
+        MarkerSymbol stored =
+                BuiltInMarkers.filledScreen(BuiltInMarker.SQUARE, Rgba.rgb(115, 115, 115), 8, 1);
+        if (!colliding) {
+            List<Feature> features = new ArrayList<>(count);
+            for (int index = 0; index < count; index++) {
+                int column = index % 16;
+                int row = index / 16;
+                features.add(
+                        labelFeature(
+                                index,
+                                column * 60.0,
+                                row * 40.0,
+                                index % 2 == 0 ? "blue" : "red",
+                                stored));
+            }
+            return new LabelOracleFixture(
+                    List.of(
+                            new LabelOracleLayer(
+                                    new InMemoryLayer("label-sparse", "Sparse labels", features),
+                                    FeaturePortrayal.markers(selector)
+                                            .withPointLabel(
+                                                    labelProfile(Rgba.rgb(20, 170, 40), 0)))),
+                    count);
+        }
+        List<Feature> lower = new ArrayList<>(count - 1);
+        for (int index = 0; index < count - 1; index++) {
+            lower.add(labelFeature(index, 0, 0, "red", stored));
+        }
+        return new LabelOracleFixture(
+                List.of(
+                        new LabelOracleLayer(
+                                new InMemoryLayer(
+                                        "label-colliding-lower", "Colliding lower labels", lower),
+                                FeaturePortrayal.markers(selector)
+                                        .withPointLabel(labelProfile(Rgba.rgb(180, 180, 20), 0))),
+                        new LabelOracleLayer(
+                                new InMemoryLayer(
+                                        "label-colliding-upper",
+                                        "Colliding upper label",
+                                        List.of(labelFeature(count - 1, 0, 0, "blue", stored))),
+                                FeaturePortrayal.markers(selector)
+                                        .withPointLabel(labelProfile(Rgba.rgb(20, 170, 40), 10)))),
+                count);
+    }
+
+    private static Feature labelFeature(
+            int index, double x, double y, String kind, MarkerSymbol stored) {
+        String id = String.format(java.util.Locale.ROOT, "label-%04d", index);
+        return new Feature(
+                id, id, new PointGeometry(new Coordinate(x, y)), Map.of("kind", kind), stored);
+    }
+
+    private static PointLabelProfile labelProfile(Rgba color, int priority) {
+        return new PointLabelProfile(
+                FeatureName.INSTANCE,
+                new LabelTextStyle(color, LabelWeight.NORMAL, 12),
+                List.of(PointLabelPosition.NE),
+                2,
+                0,
+                0,
+                1,
+                priority,
+                ResolutionRange.ALL);
+    }
+
+    private static LabelOracleImageFacts labelImageFacts(BufferedImage image) {
+        boolean blue = false;
+        boolean red = false;
+        boolean green = false;
+        boolean yellow = false;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int packed = image.getRGB(x, y);
+                int r = packed >>> 16 & 0xff;
+                int g = packed >>> 8 & 0xff;
+                int b = packed & 0xff;
+                blue |= b > r + 40 && b > g + 40;
+                red |= r > g + 40 && r > b + 40;
+                green |= g > r + 50 && g > b + 50;
+                yellow |= r > b + 50 && g > b + 50;
+            }
+        }
+        return new LabelOracleImageFacts(blue, red, green, yellow);
+    }
+
+    private record LabelOracleLayer(InMemoryLayer layer, FeaturePortrayal portrayal) {}
+
+    private record LabelOracleFixture(List<LabelOracleLayer> bindings, int featureCount) {
+        private LabelOracleFixture {
+            bindings = List.copyOf(bindings);
+        }
+    }
+
+    private record LabelOracleImageFacts(
+            boolean blue, boolean red, boolean green, boolean yellow) {}
 
     private static String hitSweep(EvidenceConfiguration.Profile profile) throws Exception {
         List<FeatureSource> sources = new ArrayList<>();

@@ -448,9 +448,15 @@ separately decomposed.
   adds bounded name/attribute extraction, toolkit-neutral label values and candidate geometry, fixed
   Java2D metrics, and one global post-geometry label paint pass across every binding kind. Complete
   G11-023 adds fixed-limit deterministic priority/topmost collision admission, declared-position
-  fallback, clipping, a reviewed styling/label viewer, and tolerant rendering regression. Proposed
-  G11-024 adds performance, native, consumer, and publication closeout without an expression language
-  or label cache.
+  fallback, clipping, a reviewed styling/label viewer, and tolerant rendering regression. Complete
+  G11-024 closes public documentation, performance, native, staged-consumer, and publication evidence
+  without an expression language or label cache. The July 2026 baseline retained linear placement:
+  256 sparse labels measured a 2.63 ms median and 1,024 fully colliding labels measured a 6.33 ms
+  median on the recorded WSL/Linux environment, so neither a placement index nor cache is justified.
+  Linux Native Image covers categorical portrayal rendering plus toolkit-neutral placement and its
+  stable limit diagnostic. Java2D font/glyph execution is not part of that native claim because it
+  would require internal-JDK JNI/reflection metadata; JVM rendering uses logical `SansSerif`, with no
+  Windows/macOS Native Image or cross-platform glyph-identity claim.
 - G11-003 is complete as a design decision. Persist a strict local `.mmap.xml` version 1: canonical
   CRS/view state, ordered local opener/identity/
   path references, fixed external catalog symbols, and raster presentation only. One AWT-free module

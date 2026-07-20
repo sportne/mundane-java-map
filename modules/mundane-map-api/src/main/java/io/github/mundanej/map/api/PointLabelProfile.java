@@ -7,6 +7,11 @@ import java.util.Objects;
 /**
  * Immutable bounded profile for one annotation-only singular-point label.
  *
+ * <p>A label is normally omitted, without a diagnostic, when its resolution is excluded, text is
+ * missing or blank, its marker role is omitted, every candidate is clipped, or every candidate
+ * collides. Labels are painted in the global annotation pass and do not participate in geometry or
+ * symbol interaction.
+ *
  * @param textSource exact feature-name or text-attribute source
  * @param style immutable visible text style
  * @param positions ordered unique compass-position preferences

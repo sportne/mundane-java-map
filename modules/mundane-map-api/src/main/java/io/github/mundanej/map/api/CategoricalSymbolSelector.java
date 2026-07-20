@@ -6,7 +6,14 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Exact bounded attribute-category selector with explicit fallback or omission. */
+/**
+ * Exact bounded attribute-category selector with explicit fallback or omission.
+ *
+ * <p>Selection compares the canonical immutable attribute value to each normalized rule value using
+ * exact value equality. A missing, null, unsupported, or unmatched value selects {@link
+ * #fallback()} when present and otherwise omits that geometry role; omission is presentation-only
+ * and does not remove the feature from source queries or extents.
+ */
 public final class CategoricalSymbolSelector implements SymbolSelector {
     /** Maximum number of exact category rules. */
     public static final int MAXIMUM_RULES = 256;

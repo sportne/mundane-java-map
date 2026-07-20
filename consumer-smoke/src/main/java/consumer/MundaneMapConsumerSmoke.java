@@ -2,18 +2,27 @@ package consumer;
 
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CategoricalSymbolRule;
+import io.github.mundanej.map.api.CategoricalSymbolSelector;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeatureName;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.LabelTextStyle;
+import io.github.mundanej.map.api.LabelWeight;
+import io.github.mundanej.map.api.PointLabelPosition;
+import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.RasterRequest;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.ResolutionRange;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SolidFillSymbol;
@@ -22,6 +31,7 @@ import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
@@ -230,21 +240,63 @@ public final class MundaneMapConsumerSmoke {
                                     CrsDefinitions.EPSG_3857,
                                     renderers);
                     try {
-                        Feature feature =
+                        Feature lower =
                                 new Feature(
-                                        "consumer-point",
-                                        "Consumer point",
+                                        "consumer-lower",
+                                        "LOSER",
                                         new PointGeometry(new Coordinate(0, 0)),
-                                        Map.of(),
+                                        Map.of("kind", "red"),
                                         BuiltInMarkers.filledScreen(
-                                                BuiltInMarker.DIAMOND,
-                                                Rgba.rgb(20, 120, 220),
-                                                18,
+                                                BuiltInMarker.SQUARE,
+                                                Rgba.rgb(115, 115, 115),
+                                                8,
                                                 1));
-                        view.setLayers(List.of(new InMemoryLayer("consumer", "Consumer", List.of(feature))));
-                        view.setSize(96, 96);
+                        Feature upper =
+                                new Feature(
+                                        "consumer-upper",
+                                        "WINNER",
+                                        new PointGeometry(new Coordinate(0, 0)),
+                                        Map.of("kind", "blue"),
+                                        lower.symbol());
+                        var blueMarker =
+                                BuiltInMarkers.filledScreen(
+                                        BuiltInMarker.CIRCLE, Rgba.rgb(20, 120, 220), 18, 1);
+                        var redMarker =
+                                BuiltInMarkers.filledScreen(
+                                        BuiltInMarker.DIAMOND, Rgba.rgb(210, 45, 45), 18, 1);
+                        CategoricalSymbolSelector selector =
+                                new CategoricalSymbolSelector(
+                                        "kind",
+                                        List.of(
+                                                new CategoricalSymbolRule(
+                                                        ThematicValue.text("blue"), blueMarker),
+                                                new CategoricalSymbolRule(
+                                                        ThematicValue.text("red"), redMarker)),
+                                        Optional.empty());
+                        view.setLayerBindings(
+                                List.of(
+                                        MapLayerBinding.portrayedSnapshot(
+                                                new InMemoryLayer(
+                                                        "consumer-lower",
+                                                        "Consumer lower",
+                                                        List.of(lower)),
+                                                consumerPortrayal(
+                                                        selector,
+                                                        0,
+                                                        Rgba.rgb(180, 180, 20))),
+                                        MapLayerBinding.portrayedSnapshot(
+                                                new InMemoryLayer(
+                                                        "consumer-upper",
+                                                        "Consumer upper",
+                                                        List.of(upper)),
+                                                consumerPortrayal(
+                                                        selector,
+                                                        10,
+                                                        Rgba.rgb(20, 170, 40)))));
+                        view.setSize(180, 100);
                         view.fitToData(16);
-                        BufferedImage image = new BufferedImage(96, 96, BufferedImage.TYPE_INT_ARGB);
+                        BufferedImage image =
+                                new BufferedImage(180, 100, BufferedImage.TYPE_INT_ARGB);
                         Graphics2D graphics = image.createGraphics();
                         try {
                             graphics.setColor(java.awt.Color.WHITE);
@@ -254,20 +306,43 @@ public final class MundaneMapConsumerSmoke {
                             graphics.dispose();
                         }
                         int colored = 0;
-                        for (int y = 32; y < 64; y++) {
-                            for (int x = 32; x < 64; x++) {
+                        int winnerLabel = 0;
+                        int loserLabel = 0;
+                        for (int y = 0; y < image.getHeight(); y++) {
+                            for (int x = 0; x < image.getWidth(); x++) {
                                 int rgb = image.getRGB(x, y);
                                 int red = (rgb >>> 16) & 0xff;
                                 int green = (rgb >>> 8) & 0xff;
                                 int blue = rgb & 0xff;
-                                if (blue > red + 40 && blue > green + 20) colored++;
+                                if (blue > red + 40 && blue > green + 40) colored++;
+                                if (green > red + 50 && green > blue + 50) winnerLabel++;
+                                if (red > blue + 50 && green > blue + 50) loserLabel++;
                             }
                         }
                         require(colored > 20, "vector symbol did not render in the expected region");
+                        require(winnerLabel > 10, "priority-winning consumer label did not render");
+                        require(loserLabel == 0, "lower-priority consumer label was not omitted");
                     } finally {
                         view.close();
                     }
                 });
+    }
+
+    private static FeaturePortrayal consumerPortrayal(
+            CategoricalSymbolSelector selector, int priority, Rgba labelColor) {
+        return FeaturePortrayal.markers(selector)
+                .withPointLabel(
+                        new PointLabelProfile(
+                                FeatureName.INSTANCE,
+                                new LabelTextStyle(
+                                        labelColor, LabelWeight.NORMAL, 12),
+                                List.of(PointLabelPosition.NE),
+                                2,
+                                0,
+                                0,
+                                1,
+                                priority,
+                                ResolutionRange.ALL));
     }
 
     private static void testShapefile(Path directory) throws Exception {

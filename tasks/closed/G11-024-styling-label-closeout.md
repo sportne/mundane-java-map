@@ -1,6 +1,6 @@
 # G11-024 — Styling and label closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G11-023
 Gate: G11
 Type: HITL

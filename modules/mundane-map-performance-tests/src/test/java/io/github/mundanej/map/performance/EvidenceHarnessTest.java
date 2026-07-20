@@ -62,7 +62,7 @@ class EvidenceHarnessTest {
             EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             String json = new String(report.json(), StandardCharsets.UTF_8);
             String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
-            assertEquals(55, count(json, "\"id\": \""));
+            assertEquals(57, count(json, "\"id\": \""));
             assertTrue(json.startsWith("{\n  \"schemaVersion\""));
             assertTrue(json.endsWith("\n"));
             assertTrue(markdown.contains("Durations are environment-specific evidence"));
@@ -89,7 +89,7 @@ class EvidenceHarnessTest {
                 assertTrue(markdown.contains("`" + id + "`"));
             }
             assertEquals(4, count(json, "\"vectorPathState\": \"LEVEL1_OPERATION_LOCAL\""));
-            assertEquals(43, count(json, "\"vectorPathState\": \"DISABLED\""));
+            assertEquals(45, count(json, "\"vectorPathState\": \"DISABLED\""));
             assertEquals(
                     List.of(
                             "small-vector-render-unoptimized",
@@ -103,6 +103,29 @@ class EvidenceHarnessTest {
                             "symbol-heavy-render-template-cache-cold",
                             "symbol-heavy-render-template-cache-warm"),
                     ScenarioRegistry.ids().subList(39, 41));
+            assertEquals(
+                    List.of("portrayed-label-render-sparse", "portrayed-label-render-colliding"),
+                    ScenarioRegistry.ids().subList(41, 43));
+            assertScenarioCounters(
+                    json,
+                    "portrayed-label-render-sparse",
+                    "DISABLED",
+                    "{\"frames\": 1, \"features\": 64, \"labelRequests\": 64, "
+                            + "\"declaredCandidates\": 64, \"collisionFixture\": 0, "
+                            + "\"selectedBlueInk\": 1, \"selectedRedInk\": 1, "
+                            + "\"acceptedLabelInk\": 1, "
+                            + "\"rejectedLowerPriorityLabelInk\": 0, "
+                            + "\"portableInvariants\": 10}");
+            assertScenarioCounters(
+                    json,
+                    "portrayed-label-render-colliding",
+                    "DISABLED",
+                    "{\"frames\": 1, \"features\": 256, \"labelRequests\": 256, "
+                            + "\"declaredCandidates\": 256, \"collisionFixture\": 1, "
+                            + "\"selectedBlueInk\": 1, \"selectedRedInk\": 0, "
+                            + "\"acceptedLabelInk\": 1, "
+                            + "\"rejectedLowerPriorityLabelInk\": 0, "
+                            + "\"portableInvariants\": 10}");
             assertScenarioCounters(
                     json,
                     "small-vector-render-unoptimized",
@@ -317,7 +340,7 @@ class EvidenceHarnessTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new EvidenceObservation(1, Map.of("bad", -1L)));
-        assertEquals(96, ScenarioOracleV1.frozenDigests().size());
+        assertEquals(100, ScenarioOracleV1.frozenDigests().size());
         assertEquals(
                 "56d246ef2d1394ce",
                 ScenarioOracleV1.frozenDigests().get("SMOKE/vector-zoom-sequence"));
