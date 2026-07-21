@@ -108,6 +108,12 @@ tasks.register('liveTrackSmoke') {
     dependsOn ':examples:live-track-stress:liveTrackSmoke'
 }
 
+tasks.register('liveTrackEvidence') {
+    group = 'verification'
+    description = 'Runs one opt-in canonical live-track evidence profile.'
+    dependsOn ':examples:live-track-stress:liveTrackEvidence'
+}
+
 tasks.register('performanceQuick') {
     group = 'verification'
     description = 'Runs the separate noncanonical quick performance-evidence lane.'

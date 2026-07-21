@@ -594,10 +594,14 @@ separately decomposed.
   throughput, frame latency/skips/stale results, backlog, shard skew, logical/observed memory, and
   deterministic error summaries. The reference target is the approximately 100,000-report/second 1m
   workload with a 10 FPS cap; its measured outcome is evidence, not a portable timing gate.
-- G15-005 creates a sub-five-minute 10k `liveTrackSmoke` iteration lane. G15-007 creates an opt-in
-  `/tmp` `liveTrackEvidence` lane with JSON and LLM-readable Markdown for 10k, 100k, and 1m. Full
+- G15-005 creates a sub-five-minute 10k `liveTrackSmoke` iteration lane. Complete G15-007 adds the
+  runnable 1m tier and an opt-in `/tmp` `liveTrackEvidence` lane with schema-tagged JSON and
+  LLM-readable Markdown for 10k, 100k, and 1m. Its named WSL2/Java 21 evidence met the 10 FPS cap at
+  all tiers, including approximately 100,000 reports/second and 447 MB peak observed heap at 1m. Full
   stress evidence remains outside `qualityGate` and ordinary CI, and FPS is evidence rather than a
-  portable pass/fail threshold.
+  portable pass/fail threshold. The elevated large-population innovation summaries reflect the
+  intentionally simple Cartesian estimator encountering global wrap/reflection discontinuities;
+  they are retained evidence and do not support an operational-accuracy claim.
 - G15-002/G15-003 estimator/simulator work may proceed in parallel with G15-004 chart work after the
   G15-001 decision. G15-005 through G15-008 then deliver the 10k picture, evidence-guided 100k scale,
   1m reports, and lifecycle/simplicity closeout.

@@ -22,6 +22,9 @@ final class PackedIouKalmanFilter {
     private final double[] displayTransitions = new double[61];
     private long acceptedReports;
     private long rejectedReports;
+    private long innovationCount;
+    private double normalizedInnovationSum;
+    private double normalizedInnovationMaximum;
 
     PackedIouKalmanFilter(int trackCount, IouKalmanConfig config) {
         if (trackCount < 1 || trackCount > MAX_TRACKS) {
@@ -112,6 +115,12 @@ final class PackedIouKalmanFilter {
         double velocityGain = predictedP01 / innovationVariance;
         double innovationX = measuredX - predictedX;
         double innovationY = measuredY - predictedY;
+        double normalizedInnovation =
+                (innovationX * innovationX + innovationY * innovationY) / innovationVariance;
+        if (!Double.isFinite(normalizedInnovation)) {
+            rejectedReports++;
+            throw new IllegalStateException("IOU_INNOVATION_NON_FINITE");
+        }
         double updatedX = predictedX + positionGain * innovationX;
         double updatedY = predictedY + positionGain * innovationY;
         double updatedVelocityX = e * velocityX[track] + velocityGain * innovationX;
@@ -144,6 +153,9 @@ final class PackedIouKalmanFilter {
         velocityY[track] = updatedVelocityY;
         timestampSeconds[track] = timestamp;
         acceptedReports++;
+        innovationCount++;
+        normalizedInnovationSum += normalizedInnovation;
+        normalizedInnovationMaximum = Math.max(normalizedInnovationMaximum, normalizedInnovation);
         return true;
     }
 
@@ -247,6 +259,24 @@ final class PackedIouKalmanFilter {
         return rejectedReports;
     }
 
+    long innovationCount() {
+        return innovationCount;
+    }
+
+    double normalizedInnovationSum() {
+        return normalizedInnovationSum;
+    }
+
+    double normalizedInnovationMaximum() {
+        return normalizedInnovationMaximum;
+    }
+
+    void resetEvidenceMetrics() {
+        innovationCount = 0L;
+        normalizedInnovationSum = 0.0;
+        normalizedInnovationMaximum = 0.0;
+    }
+
     long logicalBytes() {
         return Math.addExact(
                 Math.multiplyExact((long) trackCount(), 7L * Double.BYTES + Long.BYTES + 1L),
@@ -271,6 +301,7 @@ final class PackedIouKalmanFilter {
         Arrays.fill(displayTransitions, 0.0);
         acceptedReports = 0L;
         rejectedReports = 0L;
+        resetEvidenceMetrics();
     }
 
     private double transitionForDisplay(int track, double displayTimestampSeconds) {

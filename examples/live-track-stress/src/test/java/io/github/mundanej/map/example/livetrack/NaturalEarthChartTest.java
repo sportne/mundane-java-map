@@ -184,7 +184,8 @@ class NaturalEarthChartTest {
                         IllegalArgumentException.class,
                         () -> LiveTrackStress.main(new String[] {"--unknown"}));
         assertEquals(
-                "Usage: live-track-stress [--chart|--headless|--population=100000]",
+                "Usage: live-track-stress "
+                        + "[--chart|--headless|--population=100000|--population=1000000]",
                 failure.getMessage());
     }
 

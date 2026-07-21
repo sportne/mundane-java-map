@@ -25,6 +25,7 @@ final class TrackShard {
     private long initializationReports;
     private long scheduledReports;
     private long processedReports;
+    private long evidenceProcessedReports;
     private long lateReports;
     private long pendingReports;
     private long tracksVisited;
@@ -58,6 +59,7 @@ final class TrackShard {
             pendingReports--;
             process(track, simulationSecond);
             processedReports++;
+            evidenceProcessedReports++;
             if (late) {
                 lateReports++;
             }
@@ -89,6 +91,10 @@ final class TrackShard {
         return processedReports;
     }
 
+    long evidenceProcessedReports() {
+        return evidenceProcessedReports;
+    }
+
     long lateReports() {
         return lateReports;
     }
@@ -103,6 +109,26 @@ final class TrackShard {
 
     long pendingReports() {
         return pendingReports;
+    }
+
+    void addAccuracy(double[] totals) {
+        if (totals.length < 5) {
+            throw new IllegalArgumentException("accuracy target needs five entries");
+        }
+        for (int track = 0; track < trackCount(); track++) {
+            double deltaX = filter.x(track) - truthX[track];
+            double deltaY = filter.y(track) - truthY[track];
+            totals[0] += deltaX * deltaX + deltaY * deltaY;
+        }
+        totals[1] += trackCount();
+        totals[2] += filter.normalizedInnovationSum();
+        totals[3] += filter.innovationCount();
+        totals[4] = Math.max(totals[4], filter.normalizedInnovationMaximum());
+    }
+
+    void resetEvidenceMetrics() {
+        filter.resetEvidenceMetrics();
+        evidenceProcessedReports = 0L;
     }
 
     long logicalBytes() {
@@ -186,6 +212,7 @@ final class TrackShard {
         initializationReports = 0L;
         scheduledReports = 0L;
         processedReports = 0L;
+        evidenceProcessedReports = 0L;
         lateReports = 0L;
         pendingReports = 0L;
         tracksVisited = 0L;

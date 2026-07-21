@@ -440,7 +440,7 @@ class LiveTrackFramesTest {
         assertTrue(viewer.chartClosed());
         assertFalse(viewer.engine().producerAlive());
         assertThrows(
-                IllegalArgumentException.class, () -> LiveTrackViewer.startHeadless(1_000_000));
+                IllegalArgumentException.class, () -> LiveTrackViewer.startHeadless(1_000_001));
     }
 
     @Test

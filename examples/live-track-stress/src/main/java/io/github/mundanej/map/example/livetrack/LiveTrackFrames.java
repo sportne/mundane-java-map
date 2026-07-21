@@ -188,6 +188,22 @@ final class LiveTrackFrames {
             return Math.multiplyExact((long) positionsX.length, Double.BYTES);
         }
 
+        LiveTrackCoordinator.AccuracySummary accuracySummary() {
+            return coordinator.accuracySummary();
+        }
+
+        long largestTrackAllocationBytes() {
+            return coordinator.largestAllocation();
+        }
+
+        void beginMeasurementWindow() {
+            synchronized (telemetryMonitor) {
+                coordinator.resetEvidenceMetrics();
+                handoff.resetEvidenceMetrics();
+                captureCoordinatorTelemetryLocked();
+            }
+        }
+
         LiveTrackTelemetry telemetry(long nowNanos) {
             Runtime runtime = Runtime.getRuntime();
             long used = runtime.totalMemory() - runtime.freeMemory();
@@ -251,6 +267,14 @@ final class LiveTrackFrames {
 
         boolean producerAlive() {
             return producer.isAlive();
+        }
+
+        boolean workersTerminated() {
+            return !producer.isAlive() && coordinator.liveWorkerCount() == 0;
+        }
+
+        void failWorkerForTest(int workerIndex) {
+            coordinator.failWorkerForTest(workerIndex);
         }
 
         @Override
@@ -466,15 +490,19 @@ final class LiveTrackFrames {
 
         private void captureCoordinatorTelemetry() {
             synchronized (telemetryMonitor) {
-                observedState = coordinator.state();
-                observedSimulationSecond = coordinator.simulationSecond();
-                observedScheduledReports = coordinator.scheduledReports();
-                observedProcessedReports = coordinator.processedReports();
-                observedRejectedReports = coordinator.rejectedReports();
-                observedLateReports = coordinator.lateReports();
-                coordinator.copyShardMetrics(shardMetrics);
-                observedPendingReports = coordinator.pendingReports();
+                captureCoordinatorTelemetryLocked();
             }
+        }
+
+        private void captureCoordinatorTelemetryLocked() {
+            observedState = coordinator.state();
+            observedSimulationSecond = coordinator.simulationSecond();
+            observedScheduledReports = coordinator.scheduledReports();
+            observedProcessedReports = coordinator.processedReports();
+            observedRejectedReports = coordinator.rejectedReports();
+            observedLateReports = coordinator.lateReports();
+            coordinator.copyShardMetrics(shardMetrics);
+            observedPendingReports = coordinator.pendingReports();
         }
 
         private static void preflight(long trackBytes, long positionBytes, long maximumHeap) {
@@ -703,6 +731,19 @@ final class LiveTrackFrames {
                     ordered.length == 0 ? 0L : ordered[ordered.length - 1],
                     allocatedBuffers,
                     frameBufferBytes);
+        }
+
+        synchronized void resetEvidenceMetrics() {
+            requestedFrames = 0L;
+            completedFrames = 0L;
+            paintedFrames = 0L;
+            skippedRequests = 0L;
+            staleDiscards = 0L;
+            replacedPendingFrames = 0L;
+            latencyCount = 0L;
+            paintCount = 0L;
+            Arrays.fill(latencyNanos, 0L);
+            Arrays.fill(paintNanos, 0L);
         }
 
         @Override

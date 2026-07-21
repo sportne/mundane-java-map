@@ -48,3 +48,17 @@ tasks.register('liveTrackScaleProbe', JavaExec) {
     }
     timeout = java.time.Duration.ofMinutes(5)
 }
+
+tasks.register('liveTrackEvidence', JavaExec) {
+    group = 'verification'
+    description = 'Runs one opt-in canonical live-track evidence profile.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.example.livetrack.LiveTrackEvidence'
+    args providers.gradleProperty('liveTrackProfile').getOrElse('')
+    jvmArgs '-Djava.awt.headless=true',
+            "-Dmundane.map.liveTrack.reports=${rootProject.layout.buildDirectory.dir('reports/live-track').get().asFile.absolutePath}",
+            '-Dmundane.map.liveTrack.workspace=/tmp/mundane-java-map-live-track'
+    maxHeapSize = '1g'
+    timeout = java.time.Duration.ofMinutes(10)
+    outputs.upToDateWhen { false }
+}

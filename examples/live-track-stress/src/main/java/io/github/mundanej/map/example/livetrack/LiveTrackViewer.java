@@ -26,7 +26,7 @@ import javax.swing.JPanel;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
 
-/** Interactive 10,000- and 100,000-track stress picture. */
+/** Interactive 10,000-, 100,000-, and 1,000,000-track stress picture. */
 final class LiveTrackViewer {
     private static final int DEFAULT_FPS = 10;
 
@@ -198,13 +198,17 @@ final class LiveTrackViewer {
     }
 
     private static void requireViewerPopulation(int population) {
-        if (population != 10_000 && population != 100_000) {
-            throw new IllegalArgumentException("viewer population must be 10000 or 100000");
+        if (population != 10_000 && population != 100_000 && population != 1_000_000) {
+            throw new IllegalArgumentException(
+                    "viewer population must be 10000, 100000, or 1000000");
         }
     }
 
     private static String tierName(int population) {
-        return population == 10_000 ? "10k" : "100k";
+        if (population == 10_000) {
+            return "10k";
+        }
+        return population == 100_000 ? "100k" : "1m";
     }
 
     static final class ViewerSession implements AutoCloseable {

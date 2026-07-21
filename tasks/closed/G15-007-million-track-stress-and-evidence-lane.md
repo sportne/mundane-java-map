@@ -1,6 +1,6 @@
 # G15-007 — Million-track stress and evidence lane
 
-Status: Proposed
+Status: Complete
 Depends on: G15-006
 Gate: G15
 Type: HITL

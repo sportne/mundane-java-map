@@ -1,0 +1,96 @@
+{
+  "schema": "mundane-map-live-track-evidence/v1",
+  "runId": "20260721T145417Z-10k-546274",
+  "profile": "10k",
+  "status": "SUCCESS",
+  "limitations": ["FRAME_CAP_LIMITED"],
+  "configuration": {
+    "population": 10000,
+    "seed": 5572446169001248076,
+    "workers": 8,
+    "fpsCap": 10,
+    "beta": 0.05,
+    "sigma": 20.0,
+    "measurementStandardDeviation": 5000.0,
+    "warmupSeconds": 10,
+    "measurementSeconds": 60,
+    "viewportWidth": 900,
+    "viewportHeight": 500
+  },
+  "environment": {
+    "os": "Linux 5.15.167.4-microsoft-standard-WSL2",
+    "architecture": "amd64",
+    "cpu": "Intel(R) Core(TM) i9-14900KF",
+    "availableProcessors": 32,
+    "javaVersion": "21.0.11",
+    "javaVendor": "Ubuntu",
+    "maximumHeap": 1073741824
+  },
+  "phases": {
+    "initialization": {
+      "wallNanos": 188330072,
+      "scheduledReports": 10000,
+      "processedReports": 0,
+      "requestedFrames": 0,
+      "completedFrames": 0,
+      "paintedFrames": 0
+    },
+    "warmup": {
+      "wallNanos": 10000141061,
+      "scheduledReports": 10148,
+      "processedReports": 10148,
+      "requestedFrames": 99,
+      "completedFrames": 99,
+      "paintedFrames": 99
+    },
+    "measurement": {
+      "wallNanos": 60000097719,
+      "scheduledReports": 60396,
+      "processedReports": 60396,
+      "requestedFrames": 600,
+      "completedFrames": 600,
+      "paintedFrames": 600
+    } 
+  },
+  "storage": {
+    "logicalTrackBytes": 1155600,
+    "packedPositionBytes": 160000,
+    "frameBufferBytes": 3600000,
+    "largestAllocationBytes": 80000,
+    "maximumHeap": 1073741824,
+    "peakObservedHeap": 30459408
+  },
+  "telemetry": {
+    "simulationSecond": 70,
+    "scheduledReports": 80544,
+    "processedReports": 70544,
+    "rejectedReports": 0,
+    "lateReports": 0,
+    "pendingReports": 10000,
+    "processedReportsPerSecond": 1006.59836060358,
+    "requestedFrames": 600,
+    "completedFrames": 600,
+    "paintedFrames": 600,
+    "skippedRequests": 0,
+    "staleDiscards": 0,
+    "replacedPendingFrames": 0,
+    "achievedFps": 10.0,
+    "buildP50Nanos": 862813,
+    "buildP95Nanos": 1659502,
+    "buildP99Nanos": 2093800,
+    "buildMaximumNanos": 4093720,
+    "backlogSeconds": 0,
+    "shardReportSkew": 1.02280348759222,
+    "shardWorkSkew": 1.469863033627184,
+    "positionRmse": 4654.0454338961235,
+    "innovationCount": 60396,
+    "normalizedInnovationMean": 2.344848177280969,
+    "normalizedInnovationMaximum": 24.20828978174957
+  },
+  "cleanup": {
+    "workersTerminated": true,
+    "resourcesClosed": true,
+    "workspaceRemoved": true
+  },
+  "diagnostics": []
+}

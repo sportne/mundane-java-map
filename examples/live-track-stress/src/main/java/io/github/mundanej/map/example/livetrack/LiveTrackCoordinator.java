@@ -15,6 +15,12 @@ final class LiveTrackCoordinator implements AutoCloseable {
         CLOSED
     }
 
+    record AccuracySummary(
+            double positionRmse,
+            long innovationCount,
+            double normalizedInnovationMean,
+            double normalizedInnovationMaximum) {}
+
     private final TrackSimulationConfig config;
     private final TrackStoragePlan storagePlan;
     private TrackShard[] shards;
@@ -287,7 +293,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
         long minimumWork = Long.MAX_VALUE;
         long maximumWork = 0L;
         for (int index = 0; index < shards.length; index++) {
-            long reports = shards[index].processedReports();
+            long reports = shards[index].evidenceProcessedReports();
             minimumReports = Math.min(minimumReports, reports);
             maximumReports = Math.max(maximumReports, reports);
             long work = workers == null ? 0L : workers[index].workNanos();
@@ -298,6 +304,29 @@ final class LiveTrackCoordinator implements AutoCloseable {
         target[1] = maximumReports;
         target[2] = minimumWork == Long.MAX_VALUE ? 0L : minimumWork;
         target[3] = maximumWork;
+    }
+
+    synchronized AccuracySummary accuracySummary() {
+        requireQuiescentRead();
+        double[] totals = new double[5];
+        for (TrackShard shard : shards) {
+            shard.addAccuracy(totals);
+        }
+        double positionRmse = totals[1] == 0.0 ? 0.0 : StrictMath.sqrt(totals[0] / totals[1]);
+        double innovationMean = totals[3] == 0.0 ? 0.0 : totals[2] / totals[3];
+        return new AccuracySummary(positionRmse, (long) totals[3], innovationMean, totals[4]);
+    }
+
+    synchronized void resetEvidenceMetrics() {
+        requireQuiescentRead();
+        for (TrackShard shard : shards) {
+            shard.resetEvidenceMetrics();
+        }
+        if (workers != null) {
+            for (ShardWorker worker : workers) {
+                worker.resetWorkNanos();
+            }
+        }
     }
 
     synchronized long checksum() {
@@ -516,6 +545,12 @@ final class LiveTrackCoordinator implements AutoCloseable {
         private boolean stop;
         private boolean failNextRequest;
         private long workNanos;
+
+        void resetWorkNanos() {
+            synchronized (monitor) {
+                workNanos = 0L;
+            }
+        }
 
         ShardWorker(
                 int index,

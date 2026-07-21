@@ -19,12 +19,12 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 through G15-006 are approved. The decision freezes the mathematical,
+G15-001 through G15-007 are approved. The decision freezes the mathematical,
 provenance, workload, storage, lifecycle, rendering, and evidence profile below; the first two
 implementation slices prove the packed estimator and deterministic simulator, G15-004 proves the
 real chart path, G15-005 joins them in the first live 10k picture, and G15-006 measures and tunes the
-100k sharded tier. G15-007 through G15-008 remain Proposed until their working vertical slices pass
-review. No completed task creates a production API or module.
+100k sharded tier, and G15-007 proves the complete 1m evidence path. G15-008 remains Proposed until
+its hardening and closeout slice passes review. No completed task creates a production API or module.
 
 ## Research and provenance boundary
 
@@ -481,6 +481,17 @@ Box-Muller pairs reuse their shared radius. These changes preserve the frozen st
 remove measured redundant work without work stealing, auto-tuning, or a public abstraction. The
 named before/after evidence and `/tmp` JFR workflow are recorded in
 [`examples/live-track-stress/G15-006-PROFILE.md`](../examples/live-track-stress/G15-006-PROFILE.md).
+
+G15-007 enables the same viewer at one million tracks and adds the opt-in `liveTrackEvidence` lane.
+Each exact 10k, 100k, or 1m invocation works below `/tmp`, uses a fixed 10-second warmup and
+60-second measurement window at the reference 10 FPS cap, and atomically writes schema-tagged JSON
+and concise Markdown reports. The example-local runner reports phase counters, throughput, frame
+latency, overload, shard, checked-storage, observed-heap, position-error, normalized-innovation, and
+cleanup evidence while retaining terminal failure/cancellation reports. The named-machine evidence
+is summarized in
+[`examples/live-track-stress/G15-007-EVIDENCE.md`](../examples/live-track-stress/G15-007-EVIDENCE.md).
+It met the cap at all three tiers and processed approximately 100,000 reports/second at 1m on that
+machine. This is descriptive JVM evidence, not a portable performance or operational-accuracy claim.
 
 G15-002/G15-003 and G15-004 are dependency-parallel after G15-001, but all touch the example
 registration eventually; one integration owner must serialize shared Gradle/settings, design index,
