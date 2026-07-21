@@ -1,6 +1,6 @@
 # G11-032 — Workspace registries and session opening
 
-Status: Proposed
+Status: Complete
 Depends on: G11-031
 Gate: G11
 Type: AFK

@@ -5,7 +5,7 @@ plugins {
 
 dependencies {
     api project(':modules:mundane-map-api')
-    implementation project(':modules:mundane-map-core')
+    api project(':modules:mundane-map-core')
 }
 
 description = 'JDK-only bounded local map workspace persistence.'

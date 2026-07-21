@@ -1286,7 +1286,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void workspaceModuleIsJdkOnlyAwtFreeFormatNeutralAndWorking() {
+    void workspaceModuleIsJdkOnlyAwtFreeFormatNeutralAndWorking() throws IOException {
         ModuleDescriptor workspace = moduleEndingWith("mundane-map-workspace");
         JavaClasses classes = classesByModule.get(workspace);
         List<String> prohibitedDependencies =
@@ -1321,21 +1321,41 @@ class ArchitectureRulesTest {
         assertFalse(classes.isEmpty(), "Expected the working workspace read module");
         assertTrue(prohibitedDependencies.isEmpty(), prohibitedDependencies::toString);
         assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        String workspaceBuild =
+                Files.readString(
+                        Objects.requireNonNull(rootBuild.getParent())
+                                .resolve("modules/mundane-map-workspace/build.gradle"));
+        assertTrue(workspaceBuild.contains("api project(':modules:mundane-map-core')"));
+        assertFalse(workspaceBuild.contains("implementation project(':modules:mundane-map-core')"));
         assertEquals(
                 Set.of(
+                        "Builder",
                         "WorkspaceDocument",
                         "WorkspaceException",
+                        "WorkspaceFeatureSourceOpener",
                         "WorkspaceFeatureLayer",
                         "WorkspaceFile",
                         "WorkspaceFiles",
                         "WorkspaceLayerDefinition",
                         "WorkspaceLimits",
+                        "WorkspaceLocalPathBranch",
+                        "WorkspaceLocalPathProfile",
+                        "WorkspaceOpenContext",
+                        "WorkspaceOpener",
                         "WorkspaceProblem",
+                        "WorkspaceRasterSourceOpener",
                         "WorkspaceRasterLayer",
                         "WorkspaceRelativePath",
+                        "WorkspaceSession",
+                        "WorkspaceSourceKind",
+                        "WorkspaceSourceRegistry",
                         "WorkspaceSourceReference",
+                        "WorkspaceSymbolCatalogRegistry",
                         "WorkspaceSymbolReferences",
-                        "WorkspaceViewState"),
+                        "WorkspaceViewState",
+                        "OpenedWorkspaceFeatureLayer",
+                        "OpenedWorkspaceLayer",
+                        "OpenedWorkspaceRasterLayer"),
                 publicTypes);
     }
 

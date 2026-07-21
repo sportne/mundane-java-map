@@ -307,7 +307,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G11-024 — Styling and label closeout](closed/G11-024-styling-label-closeout.md) | Complete | HITL | G11-023 | Close styling/label API, performance, consumer, publication, and native evidence. |
 | [G11-030 — Workspace model and secure reader](closed/G11-030-workspace-model-and-secure-reader.md) | Complete | AFK | G11-003 | Read a bounded secure local XML workspace into immutable values. |
 | [G11-031 — Canonical workspace writer](closed/G11-031-canonical-workspace-writer.md) | Complete | AFK | G11-030 | Serialize canonical workspace XML with atomic replacement and failure evidence. |
-| [G11-032 — Workspace registries and session opening](G11-032-workspace-registries-and-session-opening.md) | Proposed | AFK | G11-031 | Open all workspace sources through explicit registries with all-or-nothing ownership. |
+| [G11-032 — Workspace registries and session opening](closed/G11-032-workspace-registries-and-session-opening.md) | Complete | AFK | G11-031 | Open all workspace sources through explicit registries with all-or-nothing ownership. |
 | [G11-033 — Workspace viewer and local restore](G11-033-workspace-viewer-and-local-restore.md) | Proposed | AFK | G11-032 | Restore a useful local shapefile/raster workspace in a runnable viewer. |
 | [G11-034 — Workspace hardening and closeout](G11-034-workspace-hardening-and-closeout.md) | Proposed | HITL | G11-033 | Close hostile input, docs, publication/consumer, and Linux native evidence. |
 | [G11-040 — Programmatic SVG map-export slice](G11-040-programmatic-svg-map-export-slice.md) | Proposed | AFK | G11-005, G11-022 | Encode and atomically write a bounded programmatic vector-map snapshot. |
