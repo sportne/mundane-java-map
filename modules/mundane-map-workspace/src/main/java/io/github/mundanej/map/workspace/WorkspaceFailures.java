@@ -148,7 +148,10 @@ final class WorkspaceFailures {
 
     private static WorkspaceException failure(
             String code, Map<String, String> context, Throwable cause) {
-        return failure(code, context, Optional.empty(), cause);
+        return new WorkspaceException(
+                new WorkspaceProblem(code, context),
+                Optional.empty(),
+                cause == null ? null : new IllegalStateException("WORKSPACE_PROVIDER_FAILURE"));
     }
 
     private static WorkspaceException failure(

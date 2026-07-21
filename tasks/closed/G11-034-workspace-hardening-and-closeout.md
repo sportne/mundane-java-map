@@ -1,6 +1,6 @@
 # G11-034 — Workspace hardening and closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G11-033
 Gate: G11
 Type: HITL

@@ -63,6 +63,7 @@ public final class NativeSmokeMain {
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGeoTiff()) {
             NativeGeoTiffSmokeScenario.run(workspace.geoTiffPaths());
         }
+        NativeWorkspaceSmokeScenario.run();
     }
 
     private static void runOnEdt(Runnable scenario) {

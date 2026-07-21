@@ -27,7 +27,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
 | `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
-| `mundane-map-workspace` | Immutable workspace values plus bounded secure read and canonical atomic write for local `.mmap.xml` version 1. |
+| `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |
 
 The format modules contain no AWT types and do not discover implementations. Applications explicitly
 construct their CRS, symbol-renderer, and encoded-raster-decoder registries. Callers close opened
@@ -53,7 +53,7 @@ raster evidence, a corpus, profiling, publication staging, or a native toolchain
 ./gradlew performanceQuick --console=plain
 ./gradlew performanceEvidence --console=plain
 ./gradlew nativeSmoke --console=plain
-./gradlew publicationDryRun --console=plain
+./gradlew publicationDryRun consumerSmoke --console=plain
 ```
 
 `renderRegression` uses bounds, topology, tolerant color regions, ordering, clipping, and
@@ -123,6 +123,26 @@ GeoPackage, MBTiles, GPX/KML, remote tiles, additional projections, editing/pers
 JTS/PROJ/SQLite/GDAL adapters remain Level 2 work. DTED, the static SVG subset, and the optional
 Jackson Core GeoJSON profile are implemented Level 2 capabilities and do not broaden Level 1.
 
+## Local workspace profile
+
+`mundane-map-workspace` is a Level 2 JDK-only convenience for reopening a local map composition. Its
+strict `.mmap.xml` version 1 grammar stores viewport state, ordered guarded relative source
+references, exact external catalog-symbol names, and raster interpolation/opacity. Applications
+explicitly register trusted source openers, finite path/sidecar profiles, recognized CRS definitions,
+and immutable symbol catalogs; the module performs no classpath discovery and never embeds data,
+credentials, runtime limits, caches, selection, tools, or edit history.
+
+Reads reject symbolic links, traversal, malformed UTF-8/XML, DTDs/entities, unknown grammar, and
+configured limit excesses with bounded structured diagnostics. Writes are canonical and require a
+forced same-directory temporary file plus atomic replacement, with no non-atomic fallback. Opening is
+all-or-nothing: the returned `WorkspaceSession` owns every source and closes them in reverse order.
+Views borrow those sources and must close or detach their bindings before closing the session. The
+runnable `:examples:workspace-viewer` demonstrates explicit shapefile and world-file image policies.
+
+The supported Native Image statement is limited to the shared Linux Java 21 smoke lane. Workspace
+files are local configuration, not a sandbox: registered openers are trusted application code, and a
+concurrent filesystem replacement after the final guarded identity check remains an OS boundary.
+
 The implemented Level 2 GeoJSON adapter supports the bounded six-family profile documented in the
 design. Its directly constructed Jackson Core reader/writer, source query, and renderer path are also
 verified by the Linux x86-64 Native Image smoke; this is not a Windows or macOS claim. Run its review
@@ -135,7 +155,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Seven independent examples consume the published APIs without copying parsers or renderers:
+Eleven independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -145,11 +165,16 @@ Seven independent examples consume the published APIs without copying parsers or
 ./gradlew :examples:raster-viewer:run --args='<image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857]'
 ./gradlew :examples:elevation-viewer:run
 ./gradlew :examples:geojson-viewer:run --args='<optional-path.geojson>'
+./gradlew :examples:geotiff-viewer:run
+./gradlew :examples:point-edit-viewer:run
+./gradlew :examples:styling-label-viewer:run
+./gradlew :examples:workspace-viewer:run
 ```
 
-The basic, symbol, measurement, and elevation examples are deterministic no-argument demonstrations.
-The three format viewers are real file consumers, apply the format modules' limits, present structured
-diagnostics under fixed non-path source identities, and transfer source ownership to their views.
+The basic, symbol, measurement, elevation, editing, styling, and workspace examples are deterministic
+no-argument demonstrations. The format viewers are real file consumers, apply their modules' limits,
+present structured diagnostics under fixed non-path source identities, and transfer or retain source
+ownership according to their documented view/session lifecycle.
 
 ## Design and roadmap
 

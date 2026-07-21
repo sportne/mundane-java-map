@@ -4,7 +4,14 @@ import io.github.mundanej.map.api.DiagnosticReport;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Stable workspace operation failure without raw input or path disclosure. */
+/**
+ * Stable workspace operation failure without raw input or path disclosure.
+ *
+ * <p>File, XML, and atomic-write provider exceptions are replaced by a stable generic cause because
+ * their messages may disclose local paths or input. A mapped {@link
+ * io.github.mundanej.map.api.SourceException} remains available as the cause only when {@link
+ * #sourceReport()} is present, as required by the explicit trusted-opener boundary.
+ */
 @SuppressWarnings("serial")
 public final class WorkspaceException extends RuntimeException {
     /** Stable structured failure detail. */

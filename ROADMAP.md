@@ -473,8 +473,17 @@ separately decomposed.
   UTF-8/XML 1.0 grammar, hardened JDK StAX reader, stable problems, and an AWT-free published module.
   Complete G11-031 adds deterministic direct UTF-8 encoding, exact output/operation accounting,
   private same-directory temporary files, forced content, target-change detection, and mandatory
-  atomic replacement with failure-safe cleanup. G11-032 through G11-034 deliver the session, viewer,
-  and hardening/native/consumer slices.
+  atomic replacement with failure-safe cleanup. Complete G11-032 adds exact explicit source/catalog
+  registries, guarded finite path profiles, preflight-before-I/O, cancellation, and all-or-nothing
+  owning sessions. Complete G11-033 restores a real local shapefile/world-file raster workspace in a
+  runnable AWT viewer with borrowed bindings, persisted view/raster state, and deterministic close
+  order. Complete G11-034 closes the capability with public threat/lifecycle guidance, the existing
+  exhaustive hostile/mutation/allocation/fault matrices, verified publication metadata, and a clean
+  offline Java 21 consumer that writes, reads, atomically rewrites, explicitly opens, and closes a
+  staged-artifact-only workspace. The shared native executable performs the same bounded
+  read/write/open/close path plus one stable hostile-XML failure; the required lane passed on
+  2026-07-20 using GraalVM CE Java 21.0.2 on Ubuntu 24.04 WSL2 Linux x86-64. This evidence makes no
+  Windows, macOS, Linux AArch64, non-WSL distribution, or broader cross-platform Native Image claim.
 - G11-004 remains Proposed. Its draft evaluates whether to accept bounded Xerial-backed GeoPackage/
   MBTiles adapters and defer JTS, PROJ, and GDAL; no adapter disposition, classifier, platform claim,
   generic adapter API, or module is approved.

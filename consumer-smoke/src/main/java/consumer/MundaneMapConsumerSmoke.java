@@ -5,6 +5,7 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CategoricalSymbolRule;
 import io.github.mundanej.map.api.CategoricalSymbolSelector;
 import io.github.mundanej.map.api.Coordinate;
+import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureName;
@@ -12,10 +13,13 @@ import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.LabelTextStyle;
 import io.github.mundanej.map.api.LabelWeight;
+import io.github.mundanej.map.api.NamedSymbol;
+import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PointLabelPosition;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.RasterRequest;
@@ -40,6 +44,7 @@ import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
+import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.RasterImages;
 import io.github.mundanej.map.io.dted.DtedFiles;
@@ -52,6 +57,22 @@ import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
+import io.github.mundanej.map.workspace.OpenedWorkspaceFeatureLayer;
+import io.github.mundanej.map.workspace.WorkspaceDocument;
+import io.github.mundanej.map.workspace.WorkspaceFeatureLayer;
+import io.github.mundanej.map.workspace.WorkspaceFiles;
+import io.github.mundanej.map.workspace.WorkspaceLimits;
+import io.github.mundanej.map.workspace.WorkspaceLocalPathBranch;
+import io.github.mundanej.map.workspace.WorkspaceLocalPathProfile;
+import io.github.mundanej.map.workspace.WorkspaceOpenContext;
+import io.github.mundanej.map.workspace.WorkspaceOpener;
+import io.github.mundanej.map.workspace.WorkspaceRelativePath;
+import io.github.mundanej.map.workspace.WorkspaceSession;
+import io.github.mundanej.map.workspace.WorkspaceSourceReference;
+import io.github.mundanej.map.workspace.WorkspaceSourceRegistry;
+import io.github.mundanej.map.workspace.WorkspaceSymbolCatalogRegistry;
+import io.github.mundanej.map.workspace.WorkspaceSymbolReferences;
+import io.github.mundanej.map.workspace.WorkspaceViewState;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -86,6 +107,7 @@ public final class MundaneMapConsumerSmoke {
             testImages(directory, decoders);
             testDted(directory);
             testGeoTiff();
+            testWorkspace(directory);
         } finally {
             try (var paths = Files.walk(directory)) {
                 paths.sorted(Comparator.reverseOrder()).forEach(MundaneMapConsumerSmoke::delete);
@@ -502,6 +524,101 @@ public final class MundaneMapConsumerSmoke {
         } finally {
             source.close();
         }
+    }
+
+    private static void testWorkspace(Path directory) throws IOException {
+        String openerId = "consumer.workspace.feature.v1";
+        String catalogId = "consumer.workspace.catalog";
+        Path sourcePath = directory.resolve("workspace-source.data");
+        Path workspacePath = directory.resolve("consumer.mmap.xml");
+        Files.writeString(sourcePath, "fixed consumer source\n");
+        WorkspaceDocument document =
+                new WorkspaceDocument(
+                        new WorkspaceViewState("EPSG:3857", "EPSG:3857", 4, 8, 2),
+                        List.of(
+                                new WorkspaceFeatureLayer(
+                                        "consumer-layer",
+                                        "Consumer layer",
+                                        new WorkspaceSourceReference(
+                                                openerId,
+                                                new SourceIdentity(
+                                                        "consumer-workspace-source",
+                                                        "Consumer workspace source"),
+                                                new WorkspaceRelativePath(
+                                                        sourcePath.getFileName().toString())),
+                                        new WorkspaceSymbolReferences(
+                                                catalogId, "marker", "line", "fill"))));
+        WorkspaceFiles.write(workspacePath, document, WorkspaceLimits.DEFAULT);
+        var firstRead = WorkspaceFiles.read(workspacePath, WorkspaceLimits.DEFAULT);
+        require(firstRead.document().equals(document), "workspace read changed the document");
+        WorkspaceFiles.write(workspacePath, firstRead.document(), WorkspaceLimits.DEFAULT);
+        var reopened = WorkspaceFiles.read(workspacePath, WorkspaceLimits.DEFAULT);
+
+        SolidLineSymbol line =
+                SolidLineSymbol.of(
+                        new SymbolStroke(
+                                Rgba.rgb(35, 95, 175),
+                                new SymbolLength(1, SymbolUnit.SCREEN_PIXEL)),
+                        1);
+        NamedSymbolCatalog catalog =
+                NamedSymbolCatalog.of(
+                        List.of(
+                                new NamedSymbol(
+                                        "marker",
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.CIRCLE,
+                                                Rgba.rgb(35, 95, 175),
+                                                8,
+                                                1)),
+                                new NamedSymbol("line", line),
+                                new NamedSymbol(
+                                        "fill",
+                                        SolidFillSymbol.of(
+                                                new Rgba(35, 95, 175, 80),
+                                                Optional.of(line),
+                                                1))));
+        WorkspaceSourceRegistry sources =
+                WorkspaceSourceRegistry.builder()
+                        .registerFeature(
+                                openerId,
+                                new WorkspaceLocalPathProfile(
+                                        List.of(
+                                                new WorkspaceLocalPathBranch(
+                                                        ".data", List.of()))),
+                                (identity, path, cancellation) ->
+                                        InMemoryFeatureSource.open(
+                                                identity,
+                                                List.of(
+                                                        new FeatureRecord(
+                                                                "consumer-workspace-feature",
+                                                                "",
+                                                                new PointGeometry(
+                                                                        new Coordinate(4, 8)),
+                                                                Map.of())),
+                                                Optional.empty(),
+                                                Optional.of(
+                                                        CrsMetadata.recognized(
+                                                                CrsDefinitions.EPSG_3857,
+                                                                Optional.of("EPSG:3857"),
+                                                                Optional.empty())),
+                                                FeatureSourceLimits.LEVEL_1))
+                        .build();
+        WorkspaceOpenContext context =
+                new WorkspaceOpenContext(
+                        CrsRegistry.level1(),
+                        sources,
+                        WorkspaceSymbolCatalogRegistry.builder()
+                                .register(catalogId, catalog)
+                                .build());
+        WorkspaceSession session =
+                WorkspaceOpener.open(reopened, context, CancellationToken.none());
+        OpenedWorkspaceFeatureLayer opened =
+                (OpenedWorkspaceFeatureLayer) session.layers().getFirst();
+        require(!opened.source().isClosed(), "workspace source closed before its session");
+        session.close();
+        session.close();
+        require(session.isClosed(), "workspace session did not close");
+        require(opened.source().isClosed(), "workspace session did not close its source");
     }
 
     private static byte[] geoTiffFixture() {

@@ -20,9 +20,12 @@ First useful Level 1 release candidate.
   bilinear rendering, opacity, cancellation, lifecycle, and decode/resample caching.
 - Packed spatial indexing, viewport clipping, scale-aware simplification, and an evidence-retained
   private vector-template cache.
-- Runnable basic, symbol-gallery, measurement, shapefile, and raster examples, plus independent
-  corpus, rendering-regression, performance, Native Image, publication, and downstream-consumer
-  verification lanes.
+- A strict Level 2 local `.mmap.xml` version 1 workspace profile with bounded secure read, canonical
+  atomic write, explicit guarded source/catalog registries, all-or-nothing owning sessions, and a
+  runnable shapefile/world-file raster restore example.
+- Runnable examples for the implemented map, symbol, interaction, format, editing, styling, and
+  workspace slices, plus independent corpus, rendering-regression, performance, Native Image,
+  publication, and downstream-consumer verification lanes.
 
 ### Migration and compatibility
 
@@ -42,8 +45,10 @@ First useful Level 1 release candidate.
   allocation are unsupported. Binary and image inputs are governed by explicit caller-visible
   limits and stable structured diagnostics.
 - PNG/JPEG decoding uses the explicitly registered JDK `ImageIO` boundary in `mundane-map-awt`.
-  GeoJSON, GeoTIFF, DTED, SVG import, GeoPackage, MBTiles, GPX/KML, remote tiles, editing,
-  persistence, vector export, and optional JTS/PROJ/SQLite/GDAL adapters remain Level 2 work.
+  DTED, GeoTIFF, the static SVG subset, the optional Jackson Core GeoJSON adapter, editing/styling,
+  and local workspace persistence are implemented Level 2 capabilities and do not broaden Level 1.
+  GeoPackage, MBTiles, GPX/KML, remote tiles, vector export, and optional JTS/PROJ/SQLite/GDAL
+  adapters remain future work.
 - Performance evidence is scenario- and environment-specific. It establishes correctness and the
   retained Level 1 optimization decisions, not portable latency or throughput guarantees.
 - The intended Native Image claim is limited to the separately recorded Ubuntu 24.04 Linux x86_64

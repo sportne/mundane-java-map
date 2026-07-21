@@ -27,6 +27,7 @@ dependencies {
     implementation "io.github.mundanej:mundane-map-io-geotiff:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-svg:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-geojson-jackson:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-workspace:${mapVersion}"
 }
 
 application {
@@ -62,6 +63,7 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
             ,"io.github.mundanej:mundane-map-io-geotiff:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-svg:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-geojson-jackson:${mapVersion}"
+            ,"io.github.mundanej:mundane-map-workspace:${mapVersion}"
             ,"tools.jackson.core:jackson-core:3.1.5"
             ,"tools.jackson:jackson-bom:3.1.5"
         ] as Set

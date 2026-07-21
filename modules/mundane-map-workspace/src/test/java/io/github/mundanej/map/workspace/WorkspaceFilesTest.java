@@ -1,7 +1,7 @@
 package io.github.mundanej.map.workspace;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.mundanej.map.api.RasterInterpolation;
@@ -436,6 +436,38 @@ class WorkspaceFilesTest {
     }
 
     @Test
+    void sanitizesTheCompleteFileAndXmlFailureGraph() throws IOException {
+        String secret = "workspace-secret-credential";
+        Path hostile =
+                write(
+                        "<!DOCTYPE workspace SYSTEM \"file:///"
+                                + secret
+                                + "\"><workspace xmlns=\"urn:mundanej:map:workspace\" version=\"1\"/>");
+        WorkspaceException xml =
+                assertThrows(
+                        WorkspaceException.class,
+                        () -> WorkspaceFiles.read(hostile, WorkspaceLimits.DEFAULT));
+        WorkspaceThrowableAssertions.assertOmits(xml, secret, hostile.toString());
+        assertNull(xml.getCause());
+
+        WorkspaceInputAccess provider =
+                new DelegatingAccess() {
+                    @Override
+                    public SeekableByteChannel open(Path path) throws IOException {
+                        IOException failure = new IOException(secret + " " + path.toAbsolutePath());
+                        failure.addSuppressed(new IOException(secret + " suppressed"));
+                        throw failure;
+                    }
+                };
+        WorkspaceException input =
+                assertThrows(
+                        WorkspaceException.class,
+                        () -> WorkspaceFiles.read(hostile, WorkspaceLimits.DEFAULT, provider));
+        WorkspaceThrowableAssertions.assertOmits(input, secret, hostile.toString());
+        assertEquals("WORKSPACE_PROVIDER_FAILURE", input.getCause().getMessage());
+    }
+
+    @Test
     void rejectsVersionNamespaceUnknownMissingDuplicateAndText() throws IOException {
         assertProblem(
                 "WORKSPACE_XML_INVALID",
@@ -743,6 +775,8 @@ class WorkspaceFilesTest {
                         .problem()
                         .context()
                         .get("reason"));
+        WorkspaceThrowableAssertions.assertOmits(
+                failure, "injected", input.toAbsolutePath().toString());
     }
 
     @Test
@@ -901,7 +935,7 @@ class WorkspaceFilesTest {
                         WorkspaceException.class, () -> WorkspaceFiles.read(input, limits, access));
         assertEquals(code, failure.problem().code());
         assertEquals(value, failure.problem().context().get(key));
-        assertFalse(failure.getMessage().contains(input.toString()));
+        WorkspaceThrowableAssertions.assertOmits(failure, input.toString());
     }
 
     private static void assertLimitProblem(

@@ -1318,7 +1318,7 @@ class ArchitectureRulesTest {
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 workspace.allowedRuntimeProjects());
-        assertFalse(classes.isEmpty(), "Expected the working workspace read module");
+        assertFalse(classes.isEmpty(), "Expected the working workspace module");
         assertTrue(prohibitedDependencies.isEmpty(), prohibitedDependencies::toString);
         assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
         String workspaceBuild =

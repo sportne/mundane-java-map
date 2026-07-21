@@ -2,7 +2,6 @@ package io.github.mundanej.map.workspace;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -270,6 +269,8 @@ class WorkspaceWriterTest {
                         .problem()
                         .context()
                         .get("phase"));
+        WorkspaceThrowableAssertions.assertOmits(
+                combined, "injected", target.toAbsolutePath().toString());
         Files.deleteIfExists(cleanup.createdTemporary);
 
         assertEquals("preserve", Files.readString(target));
@@ -384,7 +385,7 @@ class WorkspaceWriterTest {
         assertEquals("WORKSPACE_WRITE_FAILED", failure.problem().code());
         assertEquals(
                 java.util.Map.of("phase", phase, "reason", reason), failure.problem().context());
-        assertFalse(failure.getMessage().contains(target.toString()));
+        WorkspaceThrowableAssertions.assertOmits(failure, target.toString(), "injected");
     }
 
     private void assertNoTemporaryFiles() throws IOException {
