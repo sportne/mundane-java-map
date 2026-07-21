@@ -1,6 +1,6 @@
 # G15-003 — Packed stochastic track simulator
 
-Status: Proposed
+Status: Complete
 Depends on: G15-002
 Gate: G15
 Type: AFK
@@ -57,3 +57,10 @@ git diff --check
 
 Do not create one `Random`, task, future, matrix, or domain object per track. The fixed worker count
 and virtual clock are explicit configuration, not ambient globals.
+
+Completion record (2026-07-21): exact counter-based streams now drive packed truth, report renewal,
+measurement, and filtering through a 64-slot primitive timing wheel. Contiguous long-lived worker
+shards expose deterministic virtual/real-time advancement and explicit lifecycle/failure behavior.
+Tests prove interval/domain bounds, counter conservation, replay across shard counts, logical storage,
+cleanup, and a runnable 10,000-track/120-second headless slice without a new dependency or generic
+scheduler.

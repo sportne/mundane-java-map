@@ -1,5 +1,7 @@
 package io.github.mundanej.map.example.livetrack;
 
+import java.util.Arrays;
+
 final class PackedIouKalmanFilter {
     private static final int MAX_TRACKS = 1_000_000;
     private static final double MAX_PREDICTION_SECONDS = 60.0;
@@ -199,6 +201,27 @@ final class PackedIouKalmanFilter {
 
     long rejectedReports() {
         return rejectedReports;
+    }
+
+    long logicalBytes() {
+        return Math.addExact(
+                Math.multiplyExact((long) trackCount(), 7L * Double.BYTES + Long.BYTES + 1L),
+                (long) coefficients.length * Double.BYTES);
+    }
+
+    void reset() {
+        Arrays.fill(x, 0.0);
+        Arrays.fill(y, 0.0);
+        Arrays.fill(velocityX, 0.0);
+        Arrays.fill(velocityY, 0.0);
+        Arrays.fill(positionVariance, 0.0);
+        Arrays.fill(positionVelocityCovariance, 0.0);
+        Arrays.fill(velocityVariance, 0.0);
+        Arrays.fill(timestampSeconds, 0L);
+        Arrays.fill(initialized, false);
+        Arrays.fill(coefficients, 0.0);
+        acceptedReports = 0L;
+        rejectedReports = 0L;
     }
 
     private double transitionForDisplay(int track, double displayTimestampSeconds) {

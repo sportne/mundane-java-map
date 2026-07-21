@@ -63,7 +63,7 @@ design task; there are no empty speculative design files.
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 through G12-006 draft proposal |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
-| G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 approved; G15-002 complete; G15-003 through G15-008 proposed |
+| G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 approved; G15-002/G15-003 complete; G15-004 through G15-008 proposed |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -264,7 +264,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G14-007 | Dependency/service audit, publication/consumer/native evidence, and G12–G14 closeout | Draft |
 | G15-001 | IOU equations/provenance, bounded IOU-Kalman Filter wording, workload, Natural Earth, packed execution, telemetry, and evidence decisions | Approved |
 | G15-002 | Example-local packed scalar IOU-Kalman Filter state estimator, stable coefficients, dense oracle, numerical bounds, and first working slice | Approved |
-| G15-003 | Deterministic per-track truth/reports, timing wheel, stable worker shards, lifecycle, and 10k headless filtering | Draft |
+| G15-003 | Deterministic per-track truth/reports, timing wheel, stable worker shards, lifecycle, and 10k headless filtering | Approved |
 | G15-004 | Exact Natural Earth land provenance, resource manifest, shapefile/CRS map path, visual chart, and cleanup | Draft |
 | G15-005 | Non-intercepting packed frame overlay, capped EDT pacing, telemetry, 10k live picture, and fast smoke lane | Draft |
 | G15-006 | Evidence-led 100k sharding, packed projection/composition, allocation bounds, and 10k regression | Draft |

@@ -19,9 +19,10 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 is approved and G15-002 is complete. The decision freezes the mathematical, provenance,
-workload, storage, lifecycle, rendering, and evidence profile below; the first implementation slice
-proves its packed estimator kernel. G15-003 through G15-008 remain Proposed until their working
+G15-001 is approved and G15-002/G15-003 are complete. The decision freezes the mathematical,
+provenance, workload, storage, lifecycle, rendering, and evidence profile below; the first two
+implementation slices prove the packed estimator and deterministic simulator. G15-004 through
+G15-008 remain Proposed until their working
 vertical slices pass review. Neither completed task creates a production API or module.
 
 ## Research and provenance boundary
@@ -269,6 +270,17 @@ track-ID ranges formed by quotient/remainder partitioning. Real-time operation a
 integer simulation second in order and accumulates backlog instead of skipping time. Pause freezes
 simulation time; reset is allowed only after workers and frame production have quiesced; close is
 idempotent and joins workers off the EDT.
+
+G15-003 implements one `TrackShard` per long-lived worker. Each shard owns contiguous track IDs,
+packed truth/filter arrays, one 64-slot primitive timing wheel, and exactly one pending schedule entry
+per track. The exact G15-001 counter-based streams drive initialization, capped-geometric renewal,
+random-tour propagation, measurement, wrapping, and reflection. The coordinator advances due
+integer seconds without skipping, supports caller-supplied real-time ticks as well as deterministic
+virtual targets, and makes start/pause/resume/reset/failure/close states explicit. Cancellation is
+checked within bounded report batches and close interrupts and joins every daemon worker. Tests prove
+replay and checksum equivalence across different stable shard counts, wheel counter conservation,
+domain and interval bounds, failure propagation, logical bytes, and a 10,000-track/120-second
+headless run. It remains an example-local specialized coordinator, not a generic scheduler.
 
 ### Frame production and handoff
 

@@ -355,7 +355,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | --- | --- | --- | --- | --- |
 | [G15-001 — Live-track stress and IOU-Kalman Filter profile decision](closed/G15-001-live-track-stress-and-iou-kalman-profile-decision.md) | Complete | HITL | G5-010, G7-005 | Approved the bounded IOU-Kalman Filter state estimator, stochastic workload, Natural Earth, packed execution, and evidence profile. |
 | [G15-002 — Optimized IOU-Kalman Filter kernel](closed/G15-002-optimized-iou-kalman-kernel.md) | Complete | AFK | G15-001 | Proved an allocation-free packed estimator against an independent dense oracle. |
-| [G15-003 — Packed stochastic track simulator](G15-003-packed-stochastic-track-simulator.md) | Proposed | AFK | G15-002 | Simulate and filter individually scheduled tracks with a timing wheel and stable shards. |
+| [G15-003 — Packed stochastic track simulator](closed/G15-003-packed-stochastic-track-simulator.md) | Complete | AFK | G15-002 | Simulates and filters individually scheduled tracks with a timing wheel and stable shards. |
 | [G15-004 — Natural Earth global chart](G15-004-natural-earth-global-chart.md) | Proposed | HITL | G15-001, G5-010 | Bundle a provenance-backed 1:110m land chart and render it through the shapefile stack. |
 | [G15-005 — First 10k live-picture slice](G15-005-first-10k-live-picture-slice.md) | Proposed | HITL | G15-003, G15-004 | Display 10k filtered tracks with frame pacing, telemetry, and a fast smoke lane. |
 | [G15-006 — 100k sharded tracking and rendering](G15-006-100k-sharded-tracking-and-rendering.md) | Proposed | AFK | G15-005 | Scale the same deterministic behavior to 100k using measured packed sharding. |

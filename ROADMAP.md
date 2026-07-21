@@ -570,6 +570,8 @@ separately decomposed.
   second through one minute. Use packed primitive truth/filter state, a due-work timing wheel, and
   stable worker shards; data association, track birth/death, networking, and operational accuracy
   remain excluded.
+- Complete G15-003 supplies the packed deterministic truth/report simulator, 64-slot due-work wheel,
+  stable worker shards, explicit virtual/real-time lifecycle, and 10k headless filtering slice.
 - Bundle the official Natural Earth `ne_110m_land` shapefile with exact version, hashes, retrieval
   record, public-domain terms, and no runtime download. Render it through the existing shapefile and
   CRS stack.

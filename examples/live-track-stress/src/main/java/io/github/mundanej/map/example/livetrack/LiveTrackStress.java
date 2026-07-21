@@ -5,16 +5,24 @@ public final class LiveTrackStress {
     private LiveTrackStress() {}
 
     /**
-     * Runs the current estimator-only slice.
+     * Runs the current deterministic 10,000-track headless slice.
      *
      * @param args ignored command-line arguments
      */
     public static void main(String[] args) {
-        PackedIouKalmanFilter filter = new PackedIouKalmanFilter(1, IouKalmanConfig.REFERENCE);
-        filter.initialize(0, 0L, 1_000.0, 2_000.0);
-        filter.update(0, 10L, 1_250.0, 1_900.0);
-        System.out.printf(
-                "IOU-Kalman slice: x=%.3f y=%.3f accepted=%d rejected=%d%n",
-                filter.x(0), filter.y(0), filter.acceptedReports(), filter.rejectedReports());
+        int population = 10_000;
+        int workers = TrackSimulationConfig.defaultWorkers(population);
+        try (LiveTrackCoordinator coordinator =
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(population, workers))) {
+            coordinator.start(0L);
+            coordinator.advanceTo(120);
+            System.out.printf(
+                    "Live-track slice: population=%d workers=%d seconds=%d reports=%d checksum=%016x%n",
+                    population,
+                    workers,
+                    coordinator.simulationSecond(),
+                    coordinator.processedReports(),
+                    coordinator.checksum());
+        }
     }
 }
