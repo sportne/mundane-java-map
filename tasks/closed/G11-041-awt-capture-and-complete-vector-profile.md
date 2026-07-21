@@ -1,6 +1,6 @@
 # G11-041 — AWT capture and complete vector profile
 
-Status: Proposed
+Status: Complete
 Depends on: G11-023, G11-040
 Gate: G11
 Type: AFK

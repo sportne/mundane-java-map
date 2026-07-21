@@ -32,19 +32,7 @@ public final class HatchLayouts {
             double spacingPixels,
             int maxSegments,
             String featureId) {
-        Objects.requireNonNull(pattern, "pattern");
-        Objects.requireNonNull(bounds, "bounds");
-        Objects.requireNonNull(latticeOrigin, "latticeOrigin");
-        Objects.requireNonNull(featureId, "featureId");
-        if (featureId.isBlank()) {
-            throw new IllegalArgumentException("featureId must not be blank");
-        }
-        if (!Double.isFinite(orientationBaseBearing)) {
-            throw new IllegalArgumentException("orientationBaseBearing must be finite");
-        }
-        if (!Double.isFinite(spacingPixels) || spacingPixels <= 0.0) {
-            throw new IllegalArgumentException("spacingPixels must be finite and positive");
-        }
+        validate(pattern, bounds, latticeOrigin, orientationBaseBearing, spacingPixels, featureId);
         if (maxSegments <= 0) {
             throw new IllegalArgumentException("maxSegments must be positive");
         }
@@ -81,16 +69,16 @@ public final class HatchLayouts {
                                         spacingPixels)
                             };
                 };
-        long required = 0L;
-        for (Orientation orientation : orientations) {
-            if (orientation.countOverflow()) {
-                throw limit(pattern, "overflow", maxSegments, featureId);
-            }
-            try {
-                required = Math.addExact(required, orientation.candidateCount());
-            } catch (ArithmeticException overflow) {
-                throw limit(pattern, "overflow", maxSegments, featureId);
-            }
+        long required =
+                candidateSegmentCount(
+                        pattern,
+                        bounds,
+                        latticeOrigin,
+                        orientationBaseBearing,
+                        spacingPixels,
+                        featureId);
+        if (required == Long.MAX_VALUE) {
+            throw limit(pattern, "overflow", maxSegments, featureId);
         }
         if (required > maxSegments || required > Integer.MAX_VALUE / 4) {
             throw limit(pattern, Long.toString(required), maxSegments, featureId);
@@ -120,6 +108,79 @@ public final class HatchLayouts {
             }
         }
         return new HatchSegments(packed, segmentCount);
+    }
+
+    /**
+     * Returns the exact conservative candidate count used by {@link #cover} without allocating a
+     * packed hatch result.
+     *
+     * @param pattern supported diagonal hatch pattern
+     * @param bounds finite logical-screen bounds to cover
+     * @param latticeOrigin logical-screen origin that fixes hatch phase
+     * @param orientationBaseBearing clockwise logical-screen bearing in degrees
+     * @param spacingPixels positive spacing in logical screen pixels
+     * @param featureId stable feature identifier used in structured failures
+     * @return non-negative candidate count, or {@link Long#MAX_VALUE} on count overflow
+     */
+    public static long candidateSegmentCount(
+            HatchPattern pattern,
+            Envelope bounds,
+            Coordinate latticeOrigin,
+            double orientationBaseBearing,
+            double spacingPixels,
+            String featureId) {
+        validate(pattern, bounds, latticeOrigin, orientationBaseBearing, spacingPixels, featureId);
+        Orientation forward =
+                pattern == HatchPattern.BACKWARD_DIAGONAL
+                        ? null
+                        : orientation(
+                                bounds,
+                                latticeOrigin,
+                                orientationBaseBearing + 315.0,
+                                spacingPixels);
+        Orientation backward =
+                pattern == HatchPattern.FORWARD_DIAGONAL
+                        ? null
+                        : orientation(
+                                bounds,
+                                latticeOrigin,
+                                orientationBaseBearing + 45.0,
+                                spacingPixels);
+        if ((forward != null && forward.countOverflow())
+                || (backward != null && backward.countOverflow())) {
+            return Long.MAX_VALUE;
+        }
+        long result = forward == null ? 0 : forward.candidateCount();
+        if (backward != null) {
+            try {
+                result = Math.addExact(result, backward.candidateCount());
+            } catch (ArithmeticException exception) {
+                return Long.MAX_VALUE;
+            }
+        }
+        return result;
+    }
+
+    private static void validate(
+            HatchPattern pattern,
+            Envelope bounds,
+            Coordinate latticeOrigin,
+            double orientationBaseBearing,
+            double spacingPixels,
+            String featureId) {
+        Objects.requireNonNull(pattern, "pattern");
+        Objects.requireNonNull(bounds, "bounds");
+        Objects.requireNonNull(latticeOrigin, "latticeOrigin");
+        Objects.requireNonNull(featureId, "featureId");
+        if (featureId.isBlank()) {
+            throw new IllegalArgumentException("featureId must not be blank");
+        }
+        if (!Double.isFinite(orientationBaseBearing)) {
+            throw new IllegalArgumentException("orientationBaseBearing must be finite");
+        }
+        if (!Double.isFinite(spacingPixels) || spacingPixels <= 0.0) {
+            throw new IllegalArgumentException("spacingPixels must be finite and positive");
+        }
     }
 
     private static Orientation orientation(

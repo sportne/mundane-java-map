@@ -37,20 +37,162 @@ import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.VectorExportSnapshot;
+import io.github.mundanej.map.api.VectorExportSnapshotException;
+import io.github.mundanej.map.api.VectorExportSnapshotLimits;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.SyntheticRasterSource;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class MapViewFeatureSourceTest {
+    @Test
+    void vectorExportQueriesOnceProjectsExactAttributesAndClosesTheCursor() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    WarningSource source = new WarningSource();
+                    source.limits = FeatureSourceLimits.LEVEL_1;
+                    MapView view = TestMapViews.identity();
+                    view.setSize(100, 100);
+                    view.setViewport(new MapViewport(100, 100, 0, 0, 1));
+                    view.setLayerBindings(List.of(binding("export", source, false)));
+
+                    VectorExportSnapshot snapshot = view.captureVectorExportSnapshot();
+
+                    assertEquals(1, source.openCount);
+                    assertTrue(source.cursorClosed);
+                    assertEquals(
+                            io.github.mundanej.map.api.AttributeSelection.NONE,
+                            source.lastQuery.attributes());
+                    assertEquals(1, snapshot.primitives().size());
+                });
+    }
+
+    @Test
+    void vectorExportTranslatesMidQueryCaptureCancellation() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    AtomicBoolean cancelled = new AtomicBoolean();
+                    WarningSource source = new WarningSource();
+                    source.limits = FeatureSourceLimits.LEVEL_1;
+                    source.afterFirstAdvance = () -> cancelled.set(true);
+                    MapView view = TestMapViews.identity();
+                    view.setSize(100, 100);
+                    view.setViewport(new MapViewport(100, 100, 0, 0, 1));
+                    view.setLayerBindings(List.of(binding("export", source, false)));
+
+                    VectorExportSnapshotException failure =
+                            assertThrows(
+                                    VectorExportSnapshotException.class,
+                                    () ->
+                                            view.captureVectorExportSnapshot(
+                                                    VectorExportSnapshotLimits.defaults(),
+                                                    cancelled::get));
+
+                    assertEquals("VECTOR_EXPORT_SNAPSHOT_CANCELLED", failure.problem().code());
+                    assertTrue(source.cursorClosed);
+                });
+    }
+
+    @Test
+    void vectorExportRejectsRasterLayersBeforeEarlierFeatureSourceIo() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    WarningSource source = new WarningSource();
+                    SyntheticRasterSource raster =
+                            SyntheticRasterSource.open(
+                                    new SourceIdentity("raster", "raster"),
+                                    2,
+                                    2,
+                                    new io.github.mundanej.map.api.Envelope(0, 0, 2, 2),
+                                    CrsMetadata.recognized(
+                                            CrsDefinitions.EPSG_3857,
+                                            Optional.empty(),
+                                            Optional.empty()));
+                    MapView view = TestMapViews.identity();
+                    view.setSize(100, 100);
+                    view.setLayerBindings(
+                            List.of(
+                                    binding("feature", source, false),
+                                    MapLayerBinding.borrowedRaster("raster", "Raster", raster)));
+
+                    VectorExportSnapshotException failure =
+                            assertThrows(
+                                    VectorExportSnapshotException.class,
+                                    view::captureVectorExportSnapshot);
+
+                    assertEquals("VECTOR_EXPORT_LAYER_UNSUPPORTED", failure.problem().code());
+                    assertEquals(0, source.openCount);
+                });
+    }
+
+    @Test
+    void vectorExportPreservesGenuineSourceFailures() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    SourceDiagnostic terminal =
+                            new SourceDiagnostic(
+                                    "TEST_EXPORT_SOURCE_FAILURE",
+                                    DiagnosticSeverity.ERROR,
+                                    "warning-source",
+                                    Optional.of(DiagnosticLocation.empty()),
+                                    "Export source failed",
+                                    Map.of());
+                    SourceException expected =
+                            new SourceException(
+                                    new DiagnosticReport(List.of(terminal), 0), terminal);
+                    WarningSource source =
+                            new WarningSource() {
+                                @Override
+                                public FeatureCursor openCursor(
+                                        FeatureQuery query, CancellationToken cancellation) {
+                                    throw expected;
+                                }
+                            };
+                    MapView view = TestMapViews.identity();
+                    view.setSize(100, 100);
+                    view.setLayerBindings(List.of(binding("export", source, false)));
+
+                    assertEquals(
+                            expected,
+                            assertThrows(SourceException.class, view::captureVectorExportSnapshot));
+                });
+    }
+
+    @Test
+    void vectorExportFailsWhenTheBindingCancelsAnOtherwiseNormalEmptyCursor() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    WarningSource source = new WarningSource();
+                    source.limits = FeatureSourceLimits.LEVEL_1;
+                    source.returnRecord = false;
+                    AtomicReference<MapLayerBinding> installed = new AtomicReference<>();
+                    source.afterFinalDiagnostics = () -> installed.get().cancelCurrentOperation();
+                    MapLayerBinding binding = binding("export", source, false);
+                    installed.set(binding);
+                    MapView view = TestMapViews.identity();
+                    view.setSize(100, 100);
+                    view.setLayerBindings(List.of(binding));
+
+                    SourceException failure =
+                            assertThrows(SourceException.class, view::captureVectorExportSnapshot);
+
+                    assertEquals("SOURCE_CANCELLED", failure.terminal().code());
+                    assertTrue(source.cursorClosed);
+                });
+    }
+
     @Test
     void rendersHitsAndSelectsSourceRecordsWithoutSyntheticFeatures() throws Exception {
         SwingUtilities.invokeAndWait(
@@ -341,7 +483,7 @@ class MapViewFeatureSourceTest {
         private final FeatureRecord record =
                 new FeatureRecord(
                         "record", "", new PointGeometry(new Coordinate(0.0, 0.0)), Map.of());
-        private final FeatureSourceLimits limits =
+        private FeatureSourceLimits limits =
                 new FeatureSourceLimits(new FeatureQueryLimits(10, 10, 10, 10, 100, 1, 10));
         private final FeatureSourceMetadata metadata =
                 new FeatureSourceMetadata(
@@ -368,6 +510,10 @@ class MapViewFeatureSourceTest {
         private boolean cursorClosed;
         private boolean closed;
         private int openCount;
+        private FeatureQuery lastQuery;
+        private Runnable afterFirstAdvance = () -> {};
+        private Runnable afterFinalDiagnostics = () -> {};
+        private boolean returnRecord = true;
 
         @Override
         public FeatureSourceMetadata metadata() {
@@ -387,12 +533,21 @@ class MapViewFeatureSourceTest {
         @Override
         public FeatureCursor openCursor(FeatureQuery query, CancellationToken cancellation) {
             openCount++;
+            lastQuery = query;
             return new FeatureCursor() {
                 private int state;
 
                 @Override
                 public boolean advance() {
-                    return state++ == 0;
+                    if (!returnRecord) {
+                        state = 2;
+                        return false;
+                    }
+                    boolean advanced = state++ == 0;
+                    if (advanced) {
+                        afterFirstAdvance.run();
+                    }
+                    return advanced;
                 }
 
                 @Override
@@ -405,6 +560,9 @@ class MapViewFeatureSourceTest {
 
                 @Override
                 public DiagnosticReport diagnostics() {
+                    if (state >= 2) {
+                        afterFinalDiagnostics.run();
+                    }
                     return state == 0 ? DiagnosticReport.empty() : warning;
                 }
 

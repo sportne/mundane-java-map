@@ -124,9 +124,26 @@ class VectorExportSnapshotTest {
     }
 
     @Test
-    void rejectsUnsupportedDescendantsAndIllegalXmlScalarsWithStableContext() {
+    void acceptsCompleteVectorTreesAndRejectsUnsupportedLeavesWithStableContext() {
         SolidLineSymbol endpointLine =
                 SolidLineSymbol.of(stroke(), Optional.empty(), Optional.of(MARKER), 1);
+        VectorExportSnapshot complete =
+                snapshot(
+                        List.of(
+                                new VectorExportSnapshot.Primitive(
+                                        0,
+                                        2,
+                                        MultiLineStringGeometry.of(
+                                                CoordinateSequence.of(0, 0, 1, 1, 2, 2, 3, 3),
+                                                new int[] {0, 2, 4}),
+                                        CompositeSymbol.of(List.of(endpointLine), 0.75))),
+                        List.of(),
+                        VectorExportSnapshotLimits.defaults());
+        assertEquals(1, complete.primitives().size());
+
+        RasterIconSymbol raster =
+                RasterIconSymbol.nativeScreenSize(
+                        1, 1, new int[] {0xffff0000}, RasterInterpolation.NEAREST, 1);
         VectorExportSnapshotException unsupported =
                 assertThrows(
                         VectorExportSnapshotException.class,
@@ -136,16 +153,19 @@ class VectorExportSnapshotTest {
                                                 new VectorExportSnapshot.Primitive(
                                                         0,
                                                         2,
-                                                        new LineStringGeometry(
-                                                                CoordinateSequence.of(0, 0, 1, 1)),
-                                                        endpointLine)),
+                                                        new PointGeometry(new Coordinate(0, 0)),
+                                                        raster)),
                                         List.of(),
                                         VectorExportSnapshotLimits.defaults()));
         assertEquals("VECTOR_EXPORT_SYMBOL_UNSUPPORTED", unsupported.problem().code());
+        assertEquals("rasterIcon", unsupported.problem().context().get("kind"));
         assertEquals(
                 List.of("layerIndex", "featureIndex", "symbolOrdinal", "kind"),
                 unsupported.problem().context().keySet().stream().toList());
+    }
 
+    @Test
+    void rejectsIllegalXmlScalarsWithStableContext() {
         VectorExportSnapshot.Label invalid =
                 new VectorExportSnapshot.Label(
                         "bad\nlabel",

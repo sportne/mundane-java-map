@@ -1,21 +1,34 @@
 package io.github.mundanej.map.io.svg;
 
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.HatchFillSymbol;
 import io.github.mundanej.map.api.LabelWeight;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
+import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolException;
+import io.github.mundanej.map.api.SymbolRotationMode;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.VectorExportSnapshot;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.api.VectorPathCommand;
+import io.github.mundanej.map.core.HatchLayouts;
+import io.github.mundanej.map.core.HatchSegments;
+import io.github.mundanej.map.core.LineEndpointBearings;
+import io.github.mundanej.map.core.LineTangents;
 import io.github.mundanej.map.core.MapScreenBasis;
 import io.github.mundanej.map.core.MarkerTransform;
 import io.github.mundanej.map.core.SymbolTransforms;
@@ -34,6 +47,7 @@ final class SvgExportWriter {
     private MapScreenBasis basis;
     private long elementCount;
     private long pathCommandCount;
+    private int nextClipId = 1;
 
     SvgExportWriter(
             VectorExportSnapshot snapshot, SvgExportLimits limits, CancellationToken cancellation) {
@@ -72,24 +86,24 @@ final class SvgExportWriter {
         integer(snapshot.heightPixels());
         append("\"/>\n");
         append("    </clipPath>\n");
+        for (VectorExportSnapshot.Primitive primitive : snapshot.primitives()) {
+            checkCancelled();
+            try {
+                writeHatchDefinitions(primitive.screenGeometry(), primitive.symbol());
+            } catch (ArithmeticException | IllegalArgumentException | SymbolException exception) {
+                throw valueFailure(primitive, "hatchDefinition", exception);
+            }
+        }
         append("  </defs>\n");
 
         element();
         append("  <g clip-path=\"url(#v0)\">\n");
         writeBackground();
+        nextClipId = 1;
         for (VectorExportSnapshot.Primitive primitive : snapshot.primitives()) {
             checkCancelled();
             try {
-                if (primitive.screenGeometry() instanceof PointGeometry point) {
-                    writeMarker(point.coordinate(), (VectorMarkerSymbol) primitive.symbol(), 1.0);
-                } else if (primitive.screenGeometry() instanceof LineStringGeometry line) {
-                    writeLine(line.coordinates(), (SolidLineSymbol) primitive.symbol(), 1.0);
-                } else {
-                    writePolygon(
-                            (PolygonGeometry) primitive.screenGeometry(),
-                            (SolidFillSymbol) primitive.symbol(),
-                            1.0);
-                }
+                writeGeometry(primitive.screenGeometry(), primitive.symbol(), 1.0);
             } catch (ArithmeticException | IllegalArgumentException | SymbolException exception) {
                 throw valueFailure(primitive, "symbolTransform", exception);
             }
@@ -120,9 +134,295 @@ final class SvgExportWriter {
         append("/>\n");
     }
 
+    private void writeGeometry(Geometry geometry, Symbol symbol, double inheritedOpacity) {
+        if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
+            writeMarkerGeometry(geometry, symbol, inheritedOpacity);
+        } else if (geometry instanceof LineStringGeometry
+                || geometry instanceof MultiLineStringGeometry) {
+            writeLineGeometry(geometry, symbol, inheritedOpacity);
+        } else {
+            writeFillGeometry(geometry, symbol, inheritedOpacity);
+        }
+    }
+
+    private void writeMarkerGeometry(Geometry geometry, Symbol symbol, double inheritedOpacity) {
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                writeMarkerGeometry(geometry, child, inheritedOpacity * composite.opacity());
+            }
+            return;
+        }
+        VectorMarkerSymbol marker = (VectorMarkerSymbol) symbol;
+        if (geometry instanceof PointGeometry point) {
+            writeMarker(point.coordinate(), marker, inheritedOpacity);
+            return;
+        }
+        CoordinateSequence coordinates = ((MultiPointGeometry) geometry).coordinates();
+        for (int index = 0; index < coordinates.size(); index++) {
+            writeMarker(coordinates.coordinate(index), marker, inheritedOpacity);
+        }
+    }
+
+    private void writeLineGeometry(Geometry geometry, Symbol symbol, double inheritedOpacity) {
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                writeLineGeometry(geometry, child, inheritedOpacity * composite.opacity());
+            }
+            return;
+        }
+        SolidLineSymbol lineSymbol = (SolidLineSymbol) symbol;
+        if (geometry instanceof LineStringGeometry line) {
+            writeLine(line.coordinates(), lineSymbol, inheritedOpacity);
+            return;
+        }
+        MultiLineStringGeometry lines = (MultiLineStringGeometry) geometry;
+        for (int part = 0; part < lines.partCount(); part++) {
+            writeLine(
+                    slice(lines.coordinates(), lines.partOffset(part), lines.partOffset(part + 1)),
+                    lineSymbol,
+                    inheritedOpacity);
+        }
+    }
+
+    private void writeFillGeometry(Geometry geometry, Symbol symbol, double inheritedOpacity) {
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                writeFillGeometry(geometry, child, inheritedOpacity * composite.opacity());
+            }
+            return;
+        }
+        if (geometry instanceof PolygonGeometry polygon) {
+            writeFill(polygon, symbol, inheritedOpacity);
+            return;
+        }
+        MultiPolygonGeometry polygons = (MultiPolygonGeometry) geometry;
+        for (int polygon = 0; polygon < polygons.polygonCount(); polygon++) {
+            writeFill(polygon(polygons, polygon), symbol, inheritedOpacity);
+        }
+    }
+
+    private void writeFill(PolygonGeometry polygon, Symbol symbol, double inheritedOpacity) {
+        if (symbol instanceof SolidFillSymbol solid) {
+            writePolygon(polygon, solid, inheritedOpacity);
+        } else {
+            writeHatch(polygon, (HatchFillSymbol) symbol, inheritedOpacity);
+        }
+    }
+
+    private void writeMarkerTreeAtBearing(
+            Coordinate point, Symbol symbol, double inheritedOpacity, double screenBearing) {
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                writeMarkerTreeAtBearing(
+                        point, child, inheritedOpacity * composite.opacity(), screenBearing);
+            }
+            return;
+        }
+        writeMarkerAtBearing(point, (VectorMarkerSymbol) symbol, inheritedOpacity, screenBearing);
+    }
+
+    private void writePolygonOutline(
+            PolygonGeometry polygon, Symbol outline, double inheritedOpacity) {
+        if (outline instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                writePolygonOutline(polygon, child, inheritedOpacity * composite.opacity());
+            }
+            return;
+        }
+        SolidLineSymbol line = (SolidLineSymbol) outline;
+        writeRingOutline(polygon.exterior(), line, inheritedOpacity);
+        for (CoordinateSequence hole : polygon.holes()) {
+            writeRingOutline(hole, line, inheritedOpacity);
+        }
+    }
+
+    private void writeHatchDefinitions(Geometry geometry, Symbol symbol) {
+        if (!(geometry instanceof PolygonGeometry || geometry instanceof MultiPolygonGeometry)) {
+            return;
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                writeHatchDefinitions(geometry, child);
+            }
+            return;
+        }
+        if (!(symbol instanceof HatchFillSymbol hatchFillSymbol)) {
+            return;
+        }
+        if (geometry instanceof PolygonGeometry polygon) {
+            writeHatchClipIfNeeded(polygon, hatchFillSymbol);
+            return;
+        }
+        MultiPolygonGeometry polygons = (MultiPolygonGeometry) geometry;
+        for (int polygon = 0; polygon < polygons.polygonCount(); polygon++) {
+            writeHatchClipIfNeeded(polygon(polygons, polygon), hatchFillSymbol);
+        }
+    }
+
+    private void writeHatchClipIfNeeded(PolygonGeometry polygon, HatchFillSymbol symbol) {
+        Envelope bounds = hatchBounds(polygon);
+        if (bounds == null) {
+            return;
+        }
+        double spacing = SymbolTransforms.screenLength(symbol.spacing(), basis);
+        double bearing = hatchBearing(symbol);
+        Coordinate origin = hatchOrigin(symbol);
+        long candidates =
+                HatchLayouts.candidateSegmentCount(
+                        symbol.pattern(), bounds, origin, bearing, spacing, "vector-export");
+        if (candidates == 0) {
+            return;
+        }
+        if (candidates > symbol.maxSegments()) {
+            HatchLayouts.cover(
+                    symbol.pattern(),
+                    bounds,
+                    origin,
+                    bearing,
+                    spacing,
+                    symbol.maxSegments(),
+                    "vector-export");
+        }
+        writeHatchClip(polygon, nextClipId++);
+    }
+
+    private void writeHatchClip(PolygonGeometry polygon, int clipId) {
+        element();
+        append("    <clipPath id=\"c");
+        integer(clipId);
+        append("\" clipPathUnits=\"userSpaceOnUse\">\n");
+        element();
+        append("      <path d=\"");
+        polygonPath(polygon);
+        append("\" fill-rule=\"evenodd\" clip-rule=\"evenodd\"/>\n");
+        append("    </clipPath>\n");
+    }
+
+    private void writeHatch(
+            PolygonGeometry polygon, HatchFillSymbol symbol, double inheritedOpacity) {
+        Envelope bounds = hatchBounds(polygon);
+        if (bounds == null) {
+            writeHatchOutline(polygon, symbol, inheritedOpacity);
+            return;
+        }
+        double spacing = SymbolTransforms.screenLength(symbol.spacing(), basis);
+        double bearing = hatchBearing(symbol);
+        Coordinate origin = hatchOrigin(symbol);
+        long candidates =
+                HatchLayouts.candidateSegmentCount(
+                        symbol.pattern(), bounds, origin, bearing, spacing, "vector-export");
+        if (candidates == 0) {
+            writeHatchOutline(polygon, symbol, inheritedOpacity);
+            return;
+        }
+        int clipId = nextClipId++;
+        if (candidates > symbol.maxSegments()) {
+            HatchLayouts.cover(
+                    symbol.pattern(),
+                    bounds,
+                    origin,
+                    bearing,
+                    spacing,
+                    symbol.maxSegments(),
+                    "vector-export");
+        }
+        HatchSegments segments =
+                HatchLayouts.cover(
+                        symbol.pattern(),
+                        bounds,
+                        origin,
+                        bearing,
+                        spacing,
+                        symbol.maxSegments(),
+                        "vector-export");
+        element();
+        append("    <g clip-path=\"url(#c");
+        integer(clipId);
+        append(")\">\n");
+        if (segments.segmentCount() > 0) {
+            SymbolStroke stroke = symbol.stroke();
+            element();
+            append("      <path d=\"");
+            for (int index = 0; index < segments.segmentCount(); index++) {
+                if (index > 0) {
+                    append(" ");
+                }
+                pathCommand();
+                append("M ");
+                number(segments.x1(index));
+                append(" ");
+                number(segments.y1(index));
+                pathCommand();
+                append(" L ");
+                number(segments.x2(index));
+                append(" ");
+                number(segments.y2(index));
+            }
+            append("\" fill=\"none\" stroke=\"");
+            color(stroke.color());
+            append("\" stroke-width=\"");
+            number(SymbolTransforms.screenLength(stroke.width(), basis));
+            append("\" stroke-linecap=\"round\"");
+            opacity(
+                    "stroke-opacity",
+                    inheritedOpacity * symbol.opacity() * stroke.color().alpha() / 255.0);
+            append("/>\n");
+        }
+        append("    </g>\n");
+        writeHatchOutline(polygon, symbol, inheritedOpacity);
+    }
+
+    private void writeHatchOutline(
+            PolygonGeometry polygon, HatchFillSymbol symbol, double inheritedOpacity) {
+        symbol.outline()
+                .ifPresent(
+                        outline ->
+                                writePolygonOutline(
+                                        polygon, outline, inheritedOpacity * symbol.opacity()));
+    }
+
+    private double hatchBearing(HatchFillSymbol symbol) {
+        return symbol.rotationMode() == SymbolRotationMode.SCREEN_RELATIVE
+                ? 0.0
+                : basis.xAxisScreenBearingDegrees();
+    }
+
+    private Coordinate hatchOrigin(HatchFillSymbol symbol) {
+        return symbol.rotationMode() == SymbolRotationMode.SCREEN_RELATIVE
+                ? new Coordinate(0.0, 0.0)
+                : snapshot.viewFrame().mapOriginScreen();
+    }
+
+    private Envelope hatchBounds(PolygonGeometry polygon) {
+        Envelope bounds = polygon.envelope();
+        double minimumX = Math.max(0.0, bounds.minX());
+        double minimumY = Math.max(0.0, bounds.minY());
+        double maximumX = Math.min(snapshot.widthPixels(), bounds.maxX());
+        double maximumY = Math.min(snapshot.heightPixels(), bounds.maxY());
+        return minimumX > maximumX || minimumY > maximumY
+                ? null
+                : new Envelope(minimumX, minimumY, maximumX, maximumY);
+    }
+
     private void writeMarker(Coordinate point, VectorMarkerSymbol symbol, double inheritedOpacity) {
         MarkerTransform transform =
                 SymbolTransforms.marker(symbol.viewBox(), symbol.placement(), point, basis);
+        writeMarker(symbol, transform, inheritedOpacity);
+    }
+
+    private void writeMarkerAtBearing(
+            Coordinate point,
+            VectorMarkerSymbol symbol,
+            double inheritedOpacity,
+            double screenBearing) {
+        MarkerTransform transform =
+                SymbolTransforms.markerAtScreenBearing(
+                        symbol.viewBox(), symbol.placement(), point, basis, screenBearing);
+        writeMarker(symbol, transform, inheritedOpacity);
+    }
+
+    private void writeMarker(
+            VectorMarkerSymbol symbol, MarkerTransform transform, double inheritedOpacity) {
         double symbolOpacity = inheritedOpacity * symbol.opacity();
         if (hasClosedSubpath(symbol.path())) {
             element();
@@ -167,6 +467,22 @@ final class SvgExportWriter {
                 "stroke-opacity",
                 inheritedOpacity * symbol.opacity() * stroke.color().alpha() / 255.0);
         append("/>\n");
+        LineEndpointBearings bearings =
+                LineTangents.outwardScreenBearings(coordinates, "vector-export", 0);
+        if (symbol.startMarker().isPresent() && bearings.startBearingDegrees().isPresent()) {
+            writeMarkerTreeAtBearing(
+                    coordinates.coordinate(0),
+                    symbol.startMarker().orElseThrow(),
+                    inheritedOpacity * symbol.opacity(),
+                    bearings.startBearingDegrees().getAsDouble());
+        }
+        if (symbol.endMarker().isPresent() && bearings.endBearingDegrees().isPresent()) {
+            writeMarkerTreeAtBearing(
+                    coordinates.coordinate(coordinates.size() - 1),
+                    symbol.endMarker().orElseThrow(),
+                    inheritedOpacity * symbol.opacity(),
+                    bearings.endBearingDegrees().getAsDouble());
+        }
     }
 
     private void writePolygon(
@@ -185,11 +501,7 @@ final class SvgExportWriter {
         opacity("fill-opacity", fillOpacity * symbol.fill().alpha() / 255.0);
         append("/>\n");
         if (symbol.outline().isPresent()) {
-            SolidLineSymbol outline = (SolidLineSymbol) symbol.outline().orElseThrow();
-            writeRingOutline(polygon.exterior(), outline, fillOpacity);
-            for (CoordinateSequence hole : polygon.holes()) {
-                writeRingOutline(hole, outline, fillOpacity);
-            }
+            writePolygonOutline(polygon, symbol.outline().orElseThrow(), fillOpacity);
         }
     }
 
@@ -317,6 +629,45 @@ final class SvgExportWriter {
 
     private void ringPath(CoordinateSequence ring) {
         sequencePath(ring, true);
+    }
+
+    private void polygonPath(PolygonGeometry polygon) {
+        ringPath(polygon.exterior());
+        for (CoordinateSequence hole : polygon.holes()) {
+            append(" ");
+            ringPath(hole);
+        }
+    }
+
+    private static CoordinateSequence slice(
+            CoordinateSequence coordinates, int startInclusive, int endExclusive) {
+        double[] ordinates = new double[(endExclusive - startInclusive) * 2];
+        int target = 0;
+        for (int index = startInclusive; index < endExclusive; index++) {
+            ordinates[target++] = coordinates.x(index);
+            ordinates[target++] = coordinates.y(index);
+        }
+        return CoordinateSequence.of(ordinates);
+    }
+
+    private static PolygonGeometry polygon(MultiPolygonGeometry polygons, int polygonIndex) {
+        int firstRing = polygons.polygonRingOffset(polygonIndex);
+        int lastRing = polygons.polygonRingOffset(polygonIndex + 1);
+        CoordinateSequence exterior =
+                slice(
+                        polygons.coordinates(),
+                        polygons.ringOffset(firstRing),
+                        polygons.ringOffset(firstRing + 1));
+        java.util.ArrayList<CoordinateSequence> holes =
+                new java.util.ArrayList<>(lastRing - firstRing - 1);
+        for (int ring = firstRing + 1; ring < lastRing; ring++) {
+            holes.add(
+                    slice(
+                            polygons.coordinates(),
+                            polygons.ringOffset(ring),
+                            polygons.ringOffset(ring + 1)));
+        }
+        return new PolygonGeometry(exterior, holes);
     }
 
     private void coordinate(CoordinateSequence sequence, int index) {

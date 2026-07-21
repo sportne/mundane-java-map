@@ -1,5 +1,6 @@
 package io.github.mundanej.map.api;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -47,7 +48,7 @@ public final class VectorExportSnapshot {
      * @param background page background color
      * @param viewFrame projected-map-to-screen similarity frame
      * @param layerCount non-negative source layer count, including empty layers
-     * @param primitives singular vector primitives in ascending paint order
+     * @param primitives vector primitives in ascending paint order
      * @param labels placed labels in ascending ordinary paint order
      * @return immutable detached snapshot
      */
@@ -79,7 +80,7 @@ public final class VectorExportSnapshot {
      * @param background page background color
      * @param viewFrame projected-map-to-screen similarity frame
      * @param layerCount non-negative source layer count, including empty layers
-     * @param primitives singular vector primitives in ascending paint order
+     * @param primitives vector primitives in ascending paint order
      * @param labels placed labels in ascending ordinary paint order
      * @param limits detached-snapshot limits
      * @return immutable detached snapshot
@@ -113,7 +114,7 @@ public final class VectorExportSnapshot {
      * @param background page background color
      * @param viewFrame projected-map-to-screen similarity frame
      * @param layerCount non-negative source layer count, including empty layers
-     * @param primitives singular vector primitives in ascending paint order
+     * @param primitives vector primitives in ascending paint order
      * @param labels placed labels in ascending ordinary paint order
      * @param limits detached-snapshot limits
      * @param cancellation cancellation signal polled before publication
@@ -170,7 +171,7 @@ public final class VectorExportSnapshot {
             requireRole(primitive);
             coordinates = add(coordinates, coordinateCount(primitive.screenGeometry()));
             checkLimit("coordinates", limits.maximumCoordinates(), coordinates);
-            SymbolInventory inventory = validateBasicSymbol(primitive);
+            SymbolInventory inventory = validateSymbolTree(primitive);
             symbolNodes = add(symbolNodes, inventory.nodes());
             checkLimit("symbolNodes", limits.maximumSymbolNodes(), symbolNodes);
             checkLimit("compositeDepth", limits.maximumCompositeDepth(), inventory.depth());
@@ -278,59 +279,111 @@ public final class VectorExportSnapshot {
 
     private static void requireRole(Primitive primitive) {
         SymbolRole expected;
-        if (primitive.screenGeometry() instanceof PointGeometry) {
+        if (primitive.screenGeometry() instanceof PointGeometry
+                || primitive.screenGeometry() instanceof MultiPointGeometry) {
             expected = SymbolRole.MARKER;
-        } else if (primitive.screenGeometry() instanceof LineStringGeometry) {
+        } else if (primitive.screenGeometry() instanceof LineStringGeometry
+                || primitive.screenGeometry() instanceof MultiLineStringGeometry) {
             expected = SymbolRole.LINE;
-        } else if (primitive.screenGeometry() instanceof PolygonGeometry) {
+        } else if (primitive.screenGeometry() instanceof PolygonGeometry
+                || primitive.screenGeometry() instanceof MultiPolygonGeometry) {
             expected = SymbolRole.FILL;
         } else {
-            throw new IllegalArgumentException(
-                    "G11-040 snapshots support singular point, line, and polygon geometry");
+            throw new IllegalArgumentException("Unsupported vector-export geometry");
         }
         if (primitive.symbol().role() != expected) {
             throw new IllegalArgumentException("primitive symbol role does not match geometry");
         }
     }
 
-    private static SymbolInventory validateBasicSymbol(Primitive primitive) {
-        Symbol symbol = primitive.symbol();
-        if (symbol.getClass() == VectorMarkerSymbol.class) {
-            VectorMarkerSymbol marker = (VectorMarkerSymbol) symbol;
-            long pathBytes =
-                    add(
-                            32,
-                            add(
-                                    marker.path().commandCount(),
-                                    multiply(marker.path().ordinateCount(), 8)));
-            return new SymbolInventory(1, 1, add(64, pathBytes));
-        }
-        if (symbol.getClass() == SolidLineSymbol.class) {
-            SolidLineSymbol line = (SolidLineSymbol) symbol;
-            if (line.startMarker().isEmpty() && line.endMarker().isEmpty()) {
-                return new SymbolInventory(1, 1, 64);
+    private static SymbolInventory validateSymbolTree(Primitive primitive) {
+        ArrayDeque<SymbolFrame> pending = new ArrayDeque<>();
+        pending.push(new SymbolFrame(primitive.symbol(), primitive.symbol().role(), 1));
+        long nodes = 0;
+        long maximumDepth = 0;
+        long bytes = 0;
+        while (!pending.isEmpty()) {
+            SymbolFrame frame = pending.pop();
+            Symbol symbol = frame.symbol();
+            int ordinal = Math.toIntExact(nodes);
+            nodes = add(nodes, 1);
+            maximumDepth = Math.max(maximumDepth, frame.depth());
+            bytes = add(bytes, 64);
+            if (symbol.role() != frame.expectedRole()) {
+                throw unsupported(primitive, ordinal, "wrongDescendant");
             }
-            throw unsupported(primitive, 1, "wrongDescendant");
-        }
-        if (symbol.getClass() == SolidFillSymbol.class) {
-            SolidFillSymbol fill = (SolidFillSymbol) symbol;
-            if (fill.outline().isEmpty()) {
-                return new SymbolInventory(1, 1, 64);
+            if (symbol.getClass() == VectorMarkerSymbol.class) {
+                VectorMarkerSymbol marker = (VectorMarkerSymbol) symbol;
+                bytes =
+                        add(
+                                bytes,
+                                add(
+                                        32,
+                                        add(
+                                                marker.path().commandCount(),
+                                                multiply(marker.path().ordinateCount(), 8))));
+                continue;
             }
-            Symbol outline = fill.outline().orElseThrow();
-            if (outline.getClass() == SolidLineSymbol.class) {
-                SolidLineSymbol line = (SolidLineSymbol) outline;
-                if (line.startMarker().isEmpty() && line.endMarker().isEmpty()) {
-                    return new SymbolInventory(2, 2, 136);
+            if (symbol.getClass() == SolidLineSymbol.class) {
+                SolidLineSymbol line = (SolidLineSymbol) symbol;
+                line.endMarker()
+                        .ifPresent(
+                                marker ->
+                                        pending.push(
+                                                new SymbolFrame(
+                                                        marker,
+                                                        SymbolRole.MARKER,
+                                                        frame.depth() + 1)));
+                line.startMarker()
+                        .ifPresent(
+                                marker ->
+                                        pending.push(
+                                                new SymbolFrame(
+                                                        marker,
+                                                        SymbolRole.MARKER,
+                                                        frame.depth() + 1)));
+                continue;
+            }
+            if (symbol.getClass() == SolidFillSymbol.class) {
+                SolidFillSymbol fill = (SolidFillSymbol) symbol;
+                fill.outline()
+                        .ifPresent(
+                                outline ->
+                                        pending.push(
+                                                new SymbolFrame(
+                                                        outline,
+                                                        SymbolRole.LINE,
+                                                        frame.depth() + 1)));
+                continue;
+            }
+            if (symbol.getClass() == HatchFillSymbol.class) {
+                HatchFillSymbol fill = (HatchFillSymbol) symbol;
+                fill.outline()
+                        .ifPresent(
+                                outline ->
+                                        pending.push(
+                                                new SymbolFrame(
+                                                        outline,
+                                                        SymbolRole.LINE,
+                                                        frame.depth() + 1)));
+                continue;
+            }
+            if (symbol.getClass() == CompositeSymbol.class) {
+                List<Symbol> children = ((CompositeSymbol) symbol).children();
+                for (int index = children.size() - 1; index >= 0; index--) {
+                    pending.push(
+                            new SymbolFrame(
+                                    children.get(index), frame.expectedRole(), frame.depth() + 1));
                 }
+                continue;
             }
-            throw unsupported(primitive, 1, "wrongDescendant");
+            String kind =
+                    symbol instanceof RasterIconSymbol
+                            ? "rasterIcon"
+                            : symbol instanceof FeatureStyle ? "legacy" : "custom";
+            throw unsupported(primitive, ordinal, kind);
         }
-        String kind =
-                symbol instanceof RasterIconSymbol
-                        ? "rasterIcon"
-                        : symbol instanceof FeatureStyle ? "legacy" : "custom";
-        throw unsupported(primitive, 0, kind);
+        return new SymbolInventory(nodes, maximumDepth, bytes);
     }
 
     private static VectorExportSnapshotException unsupported(
@@ -350,8 +403,17 @@ public final class VectorExportSnapshot {
         if (geometry instanceof PointGeometry) {
             return 1;
         }
+        if (geometry instanceof MultiPointGeometry points) {
+            return points.coordinates().size();
+        }
         if (geometry instanceof LineStringGeometry line) {
             return line.coordinates().size();
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return lines.coordinates().size();
+        }
+        if (geometry instanceof MultiPolygonGeometry polygons) {
+            return polygons.coordinates().size();
         }
         PolygonGeometry polygon = (PolygonGeometry) geometry;
         long result = polygon.exterior().size();
@@ -365,8 +427,21 @@ public final class VectorExportSnapshot {
         if (geometry instanceof PointGeometry point) {
             return new PointGeometry(normalizeCoordinate(point.coordinate()));
         }
+        if (geometry instanceof MultiPointGeometry points) {
+            return new MultiPointGeometry(normalizeSequence(points.coordinates()));
+        }
         if (geometry instanceof LineStringGeometry line) {
             return new LineStringGeometry(normalizeSequence(line.coordinates()));
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return MultiLineStringGeometry.of(
+                    normalizeSequence(lines.coordinates()), lines.partOffsets());
+        }
+        if (geometry instanceof MultiPolygonGeometry polygons) {
+            return MultiPolygonGeometry.of(
+                    normalizeSequence(polygons.coordinates()),
+                    polygons.ringOffsets(),
+                    polygons.polygonRingOffsets());
         }
         if (geometry instanceof PolygonGeometry polygon) {
             List<CoordinateSequence> holes = new ArrayList<>(polygon.holes().size());
@@ -398,8 +473,27 @@ public final class VectorExportSnapshot {
         if (geometry instanceof PointGeometry) {
             return 80;
         }
+        if (geometry instanceof MultiPointGeometry points) {
+            return add(96, multiply(points.coordinates().size(), 16));
+        }
         if (geometry instanceof LineStringGeometry line) {
             return add(96, multiply(line.coordinates().size(), 16));
+        }
+        if (geometry instanceof MultiLineStringGeometry lines) {
+            return add(
+                    104,
+                    add(
+                            multiply(lines.coordinates().size(), 16),
+                            multiply(lines.partCount() + 1L, 4)));
+        }
+        if (geometry instanceof MultiPolygonGeometry polygons) {
+            return add(
+                    112,
+                    add(
+                            multiply(polygons.coordinates().size(), 16),
+                            add(
+                                    multiply(polygons.ringCount() + 1L, 4),
+                                    multiply(polygons.polygonCount() + 1L, 4))));
         }
         PolygonGeometry polygon = (PolygonGeometry) geometry;
         long result = add(96, add(multiply(polygon.exterior().size(), 16), 4));
@@ -532,11 +626,11 @@ public final class VectorExportSnapshot {
     }
 
     /**
-     * One detached singular geometry and its role-matched solid portrayal.
+     * One detached geometry and its role-matched supported vector portrayal.
      *
      * @param layerIndex non-negative source layer ordinal
      * @param featureIndex non-negative feature ordinal within the layer
-     * @param screenGeometry immutable singular logical-screen geometry
+     * @param screenGeometry immutable logical-screen geometry
      * @param symbol immutable role-matched supported symbol
      */
     public record Primitive(
@@ -589,4 +683,6 @@ public final class VectorExportSnapshot {
     }
 
     private record SymbolInventory(long nodes, long depth, long bytes) {}
+
+    private record SymbolFrame(Symbol symbol, SymbolRole expectedRole, int depth) {}
 }

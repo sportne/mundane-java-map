@@ -311,7 +311,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G11-033 — Workspace viewer and local restore](closed/G11-033-workspace-viewer-and-local-restore.md) | Complete | AFK | G11-032 | Restore a useful local shapefile/raster workspace in a runnable viewer. |
 | [G11-034 — Workspace hardening and closeout](closed/G11-034-workspace-hardening-and-closeout.md) | Complete | HITL | G11-033 | Close hostile input, docs, publication/consumer, and Linux native evidence. |
 | [G11-040 — Programmatic SVG map-export slice](closed/G11-040-programmatic-svg-map-export-slice.md) | Complete | AFK | G11-005, G11-022 | Encode and atomically write a bounded programmatic vector-map snapshot. |
-| [G11-041 — AWT capture and complete vector profile](G11-041-awt-capture-and-complete-vector-profile.md) | Proposed | AFK | G11-023, G11-040 | Capture a real map and export the complete approved vector/symbol/label profile. |
+| [G11-041 — AWT capture and complete vector profile](closed/G11-041-awt-capture-and-complete-vector-profile.md) | Complete | AFK | G11-023, G11-040 | Capture a real map and export the complete approved vector/symbol/label profile. |
 | [G11-042 — SVG export hardening](G11-042-svg-export-hardening.md) | Proposed | AFK | G11-041 | Close export limits, accounting, cancellation, diagnostics, cleanup, and atomicity. |
 | [G11-043 — SVG export closeout](G11-043-svg-export-closeout.md) | Proposed | HITL | G11-024, G11-042 | Approve browser rendering and close native/publication/consumer evidence. |
 

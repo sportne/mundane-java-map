@@ -80,6 +80,14 @@ class HatchLayoutsTest {
 
     @Test
     void candidateBudgetIsPreflightedForSingleAndCrossPatterns() {
+        assertEquals(
+                3,
+                HatchLayouts.candidateSegmentCount(
+                        HatchPattern.FORWARD_DIAGONAL, BOUNDS, ORIGIN, 0.0, 5.0, "area"));
+        assertEquals(
+                6,
+                HatchLayouts.candidateSegmentCount(
+                        HatchPattern.CROSS_DIAGONAL, BOUNDS, ORIGIN, 0.0, 5.0, "area"));
         HatchSegments exactlyAtLimit =
                 HatchLayouts.cover(
                         HatchPattern.FORWARD_DIAGONAL, BOUNDS, ORIGIN, 0.0, 5.0, 3, "area");
@@ -121,6 +129,15 @@ class HatchLayoutsTest {
 
     @Test
     void unrepresentableLatticeCountUsesStableOverflowSentinel() {
+        assertEquals(
+                Long.MAX_VALUE,
+                HatchLayouts.candidateSegmentCount(
+                        HatchPattern.FORWARD_DIAGONAL,
+                        BOUNDS,
+                        ORIGIN,
+                        0.0,
+                        Double.MIN_VALUE,
+                        "area"));
         SymbolException failure =
                 assertThrows(
                         SymbolException.class,

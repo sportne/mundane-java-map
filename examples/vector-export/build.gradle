@@ -1,0 +1,16 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-svg')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.export.VectorExportExample'
+}
+
+description = 'Runnable static SVG viewport-export example.'

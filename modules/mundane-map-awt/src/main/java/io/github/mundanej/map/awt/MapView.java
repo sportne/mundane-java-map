@@ -1,6 +1,7 @@
 package io.github.mundanej.map.awt;
 
 import io.github.mundanej.map.api.AttributeSelection;
+import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
@@ -79,6 +80,10 @@ import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolStroke;
+import io.github.mundanej.map.api.VectorExportSnapshot;
+import io.github.mundanej.map.api.VectorExportSnapshotException;
+import io.github.mundanej.map.api.VectorExportSnapshotLimits;
+import io.github.mundanej.map.api.VectorExportSnapshotProblem;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.core.CrsOperation;
@@ -652,6 +657,170 @@ public final class MapView extends JComponent implements AutoCloseable {
      */
     public List<MapLayerBinding> layerBindings() {
         return bindings;
+    }
+
+    /**
+     * Captures the currently visible vector picture using default limits and no cancellation.
+     *
+     * @return immutable toolkit-neutral vector-export snapshot
+     * @throws IllegalStateException if the view is closed or the caller is not on the EDT
+     * @throws VectorExportSnapshotException if the component or visible content cannot be exported
+     */
+    public VectorExportSnapshot captureVectorExportSnapshot() {
+        return captureVectorExportSnapshot(
+                VectorExportSnapshotLimits.defaults(), CancellationToken.none());
+    }
+
+    /**
+     * Captures the currently visible vector picture using explicit limits and no cancellation.
+     *
+     * @param limits bounded detached-snapshot limits
+     * @return immutable toolkit-neutral vector-export snapshot
+     * @throws IllegalStateException if the view is closed or the caller is not on the EDT
+     * @throws VectorExportSnapshotException if the component or visible content cannot be exported
+     */
+    public VectorExportSnapshot captureVectorExportSnapshot(VectorExportSnapshotLimits limits) {
+        return captureVectorExportSnapshot(limits, CancellationToken.none());
+    }
+
+    /**
+     * Captures one all-or-nothing detached picture of the visible vector map.
+     *
+     * <p>Capture is synchronous and must run on the Swing event-dispatch thread. Raster and
+     * elevation bindings are rejected before any feature source is queried. Transient interaction
+     * and tool overlays are deliberately excluded.
+     *
+     * @param limits bounded detached-snapshot limits
+     * @param cancellation cancellation signal observed throughout capture
+     * @return immutable toolkit-neutral vector-export snapshot
+     * @throws IllegalStateException if the view is closed or the caller is not on the EDT
+     * @throws VectorExportSnapshotException if the component or visible content cannot be exported
+     */
+    public VectorExportSnapshot captureVectorExportSnapshot(
+            VectorExportSnapshotLimits limits, CancellationToken cancellation) {
+        Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(cancellation, "cancellation");
+        requireOpen();
+        if (!EventQueue.isDispatchThread()) {
+            throw new IllegalStateException(
+                    "Vector export capture must run on the event dispatch thread");
+        }
+        checkVectorExportCancellation(cancellation);
+        int width = getWidth();
+        int height = getHeight();
+        if (width <= 0 || height <= 0) {
+            throw vectorExportValueFailure("componentSize", "zero");
+        }
+        Color componentBackground = getBackground();
+        if (componentBackground == null) {
+            throw vectorExportValueFailure("componentBackground", "missing");
+        }
+        if (!isOpaque() || componentBackground.getAlpha() != 255) {
+            throw vectorExportValueFailure("componentBackground", "nonOpaque");
+        }
+        List<MapLayerBinding> bindingSnapshot = List.copyOf(bindings);
+        for (int layerIndex = 0; layerIndex < bindingSnapshot.size(); layerIndex++) {
+            MapLayerBinding.Kind kind = bindingSnapshot.get(layerIndex).kind();
+            if (kind == MapLayerBinding.Kind.RASTER || kind == MapLayerBinding.Kind.ELEVATION) {
+                LinkedHashMap<String, String> context = new LinkedHashMap<>();
+                context.put("layerIndex", Integer.toString(layerIndex));
+                context.put("kind", kind == MapLayerBinding.Kind.RASTER ? "raster" : "elevation");
+                throw new VectorExportSnapshotException(
+                        "Vector export does not support raster or elevation layers",
+                        new VectorExportSnapshotProblem(
+                                "VECTOR_EXPORT_LAYER_UNSUPPORTED", context));
+            }
+        }
+        synchronizeViewportSize();
+        MapViewport viewportSnapshot = viewport;
+        MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
+        Rgba background =
+                new Rgba(
+                        componentBackground.getRed(),
+                        componentBackground.getGreen(),
+                        componentBackground.getBlue(),
+                        componentBackground.getAlpha());
+        VectorExportSnapshot.ViewFrame frame =
+                new VectorExportSnapshot.ViewFrame(
+                        basisSnapshot.uniformScale(),
+                        basisSnapshot.xAxisScreenBearingDegrees(),
+                        viewportSnapshot.worldToScreen(new Coordinate(0.0, 0.0)));
+        VectorExportSnapshot.of(
+                width,
+                height,
+                background,
+                frame,
+                bindingSnapshot.size(),
+                List.of(),
+                List.of(),
+                limits,
+                cancellation);
+        ViewContentSnapshot content =
+                captureVectorExportContent(bindingSnapshot, viewportSnapshot, cancellation);
+        List<VectorExportSnapshot.Primitive> primitives = new ArrayList<>();
+        List<PendingPointLabel> pendingLabels = new ArrayList<>();
+        for (int layerIndex = 0; layerIndex < content.layers().size(); layerIndex++) {
+            checkVectorExportCancellation(cancellation);
+            LayerSnapshot layer = content.layers().get(layerIndex);
+            for (VisualFeature feature : layer.features()) {
+                checkVectorExportCancellation(cancellation);
+                Geometry screenGeometry =
+                        toExportScreenGeometry(
+                                feature.geometry(), feature.sourceToDisplay(), viewportSnapshot);
+                VectorExportSnapshot.Primitive primitive =
+                        new VectorExportSnapshot.Primitive(
+                                layerIndex,
+                                feature.featureIndex(),
+                                screenGeometry,
+                                feature.symbol());
+                VectorExportSnapshot.of(
+                        width,
+                        height,
+                        background,
+                        frame,
+                        content.layers().size(),
+                        List.of(primitive),
+                        List.of(),
+                        limits,
+                        cancellation);
+                primitives.add(primitive);
+                if (feature.label().isPresent()) {
+                    Coordinate anchor = ((PointGeometry) screenGeometry).coordinate();
+                    Envelope markerBounds =
+                            exportMarkerBounds(feature.symbol(), anchor, basisSnapshot);
+                    pendingLabels.add(
+                            new PendingPointLabel(
+                                    layer.id(),
+                                    layerIndex,
+                                    feature,
+                                    feature.label().orElseThrow(),
+                                    screenBox(markerBounds)));
+                }
+            }
+        }
+        VectorExportSnapshot.of(
+                width,
+                height,
+                background,
+                frame,
+                content.layers().size(),
+                primitives,
+                List.of(),
+                limits,
+                cancellation);
+        List<VectorExportSnapshot.Label> labels =
+                captureVectorExportLabels(pendingLabels, width, height, cancellation);
+        checkVectorExportCancellation(cancellation);
+        return VectorExportSnapshot.of(
+                width,
+                height,
+                background,
+                frame,
+                content.layers().size(),
+                primitives,
+                labels,
+                limits,
+                cancellation);
     }
 
     /**
@@ -3696,6 +3865,128 @@ public final class MapView extends JComponent implements AutoCloseable {
         return AwtLogicalPaintPresence.EMPTY;
     }
 
+    private Geometry toExportScreenGeometry(
+            Geometry geometry,
+            CrsOperation sourceToDisplayOperation,
+            MapViewport viewportSnapshot) {
+        if (geometry instanceof PointGeometry point) {
+            return new PointGeometry(
+                    toScreen(point.coordinate(), sourceToDisplayOperation, viewportSnapshot));
+        }
+        if (geometry instanceof MultiPointGeometry points) {
+            return new MultiPointGeometry(
+                    toScreen(points.coordinates(), sourceToDisplayOperation, viewportSnapshot));
+        }
+        return toScreenPathGeometry(geometry, sourceToDisplayOperation, viewportSnapshot);
+    }
+
+    private static Envelope exportMarkerBounds(
+            Symbol symbol, Coordinate anchor, MapScreenBasis basisSnapshot) {
+        if (symbol instanceof VectorMarkerSymbol marker) {
+            return SymbolTransforms.marker(
+                            marker.viewBox(), marker.placement(), anchor, basisSnapshot)
+                    .nominalScreenBounds();
+        }
+        if (symbol instanceof CompositeSymbol composite) {
+            Envelope result = null;
+            for (Symbol child : composite.children()) {
+                Envelope childBounds = exportMarkerBounds(child, anchor, basisSnapshot);
+                result = result == null ? childBounds : result.union(childBounds);
+            }
+            return result == null ? Envelope.at(anchor) : result;
+        }
+        return Envelope.at(anchor);
+    }
+
+    private static List<VectorExportSnapshot.Label> captureVectorExportLabels(
+            List<PendingPointLabel> pendingLabels,
+            int width,
+            int height,
+            CancellationToken cancellation) {
+        List<LabelTextMetrics.Measurement> measurements = new ArrayList<>(pendingLabels.size());
+        List<PointLabelPlacementRequest> requests = new ArrayList<>(pendingLabels.size());
+        int codePoints = 0;
+        for (PendingPointLabel pending : pendingLabels) {
+            checkVectorExportCancellation(cancellation);
+            int featureCodePoints =
+                    LabelTextMetrics.validateText(
+                            pending.label().text(),
+                            pending.layerIndex(),
+                            pending.feature().featureIndex());
+            codePoints = Math.addExact(codePoints, featureCodePoints);
+            if (codePoints > 262_144) {
+                throw labelBatchFailure(
+                        "LABEL_TEXT_BUDGET_EXCEEDED",
+                        "Point-label text budget exceeded",
+                        262_144,
+                        codePoints);
+            }
+            LabelTextMetrics.Measurement measurement =
+                    LabelTextMetrics.measureValidated(
+                            pending.label().text(),
+                            pending.label().profile().style(),
+                            pending.layerIndex(),
+                            pending.feature().featureIndex());
+            int paintOrdinal = measurements.size();
+            measurements.add(measurement);
+            requests.add(
+                    new PointLabelPlacementRequest(
+                            pending.layerId(),
+                            pending.feature().id(),
+                            pending.label().text(),
+                            pending.label().profile().style(),
+                            pending.markerBounds(),
+                            measurement.relativeVisualBounds(),
+                            measurement.advance(),
+                            pending.label().profile(),
+                            pending.layerIndex(),
+                            pending.feature().featureIndex(),
+                            paintOrdinal));
+        }
+        List<PlacedPointLabel> placed =
+                GreedyPointLabelPlacement.place(new ScreenBox(0, 0, width, height), requests);
+        List<VectorExportSnapshot.Label> labels = new ArrayList<>(placed.size());
+        for (PlacedPointLabel label : placed) {
+            checkVectorExportCancellation(cancellation);
+            labels.add(
+                    new VectorExportSnapshot.Label(
+                            label.text(),
+                            label.style(),
+                            label.baselineX(),
+                            label.baselineY(),
+                            label.advance(),
+                            label.ordinaryPaintOrdinal()));
+        }
+        return List.copyOf(labels);
+    }
+
+    private static void checkVectorExportCancellation(CancellationToken cancellation) {
+        if (cancellation.isCancellationRequested()) {
+            throw new VectorExportSnapshotException(
+                    "Vector export capture was cancelled",
+                    new VectorExportSnapshotProblem("VECTOR_EXPORT_SNAPSHOT_CANCELLED", Map.of()));
+        }
+    }
+
+    private static void throwVectorExportSourceCancellation(
+            DiagnosticReport report, CancellationToken externalCancellation) {
+        if (externalCancellation.isCancellationRequested()) {
+            checkVectorExportCancellation(externalCancellation);
+        }
+        SourceDiagnostic terminal = report.entries().getLast();
+        throw new SourceException(report, terminal);
+    }
+
+    private static VectorExportSnapshotException vectorExportValueFailure(
+            String field, String reason) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        context.put("field", field);
+        context.put("reason", reason);
+        return new VectorExportSnapshotException(
+                "The map component cannot be captured for vector export",
+                new VectorExportSnapshotProblem("VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID", context));
+    }
+
     private CoordinateSequence toScreen(
             CoordinateSequence source,
             CrsOperation sourceToDisplayOperation,
@@ -4474,6 +4765,28 @@ public final class MapView extends JComponent implements AutoCloseable {
         return new ViewContentSnapshot(List.copyOf(captured));
     }
 
+    private ViewContentSnapshot captureVectorExportContent(
+            List<MapLayerBinding> sourceBindings,
+            MapViewport viewportSnapshot,
+            CancellationToken cancellation) {
+        List<LayerSnapshot> captured = new ArrayList<>(sourceBindings.size());
+        for (MapLayerBinding binding : sourceBindings) {
+            checkVectorExportCancellation(cancellation);
+            captured.add(
+                    switch (binding.kind()) {
+                        case SNAPSHOT -> captureSnapshot(binding, viewportSnapshot, true);
+                        case FEATURE ->
+                                captureFeatureSource(
+                                        binding, viewportSnapshot, true, true, cancellation);
+                        case EDITABLE -> captureEditable(binding, viewportSnapshot, true);
+                        case RASTER, ELEVATION ->
+                                throw new AssertionError(
+                                        "unsupported layer passed export preflight");
+                    });
+        }
+        return new ViewContentSnapshot(List.copyOf(captured));
+    }
+
     private ViewContentSnapshot captureContentForEditing(
             MapLayerBinding target,
             FeatureEditSnapshot targetSnapshot,
@@ -4611,9 +4924,23 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private LayerSnapshot captureFeatureSource(
             MapLayerBinding binding, MapViewport viewportSnapshot, boolean includeLabels) {
+        return captureFeatureSource(
+                binding, viewportSnapshot, includeLabels, false, CancellationToken.none());
+    }
+
+    private LayerSnapshot captureFeatureSource(
+            MapLayerBinding binding,
+            MapViewport viewportSnapshot,
+            boolean includeLabels,
+            boolean propagateFailure,
+            CancellationToken externalCancellation) {
         FeatureSource source = binding.source();
         ResolvedFeatureBinding resolved = resolvedFeatureBindings.get(binding);
         MapLayerBinding.Operation operation = binding.beginOperation();
+        CancellationToken captureCancellation =
+                () ->
+                        operation.token().isCancellationRequested()
+                                || externalCancellation.isCancellationRequested();
         DiagnosticReport planning = DiagnosticReport.empty();
         DiagnosticReport encountered = DiagnosticReport.empty();
         try {
@@ -4627,6 +4954,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                 if (phase == MapLayerBinding.Phase.CANCELLED) {
                     DiagnosticReport cancelled = cancellationReport(source);
                     updateSourceResult(binding.id(), cancelled, false);
+                    if (propagateFailure) {
+                        throwVectorExportSourceCancellation(cancelled, externalCancellation);
+                    }
                     return new LayerSnapshot(
                             binding.id(), List.of(), Optional.empty(), true, false);
                 }
@@ -4648,24 +4978,28 @@ public final class MapView extends JComponent implements AutoCloseable {
                     new FeatureQueryAccounting(
                             source.metadata().identity().id(), source.limits().queryLimits());
             DiagnosticReport cursorReport;
-            try (FeatureCursor cursor = source.openCursor(query, operation.token())) {
+            try (FeatureCursor cursor = source.openCursor(query, captureCancellation)) {
                 while (cursor.advance()) {
                     FeatureRecord record = cursor.current();
                     encountered = mergeReports(planning, cursor.diagnostics(), source);
-                    accounting.recordReturned(record, 1, operation.token());
+                    accounting.recordReturned(record, 1, captureCancellation);
                     staged.add(record);
                 }
                 cursorReport = cursor.diagnostics();
             }
             encountered = mergeReports(planning, cursorReport, source);
             for (FeatureRecord record : staged) {
-                preflight(record.geometry(), resolved.sourceToDisplay(), operation.token(), source);
+                preflight(
+                        record.geometry(), resolved.sourceToDisplay(), captureCancellation, source);
             }
             MapLayerBinding.Phase phase = operation.finish(true);
             if (phase == MapLayerBinding.Phase.CANCELLED) {
                 DiagnosticReport cancelled =
                         mergeReports(encountered, cancellationReport(source), source);
                 updateSourceResult(binding.id(), cancelled, false);
+                if (propagateFailure) {
+                    throwVectorExportSourceCancellation(cancelled, externalCancellation);
+                }
                 return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
             }
             DiagnosticReport report = encountered;
@@ -4708,6 +5042,13 @@ public final class MapView extends JComponent implements AutoCloseable {
                             ? mergeReports(observed, cancellationReport(source), source)
                             : mergeReports(observed, terminalOnly(failure.report()), source);
             updateSourceResult(binding.id(), report, false);
+            if (propagateFailure) {
+                if (externalCancellation.isCancellationRequested()
+                        && failure.terminal().code().equals("SOURCE_CANCELLED")) {
+                    checkVectorExportCancellation(externalCancellation);
+                }
+                throw failure;
+            }
             return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
         } catch (CrsException failure) {
             MapLayerBinding.Phase phase = operation.finish(false);
@@ -4716,6 +5057,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                             ? mergeReports(encountered, cancellationReport(source), source)
                             : mergeReports(encountered, crsFailure(source, failure), source);
             updateSourceResult(binding.id(), report, false);
+            if (propagateFailure) {
+                throw failure;
+            }
             return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
         } catch (RuntimeException | Error failure) {
             operation.finish(false);

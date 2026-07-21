@@ -495,9 +495,12 @@ separately decomposed.
   raster/elevation layers, raster icons, custom/legacy symbols, overlays, metadata, image fallback,
   and arbitrary SVG reject the whole operation. Complete G11-040 now supplies the immutable detached
   snapshot boundary plus canonical background, singular point/line/polygon solid portrayal, placed
-  labels, bounded encoding, cancellation, and failure-atomic local replacement. G11-041 through
-  G11-043 add real capture and complete built-ins, hardening, then manual browser/native/publication/
-  consumer closeout without a new module or export framework.
+  labels, bounded encoding, cancellation, and failure-atomic local replacement. Complete G11-041
+  now captures the visible vector stack synchronously on the EDT, preserves authoritative screen
+  geometry and fixed point-label placement, and encodes all six geometry families, composite
+  symbols, endpoint markers, outlines, and bounded hatches. Its vector-export example displays and
+  exports the same viewport. G11-042 and G11-043 retain export hardening and manual browser/native/
+  publication/consumer closeout without a new module or export framework.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
 

@@ -6,13 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.HatchFillSymbol;
+import io.github.mundanej.map.api.HatchPattern;
 import io.github.mundanej.map.api.LabelTextStyle;
 import io.github.mundanej.map.api.LabelWeight;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MarkerPlacement;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
+import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
@@ -69,6 +75,79 @@ class SvgMapExportsTest {
         assertTrue(document.endsWith("</svg>\n"));
         assertFalse(document.contains("metadata"));
         assertClosedGrammar(first);
+    }
+
+    @Test
+    void encodesMultipartCompositeEndpointsAndHatchesInStablePaintOrder() {
+        VectorMarkerSymbol marker =
+                VectorMarkerSymbol.filledScreen(
+                        VectorPath.builder().moveTo(0, 0).lineTo(2, 1).lineTo(0, 2).close().build(),
+                        new Envelope(0, 0, 2, 2),
+                        Rgba.rgb(200, 10, 20),
+                        4,
+                        1);
+        SolidLineSymbol endpointLine =
+                SolidLineSymbol.of(
+                        new SymbolStroke(
+                                Rgba.rgb(10, 20, 30), new SymbolLength(2, SymbolUnit.SCREEN_PIXEL)),
+                        Optional.of(marker),
+                        Optional.of(marker),
+                        1);
+        HatchFillSymbol hatch =
+                HatchFillSymbol.of(
+                        HatchPattern.CROSS_DIAGONAL,
+                        new SymbolStroke(
+                                Rgba.rgb(30, 40, 50), new SymbolLength(1, SymbolUnit.SCREEN_PIXEL)),
+                        new SymbolLength(5, SymbolUnit.SCREEN_PIXEL),
+                        SymbolRotationMode.SCREEN_RELATIVE,
+                        Optional.of(SolidLineSymbol.of(stroke(), 1)),
+                        0.75,
+                        100);
+        PolygonGeometry first =
+                new PolygonGeometry(
+                        CoordinateSequence.of(20, 20, 40, 20, 40, 40, 20, 40, 20, 20),
+                        List.of(CoordinateSequence.of(25, 25, 30, 25, 30, 30, 25, 30, 25, 25)));
+        PolygonGeometry second =
+                new PolygonGeometry(CoordinateSequence.of(50, 20, 60, 20, 60, 30, 50, 30, 50, 20));
+        VectorExportSnapshot snapshot =
+                VectorExportSnapshot.of(
+                        100,
+                        80,
+                        Rgba.rgb(255, 255, 255),
+                        new VectorExportSnapshot.ViewFrame(1, 0, new Coordinate(0, 0)),
+                        1,
+                        List.of(
+                                new VectorExportSnapshot.Primitive(
+                                        0,
+                                        0,
+                                        new MultiPointGeometry(CoordinateSequence.of(5, 5, 10, 5)),
+                                        CompositeSymbol.of(List.of(marker), 0.5)),
+                                new VectorExportSnapshot.Primitive(
+                                        0,
+                                        1,
+                                        MultiLineStringGeometry.of(
+                                                CoordinateSequence.of(5, 10, 15, 10, 5, 15, 15, 15),
+                                                new int[] {0, 2, 4}),
+                                        endpointLine),
+                                new VectorExportSnapshot.Primitive(
+                                        0,
+                                        2,
+                                        MultiPolygonGeometry.ofPolygons(List.of(first, second)),
+                                        hatch)),
+                        List.of());
+
+        String document = new String(SvgMapExports.encode(snapshot), StandardCharsets.UTF_8);
+
+        assertTrue(document.contains("<clipPath id=\"c1\""));
+        assertTrue(document.contains("<clipPath id=\"c2\""));
+        assertTrue(document.contains("clip-rule=\"evenodd\""));
+        assertTrue(document.contains("clip-path=\"url(#c1)\""));
+        assertTrue(document.contains("clip-path=\"url(#c2)\""));
+        assertTrue(
+                document.indexOf("M 5.0 10.0 L 15.0 10.0")
+                        < document.indexOf("M 5.0 15.0 L 15.0 15.0"));
+        assertTrue(document.contains("fill-opacity=\"0.5\""));
+        assertTrue(document.contains("stroke-opacity=\"0.75\""));
     }
 
     @Test
@@ -241,6 +320,10 @@ class SvgMapExportsTest {
                 1,
                 primitives,
                 List.of(label));
+    }
+
+    private static SymbolStroke stroke() {
+        return new SymbolStroke(Rgba.rgb(70, 80, 90), new SymbolLength(1, SymbolUnit.SCREEN_PIXEL));
     }
 
     private static void assertClosedGrammar(byte[] bytes) throws Exception {
