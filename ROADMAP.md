@@ -564,6 +564,8 @@ separately decomposed.
   from publicly documented Integrated Ornstein-Uhlenbeck position/velocity equations. The approved
   profile fixes equations, numerical behavior, provenance, and support wording; it makes no
   proprietary-equivalence, endorsement, operational-accuracy, or safety claim.
+- Complete G15-002 keeps that estimator example-local and proves its allocation-free packed scalar
+  update against an independent dense oracle across the approved interval and numerical boundaries.
 - Schedule deterministic stochastic position reports independently per track at intervals from one
   second through one minute. Use packed primitive truth/filter state, a due-work timing wheel, and
   stable worker shards; data association, track birth/death, networking, and operational accuracy

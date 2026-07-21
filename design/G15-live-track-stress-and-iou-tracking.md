@@ -19,9 +19,10 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 is approved. It freezes the mathematical, provenance, workload, storage, lifecycle,
-rendering, and evidence profile below. G15-002 through G15-008 remain Proposed until their working
-vertical slices pass review; the approval creates no production API or module.
+G15-001 is approved and G15-002 is complete. The decision freezes the mathematical, provenance,
+workload, storage, lifecycle, rendering, and evidence profile below; the first implementation slice
+proves its packed estimator kernel. G15-003 through G15-008 remain Proposed until their working
+vertical slices pass review. Neither completed task creates a production API or module.
 
 ## Research and provenance boundary
 
@@ -217,6 +218,16 @@ mean, covariance, timestamp, initialization state, and counters. Under the appro
 profile, both axes may share the three independent covariance entries only if tests prove that the
 invariant is preserved. A generic dense 4-by-4 test oracle independently evaluates the same equations
 and is never used in the measured path.
+
+G15-002 implements this boundary inside `examples:live-track-stress`. One packed filter owns
+structure-of-arrays mean, shared covariance, timestamp, initialization, and counter storage plus one
+reused five-double coefficient scratch array. Its update path allocates nothing, rejects intervals
+outside `[1 s, 60 s]`, uses the approved Taylor/direct coefficient branches and Joseph update, and
+applies the approved finite/PSD checks. The filter is deliberately shard-confined rather than
+thread-safe. Tests compare irregular updates against an independently coded dense 4-by-4 oracle,
+exercise the small-decay limit and storage isolation, and run deterministic innovation/RMSE sanity
+evidence. The runnable entry point exercises the same packed kernel without introducing a public
+tracking abstraction.
 
 The displayed position predicts the current estimate to the frame's simulation timestamp without
 mutating authoritative filter state. Backward smoothing, adaptive noise, interacting multiple

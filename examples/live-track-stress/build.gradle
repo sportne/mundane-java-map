@@ -1,0 +1,9 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.livetrack.LiveTrackStress'
+}
+
+description = 'Runnable packed IOU-Kalman live-track stress example.'

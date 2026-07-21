@@ -1,6 +1,6 @@
 # G15-002 — Optimized IOU-Kalman Filter kernel
 
-Status: Proposed
+Status: Complete
 Depends on: G15-001
 Gate: G15
 Type: AFK
@@ -12,9 +12,9 @@ an independent dense matrix oracle across the approved variable report intervals
 
 ## Context
 
-G15-001 freezes the bounded forward IOU-Kalman Filter state-estimator profile. The implementation starts in the new
-`examples:live-track-stress` project so a one-example algorithm does not prematurely become public
-API.
+G15-001 freezes the bounded forward IOU-Kalman Filter state-estimator profile. The implementation
+starts in the new `examples:live-track-stress` project so a one-example algorithm does not
+prematurely become public API.
 
 ## Scope
 
@@ -57,3 +57,9 @@ git diff --check
 
 Keep matrices and general linear algebra test-only. Do not introduce a math dependency or a public
 tracking abstraction.
+
+Completion record (2026-07-21): the example-local packed scalar filter implements the approved
+stable coefficients, initialization, Joseph update, pure display prediction, timestamp rejection,
+counters, and PSD checks. Tests prove storage isolation, numerical boundaries, deterministic
+innovation/RMSE behavior, and agreement with an independently coded dense 4-by-4 oracle. No new
+dependency or public tracking API was introduced.
