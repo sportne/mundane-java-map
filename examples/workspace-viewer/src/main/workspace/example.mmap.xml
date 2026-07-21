@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workspace xmlns="urn:mundanej:map:workspace" version="1">
+  <view map-crs="EPSG:3857" display-crs="EPSG:3857" center-x="40.0" center-y="20.0" units-per-pixel="0.1"/>
+  <layers>
+    <raster-layer id="image" name="Reference raster" interpolation="BILINEAR" opacity="0.65">
+      <source opener="application.image-world-file-epsg3857.v1" id="image-source" name="Reference image" path="data/image.png"/>
+    </raster-layer>
+    <feature-layer id="areas" name="Mapped areas">
+      <source opener="application.shapefile.v1" id="areas-source" name="Area features" path="data/map.shp"/>
+      <symbols catalog="application.default" marker="point" line="boundary" fill="area"/>
+    </feature-layer>
+  </layers>
+</workspace>

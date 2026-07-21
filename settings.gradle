@@ -118,6 +118,8 @@ def projectInventory = [
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:geojson-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
+    [path: ':examples:workspace-viewer', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:geotiff-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:point-edit-viewer', category: 'SUPPORT', releaseLevel: 0,

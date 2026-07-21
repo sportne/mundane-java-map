@@ -1,0 +1,64 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-shapefile')
+    implementation project(':modules:mundane-map-io-image')
+    implementation project(':modules:mundane-map-workspace')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.workspace.WorkspaceViewer'
+}
+
+def fixtureDirectory = layout.buildDirectory.dir('workspace-fixture')
+def shapefileDirectory = project(':modules:mundane-map-io-shapefile').layout.projectDirectory.dir(
+        'src/shapefileCorpusTest/resources/shapefile-corpus/data/generated-polygon-hole-windows1252-3857')
+def rasterDirectory = project(':modules:mundane-map-native-tests').layout.projectDirectory.dir(
+        'src/main/resources/io/github/mundanej/map/nativeimage/raster')
+
+def prepareWorkspaceFixture = tasks.register('prepareWorkspaceFixture', Sync) {
+    group = 'verification'
+    description = 'Materializes the fixed local shapefile/raster workspace-viewer fixture.'
+    into fixtureDirectory
+    from(layout.projectDirectory.dir('src/main/workspace'))
+    [
+        'shp',
+        'shx',
+        'dbf',
+        'cpg',
+        'prj'
+    ].each { extension ->
+        from(shapefileDirectory.file("generated-polygon-hole-windows1252-3857.${extension}")) {
+            into 'data'
+            rename { "map.${extension}" }
+        }
+    }
+    from(rasterDirectory.file('png-affine-smoke.png')) {
+        into 'data'
+        rename { 'image.png' }
+    }
+}
+
+tasks.named('run') {
+    dependsOn prepareWorkspaceFixture
+    workingDir rootProject.projectDir
+}
+
+tasks.named('test') {
+    dependsOn prepareWorkspaceFixture
+    systemProperty 'workspace.viewer.fixture',
+            fixtureDirectory.map { it.file('example.mmap.xml').asFile.absolutePath }.get()
+    systemProperty 'workspace.viewer.sources',
+            layout.projectDirectory.dir('src/main/java').asFile.absolutePath
+}
+
+tasks.named('check') {
+    dependsOn prepareWorkspaceFixture
+}
+
+description = 'Runnable explicit local workspace restore example.'

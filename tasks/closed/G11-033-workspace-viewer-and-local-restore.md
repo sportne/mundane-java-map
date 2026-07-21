@@ -1,6 +1,6 @@
 # G11-033 — Workspace viewer and local restore
 
-Status: Proposed
+Status: Complete
 Depends on: G11-032
 Gate: G11
 Type: AFK
