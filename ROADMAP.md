@@ -493,8 +493,10 @@ separately decomposed.
   reuses only the approved core symbol algorithms. The profile supports the six vector geometry
   families, exact built-in vector symbol trees, hatches, and already measured/placed point labels;
   raster/elevation layers, raster icons, custom/legacy symbols, overlays, metadata, image fallback,
-  and arbitrary SVG reject the whole operation. G11-040 through G11-043 deliver encoding/atomic
-  write, real capture and complete built-ins, hardening, then manual browser/native/publication/
+  and arbitrary SVG reject the whole operation. Complete G11-040 now supplies the immutable detached
+  snapshot boundary plus canonical background, singular point/line/polygon solid portrayal, placed
+  labels, bounded encoding, cancellation, and failure-atomic local replacement. G11-041 through
+  G11-043 add real capture and complete built-ins, hardening, then manual browser/native/publication/
   consumer closeout without a new module or export framework.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).

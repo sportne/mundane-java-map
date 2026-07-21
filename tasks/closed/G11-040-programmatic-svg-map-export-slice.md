@@ -1,6 +1,6 @@
 # G11-040 — Programmatic SVG map-export slice
 
-Status: Proposed
+Status: Complete
 Depends on: G11-005, G11-022
 Gate: G11
 Type: AFK
@@ -55,3 +55,7 @@ git diff --check
 
 Extend `mundane-map-io-svg`; do not add another module or generic exporter/DOM. Its approved
 production dependencies are exactly API, core, and `java.xml`, never AWT.
+
+Completed on 2026-07-20 with immutable detached singular-geometry snapshots, canonical programmatic
+SVG encoding, structured limits/diagnostics, cancellation, failure-atomic local replacement, and
+API/SVG/architecture coverage. Complete built-in traversal and live AWT capture remain G11-041.

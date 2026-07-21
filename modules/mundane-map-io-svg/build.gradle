@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     api project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
 }
 
-description = 'JDK-only secure static SVG marker import support.'
+description = 'JDK-only secure SVG marker import and canonical vector-map export support.'

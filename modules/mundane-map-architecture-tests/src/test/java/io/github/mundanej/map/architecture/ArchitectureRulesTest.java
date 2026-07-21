@@ -1268,13 +1268,23 @@ class ArchitectureRulesTest {
         assertEquals("JDK_RUNTIME", svg.category());
         assertEquals(2, svg.releaseLevel());
         assertTrue(svg.nativeTarget());
-        assertEquals(Set.of(":modules:mundane-map-api"), svg.allowedRuntimeProjects());
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                svg.allowedRuntimeProjects());
         assertFalse(classes.isEmpty(), "Expected the working SVG format module");
         assertTrue(
                 prohibitedToolkitNetworkOrXmlModels.isEmpty(),
                 () -> String.join("\n", prohibitedToolkitNetworkOrXmlModels));
         assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
-        assertEquals(Set.of("SvgSymbols", "SvgImportLimits"), publicTypes);
+        assertEquals(
+                Set.of(
+                        "SvgExportException",
+                        "SvgExportLimits",
+                        "SvgExportProblem",
+                        "SvgImportLimits",
+                        "SvgMapExports",
+                        "SvgSymbols"),
+                publicTypes);
     }
 
     @Test
