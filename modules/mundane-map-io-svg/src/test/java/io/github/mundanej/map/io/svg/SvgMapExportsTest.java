@@ -41,6 +41,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamReader;
@@ -141,8 +142,13 @@ class SvgMapExportsTest {
         assertTrue(document.contains("<clipPath id=\"c1\""));
         assertTrue(document.contains("<clipPath id=\"c2\""));
         assertTrue(document.contains("clip-rule=\"evenodd\""));
+        assertFalse(document.contains("fill-rule=\"evenodd\" clip-rule=\"evenodd\""));
         assertTrue(document.contains("clip-path=\"url(#c1)\""));
         assertTrue(document.contains("clip-path=\"url(#c2)\""));
+        assertTrue(
+                document.contains(
+                        "stroke-linecap=\"round\" stroke-linejoin=\"round\""
+                                + " stroke-opacity=\"0.75\" clip-path=\"url(#c1)\""));
         assertTrue(
                 document.indexOf("M 5.0 10.0 L 15.0 10.0")
                         < document.indexOf("M 5.0 15.0 L 15.0 15.0"));
@@ -171,6 +177,131 @@ class SvgMapExportsTest {
                                         SvgExportLimits.defaults(),
                                         () -> true));
         assertEquals("SVG_EXPORT_CANCELLED", cancelled.problem().code());
+
+        SvgExportException cancelledBeforeOwnedLimit =
+                assertThrows(
+                        SvgExportException.class,
+                        () ->
+                                SvgMapExports.encode(
+                                        representativeSnapshot(),
+                                        SvgExportLimits.defaults().withMaximumOwnedBytes(1),
+                                        () -> true));
+        assertEquals("SVG_EXPORT_CANCELLED", cancelledBeforeOwnedLimit.problem().code());
+    }
+
+    @Test
+    void enforcesExactOutputChunkAndFinalArrayInventories() {
+        VectorExportSnapshot opaque = backgroundOnlySnapshot(Rgba.rgb(1, 2, 3), List.of());
+        byte[] opaqueBytes = SvgMapExports.encode(opaque);
+
+        assertArrayEquals(
+                opaqueBytes,
+                SvgMapExports.encode(
+                        opaque,
+                        SvgExportLimits.defaults().withMaximumOutputBytes(opaqueBytes.length)));
+        assertLimit(
+                () ->
+                        SvgMapExports.encode(
+                                opaque,
+                                SvgExportLimits.defaults()
+                                        .withMaximumOutputBytes(opaqueBytes.length - 1)),
+                "outputBytes",
+                opaqueBytes.length);
+
+        long opaqueOwnedBytes = 64L + 64L + 8_192L + opaqueBytes.length;
+        SvgMapExports.encode(
+                opaque, SvgExportLimits.defaults().withMaximumOwnedBytes(opaqueOwnedBytes));
+        assertLimit(
+                () ->
+                        SvgMapExports.encode(
+                                opaque,
+                                SvgExportLimits.defaults()
+                                        .withMaximumOwnedBytes(opaqueOwnedBytes - 1)),
+                "ownedBytes",
+                opaqueOwnedBytes);
+
+        VectorExportSnapshot transparent = backgroundOnlySnapshot(Rgba.TRANSPARENT, List.of());
+        byte[] transparentBytes = SvgMapExports.encode(transparent);
+        long transparentOwnedBytes = 64L + 64L + 8_192L + 64L + transparentBytes.length;
+        SvgMapExports.encode(
+                transparent,
+                SvgExportLimits.defaults().withMaximumOwnedBytes(transparentOwnedBytes));
+        assertLimit(
+                () ->
+                        SvgMapExports.encode(
+                                transparent,
+                                SvgExportLimits.defaults()
+                                        .withMaximumOwnedBytes(transparentOwnedBytes - 1)),
+                "ownedBytes",
+                transparentOwnedBytes);
+    }
+
+    @Test
+    void chunksLongUtf8OutputDeterministicallyAndPollsCancellation() {
+        VectorExportSnapshot.Label label =
+                new VectorExportSnapshot.Label(
+                        "x".repeat(9_000),
+                        new LabelTextStyle(Rgba.rgb(1, 2, 3), LabelWeight.NORMAL, 10),
+                        1,
+                        2,
+                        3,
+                        0);
+        VectorExportSnapshot snapshot = backgroundOnlySnapshot(Rgba.rgb(4, 5, 6), List.of(label));
+        byte[] bytes = SvgMapExports.encode(snapshot);
+        assertTrue(bytes.length > 8_192);
+        long exactOwned = 64L + 64L + 16_384L + 4L * 64L + bytes.length;
+        assertArrayEquals(
+                bytes,
+                SvgMapExports.encode(
+                        snapshot, SvgExportLimits.defaults().withMaximumOwnedBytes(exactOwned)));
+        assertLimit(
+                () ->
+                        SvgMapExports.encode(
+                                snapshot,
+                                SvgExportLimits.defaults().withMaximumOwnedBytes(exactOwned - 1)),
+                "ownedBytes",
+                exactOwned);
+
+        AtomicInteger polls = new AtomicInteger();
+        SvgExportException cancelled =
+                assertThrows(
+                        SvgExportException.class,
+                        () ->
+                                SvgMapExports.encode(
+                                        snapshot,
+                                        SvgExportLimits.defaults(),
+                                        () -> polls.incrementAndGet() == 8));
+        assertEquals("SVG_EXPORT_CANCELLED", cancelled.problem().code());
+    }
+
+    @Test
+    void appliesHatchSymbolLimitBeforeWriterLimit() {
+        PolygonGeometry polygon =
+                new PolygonGeometry(CoordinateSequence.of(0, 0, 40, 0, 40, 40, 0, 40, 0, 0));
+        HatchFillSymbol symbolLimited =
+                HatchFillSymbol.of(
+                        HatchPattern.FORWARD_DIAGONAL,
+                        stroke(),
+                        new SymbolLength(2, SymbolUnit.SCREEN_PIXEL),
+                        SymbolRotationMode.SCREEN_RELATIVE,
+                        Optional.empty(),
+                        1,
+                        1);
+        VectorExportSnapshot snapshot =
+                VectorExportSnapshot.of(
+                        50,
+                        50,
+                        Rgba.rgb(255, 255, 255),
+                        new VectorExportSnapshot.ViewFrame(1, 0, new Coordinate(0, 0)),
+                        1,
+                        List.of(new VectorExportSnapshot.Primitive(0, 0, polygon, symbolLimited)),
+                        List.of());
+
+        SvgExportException failure =
+                assertThrows(SvgExportException.class, () -> SvgMapExports.encode(snapshot));
+        assertEquals("SVG_EXPORT_LIMIT_EXCEEDED", failure.problem().code());
+        assertEquals("symbol", failure.problem().context().get("scope"));
+        assertEquals("hatchSegments", failure.problem().context().get("limit"));
     }
 
     @Test
@@ -251,6 +382,38 @@ class SvgMapExportsTest {
                 assertThrows(SvgExportException.class, () -> SvgMapExports.encode(overflow));
         assertEquals("SVG_EXPORT_VALUE_INVALID", symbolFailure.problem().code());
         assertEquals("symbolTransform", symbolFailure.problem().context().get("field"));
+
+        VectorExportSnapshot nestedOverflow =
+                VectorExportSnapshot.of(
+                        10,
+                        10,
+                        Rgba.TRANSPARENT,
+                        new VectorExportSnapshot.ViewFrame(1.0e100, 0, new Coordinate(0, 0)),
+                        1,
+                        List.of(
+                                new VectorExportSnapshot.Primitive(
+                                        0,
+                                        0,
+                                        new PointGeometry(new Coordinate(1, 1)),
+                                        CompositeSymbol.of(
+                                                List.of(
+                                                        VectorMarkerSymbol.filledScreen(
+                                                                VectorPath.builder()
+                                                                        .moveTo(0, 0)
+                                                                        .lineTo(1, 0)
+                                                                        .lineTo(0, 1)
+                                                                        .close()
+                                                                        .build(),
+                                                                new Envelope(0, 0, 1, 1),
+                                                                Rgba.rgb(1, 2, 3),
+                                                                1,
+                                                                1),
+                                                        hugeMarker),
+                                                1))),
+                        List.of());
+        SvgExportException nestedFailure =
+                assertThrows(SvgExportException.class, () -> SvgMapExports.encode(nestedOverflow));
+        assertEquals("2", nestedFailure.problem().context().get("symbolOrdinal"));
     }
 
     @Test
@@ -273,6 +436,28 @@ class SvgMapExportsTest {
         assertEquals("temporary", failure.problem().context().get("operation"));
         assertEquals("existing", Files.readString(target, StandardCharsets.UTF_8));
         assertFalse(Files.exists(access.temporary));
+    }
+
+    @Test
+    void reportsForceSeparatelyAndPreservesTheExistingTarget() throws Exception {
+        Path target = temporaryDirectory.resolve("force.svg");
+        Files.writeString(target, "existing", StandardCharsets.UTF_8);
+        ForceFailingOutputAccess access = new ForceFailingOutputAccess();
+
+        SvgExportException failure =
+                assertThrows(
+                        SvgExportException.class,
+                        () ->
+                                SvgAtomicFiles.write(
+                                        target,
+                                        SvgMapExports.encode(representativeSnapshot()),
+                                        () -> false,
+                                        access));
+
+        assertEquals("force", failure.problem().context().get("operation"));
+        assertEquals("existing", Files.readString(target, StandardCharsets.UTF_8));
+        assertFalse(Files.exists(access.temporary));
+        assertEquals(1, access.closeCount);
     }
 
     private static VectorExportSnapshot representativeSnapshot() {
@@ -322,6 +507,25 @@ class SvgMapExportsTest {
                 List.of(label));
     }
 
+    private static VectorExportSnapshot backgroundOnlySnapshot(
+            Rgba background, List<VectorExportSnapshot.Label> labels) {
+        return VectorExportSnapshot.of(
+                100,
+                50,
+                background,
+                new VectorExportSnapshot.ViewFrame(1, 0, new Coordinate(0, 0)),
+                0,
+                List.of(),
+                labels);
+    }
+
+    private static void assertLimit(Runnable operation, String name, long requested) {
+        SvgExportException failure = assertThrows(SvgExportException.class, operation::run);
+        assertEquals("SVG_EXPORT_LIMIT_EXCEEDED", failure.problem().code());
+        assertEquals(name, failure.problem().context().get("limit"));
+        assertEquals(Long.toString(requested), failure.problem().context().get("requested"));
+    }
+
     private static SymbolStroke stroke() {
         return new SymbolStroke(Rgba.rgb(70, 80, 90), new SymbolLength(1, SymbolUnit.SCREEN_PIXEL));
     }
@@ -365,6 +569,59 @@ class SvgMapExportsTest {
             SvgAtomicFiles.Temporary result = delegate.createTemporary(parent);
             temporary = result.path();
             return result;
+        }
+
+        @Override
+        public void moveAtomic(Path temporaryPath, Path target) throws IOException {
+            delegate.moveAtomic(temporaryPath, target);
+        }
+
+        @Override
+        public void deleteTemporary(Path temporaryPath) throws IOException {
+            delegate.deleteTemporary(temporaryPath);
+        }
+    }
+
+    private static final class ForceFailingOutputAccess implements SvgAtomicFiles.OutputAccess {
+        private final SvgAtomicFiles.OutputAccess delegate = SvgAtomicFiles.OutputAccess.JDK;
+        private Path temporary;
+        private int closeCount;
+
+        @Override
+        public Path realParent(Path parent) throws IOException {
+            return delegate.realParent(parent);
+        }
+
+        @Override
+        public BasicFileAttributes attributes(Path path) throws IOException {
+            return delegate.attributes(path);
+        }
+
+        @Override
+        public SvgAtomicFiles.Temporary createTemporary(Path parent) throws IOException {
+            SvgAtomicFiles.Temporary created = delegate.createTemporary(parent);
+            temporary = created.path();
+            SvgAtomicFiles.OutputChannel channel = created.channel();
+            return new SvgAtomicFiles.Temporary(
+                    created.path(),
+                    new SvgAtomicFiles.OutputChannel() {
+                        @Override
+                        public int write(java.nio.ByteBuffer source) throws IOException {
+                            return channel.write(source);
+                        }
+
+                        @Override
+                        public void force(boolean metadata) throws IOException {
+                            throw new IOException("injected force failure");
+                        }
+
+                        @Override
+                        public void close() throws IOException {
+                            closeCount++;
+                            channel.close();
+                        }
+                    },
+                    created.fileKey());
         }
 
         @Override

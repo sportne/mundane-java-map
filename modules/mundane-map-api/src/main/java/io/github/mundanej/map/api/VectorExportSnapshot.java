@@ -142,16 +142,22 @@ public final class VectorExportSnapshot {
         }
         checkLimit("layers", limits.maximumLayers(), layerCount);
 
-        List<Primitive> primitiveCopy =
-                List.copyOf(Objects.requireNonNull(primitives, "primitives"));
-        List<Label> labelCopy = List.copyOf(Objects.requireNonNull(labels, "labels"));
+        Objects.requireNonNull(primitives, "primitives");
+        Objects.requireNonNull(labels, "labels");
+        checkLimit("features", limits.maximumFeatures(), primitives.size());
+        checkLimit("labels", limits.maximumLabels(), labels.size());
+        long ownedBytes = 128;
+        ownedBytes = add(ownedBytes, multiply(add(primitives.size(), labels.size()), 8));
+        checkLimit("ownedBytes", limits.maximumOwnedBytes(), ownedBytes);
+        checkCancelled(cancellation);
+        List<Primitive> primitiveCopy = List.copyOf(primitives);
+        List<Label> labelCopy = List.copyOf(labels);
         checkLimit("features", limits.maximumFeatures(), primitiveCopy.size());
         checkLimit("labels", limits.maximumLabels(), labelCopy.size());
 
         long coordinates = 0;
         long symbolNodes = 0;
         long labelCodePoints = 0;
-        long ownedBytes = 128;
         int previousLayer = -1;
         int previousFeature = -1;
         for (Primitive primitive : primitiveCopy) {
@@ -171,13 +177,12 @@ public final class VectorExportSnapshot {
             requireRole(primitive);
             coordinates = add(coordinates, coordinateCount(primitive.screenGeometry()));
             checkLimit("coordinates", limits.maximumCoordinates(), coordinates);
-            SymbolInventory inventory = validateSymbolTree(primitive);
-            symbolNodes = add(symbolNodes, inventory.nodes());
-            checkLimit("symbolNodes", limits.maximumSymbolNodes(), symbolNodes);
-            checkLimit("compositeDepth", limits.maximumCompositeDepth(), inventory.depth());
-            ownedBytes = add(ownedBytes, add(72, geometryBytes(primitive.screenGeometry())));
-            ownedBytes = add(ownedBytes, inventory.bytes());
+            ownedBytes = add(ownedBytes, add(64, geometryBytes(primitive.screenGeometry())));
             checkLimit("ownedBytes", limits.maximumOwnedBytes(), ownedBytes);
+            SymbolInventory inventory =
+                    validateSymbolTree(primitive, symbolNodes, ownedBytes, limits, cancellation);
+            symbolNodes = add(symbolNodes, inventory.nodes());
+            ownedBytes = add(ownedBytes, inventory.bytes());
         }
 
         int previousOrdinal = -1;
@@ -193,7 +198,7 @@ public final class VectorExportSnapshot {
             labelCodePoints =
                     add(labelCodePoints, label.text().codePointCount(0, label.text().length()));
             checkLimit("labelCodePoints", limits.maximumLabelCodePoints(), labelCodePoints);
-            ownedBytes = add(ownedBytes, add(72, multiply(label.text().length(), 2)));
+            ownedBytes = add(ownedBytes, add(64, multiply(label.text().length(), 2)));
             checkLimit("ownedBytes", limits.maximumOwnedBytes(), ownedBytes);
         }
         checkCancelled(cancellation);
@@ -296,19 +301,56 @@ public final class VectorExportSnapshot {
         }
     }
 
-    private static SymbolInventory validateSymbolTree(Primitive primitive) {
+    private static SymbolInventory validateSymbolTree(
+            Primitive primitive,
+            long priorNodes,
+            long priorOwnedBytes,
+            VectorExportSnapshotLimits limits,
+            CancellationToken cancellation) {
         ArrayDeque<SymbolFrame> pending = new ArrayDeque<>();
-        pending.push(new SymbolFrame(primitive.symbol(), primitive.symbol().role(), 1));
+        pending.push(
+                new SymbolFrame(primitive.symbol(), primitive.symbol().role(), 1, true, 0, false));
         long nodes = 0;
         long maximumDepth = 0;
         long bytes = 0;
         while (!pending.isEmpty()) {
+            checkCancelled(cancellation);
             SymbolFrame frame = pending.pop();
+            if (!frame.visit()) {
+                int childIndex = frame.nextChildIndex();
+                int childCount = childCount(frame.symbol());
+                if (childIndex < childCount) {
+                    pending.push(
+                            new SymbolFrame(
+                                    frame.symbol(),
+                                    frame.expectedRole(),
+                                    frame.depth(),
+                                    false,
+                                    childIndex + 1,
+                                    false));
+                    pending.push(
+                            new SymbolFrame(
+                                    childAt(frame.symbol(), childIndex),
+                                    childRole(frame.symbol(), frame.expectedRole()),
+                                    frame.depth() + 1,
+                                    true,
+                                    0,
+                                    true));
+                }
+                continue;
+            }
             Symbol symbol = frame.symbol();
             int ordinal = Math.toIntExact(nodes);
+            if (frame.edge()) {
+                bytes = add(bytes, 8);
+                checkLimit("ownedBytes", limits.maximumOwnedBytes(), add(priorOwnedBytes, bytes));
+            }
             nodes = add(nodes, 1);
+            checkLimit("symbolNodes", limits.maximumSymbolNodes(), add(priorNodes, nodes));
             maximumDepth = Math.max(maximumDepth, frame.depth());
+            checkLimit("compositeDepth", limits.maximumCompositeDepth(), maximumDepth);
             bytes = add(bytes, 64);
+            checkLimit("ownedBytes", limits.maximumOwnedBytes(), add(priorOwnedBytes, bytes));
             if (symbol.role() != frame.expectedRole()) {
                 throw unsupported(primitive, ordinal, "wrongDescendant");
             }
@@ -322,68 +364,64 @@ public final class VectorExportSnapshot {
                                         add(
                                                 marker.path().commandCount(),
                                                 multiply(marker.path().ordinateCount(), 8))));
+                checkLimit("ownedBytes", limits.maximumOwnedBytes(), add(priorOwnedBytes, bytes));
                 continue;
             }
-            if (symbol.getClass() == SolidLineSymbol.class) {
-                SolidLineSymbol line = (SolidLineSymbol) symbol;
-                line.endMarker()
-                        .ifPresent(
-                                marker ->
-                                        pending.push(
-                                                new SymbolFrame(
-                                                        marker,
-                                                        SymbolRole.MARKER,
-                                                        frame.depth() + 1)));
-                line.startMarker()
-                        .ifPresent(
-                                marker ->
-                                        pending.push(
-                                                new SymbolFrame(
-                                                        marker,
-                                                        SymbolRole.MARKER,
-                                                        frame.depth() + 1)));
-                continue;
+            if (symbol.getClass() != SolidLineSymbol.class
+                    && symbol.getClass() != SolidFillSymbol.class
+                    && symbol.getClass() != HatchFillSymbol.class
+                    && symbol.getClass() != CompositeSymbol.class) {
+                String kind =
+                        symbol instanceof RasterIconSymbol
+                                ? "rasterIcon"
+                                : symbol instanceof FeatureStyle ? "legacy" : "custom";
+                throw unsupported(primitive, ordinal, kind);
             }
-            if (symbol.getClass() == SolidFillSymbol.class) {
-                SolidFillSymbol fill = (SolidFillSymbol) symbol;
-                fill.outline()
-                        .ifPresent(
-                                outline ->
-                                        pending.push(
-                                                new SymbolFrame(
-                                                        outline,
-                                                        SymbolRole.LINE,
-                                                        frame.depth() + 1)));
-                continue;
+            if (childCount(symbol) > 0) {
+                pending.push(
+                        new SymbolFrame(
+                                symbol, frame.expectedRole(), frame.depth(), false, 0, false));
             }
-            if (symbol.getClass() == HatchFillSymbol.class) {
-                HatchFillSymbol fill = (HatchFillSymbol) symbol;
-                fill.outline()
-                        .ifPresent(
-                                outline ->
-                                        pending.push(
-                                                new SymbolFrame(
-                                                        outline,
-                                                        SymbolRole.LINE,
-                                                        frame.depth() + 1)));
-                continue;
-            }
-            if (symbol.getClass() == CompositeSymbol.class) {
-                List<Symbol> children = ((CompositeSymbol) symbol).children();
-                for (int index = children.size() - 1; index >= 0; index--) {
-                    pending.push(
-                            new SymbolFrame(
-                                    children.get(index), frame.expectedRole(), frame.depth() + 1));
-                }
-                continue;
-            }
-            String kind =
-                    symbol instanceof RasterIconSymbol
-                            ? "rasterIcon"
-                            : symbol instanceof FeatureStyle ? "legacy" : "custom";
-            throw unsupported(primitive, ordinal, kind);
         }
         return new SymbolInventory(nodes, maximumDepth, bytes);
+    }
+
+    private static int childCount(Symbol symbol) {
+        if (symbol instanceof CompositeSymbol composite) {
+            return composite.children().size();
+        }
+        if (symbol instanceof SolidLineSymbol line) {
+            return (line.startMarker().isPresent() ? 1 : 0)
+                    + (line.endMarker().isPresent() ? 1 : 0);
+        }
+        if (symbol instanceof SolidFillSymbol fill) {
+            return fill.outline().isPresent() ? 1 : 0;
+        }
+        return symbol instanceof HatchFillSymbol fill && fill.outline().isPresent() ? 1 : 0;
+    }
+
+    private static Symbol childAt(Symbol symbol, int index) {
+        if (symbol instanceof CompositeSymbol composite) {
+            return composite.children().get(index);
+        }
+        if (symbol instanceof SolidLineSymbol line) {
+            if (line.startMarker().isPresent()) {
+                return index == 0
+                        ? line.startMarker().orElseThrow()
+                        : line.endMarker().orElseThrow();
+            }
+            return line.endMarker().orElseThrow();
+        }
+        if (symbol instanceof SolidFillSymbol fill) {
+            return fill.outline().orElseThrow();
+        }
+        return ((HatchFillSymbol) symbol).outline().orElseThrow();
+    }
+
+    private static SymbolRole childRole(Symbol symbol, SymbolRole parentRole) {
+        return symbol instanceof CompositeSymbol
+                ? parentRole
+                : SymbolRole.LINE == parentRole ? SymbolRole.MARKER : SymbolRole.LINE;
     }
 
     private static VectorExportSnapshotException unsupported(
@@ -481,14 +519,14 @@ public final class VectorExportSnapshot {
         }
         if (geometry instanceof MultiLineStringGeometry lines) {
             return add(
-                    104,
+                    96,
                     add(
                             multiply(lines.coordinates().size(), 16),
                             multiply(lines.partCount() + 1L, 4)));
         }
         if (geometry instanceof MultiPolygonGeometry polygons) {
             return add(
-                    112,
+                    96,
                     add(
                             multiply(polygons.coordinates().size(), 16),
                             add(
@@ -684,5 +722,11 @@ public final class VectorExportSnapshot {
 
     private record SymbolInventory(long nodes, long depth, long bytes) {}
 
-    private record SymbolFrame(Symbol symbol, SymbolRole expectedRole, int depth) {}
+    private record SymbolFrame(
+            Symbol symbol,
+            SymbolRole expectedRole,
+            int depth,
+            boolean visit,
+            int nextChildIndex,
+            boolean edge) {}
 }

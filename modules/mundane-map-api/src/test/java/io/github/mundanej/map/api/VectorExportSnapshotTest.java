@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class VectorExportSnapshotTest {
@@ -184,6 +185,105 @@ class VectorExportSnapshotTest {
                                         VectorExportSnapshotLimits.defaults()));
         assertEquals("VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID", failure.problem().code());
         assertEquals("labelText", failure.problem().context().get("field"));
+    }
+
+    @Test
+    void enforcesExactSemanticOwnedByteInventory() {
+        assertOwnedBoundary(List.of(), List.of(), 128);
+        assertOwnedBoundary(
+                List.of(
+                        new VectorExportSnapshot.Primitive(
+                                0, 0, new PointGeometry(new Coordinate(0, 0)), MARKER)),
+                List.of(),
+                428);
+        assertOwnedBoundary(
+                List.of(
+                        new VectorExportSnapshot.Primitive(
+                                0,
+                                0,
+                                MultiLineStringGeometry.of(
+                                        CoordinateSequence.of(0, 0, 1, 1, 2, 2, 3, 3),
+                                        new int[] {0, 2, 4}),
+                                SolidLineSymbol.of(stroke(), 1))),
+                List.of(),
+                436);
+        assertOwnedBoundary(
+                List.of(
+                        new VectorExportSnapshot.Primitive(
+                                0,
+                                0,
+                                new PointGeometry(new Coordinate(0, 0)),
+                                CompositeSymbol.of(List.of(MARKER), 1))),
+                List.of(),
+                500);
+        assertOwnedBoundary(
+                List.of(),
+                List.of(
+                        new VectorExportSnapshot.Label(
+                                "x",
+                                new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 10),
+                                1,
+                                2,
+                                3,
+                                0)),
+                202);
+    }
+
+    @Test
+    void stopsSymbolTraversalAtTheFirstLimitCrossingAndPollsCancellation() {
+        CompositeSymbol composite = CompositeSymbol.of(List.of(MARKER, MARKER), 1);
+        VectorExportSnapshot.Primitive primitive =
+                new VectorExportSnapshot.Primitive(
+                        0, 0, new PointGeometry(new Coordinate(0, 0)), composite);
+        VectorExportSnapshotException limited =
+                assertThrows(
+                        VectorExportSnapshotException.class,
+                        () ->
+                                snapshot(
+                                        List.of(primitive),
+                                        List.of(),
+                                        VectorExportSnapshotLimits.defaults()
+                                                .withMaximumSymbolNodes(2)));
+        assertEquals("symbolNodes", limited.problem().context().get("limit"));
+        assertEquals("3", limited.problem().context().get("requested"));
+
+        AtomicInteger polls = new AtomicInteger();
+        VectorExportSnapshotException cancelled =
+                assertThrows(
+                        VectorExportSnapshotException.class,
+                        () ->
+                                VectorExportSnapshot.of(
+                                        10,
+                                        10,
+                                        Rgba.TRANSPARENT,
+                                        FRAME,
+                                        1,
+                                        List.of(primitive),
+                                        List.of(),
+                                        VectorExportSnapshotLimits.defaults(),
+                                        () -> polls.incrementAndGet() == 7));
+        assertEquals("VECTOR_EXPORT_SNAPSHOT_CANCELLED", cancelled.problem().code());
+    }
+
+    private static void assertOwnedBoundary(
+            List<VectorExportSnapshot.Primitive> primitives,
+            List<VectorExportSnapshot.Label> labels,
+            long exactBytes) {
+        snapshot(
+                primitives,
+                labels,
+                VectorExportSnapshotLimits.defaults().withMaximumOwnedBytes(exactBytes));
+        VectorExportSnapshotException failure =
+                assertThrows(
+                        VectorExportSnapshotException.class,
+                        () ->
+                                snapshot(
+                                        primitives,
+                                        labels,
+                                        VectorExportSnapshotLimits.defaults()
+                                                .withMaximumOwnedBytes(exactBytes - 1)));
+        assertEquals("ownedBytes", failure.problem().context().get("limit"));
+        assertEquals(Long.toString(exactBytes), failure.problem().context().get("requested"));
     }
 
     private static VectorExportSnapshot snapshot(

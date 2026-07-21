@@ -3,6 +3,7 @@ package io.github.mundanej.map.io.svg;
 import io.github.mundanej.map.api.CancellationToken;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -45,10 +46,18 @@ final class SvgAtomicFiles {
         try {
             realParent = access.realParent(parent);
         } catch (IOException exception) {
-            throw ioFailure("preflight", reason(exception), exception);
+            SvgExportException failure = ioFailure("preflight", reason(exception), exception);
+            suppressCancellation(failure, cancellation);
+            throw failure;
         }
         Path realTarget = realParent.resolve(normalized.getFileName());
-        BasicFileAttributes targetBefore = preflight(access, realParent, realTarget);
+        BasicFileAttributes targetBefore;
+        try {
+            targetBefore = preflight(access, realParent, realTarget);
+        } catch (SvgExportException failure) {
+            suppressCancellation(failure, cancellation);
+            throw failure;
+        }
         checkCancelled(cancellation);
 
         Temporary temporary;
@@ -56,12 +65,17 @@ final class SvgAtomicFiles {
             checkCancelled(cancellation);
             temporary = access.createTemporary(realParent);
         } catch (IOException exception) {
-            throw ioFailure("temporary", reason(exception), exception);
+            SvgExportException failure = ioFailure("temporary", reason(exception), exception);
+            suppressCancellation(failure, cancellation);
+            throw failure;
         }
 
         SvgExportException failure = writeTemporary(temporary.channel(), bytes, cancellation);
         if (failure == null) {
             failure = verifyTemporary(access, temporary);
+            if (failure != null) {
+                suppressCancellation(failure, cancellation);
+            }
         }
         if (failure == null) {
             try {
@@ -70,8 +84,10 @@ final class SvgAtomicFiles {
                 if (!sameTarget(targetBefore, targetAfter)) {
                     failure = ioFailure("preflight", "other", null);
                 }
+                checkCancelled(cancellation);
             } catch (IOException exception) {
                 failure = ioFailure("preflight", reason(exception), exception);
+                suppressCancellation(failure, cancellation);
             } catch (SvgExportException exception) {
                 failure = exception;
             }
@@ -87,8 +103,10 @@ final class SvgAtomicFiles {
                                 new SvgExportProblem(
                                         "SVG_EXPORT_ATOMIC_MOVE_UNSUPPORTED", Map.of()),
                                 exception);
+                suppressCancellation(failure, cancellation);
             } catch (IOException exception) {
                 failure = ioFailure("move", reason(exception), exception);
+                suppressCancellation(failure, cancellation);
             }
         }
         if (temporary != null) {
@@ -119,23 +137,31 @@ final class SvgAtomicFiles {
                 int previousLimit = buffer.limit();
                 buffer.limit(Math.min(previousLimit, buffer.position() + WRITE_SLICE_BYTES));
                 try {
-                    while (buffer.hasRemaining()) {
-                        if (channel.write(buffer) <= 0) {
-                            throw new IOException("temporary output made no progress");
-                        }
+                    if (channel.write(buffer) <= 0) {
+                        throw new IOException("temporary output made no progress");
                     }
                 } finally {
                     buffer.limit(previousLimit);
                 }
                 checkCancelled(cancellation);
             }
-            checkCancelled(cancellation);
-            channel.force(true);
-            checkCancelled(cancellation);
         } catch (IOException exception) {
             failure = ioFailure("write", reason(exception), exception);
+            suppressCancellation(failure, cancellation);
         } catch (SvgExportException exception) {
             failure = exception;
+        }
+        if (failure == null) {
+            try {
+                checkCancelled(cancellation);
+                channel.force(true);
+                checkCancelled(cancellation);
+            } catch (IOException exception) {
+                failure = ioFailure("force", reason(exception), exception);
+                suppressCancellation(failure, cancellation);
+            } catch (SvgExportException exception) {
+                failure = exception;
+            }
         }
         try {
             channel.close();
@@ -145,7 +171,17 @@ final class SvgAtomicFiles {
                 failure.addSuppressed(closeFailure);
             } else {
                 failure = closeFailure;
+                suppressCancellation(failure, cancellation);
             }
+        }
+        if (failure == null) {
+            try {
+                checkCancelled(cancellation);
+            } catch (SvgExportException exception) {
+                failure = exception;
+            }
+        } else {
+            suppressCancellation(failure, cancellation);
         }
         return failure;
     }
@@ -216,6 +252,30 @@ final class SvgAtomicFiles {
         }
     }
 
+    private static void suppressCancellation(
+            SvgExportException primary, CancellationToken cancellation) {
+        if (!cancellation.isCancellationRequested() || containsCancellation(primary)) {
+            return;
+        }
+        primary.addSuppressed(
+                new SvgExportException(
+                        "SVG export was cancelled",
+                        new SvgExportProblem("SVG_EXPORT_CANCELLED", Map.of())));
+    }
+
+    private static boolean containsCancellation(SvgExportException primary) {
+        if (primary.problem().code().equals("SVG_EXPORT_CANCELLED")) {
+            return true;
+        }
+        for (Throwable suppressed : primary.getSuppressed()) {
+            if (suppressed instanceof SvgExportException svg
+                    && svg.problem().code().equals("SVG_EXPORT_CANCELLED")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static SvgExportException ioFailure(String operation, String reason, Throwable cause) {
         LinkedHashMap<String, String> context = new LinkedHashMap<>();
         context.put("operation", operation);
@@ -235,6 +295,9 @@ final class SvgAtomicFiles {
         }
         if (exception instanceof FileAlreadyExistsException) {
             return "alreadyExists";
+        }
+        if (exception instanceof ClosedChannelException) {
+            return "closed";
         }
         return "other";
     }

@@ -1,6 +1,6 @@
 # G11-042 — SVG export hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G11-041
 Gate: G11
 Type: AFK

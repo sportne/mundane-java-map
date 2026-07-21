@@ -499,8 +499,11 @@ separately decomposed.
   now captures the visible vector stack synchronously on the EDT, preserves authoritative screen
   geometry and fixed point-label placement, and encodes all six geometry families, composite
   symbols, endpoint markers, outlines, and bounded hatches. Its vector-export example displays and
-  exports the same viewport. G11-042 and G11-043 retain export hardening and manual browser/native/
-  publication/consumer closeout without a new module or export framework.
+  exports the same viewport. Complete G11-042 now enforces the approved semantic snapshot inventory,
+  deterministic chunked UTF-8 writer accounting, hatch and transform limits, cancellation
+  checkpoints, stable diagnostics, and failure-atomic cleanup under injected filesystem faults.
+  G11-043 retains manual browser/native/publication/consumer closeout without a new module or export
+  framework.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
 
