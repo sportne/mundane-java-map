@@ -11,7 +11,14 @@ import java.util.Objects;
  * An immutable, toolkit-neutral picture of one logical-screen vector viewport.
  *
  * <p>The value contains detached screen geometry and portrayal only. It retains no live map view,
- * source, cursor, registry, attribute map, AWT value, path, or callback.
+ * source, cursor, registry, attribute map, AWT value, path, or callback. Geometry is authoritative
+ * logical-screen geometry; the retained view frame exists only to preserve map-unit symbol sizes,
+ * map-relative rotation, and hatch phase. Supported symbols are the exact built-in vector marker,
+ * line, fill, hatch, and composite values. Raster icons, legacy or custom symbols, raster/elevation
+ * layers, and interaction overlays are outside this boundary. Construction is all-or-nothing,
+ * defensively copies public collections, enforces a deterministic semantic inventory through {@link
+ * VectorExportSnapshotLimits}, and reports stable structured failures through {@link
+ * VectorExportSnapshotException}.
  */
 @SuppressWarnings("deprecation")
 public final class VectorExportSnapshot {

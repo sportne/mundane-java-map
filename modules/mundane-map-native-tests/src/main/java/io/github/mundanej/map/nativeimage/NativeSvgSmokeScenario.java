@@ -1,22 +1,32 @@
 package io.github.mundanej.map.nativeimage;
 
+import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.RasterIconSymbol;
+import io.github.mundanej.map.api.RasterInterpolation;
+import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.api.VectorExportSnapshot;
+import io.github.mundanej.map.api.VectorExportSnapshotException;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.awt.SymbolRendererRegistry;
+import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.WebMercatorProjection;
+import io.github.mundanej.map.io.svg.SvgMapExports;
 import io.github.mundanej.map.io.svg.SvgSymbols;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,6 +53,85 @@ final class NativeSvgSmokeScenario {
         }
         assertDtdRejected();
         renderOnEdt(symbol);
+        assertVectorMapExport();
+    }
+
+    private static void assertVectorMapExport() {
+        VectorExportSnapshot snapshot =
+                VectorExportSnapshot.of(
+                        64,
+                        48,
+                        Rgba.rgb(245, 246, 247),
+                        new VectorExportSnapshot.ViewFrame(1, 0, new Coordinate(0, 0)),
+                        1,
+                        List.of(
+                                new VectorExportSnapshot.Primitive(
+                                        0,
+                                        0,
+                                        new PointGeometry(new Coordinate(20, 24)),
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.TRIANGLE,
+                                                Rgba.rgb(30, 110, 210),
+                                                12,
+                                                1))),
+                        List.of());
+        byte[] encoded = SvgMapExports.encode(snapshot);
+        String document = new String(encoded, StandardCharsets.UTF_8);
+        if (!document.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+                || !document.contains("viewBox=\"0 0 64 48\"")
+                || !document.contains("fill=\"#1e6ed2\"")
+                || !document.endsWith("</svg>\n")) {
+            throw new IllegalStateException("svg-native: vector-map export structure changed");
+        }
+
+        Path target = null;
+        try {
+            target = Files.createTempFile("mundane-map-native-svg-", ".svg");
+            SvgMapExports.writeAtomically(target, snapshot);
+            if (!java.util.Arrays.equals(encoded, Files.readAllBytes(target))) {
+                throw new IllegalStateException("svg-native: atomic export bytes changed");
+            }
+            Files.delete(target);
+        } catch (RuntimeException exception) {
+            deleteAfterFailure(target, exception);
+            throw exception;
+        } catch (java.io.IOException exception) {
+            deleteAfterFailure(target, exception);
+            throw new IllegalStateException("svg-native: vector-map file export failed", exception);
+        }
+
+        RasterIconSymbol unsupported =
+                RasterIconSymbol.nativeScreenSize(
+                        1, 1, new int[] {0xffffffff}, RasterInterpolation.NEAREST, 1);
+        try {
+            VectorExportSnapshot.of(
+                    8,
+                    8,
+                    Rgba.TRANSPARENT,
+                    new VectorExportSnapshot.ViewFrame(1, 0, new Coordinate(0, 0)),
+                    1,
+                    List.of(
+                            new VectorExportSnapshot.Primitive(
+                                    0, 0, new PointGeometry(new Coordinate(1, 1)), unsupported)),
+                    List.of());
+            throw new IllegalStateException("svg-native: unsupported raster icon was accepted");
+        } catch (VectorExportSnapshotException expected) {
+            if (!expected.problem().code().equals("VECTOR_EXPORT_SYMBOL_UNSUPPORTED")
+                    || !expected.problem().context().get("kind").equals("rasterIcon")) {
+                throw new IllegalStateException(
+                        "svg-native: unsupported-symbol diagnostic changed", expected);
+            }
+        }
+    }
+
+    private static void deleteAfterFailure(Path target, Exception failure) {
+        if (target != null) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (java.io.IOException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+        }
     }
 
     private static void assertDtdRejected() {

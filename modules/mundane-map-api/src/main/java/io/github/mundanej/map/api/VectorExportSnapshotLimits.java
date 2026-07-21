@@ -3,6 +3,9 @@ package io.github.mundanej.map.api;
 /**
  * Immutable hard-bounded limits for a detached vector-export snapshot.
  *
+ * <p>Counts and owned-byte charges are prospective deterministic semantic inventories rather than
+ * JVM heap estimates. Equality is accepted; zero and unlimited sentinels are unsupported.
+ *
  * @param maximumPageAxis maximum width or height in logical pixels
  * @param maximumLayers maximum represented layers
  * @param maximumFeatures maximum feature primitives

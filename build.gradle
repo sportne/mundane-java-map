@@ -92,6 +92,7 @@ tasks.register('renderRegression') {
     group = 'verification'
     description = 'Runs the separate portable offscreen rendering-regression lane.'
     dependsOn ':modules:mundane-map-awt:renderRegressionTest'
+    dependsOn ':examples:vector-export:test'
 }
 
 tasks.register('performanceEvidence') {
@@ -142,7 +143,7 @@ def publicationContract = [
     'mundane-map-io-image|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/image/',
     'mundane-map-io-dted|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/dted/',
     'mundane-map-io-geotiff|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/geotiff/',
-    'mundane-map-io-svg|mundane-map-api|||io/github/mundanej/map/io/svg/',
+    'mundane-map-io-svg|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/svg/',
     'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'
 ].asImmutable()

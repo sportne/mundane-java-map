@@ -1,6 +1,6 @@
 # G11-043 — SVG export closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G11-024, G11-042
 Gate: G11
 Type: HITL
@@ -19,7 +19,7 @@ SVG-rendering oracle.
 ## Scope
 
 Complete public Javadocs and architecture allowlists; add tolerant render-structure fixtures/tests;
-record a Firefox/Chromium comparison of one checked-in expected export; extend the shared native
+record a Firefox/Chromium-based comparison of one checked-in expected export; extend the shared native
 executable, SVG publication metadata, and clean offline consumer with programmatic encode/write.
 
 ## Out of scope
@@ -34,7 +34,7 @@ publication.
   ownership, limits, diagnostics, cancellation, and atomic-file policy.
 - Structural and tolerant rendering evidence covers broad page/background/color regions, geometry
   bounds/order, holes, markers, arrowheads, hatches, and label envelopes without glyph pixel identity.
-- A named Firefox and Chromium run records browser/OS versions and agrees with the live example on
+- A named Firefox and Chromium-based browser run records browser/OS versions and agrees with the live example on
   the approved broad properties.
 - Linux Native Image and the clean staged Java 21 consumer encode and atomically write one
   resource-free snapshot and verify one stable unsupported-symbol diagnostic.
@@ -57,4 +57,17 @@ git diff --check
 ## Notes
 
 HITL checkpoint: **G11 SVG export browser and Linux Native Image review**. The maintainer records the
-named Firefox/Chromium comparison and approves the exact Linux/support statement before closeout.
+named Firefox/Chromium-based comparison and approves the exact Linux/support statement before closeout.
+
+The maintainer approved the checkpoint. On 2026-07-21, Firefox 149.0 and Chromium-based Google Chrome
+150.0.7871.129 rendered the checked-in export captured from the runnable example on Windows NT 10.0
+build 26200.8875. Both agreed with that live example on the approved broad page/background,
+color-region, geometry-order/bounds, hole, marker, arrowhead, hatch, and label-envelope properties.
+The example test exact-checks the captured export and the rendering lane retains separate structural
+profile evidence. This is tolerant visual evidence, not pixel or glyph identity.
+
+The required Linux lane passed on Ubuntu 24.04.1 LTS under WSL2 x86-64 using GraalVM CE Java
+21.0.2. The resource-free native scenario encoded and atomically wrote the export and verified the
+stable unsupported-raster-icon diagnostic. No Windows, macOS, Linux AArch64, or broader Native Image
+claim is made. Publication verification and the clean Java 21 staged consumer passed with the SVG
+artifact's API compile dependency and core runtime dependency recorded explicitly.

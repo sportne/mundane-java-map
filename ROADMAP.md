@@ -502,8 +502,13 @@ separately decomposed.
   exports the same viewport. Complete G11-042 now enforces the approved semantic snapshot inventory,
   deterministic chunked UTF-8 writer accounting, hatch and transform limits, cancellation
   checkpoints, stable diagnostics, and failure-atomic cleanup under injected filesystem faults.
-  G11-043 retains manual browser/native/publication/consumer closeout without a new module or export
-  framework.
+  Complete G11-043 closes the capability without a new module or export framework: a checked-in
+  structural/render fixture captured from the runnable example agrees on the approved broad
+  properties in Firefox 149.0 and Chromium-based Google Chrome 150.0.7871.129 on Windows NT build
+  26200.8875; the clean staged Java 21 consumer verifies the
+  published API/core/SVG dependency boundary; and the shared native executable passed on
+  2026-07-21 using GraalVM CE Java 21.0.2 on Ubuntu 24.04.1 WSL2 Linux x86-64. The browser evidence
+  is not a pixel/glyph-identity claim, and no Windows/macOS Native Image claim is made.
 - See the [G11 detailed design](design/G11-editing-styling-persistence-adapters-export.md) and the
   [G11 task set](tasks/README.md#g11--editing-styling-persistence-adapters-and-export).
 

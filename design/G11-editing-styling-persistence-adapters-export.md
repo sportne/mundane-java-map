@@ -2241,7 +2241,7 @@ same viewport it displays and reports the output path plus structured failure wi
 browser.
 
 There is no JDK SVG renderer and no second test-only dependency is justified. G11-043 therefore
-requires a named manual comparison in current Firefox and Chromium: open one checked-in expected-case
+requires a named manual comparison in current Firefox and one Chromium-based browser: open one checked-in expected-case
 export, compare page/background, broad color regions, geometry bounds/order, holes, markers,
 arrowheads, hatches, and label envelopes against the live example, and record browser/OS versions.
 The comparison is tolerant and visual, not a pixel hash or glyph-identity claim. Structural/exact-byte
@@ -2314,6 +2314,13 @@ generic persistence, command, scene, provider, or object-graph abstraction for a
 values are immutable and minimal, core owns JDK-only algorithms, AWT alone owns Java2D/Swing/live
 capture, and format modules own bounded parsing/serialization. G11 therefore remains simple enough
 for a small embeddable map library while preserving the exact extension seams already demonstrated.
+
+The completed G11-043 closeout confirms that the vector-export boundary needs no further abstraction:
+one checked-in live-example fixture plus structural profile fixture supply automated evidence,
+current Firefox and Chromium-based Google Chrome supply tolerant interoperability evidence, the
+existing SVG publication carries API plus core only, and the
+existing shared native executable supplies the Linux claim. A renderer dependency, browser harness,
+new export module, or parallel document model would add machinery without adding a required behavior.
 
 ## G0–G11 whole-design simplicity review
 

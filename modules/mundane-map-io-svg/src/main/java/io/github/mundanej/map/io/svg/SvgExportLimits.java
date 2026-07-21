@@ -3,6 +3,10 @@ package io.github.mundanej.map.io.svg;
 /**
  * Immutable hard-bounded limits for canonical SVG map serialization.
  *
+ * <p>Counts are prospective deterministic logical inventories, not JVM heap estimates. Equality is
+ * accepted, zero/unlimited sentinels are unsupported, and an operation returns no partial document
+ * when a limit is crossed.
+ *
  * @param maximumElements maximum emitted SVG elements
  * @param maximumPathCommands maximum emitted path commands
  * @param maximumHatchSegments maximum aggregate hatch candidates

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="240" height="160" viewBox="0 0 240 160">
+  <defs>
+    <clipPath id="v0" clipPathUnits="userSpaceOnUse">
+      <rect x="0" y="0" width="240" height="160"/>
+    </clipPath>
+    <clipPath id="c1" clipPathUnits="userSpaceOnUse">
+      <path d="M 155.0 90.0 L 225.0 90.0 L 225.0 140.0 L 155.0 140.0 Z" clip-rule="evenodd"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#v0)">
+    <rect x="0" y="0" width="240" height="160" fill="#f5f6f7"/>
+    <path d="M 20.0 20.0 L 110.0 20.0 L 110.0 70.0 L 20.0 70.0 Z M 45.0 35.0 L 85.0 35.0 L 85.0 55.0 L 45.0 55.0 Z" fill="#5ba36a" fill-rule="evenodd"/>
+    <path d="M 20.0 20.0 L 110.0 20.0 L 110.0 70.0 L 20.0 70.0 Z" fill="none" stroke="#344454" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 45.0 35.0 L 85.0 35.0 L 85.0 55.0 L 45.0 55.0 Z" fill="none" stroke="#344454" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 20.0 90.0 L 105.0 90.0 L 125.0 75.0" fill="none" stroke="#344454" stroke-width="3.0" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 122.44 68.92 L 131.4 70.19999999999999 L 130.12 79.16 L 127.72 75.96 L 120.04 81.72 L 117.16 77.88000000000001 L 124.84 72.12 Z" fill="#344454" fill-rule="evenodd"/>
+    <path d="M 145.0 36.0 L 154.0 45.0 L 145.0 54.0 L 136.0 45.0 Z" fill="#236eaf" fill-rule="evenodd"/>
+    <path d="M 155.0 99.55844122715709 L 164.5584412271571 90.0 M 155.0 116.52900397563423 L 181.5290039756342 90.0 M 155.0 133.4995667241114 L 198.49956672411136 90.0 M 165.47012947258852 140.0 L 215.4701294725885 90.0 M 182.44069222106566 140.0 L 225.0 97.44069222106563 M 199.4112549695428 140.0 L 225.0 114.41125496954277 M 216.38181771801993 140.0 L 225.0 131.38181771801993 M 208.79393923934 90.0 L 225.0 106.20606076066 M 191.82337649086287 90.0 L 225.0 123.1766235091371 M 174.8528137423857 90.0 L 224.85281374238573 140.0 M 157.8822509939086 90.00000000000001 L 207.88225099390857 140.0 M 155.0 104.08831175456854 L 190.91168824543146 140.0 M 155.0 121.0588745030457 L 173.9411254969543 140.0 M 155.0 138.0294372515228 L 156.9705627484772 140.0" fill="none" stroke="#d04b3d" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.9" clip-path="url(#c1)"/>
+    <path d="M 155.0 90.0 L 225.0 90.0 L 225.0 140.0 L 155.0 140.0 Z" fill="none" stroke="#344454" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.9"/>
+    <text x="130.0" y="30.0" fill="#23374b" font-family="sans-serif" font-size="14.0" font-weight="bold" textLength="64.0" lengthAdjust="spacingAndGlyphs" xml:space="preserve">TRACK 7</text>
+  </g>
+</svg>

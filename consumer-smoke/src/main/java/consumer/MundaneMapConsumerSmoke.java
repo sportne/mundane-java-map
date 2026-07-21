@@ -98,9 +98,9 @@ public final class MundaneMapConsumerSmoke {
         SymbolRendererRegistry renderers = SymbolRendererRegistry.builderWithBuiltIns().build();
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
-        testSvg();
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
+            testSvg(directory);
             testGeoJson(directory, registry);
             testShapefile(directory);
             testMalformedShapefile(directory);
@@ -117,7 +117,7 @@ public final class MundaneMapConsumerSmoke {
         System.out.println("mundane-map consumer smoke: OK");
     }
 
-    private static void testSvg() {
+    private static void testSvg(Path directory) throws IOException {
         Symbol symbol =
                 SvgSymbols.parse(
                         new SourceIdentity("consumer-svg", "Consumer SVG"),
@@ -125,6 +125,62 @@ public final class MundaneMapConsumerSmoke {
                                 .getBytes(java.nio.charset.StandardCharsets.UTF_8),
                         io.github.mundanej.map.api.MarkerPlacement.centeredScreen(18));
         require(symbol.role() == io.github.mundanej.map.api.SymbolRole.MARKER, "SVG role changed");
+
+        var marker =
+                BuiltInMarkers.filledScreen(
+                        BuiltInMarker.TRIANGLE, Rgba.rgb(30, 110, 210), 12, 1);
+        var snapshot =
+                io.github.mundanej.map.api.VectorExportSnapshot.of(
+                        64,
+                        48,
+                        Rgba.rgb(245, 246, 247),
+                        new io.github.mundanej.map.api.VectorExportSnapshot.ViewFrame(
+                                1, 0, new Coordinate(0, 0)),
+                        1,
+                        List.of(
+                                new io.github.mundanej.map.api.VectorExportSnapshot.Primitive(
+                                        0,
+                                        0,
+                                        new PointGeometry(new Coordinate(20, 24)),
+                                        marker)),
+                        List.of());
+        byte[] encoded = io.github.mundanej.map.io.svg.SvgMapExports.encode(snapshot);
+        String document = new String(encoded, java.nio.charset.StandardCharsets.UTF_8);
+        require(document.contains("viewBox=\"0 0 64 48\""), "SVG export viewBox changed");
+        require(document.contains("fill=\"#1e6ed2\""), "SVG export marker changed");
+        Path target = directory.resolve("consumer-map.svg");
+        io.github.mundanej.map.io.svg.SvgMapExports.writeAtomically(target, snapshot);
+        require(java.util.Arrays.equals(encoded, Files.readAllBytes(target)), "SVG file changed");
+
+        var unsupported =
+                io.github.mundanej.map.api.RasterIconSymbol.nativeScreenSize(
+                        1,
+                        1,
+                        new int[] {0xffffffff},
+                        io.github.mundanej.map.api.RasterInterpolation.NEAREST,
+                        1);
+        try {
+            io.github.mundanej.map.api.VectorExportSnapshot.of(
+                    8,
+                    8,
+                    Rgba.TRANSPARENT,
+                    new io.github.mundanej.map.api.VectorExportSnapshot.ViewFrame(
+                            1, 0, new Coordinate(0, 0)),
+                    1,
+                    List.of(
+                            new io.github.mundanej.map.api.VectorExportSnapshot.Primitive(
+                                    0,
+                                    0,
+                                    new PointGeometry(new Coordinate(1, 1)),
+                                    unsupported)),
+                    List.of());
+            throw new IllegalStateException("consumer accepted unsupported SVG export symbol");
+        } catch (io.github.mundanej.map.api.VectorExportSnapshotException expected) {
+            require(
+                    expected.problem().code().equals("VECTOR_EXPORT_SYMBOL_UNSUPPORTED")
+                            && expected.problem().context().get("kind").equals("rasterIcon"),
+                    "SVG unsupported-symbol diagnostic changed");
+        }
     }
 
     private static void testGeoJson(Path directory, CrsRegistry registry) throws Exception {
