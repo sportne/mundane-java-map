@@ -63,7 +63,7 @@ design task; there are no empty speculative design files.
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 through G12-006 draft proposal |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
-| G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 draft proposal |
+| G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 approved; G15-002 through G15-008 proposed |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -80,12 +80,13 @@ first, OGC SE 1.1 then establishes the shared standards-neutral rule bridge, and
 reuses it through an isolated Jackson adapter. These designs and Proposed cards do not approve their
 HITL profile checkpoints or claim standard conformance.
 
-Live-stress planning record (2026-07-19): draft G15-001 through G15-008 define an example-local,
-dependency-free stress capability using a public IOU Kalman formulation, individually simulated
-tracks, deterministic `[1 s, 60 s]` report intervals, 10k/100k/1m tiers, a capped/measured frame
-rate, and a provenance-backed bundled Natural Earth 1:110m chart. The tasks deliberately separate a
-sub-five-minute 10k smoke from opt-in `/tmp` evidence and do not approve a public tracker/live-layer
-API, historical implementation-equivalence claim, or portable FPS threshold.
+Live-stress decision record (2026-07-21): G15-001 approves an example-local, dependency-free stress
+profile using an independently implemented forward IOU-Kalman state estimator derived from public
+equations, individually simulated tracks, deterministic `[1 s, 60 s]` report intervals,
+10k/100k/1m tiers, bounded packed execution, a capped/measured frame rate, and Natural Earth 4.1.0
+land-chart provenance. G15-002 through G15-008 remain Proposed. The profile deliberately separates a
+sub-five-minute 10k smoke from opt-in `/tmp` evidence and does not approve a public tracker/live-layer
+API, proprietary-equivalence claim, operational claim, or portable FPS threshold.
 
 ## Decisions
 
@@ -261,7 +262,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G14-005 | Explicit-catalog icons and bounded G11-compatible point labels | Draft |
 | G14-006 | Provenance fixtures, hostile JSON/mutation hardening, gallery, and tolerant regression | Draft |
 | G14-007 | Dependency/service audit, publication/consumer/native evidence, and G12–G14 closeout | Draft |
-| G15-001 | IOU equations/provenance, bounded IOU-Kalman Filter wording, workload, Natural Earth, packed execution, telemetry, and evidence decisions | Draft |
+| G15-001 | IOU equations/provenance, bounded IOU-Kalman Filter wording, workload, Natural Earth, packed execution, telemetry, and evidence decisions | Approved |
 | G15-002 | Example-local packed scalar IOU-Kalman Filter state estimator, stable coefficients, dense oracle, numerical bounds, and first working slice | Draft |
 | G15-003 | Deterministic per-track truth/reports, timing wheel, stable worker shards, lifecycle, and 10k headless filtering | Draft |
 | G15-004 | Exact Natural Earth land provenance, resource manifest, shapefile/CRS map path, visual chart, and cleanup | Draft |

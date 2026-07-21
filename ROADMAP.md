@@ -560,10 +560,10 @@ separately decomposed.
 
 - Add one JVM-only `live-track-stress` example that individually simulates, receives, and estimates
   10,000, 100,000, or 1,000,000 fixed tracks over a simple global chart.
-- Use a bounded forward IOU-Kalman Filter state estimator based on the publicly documented
-  Integrated Ornstein-Uhlenbeck position/velocity process. G15-001 must approve
-  the exact equations, independent-implementation provenance, numerical behavior, and support
-  wording; the project does not claim equivalence to every historical Wagner implementation.
+- Use the G15-001-approved bounded forward IOU-Kalman Filter state estimator derived independently
+  from publicly documented Integrated Ornstein-Uhlenbeck position/velocity equations. The approved
+  profile fixes equations, numerical behavior, provenance, and support wording; it makes no
+  proprietary-equivalence, endorsement, operational-accuracy, or safety claim.
 - Schedule deterministic stochastic position reports independently per track at intervals from one
   second through one minute. Use packed primitive truth/filter state, a due-work timing wheel, and
   stable worker shards; data association, track birth/death, networking, and operational accuracy

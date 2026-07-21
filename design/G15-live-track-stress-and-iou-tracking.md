@@ -19,8 +19,9 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-The design and G15 task cards are Draft. G15-001 must approve the precise mathematical profile,
-provenance, workload distribution, and support wording before implementation.
+G15-001 is approved. It freezes the mathematical, provenance, workload, storage, lifecycle,
+rendering, and evidence profile below. G15-002 through G15-008 remain Proposed until their working
+vertical slices pass review; the approval creates no production API or module.
 
 ## Research and provenance boundary
 
@@ -40,7 +41,7 @@ use the name to imply endorsement. G15-001 records the equations, bibliography, 
 implementation basis, and approved wording. A source search is provenance evidence, not legal
 clearance; any distribution concern is a maintainer checkpoint.
 
-The bundled chart is Natural Earth `ne_110m_land`, obtained from the official
+The bundled chart is Natural Earth `ne_110m_land` version `4.1.0`, obtained from the official
 [1:110m physical-vectors page](https://www.naturalearthdata.com/downloads/110m-physical-vectors/).
 Natural Earth's [terms of use](https://www.naturalearthdata.com/about/terms-of-use/) identify the
 site's raster and vector data as public domain. G15-004 records the exact upstream version, archive
@@ -80,6 +81,47 @@ semantics.
 
 ## Fixed first profile
 
+### Approved constants and support wording
+
+The reference estimator uses `beta = 0.05 s^-1`, driving-noise magnitude
+`sigma = 20 m s^-3/2`, and isotropic position-measurement standard deviation `5,000 m`. Configurable
+test/evidence values are limited to finite `beta` in `[1e-6, 1]`, `sigma` in `(0, 1,000]`, and
+measurement standard deviation in `(0, 1,000,000]`. Prediction intervals are finite and in
+`[0 s, 60 s]`; authoritative reports must advance time by an integer `1` through `60` seconds.
+
+The approved public description is: **an independently implemented, forward, position-only
+IOU-Kalman Filter state estimator derived from public continuous state-space equations for a bounded
+stress simulation**. It is not historical source code, a claim of equivalence to any proprietary or
+operational implementation, an endorsement, or an operational accuracy/safety claim. The 1991 NPS
+thesis is the mathematical/provenance source and is marked for unlimited public distribution; its
+historical application parameters are not copied into this synthetic workload.
+
+For `z = beta * delta`, implementations use `-StrictMath.expm1(-z)` for `1 - exp(-z)`. When
+`z < 1e-3`, fixed Taylor polynomials through the `z^4` term evaluate `a/delta`,
+`Q11/(sigma^2*delta^3)`, `Q12/(sigma^2*delta^2)`, and `Q22/(sigma^2*delta)` respectively:
+
+```text
+1 - z/2 + z^2/6 - z^3/24 + z^4/120
+1/3 - z/4 + 7z^2/60 - z^3/24 + 31z^4/2520
+1/2 - z/2 + 7z^2/24 - z^3/8 + 31z^4/720
+1 - z + 2z^2/3 - z^3/3 + 2z^4/15
+```
+
+The first report at simulation second zero initializes position to the measurement, velocity to
+zero, position variance to the measurement variance, position/velocity covariance to zero, and
+velocity variance to `sigma^2/(2*beta)`. X and Y share the three covariance scalars because identical
+initial covariance, dynamics, timing, and isotropic measurement variance preserve that invariant;
+means remain separate. Updates use the scalar Joseph form and explicitly restore symmetry. For
+finite covariance, `diagonalScale = max(1, abs(P00), abs(P11))` and
+`diagonalTolerance = 64 * ulp(diagonalScale)`; a diagonal below `-diagonalTolerance` is rejected and
+an individual diagonal in `[-diagonalTolerance, 0)` is set to zero. Then
+`determinantScale = max(1, abs(P00 * P11) + P01 * P01)` and
+`determinantTolerance = 64 * ulp(determinantScale)`. A determinant below
+`-determinantTolerance` is rejected. A negative determinant within tolerance is repaired to the PSD
+boundary by replacing `P01` with `copySign(sqrt(P00 * P11), P01)` (or zero when either diagonal is
+zero), then rechecked. Non-finite covariance is always rejected. Display prediction is pure and does
+not mutate the authoritative state, timestamp, covariance, or counters.
+
 ### Population and report stream
 
 - Population tiers are exactly 10,000, 100,000, and 1,000,000 live tracks.
@@ -88,9 +130,12 @@ semantics.
 - Every report carries its already-associated integer track ID, event time, measured X/Y position,
   and deterministic sequence number.
 - Each track has an independent renewal schedule with an interval in the closed range `[1 s, 60 s]`.
-  G15-001 freezes the deterministic distribution and default mean. The proposed default mean is
-  approximately 10 seconds, which yields about 100,000 scheduled reports/second at one million
-  tracks while preserving the user's interval bounds.
+  The interval is a geometric variate with success probability `0.1`, capped at `60`: for a uniform
+  53-bit `u` in `[0,1)`,
+  `min(60, 1 + floor(StrictMath.log1p(-u) / StrictMath.log(0.9)))`. Its exact expected interval is
+  `(1 - 0.9^60) / 0.1`, approximately `9.9820299 s`, or about `100,180` steady-state reports/second
+  at one million tracks. The population-sized second-zero initialization reports are counted
+  separately from scheduled steady-state reports.
 - Event time, rather than worker arrival time, drives prediction. The first profile rejects
   out-of-sequence reports rather than adding smoothing or rollback.
 - The simulator must not silently coalesce or drop reports. Scheduled, processed, rejected, late,
@@ -111,6 +156,32 @@ coordinate choice, not a global geodesic tracking claim.
 A global seed plus track ID derives independent deterministic random streams. A fixed configuration,
 seed, population, worker count, and elapsed simulation time must reproduce the same truth reports and
 estimates regardless of wall-clock speed. Tests use a deterministic virtual clock.
+
+The reference seed is hexadecimal `0x4d554e44414e454c`. Schedule, truth, and measurement draws are
+counter-based `SplitMix64` mixes; no generator object or mutable random state exists per track. The
+mix function is exactly `z = (z ^ (z >>> 30)) * 0xbf58476d1ce4e5b9`, then
+`z = (z ^ (z >>> 27)) * 0x94d049bb133111eb`, then `z ^ (z >>> 31)`, with Java `long` wraparound.
+Starting at the seed, apply that mix after XOR with, in order, the stream tag, unsigned track ID,
+report sequence, and draw index. Tags are `0x5343484544554c45` (schedule),
+`0x54525554484d4f54` (truth), and `0x4d4541535552454d` (measurement). A uniform is
+`(raw >>> 11) * 0x1.0p-53`; Box-Muller uses
+`u1 = ((raw1 >>> 11) + 1) * 0x1.0p-53`, `u2 = (raw2 >>> 11) * 0x1.0p-53`, and strict
+`StrictMath.sqrt(-2*StrictMath.log(u1)) * StrictMath.cos(2*StrictMath.PI*u2)` and the same radius
+times `StrictMath.sin(2*StrictMath.PI*u2)` for the even/odd member of a pair. Pair `p` uses draw
+indices `2*p` and `2*p+1`. Report sequence zero with the truth tag uses uniform draw indices 0, 1,
+2, and 3 for initial X, Y, course, and speed; measurement-tag pair zero supplies the initial report's
+X/Y errors, and schedule-tag draw zero selects the first scheduled interval. Each scheduled report
+sequence `q >= 1` uses truth-tag pair zero (draw indices 0 and 1) for that leg's speed and course
+perturbations, measurement-tag pair zero for its X/Y errors, and schedule-tag draw zero to select the
+following interval. Thus sequence separates legs while tag and index separate purposes. All
+`N(mean, standardDeviation)` notation below names the standard deviation, not variance. Truth starts
+uniformly over wrapped
+world X and the Web Mercator Y range for latitude `[-80°, 80°]`, with course uniform in `[0, 2*pi)`
+and speed uniform in `[30, 250] m/s`. Each leg first propagates its prior constant speed/course, wraps
+X at `±20,037,508.342789244 m`, reflects Y at `±15,538,711.09630922 m` and reverses the course's
+north/south component before the next perturbation, then perturbs the next-leg
+speed by `N(0, 3*sqrt(delta)) m/s` and course by `N(0, 0.005*sqrt(delta)) rad`; speed is clamped to
+`[30, 250] m/s`. Measurement X/Y add independent `N(0, 5,000) m` errors.
 
 ### IOU-Kalman Filter state estimator
 
@@ -164,9 +235,9 @@ the run.
 
 ### Scheduling
 
-A bounded timing wheel schedules due reports by simulation time. The default design has fixed
-one-second slots covering the maximum 60-second interval; G15-001 may approve a finer fixed quantum
-if required for the stochastic profile. Each track occurs in exactly one bucket. Processing a tick
+A bounded timing wheel schedules due reports by simulation time. It has exactly 64 one-second slots,
+uses integer simulation seconds, and maintains primitive bucket heads plus one primitive next-link
+per track. Each track occurs in exactly one bucket. Processing a tick
 visits due tracks, emits their reports, advances their truth/filter state, and requeues them. The
 normal path does not scan all tracks to discover due work.
 
@@ -180,6 +251,13 @@ would complicate deterministic ownership; the evidence report exposes per-shard 
 The coordinator supports start, pause, reset, and close. Cancellation is checked at bounded report
 and frame intervals. Close stops new frame requests, cancels workers, joins them outside the EDT,
 releases frame buffers, closes the map/source, and leaves no non-daemon worker alive.
+
+Worker counts are integers in `[1, min(32, population)]`; the default is
+`min(8, Runtime.availableProcessors())`, with a floor of one. Shards are deterministic contiguous
+track-ID ranges formed by quotient/remainder partitioning. Real-time operation advances every due
+integer simulation second in order and accumulates backlog instead of skipping time. Pause freezes
+simulation time; reset is allowed only after workers and frame production have quiesced; close is
+idempotent and joins workers off the EDT.
 
 ### Frame production and handoff
 
@@ -199,14 +277,23 @@ general symbol renderer once per track. The land chart still exercises the real 
 keeps the stress evidence focused on simulation, estimation, projection, and dense display. A later
 task may compare richer symbols only after evidence identifies that as a useful workload.
 
+The mark is one opaque `2 x 2` ARGB square with value `0xff16d9e3`. Frame dimensions are positive
+and capped at `8,388,608` pixels. At most three packed `int[]` buffers move exclusively among the
+available, producer-owned, pending-published, and EDT-owned states. A producer atomically replaces
+the pending buffer and returns any displaced pending buffer to available. The EDT atomically takes
+the pending buffer, owns it through painting, and only then returns it to available. It may continue
+painting a previously acquired buffer while a producer fills or publishes another. The preflight
+frame bound is therefore `3 * width * height * 4` checked bytes. There is exactly one active frame
+request. No producer mutates a pending-published or EDT-owned buffer.
+
 ## Frame pacing and telemetry
 
-An EDT timer requests frames at a user-selected maximum rate. The supported cap includes common
-values through 60 FPS and an explicit uncapped mode; G15-001 freezes the exact controls. The proposed
-reference workload uses a 10 FPS cap together with the approximately 100,000-report/second 1m
-configuration. This is the target configuration to measure, not a portable minimum-FPS assertion. A
-cap limits requests and never sleeps or busy-waits on the EDT. If a prior request remains in progress,
-the timer records a skipped request rather than enqueueing an unbounded backlog.
+An EDT timer requests frames at one of the exact caps `1`, `2`, `5`, `10`, `15`, `30`, or `60` FPS,
+or in an explicit uncapped mode. The default and reference workload use a 10 FPS cap together with
+the approximately 100,000-report/second 1m configuration. This is the target configuration to
+measure, not a portable minimum-FPS assertion. A cap limits requests and never sleeps or busy-waits
+on the EDT. Uncapped mode issues at most one request per timer callback. If a prior request remains
+in progress, the timer records a skipped request rather than enqueueing an unbounded backlog.
 
 Achieved FPS is completed, EDT-painted, generation-valid frames over a fixed rolling interval. The
 UI and evidence reports distinguish:
@@ -222,6 +309,15 @@ UI and evidence reports distinguish:
 
 The UI updates human-readable telemetry at a bounded low rate independent of track-frame cadence.
 Telemetry accumulation uses primitive counters/histograms and must not allocate per report or frame.
+The UI refreshes telemetry once per second. Achieved FPS is a rolling five-second count of completed,
+generation-valid frames actually painted by the EDT.
+
+Preflight uses a conservative hard logical ceiling of `192` bytes per track and a largest permitted
+single population allocation of `8 * population` bytes, plus the checked three-frame bound above.
+Construction is rejected before any population allocation unless exact logical bytes plus `256 MiB`
+headroom both fit the configured maximum heap and remain at or below 60 percent of that heap. Reports
+break logical storage down by primitive array and report observed heap separately; logical array
+bytes are not presented as JVM retained-heap measurements.
 
 ## Verification lanes
 
@@ -237,11 +333,34 @@ quality gate:
   `/tmp` work directory by default, records warmup and measurement phases, and writes machine-readable
   JSON plus concise LLM-readable Markdown under `build/reports/live-track/`.
 
-The proposed canonical run is a 10-second warmup followed by a 60-second measurement for each tier;
-G15-001 freezes durations. Correctness, bounds, cleanup, and report completeness are gates. Achieved
+The canonical evidence run is a 10-second warmup followed by a 60-second measurement for each tier.
+The smoke lane advances 120 virtual seconds, builds a bounded number of frames, and has a five-minute
+wall-clock timeout. Correctness, bounds, cleanup, and report completeness are gates. Achieved
 FPS and throughput are evidence, not portable wall-clock pass/fail thresholds. Every report records
 the cap and whether the run was CPU, frame-cap, or backlog limited. Full evidence is opt-in and is not
 part of `qualityGate`, `performanceEvidence`, or ordinary CI.
+
+Evidence uses schema identifier `mundane-map-live-track-evidence/v1`. Its required top-level JSON
+members are `schema` (that exact string), `runId` (string), `profile` (`10k`, `100k`, or `1m`),
+`status` (`SUCCESS`, `CANCELLED`, or `FAILED`), `limitations` (array containing only `CPU_LIMITED`,
+`FRAME_CAP_LIMITED`, `BACKLOG_LIMITED`, or `INDETERMINATE`), `configuration`, `environment`,
+`phases`, `storage`, `telemetry`, and `cleanup` (objects), and `diagnostics` (array). Configuration
+contains numeric population, seed, workers, FPS cap/null for uncapped, beta, sigma, measurement
+standard deviation, warmup seconds, and measurement seconds. Phases separates initialization,
+warmup, and measurement counters. Storage contains checked logical bytes by primitive array, largest
+allocation, frame bytes, maximum heap, and observed heap. Telemetry contains the named counters,
+rates, latency quantiles, shard skew, RMSE, and innovation summaries from this design. Cleanup records
+worker termination and resource closure booleans. Diagnostics contain stable category, severity, and
+message strings. Additive fields are permitted; required fields are never omitted, even on failure.
+Work is created below
+`/tmp/mundane-java-map-live-track/<run-id>/`; finalized JSON and concise Markdown are copied to
+`build/reports/live-track/live-track-<profile>.json` and `.md`, where profile is exactly `10k`,
+`100k`, or `1m`. Each report includes configuration, environment, initialization versus scheduled
+work, telemetry, terminal status, and categorized problems or limitations. Cancellation and failure
+still attempt a terminal report. Each file is written to a sibling `.part`, closed, and atomically
+moved with replacement when supported, with a same-directory replace fallback. A later run for the
+same profile intentionally replaces the previous finalized pair. No result is described as successful
+if required fields or cleanup evidence are absent.
 
 The deterministic kernel, simulator, and smoke checks use a headless path. G15 does not add a Native
 Image claim: the user-facing stress viewer is Swing/JVM evidence and the example is not a published
@@ -257,6 +376,14 @@ The runnable example provides:
 - normal `MapView` pan/zoom interaction with a non-intercepting track overlay;
 - a simple global Natural Earth land chart and a visually distinct track color;
 - bounded telemetry visible without obscuring the map.
+
+The first visual profile uses ocean `#081520`, land fill `#435e4b`, land outline `#789080`, and track
+marks `#16d9e3`. The bundled dataset is Natural Earth `ne_110m_land` version `4.1.0`, acquired from
+`https://naciscdn.org/naturalearth/110m/physical/ne_110m_land.zip`, whose approved archive SHA-256 is
+`1926c621afd6ac67c3f36639bb1236134a48d82226dc675d3e3df53d02d2a3de`. G15-004 retains the
+upstream SHP, SHX, DBF, PRJ, and CPG members without rewriting them. Its manifest records the archive
+URL, UTC retrieval date, archive and retained-member SHA-256 hashes, version page, and terms URL. An
+absent optional member in a future approved archive would be recorded as absent, not synthesized.
 
 Changing population or structural configuration performs an explicit stopped reset. Pause freezes
 simulation time and display prediction. View navigation may invalidate in-flight frames; it never

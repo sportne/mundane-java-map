@@ -1,20 +1,21 @@
 # G15-001 — Live-track stress and IOU-Kalman Filter profile decision
 
-Status: Proposed
+Status: Complete
 Depends on: G5-010, G7-005
 Gate: G15
 Type: HITL
 
 ## Goal
 
-Approve the exact independently implemented IOU-Kalman Filter state estimator, stochastic workload, packed
-execution, Natural Earth, display, telemetry, and evidence profile for the live-track stress example.
+Approve the exact independently implemented IOU-Kalman Filter state estimator, stochastic workload,
+packed execution, Natural Earth, display, telemetry, and evidence profile for the live-track stress
+example.
 
 ## Context
 
-The [G15 design](../design/G15-live-track-stress-and-iou-tracking.md) derives a bounded forward
-position/velocity estimator from a public NPS account of the IOU process. Existing shapefile,
-CRS, MapView, and performance lanes provide the chart and evidence foundations.
+The [G15 design](../../design/G15-live-track-stress-and-iou-tracking.md) derives a bounded forward
+position/velocity estimator from a public NPS account of the IOU process. Existing shapefile, CRS,
+MapView, and performance lanes provide the chart and evidence foundations.
 
 ## Scope
 
@@ -57,6 +58,12 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: **IOU-Kalman Filter state-estimator profile, Natural Earth provenance obligations, stress
-workload, and support-wording approval**. Approval is for the documented bounded forward IOU Kalman
-profile, not a claim of equivalence to every Daniel H. Wagner Associates implementation.
+HITL checkpoint: **IOU-Kalman Filter state-estimator profile, Natural Earth provenance obligations,
+stress workload, and support-wording approval**. Approval is for the documented bounded forward IOU
+Kalman profile, not a claim of equivalence to every Daniel H. Wagner Associates implementation.
+
+Decision record (2026-07-21): the maintainer approved the bounded profile documented in the G15
+design, including its equations and numerical policy, independent-implementation wording, exact
+workload and pacing controls, packed storage and ownership limits, Natural Earth 4.1.0 provenance
+obligations, smoke/evidence durations, and report schema. This decision creates no public tracking
+API and makes no proprietary-equivalence or operational claim.
