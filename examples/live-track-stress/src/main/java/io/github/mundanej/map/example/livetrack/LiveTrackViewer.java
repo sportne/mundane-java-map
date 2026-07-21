@@ -26,24 +26,28 @@ import javax.swing.JPanel;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
 
-/** First 10,000-track interactive stress picture. */
+/** Interactive 10,000- and 100,000-track stress picture. */
 final class LiveTrackViewer {
-    private static final int POPULATION = 10_000;
     private static final int DEFAULT_FPS = 10;
 
     private LiveTrackViewer() {}
 
     static void launch() {
+        launch(10_000);
+    }
+
+    static void launch(int population) {
         if (EventQueue.isDispatchThread()) {
             throw new IllegalStateException("live-track loading must run off the event thread");
         }
-        int workers = TrackSimulationConfig.defaultWorkers(POPULATION);
+        requireViewerPopulation(population);
+        int workers = TrackSimulationConfig.defaultWorkers(population);
         ViewerResources resources =
                 acquire(
                         () -> NaturalEarthChart.startHeadless(System.err::println),
                         () ->
                                 new LiveTrackFrameEngine(
-                                        TrackSimulationConfig.reference(POPULATION, workers),
+                                        TrackSimulationConfig.reference(population, workers),
                                         System.nanoTime()));
         NaturalEarthChart.ChartSession chart = resources.chart();
         LiveTrackFrameEngine engine = resources.engine();
@@ -76,17 +80,22 @@ final class LiveTrackViewer {
     }
 
     static ViewerSession startHeadless() {
+        return startHeadless(10_000);
+    }
+
+    static ViewerSession startHeadless(int population) {
         if (EventQueue.isDispatchThread()) {
             throw new IllegalStateException("live-track loading must run off the event thread");
         }
+        requireViewerPopulation(population);
         ViewerResources resources =
                 acquire(
                         NaturalEarthChart::startHeadless,
                         () ->
                                 new LiveTrackFrameEngine(
                                         TrackSimulationConfig.reference(
-                                                POPULATION,
-                                                TrackSimulationConfig.defaultWorkers(POPULATION)),
+                                                population,
+                                                TrackSimulationConfig.defaultWorkers(population)),
                                         System.nanoTime()));
         NaturalEarthChart.ChartSession chart = resources.chart();
         LiveTrackFrameEngine engine = resources.engine();
@@ -163,7 +172,8 @@ final class LiveTrackViewer {
         content.add(controls.telemetryLabel(), BorderLayout.SOUTH);
         JFrame frame = null;
         if (installWindow) {
-            frame = new JFrame("mundane-java-map — 10k live-track stress");
+            int population = engine.telemetry(System.nanoTime()).population();
+            frame = new JFrame("mundane-java-map — " + tierName(population) + " live-track stress");
             frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
             frame.setContentPane(content);
             frame.pack();
@@ -185,6 +195,16 @@ final class LiveTrackViewer {
         }
         controls.start();
         return session;
+    }
+
+    private static void requireViewerPopulation(int population) {
+        if (population != 10_000 && population != 100_000) {
+            throw new IllegalArgumentException("viewer population must be 10000 or 100000");
+        }
+    }
+
+    private static String tierName(int population) {
+        return population == 10_000 ? "10k" : "100k";
     }
 
     static final class ViewerSession implements AutoCloseable {
@@ -324,7 +344,7 @@ final class LiveTrackViewer {
         private final LiveTrackOverlay overlay;
         private final LiveTrackFrameEngine engine;
         private final JPanel toolbar = new JPanel();
-        private final JLabel telemetry = new JLabel("Starting 10k live picture…");
+        private final JLabel telemetry = new JLabel("Starting live picture…");
         private final JButton pause = new JButton("Pause");
         private final LiveTrackFramePacer pacer = new LiveTrackFramePacer(DEFAULT_FPS);
         private final Timer frameTimer;
@@ -337,7 +357,12 @@ final class LiveTrackViewer {
             this.map = map;
             this.overlay = overlay;
             this.engine = engine;
-            toolbar.add(new JLabel("Population: 10,000"));
+            toolbar.add(
+                    new JLabel(
+                            String.format(
+                                    Locale.ROOT,
+                                    "Population: %,d",
+                                    engine.telemetry(System.nanoTime()).population())));
             toolbar.add(
                     new JLabel(
                             " Seed: 0x" + Long.toHexString(TrackSimulationConfig.REFERENCE_SEED)));
@@ -419,6 +444,7 @@ final class LiveTrackViewer {
                             "State %s | t=%ds | %.1f FPS (cap %s) | frames r/c/p %d/%d/%d, "
                                     + "skip/stale %d/%d | build p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms | "
                                     + "reports scheduled/processed/pending/rejected/late %d/%d/%d/%d/%d | "
+                                    + "backlog %ds | shard reports %d..%d (%.3fx), work %.3fx | "
                                     + "memory logical/frame/heap %.1f/%.1f/%.1f MiB%s",
                             snapshot.state(),
                             snapshot.simulationSecond(),
@@ -438,6 +464,11 @@ final class LiveTrackViewer {
                             snapshot.pendingReports(),
                             snapshot.rejectedReports(),
                             snapshot.lateReports(),
+                            snapshot.backlogSeconds(),
+                            snapshot.shards().minimumProcessedReports(),
+                            snapshot.shards().maximumProcessedReports(),
+                            snapshot.shards().reportSkewRatio(),
+                            snapshot.shards().workSkewRatio(),
                             mebibytes(
                                     snapshot.logicalTrackBytes() + snapshot.packedPositionBytes()),
                             mebibytes(frames.frameBufferBytes()),

@@ -21,6 +21,7 @@ final class TrackShard {
     private final int[] nextDueSecond;
     private final int[] nextLink;
     private final int[] bucketHeads = new int[WHEEL_SIZE];
+    private final double[] gaussianPair = new double[2];
     private long initializationReports;
     private long scheduledReports;
     private long processedReports;
@@ -109,7 +110,9 @@ final class TrackShard {
         return Math.addExact(
                 Math.addExact(
                         Math.multiplyExact((long) trackCount(), localPerTrack),
-                        (long) bucketHeads.length * Integer.BYTES),
+                        Math.addExact(
+                                (long) bucketHeads.length * Integer.BYTES,
+                                (long) gaussianPair.length * Double.BYTES)),
                 filter.logicalBytes());
     }
 
@@ -131,15 +134,7 @@ final class TrackShard {
 
     void copyDisplayPositions(
             double timestampSeconds, double[] positionsX, double[] positionsY, int offset) {
-        if (offset < 0
-                || offset + trackCount() > positionsX.length
-                || offset + trackCount() > positionsY.length) {
-            throw new IndexOutOfBoundsException("offset");
-        }
-        for (int track = 0; track < trackCount(); track++) {
-            positionsX[offset + track] = filter.displayX(track, timestampSeconds);
-            positionsY[offset + track] = filter.displayY(track, timestampSeconds);
-        }
+        filter.copyDisplayPositions(timestampSeconds, positionsX, positionsY, offset);
     }
 
     double course(int globalTrackId) {
@@ -235,26 +230,14 @@ final class TrackShard {
                             + (MAX_SPEED - MIN_SPEED)
                                     * DeterministicDraws.uniform(
                                             seed, trackId, 0L, 3, DeterministicDraws.TRUTH_TAG);
+            DeterministicDraws.gaussianPair(
+                    seed, trackId, 0L, 0, DeterministicDraws.MEASUREMENT_TAG, gaussianPair);
             double measuredX =
                     truthX[localTrack]
-                            + filterConfig.measurementStandardDeviation()
-                                    * DeterministicDraws.gaussian(
-                                            seed,
-                                            trackId,
-                                            0L,
-                                            0,
-                                            0,
-                                            DeterministicDraws.MEASUREMENT_TAG);
+                            + filterConfig.measurementStandardDeviation() * gaussianPair[0];
             double measuredY =
                     truthY[localTrack]
-                            + filterConfig.measurementStandardDeviation()
-                                    * DeterministicDraws.gaussian(
-                                            seed,
-                                            trackId,
-                                            0L,
-                                            0,
-                                            1,
-                                            DeterministicDraws.MEASUREMENT_TAG);
+                            + filterConfig.measurementStandardDeviation() * gaussianPair[1];
             filter.initialize(localTrack, 0L, measuredX, measuredY);
             initializationReports++;
             schedule(localTrack, DeterministicDraws.intervalSeconds(seed, trackId, 0L));
@@ -268,52 +251,21 @@ final class TrackShard {
         truthY[track] += speed[track] * StrictMath.sin(course[track]) * delta;
         wrapAndReflect(track);
         long reportSequence = sequence[track] + 1L;
+        DeterministicDraws.gaussianPair(
+                seed, trackId, reportSequence, 0, DeterministicDraws.TRUTH_TAG, gaussianPair);
         speed[track] =
                 clamp(
-                        speed[track]
-                                + 3.0
-                                        * StrictMath.sqrt(delta)
-                                        * DeterministicDraws.gaussian(
-                                                seed,
-                                                trackId,
-                                                reportSequence,
-                                                0,
-                                                0,
-                                                DeterministicDraws.TRUTH_TAG),
+                        speed[track] + 3.0 * StrictMath.sqrt(delta) * gaussianPair[0],
                         MIN_SPEED,
                         MAX_SPEED);
         course[track] =
-                normalizeCourse(
-                        course[track]
-                                + 0.005
-                                        * StrictMath.sqrt(delta)
-                                        * DeterministicDraws.gaussian(
-                                                seed,
-                                                trackId,
-                                                reportSequence,
-                                                0,
-                                                1,
-                                                DeterministicDraws.TRUTH_TAG));
+                normalizeCourse(course[track] + 0.005 * StrictMath.sqrt(delta) * gaussianPair[1]);
+        DeterministicDraws.gaussianPair(
+                seed, trackId, reportSequence, 0, DeterministicDraws.MEASUREMENT_TAG, gaussianPair);
         double measuredX =
-                truthX[track]
-                        + filterConfig.measurementStandardDeviation()
-                                * DeterministicDraws.gaussian(
-                                        seed,
-                                        trackId,
-                                        reportSequence,
-                                        0,
-                                        0,
-                                        DeterministicDraws.MEASUREMENT_TAG);
+                truthX[track] + filterConfig.measurementStandardDeviation() * gaussianPair[0];
         double measuredY =
-                truthY[track]
-                        + filterConfig.measurementStandardDeviation()
-                                * DeterministicDraws.gaussian(
-                                        seed,
-                                        trackId,
-                                        reportSequence,
-                                        0,
-                                        1,
-                                        DeterministicDraws.MEASUREMENT_TAG);
+                truthY[track] + filterConfig.measurementStandardDeviation() * gaussianPair[1];
         filter.update(track, simulationSecond, measuredX, measuredY);
         sequence[track] = reportSequence;
         int following =

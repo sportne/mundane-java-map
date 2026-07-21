@@ -585,6 +585,11 @@ separately decomposed.
   exact 1/2/5/10/15/30/60/uncapped EDT pacing, visible telemetry, and asynchronous pause/reset/close
   controls. Its deterministic `liveTrackSmoke` lane advances 120 virtual seconds and stays separate
   from the normal quality gate.
+- Complete G15-006 adds the runnable 100k tier, measured stable sharding, report/work skew and
+  backlog telemetry, bounded packed display caches, deterministic 1/8-shard equivalence, and a
+  reproducible `/tmp` JFR profile. The retained coefficient/display-transition and Gaussian-pair
+  optimizations preserve the frozen strict formulas and reduced the named 100k/1200s probe by about
+  41% on the recorded machine; this is environment evidence, not a portable threshold.
 - Report achieved FPS and accept an explicit maximum-FPS cap while separately reporting update
   throughput, frame latency/skips/stale results, backlog, shard skew, logical/observed memory, and
   deterministic error summaries. The reference target is the approximately 100,000-report/second 1m

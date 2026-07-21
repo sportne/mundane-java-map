@@ -3,7 +3,7 @@ package io.github.mundanej.map.example.livetrack;
 record TrackStoragePlan(long logicalBytes, long largestAllocation, long maximumHeap) {
     private static final long HEADROOM = 256L * 1024L * 1024L;
     private static final long PER_TRACK_BYTES = 113L;
-    private static final long PER_SHARD_BYTES = 296L;
+    private static final long PER_SHARD_BYTES = 3_200L;
 
     static TrackStoragePlan preflight(TrackSimulationConfig config, long maximumHeap) {
         if (maximumHeap <= 0L) {

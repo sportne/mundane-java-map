@@ -139,6 +139,28 @@ class PackedIouKalmanFilterTest {
     }
 
     @Test
+    void packedDisplayCopyMatchesScalarPredictionForIntegerAndFractionalAges() {
+        PackedIouKalmanFilter filter = new PackedIouKalmanFilter(2, IouKalmanConfig.REFERENCE);
+        filter.initialize(0, 0L, 100.0, 200.0);
+        filter.initialize(1, 0L, -100.0, -200.0);
+        filter.update(0, 10L, 300.0, 400.0);
+        filter.update(1, 20L, -300.0, -400.0);
+        double[] positionsX = new double[4];
+        double[] positionsY = new double[4];
+        filter.copyDisplayPositions(20.5, positionsX, positionsY, 1);
+        assertEquals(filter.displayX(0, 20.5), positionsX[1]);
+        assertEquals(filter.displayY(0, 20.5), positionsY[1]);
+        assertEquals(filter.displayX(1, 20.5), positionsX[2]);
+        assertEquals(filter.displayY(1, 20.5), positionsY[2]);
+
+        filter.copyDisplayPositions(21.0, positionsX, positionsY, 1);
+        assertEquals(filter.displayX(0, 21.0), positionsX[1]);
+        assertEquals(filter.displayY(0, 21.0), positionsY[1]);
+        assertEquals(filter.displayX(1, 21.0), positionsX[2]);
+        assertEquals(filter.displayY(1, 21.0), positionsY[2]);
+    }
+
+    @Test
     void scalarKernelAgreesWithIndependentDenseOracle() {
         assertKernelMatchesOracle(IouKalmanConfig.REFERENCE);
         assertKernelMatchesOracle(new IouKalmanConfig(1.0e-6, 20.0, 5_000.0));

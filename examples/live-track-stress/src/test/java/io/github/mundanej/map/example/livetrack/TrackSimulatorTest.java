@@ -36,6 +36,14 @@ class TrackSimulatorTest {
                 -0.5120712039087338,
                 DeterministicDraws.gaussian(seed, 7, 3L, 0, 1, DeterministicDraws.TRUTH_TAG),
                 1.0e-15);
+        double[] pair = new double[2];
+        DeterministicDraws.gaussianPair(seed, 7, 3L, 0, DeterministicDraws.TRUTH_TAG, pair);
+        assertEquals(
+                DeterministicDraws.gaussian(seed, 7, 3L, 0, 0, DeterministicDraws.TRUTH_TAG),
+                pair[0]);
+        assertEquals(
+                DeterministicDraws.gaussian(seed, 7, 3L, 0, 1, DeterministicDraws.TRUTH_TAG),
+                pair[1]);
         assertEquals(6, DeterministicDraws.intervalSeconds(seed, 7, 3L));
 
         long total = 0L;
@@ -295,7 +303,7 @@ class TrackSimulatorTest {
     @Test
     void closeCancelsAnActiveAdvanceAndJoinsEveryWorker() throws Exception {
         LiveTrackCoordinator coordinator =
-                new LiveTrackCoordinator(TrackSimulationConfig.reference(10_000, 4));
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(100_000, 8));
         coordinator.start(0L);
         AtomicReference<Throwable> advanceFailure = new AtomicReference<>();
         Thread advance =
@@ -355,6 +363,53 @@ class TrackSimulatorTest {
     }
 
     @Test
+    void hundredThousandTracksRemainEquivalentAcrossShardCounts() {
+        long oneChecksum;
+        long eightChecksum;
+        long expectedReports;
+        double[] oneIntegerX = new double[100_000];
+        double[] oneIntegerY = new double[100_000];
+        double[] oneFractionalX = new double[100_000];
+        double[] oneFractionalY = new double[100_000];
+        try (LiveTrackCoordinator one =
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(100_000, 1))) {
+            one.start(0L);
+            one.advanceTo(120);
+            oneChecksum = one.checksum();
+            expectedReports = one.processedReports();
+            one.copyDisplayPositions(120.0, oneIntegerX, oneIntegerY);
+            one.copyDisplayPositions(120.5, oneFractionalX, oneFractionalY);
+            assertEquals(100_000L, one.pendingReports());
+            assertEquals(one.scheduledReports(), one.processedReports() + one.pendingReports());
+        }
+        try (LiveTrackCoordinator eight =
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(100_000, 8))) {
+            eight.start(0L);
+            eight.advanceTo(120);
+            eightChecksum = eight.checksum();
+            double[] eightX = new double[100_000];
+            double[] eightY = new double[100_000];
+            eight.copyDisplayPositions(120.0, eightX, eightY);
+            assertTrue(Arrays.equals(oneIntegerX, eightX));
+            assertTrue(Arrays.equals(oneIntegerY, eightY));
+            eight.copyDisplayPositions(120.5, eightX, eightY);
+            assertTrue(Arrays.equals(oneFractionalX, eightX));
+            assertTrue(Arrays.equals(oneFractionalY, eightY));
+            assertEquals(expectedReports, eight.processedReports());
+            assertEquals(100_000L, eight.pendingReports());
+            long[] shardMetrics = new long[4];
+            eight.copyShardMetrics(shardMetrics);
+            assertTrue(shardMetrics[0] > 0L);
+            assertTrue(shardMetrics[1] >= shardMetrics[0]);
+            assertTrue(shardMetrics[2] > 0L);
+            assertTrue(shardMetrics[3] >= shardMetrics[2]);
+            assertTrue(eight.logicalBytes() <= 192L * 100_000L);
+            assertTrue(eight.largestAllocation() <= 8L * 100_000L);
+        }
+        assertEquals(oneChecksum, eightChecksum);
+    }
+
+    @Test
     void validatesPopulationAndWorkerLimits() {
         assertThrows(IllegalArgumentException.class, () -> TrackSimulationConfig.reference(0, 1));
         assertThrows(IllegalArgumentException.class, () -> TrackSimulationConfig.reference(10, 0));
@@ -369,7 +424,7 @@ class TrackSimulatorTest {
                 IllegalArgumentException.class,
                 () -> new LiveTrackCoordinator(config, 256L * 1024L * 1024L));
         try (LiveTrackCoordinator coordinator = new LiveTrackCoordinator(config)) {
-            assertEquals(1_131_184L, coordinator.logicalBytes());
+            assertEquals(1_142_800L, coordinator.logicalBytes());
             assertEquals(20_000L, coordinator.largestAllocation());
         }
     }

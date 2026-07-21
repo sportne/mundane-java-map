@@ -183,7 +183,9 @@ class NaturalEarthChartTest {
                 assertThrows(
                         IllegalArgumentException.class,
                         () -> LiveTrackStress.main(new String[] {"--unknown"}));
-        assertEquals("Usage: live-track-stress [--chart|--headless]", failure.getMessage());
+        assertEquals(
+                "Usage: live-track-stress [--chart|--headless|--population=100000]",
+                failure.getMessage());
     }
 
     private static InputStream classpath(String name) throws IOException {

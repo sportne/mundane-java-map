@@ -49,6 +49,23 @@ final class LiveTrackFrames {
             int allocatedBuffers,
             long frameBufferBytes) {}
 
+    record LiveTrackShardMetrics(
+            int shardCount,
+            long minimumProcessedReports,
+            long maximumProcessedReports,
+            long minimumWorkNanos,
+            long maximumWorkNanos) {
+        double reportSkewRatio() {
+            return minimumProcessedReports == 0L
+                    ? 0.0
+                    : (double) maximumProcessedReports / minimumProcessedReports;
+        }
+
+        double workSkewRatio() {
+            return minimumWorkNanos == 0L ? 0.0 : (double) maximumWorkNanos / minimumWorkNanos;
+        }
+    }
+
     record LiveTrackTelemetry(
             LiveTrackCoordinator.State state,
             int population,
@@ -60,6 +77,8 @@ final class LiveTrackFrames {
             long rejectedReports,
             long lateReports,
             long pendingReports,
+            int backlogSeconds,
+            LiveTrackShardMetrics shards,
             long logicalTrackBytes,
             long packedPositionBytes,
             long maximumHeap,
@@ -77,12 +96,14 @@ final class LiveTrackFrames {
         }
 
         private final Object monitor = new Object();
+        private final Object telemetryMonitor = new Object();
         private final TrackSimulationConfig config;
         private final long maximumHeap;
         private final LiveTrackCoordinator coordinator;
         private final double[] positionsX;
         private final double[] positionsY;
         private final LiveTrackFrameHandoff handoff;
+        private final long[] shardMetrics = new long[4];
         private final Runnable beforeWorkSelection;
         private final Thread producer;
         private FrameDemand pendingDemand;
@@ -98,6 +119,7 @@ final class LiveTrackFrames {
         private volatile long observedRejectedReports;
         private volatile long observedLateReports;
         private volatile long observedPendingReports;
+        private volatile int observedRequestedSimulationSecond;
         private volatile RuntimeException failure;
 
         LiveTrackFrameEngine(TrackSimulationConfig config, long nowNanos) {
@@ -169,26 +191,34 @@ final class LiveTrackFrames {
         LiveTrackTelemetry telemetry(long nowNanos) {
             Runtime runtime = Runtime.getRuntime();
             long used = runtime.totalMemory() - runtime.freeMemory();
-            RuntimeException currentFailure = failure;
-            return new LiveTrackTelemetry(
-                    observedState,
-                    config.population(),
-                    config.seed(),
-                    config.workers(),
-                    observedSimulationSecond,
-                    observedScheduledReports,
-                    observedProcessedReports,
-                    observedRejectedReports,
-                    observedLateReports,
-                    observedPendingReports,
-                    coordinator.logicalBytes(),
-                    Math.multiplyExact(
-                            Math.addExact((long) positionsX.length, positionsY.length),
-                            Double.BYTES),
-                    maximumHeap,
-                    used,
-                    handoff.metrics(nowNanos),
-                    failureCategory(currentFailure));
+            synchronized (telemetryMonitor) {
+                return new LiveTrackTelemetry(
+                        observedState,
+                        config.population(),
+                        config.seed(),
+                        config.workers(),
+                        observedSimulationSecond,
+                        observedScheduledReports,
+                        observedProcessedReports,
+                        observedRejectedReports,
+                        observedLateReports,
+                        observedPendingReports,
+                        Math.max(0, observedRequestedSimulationSecond - observedSimulationSecond),
+                        new LiveTrackShardMetrics(
+                                config.workers(),
+                                shardMetrics[0],
+                                shardMetrics[1],
+                                shardMetrics[2],
+                                shardMetrics[3]),
+                        coordinator.logicalBytes(),
+                        Math.multiplyExact(
+                                Math.addExact((long) positionsX.length, positionsY.length),
+                                Double.BYTES),
+                        maximumHeap,
+                        used,
+                        handoff.metrics(nowNanos),
+                        failureCategory(failure));
+            }
         }
 
         boolean awaitIdle(long timeoutMillis) {
@@ -269,7 +299,9 @@ final class LiveTrackFrames {
                     primary.addSuppressed(closeFailure);
                 }
             }
-            observedState = LiveTrackCoordinator.State.CLOSED;
+            synchronized (telemetryMonitor) {
+                observedState = LiveTrackCoordinator.State.CLOSED;
+            }
             synchronized (monitor) {
                 closeComplete = true;
                 monitor.notifyAll();
@@ -350,8 +382,10 @@ final class LiveTrackFrames {
                     }
                 } catch (RuntimeException exception) {
                     if (!closed) {
-                        failure = exception;
-                        observedState = LiveTrackCoordinator.State.FAILED;
+                        synchronized (telemetryMonitor) {
+                            failure = exception;
+                            observedState = LiveTrackCoordinator.State.FAILED;
+                        }
                     }
                     handoff.cancelRequest();
                 } finally {
@@ -384,6 +418,9 @@ final class LiveTrackFrames {
                     coordinator.reset();
                     coordinator.start(nowNanos);
                     handoff.invalidateFrames();
+                    synchronized (telemetryMonitor) {
+                        observedRequestedSimulationSecond = 0;
+                    }
                 }
             }
             captureCoordinatorTelemetry();
@@ -391,6 +428,13 @@ final class LiveTrackFrames {
 
         private void build(FrameDemand demand) {
             long started = System.nanoTime();
+            double requestedTimestamp =
+                    demand.virtualSecond() >= 0
+                            ? demand.virtualSecond()
+                            : coordinator.displayTimestampSeconds(demand.nowNanos());
+            synchronized (telemetryMonitor) {
+                observedRequestedSimulationSecond = (int) StrictMath.floor(requestedTimestamp);
+            }
             if (coordinator.state() == LiveTrackCoordinator.State.RUNNING) {
                 if (demand.virtualSecond() >= 0) {
                     coordinator.advanceTo(demand.virtualSecond());
@@ -421,13 +465,16 @@ final class LiveTrackFrames {
         }
 
         private void captureCoordinatorTelemetry() {
-            observedState = coordinator.state();
-            observedSimulationSecond = coordinator.simulationSecond();
-            observedScheduledReports = coordinator.scheduledReports();
-            observedProcessedReports = coordinator.processedReports();
-            observedRejectedReports = coordinator.rejectedReports();
-            observedLateReports = coordinator.lateReports();
-            observedPendingReports = coordinator.pendingReports();
+            synchronized (telemetryMonitor) {
+                observedState = coordinator.state();
+                observedSimulationSecond = coordinator.simulationSecond();
+                observedScheduledReports = coordinator.scheduledReports();
+                observedProcessedReports = coordinator.processedReports();
+                observedRejectedReports = coordinator.rejectedReports();
+                observedLateReports = coordinator.lateReports();
+                coordinator.copyShardMetrics(shardMetrics);
+                observedPendingReports = coordinator.pendingReports();
+            }
         }
 
         private static void preflight(long trackBytes, long positionBytes, long maximumHeap) {

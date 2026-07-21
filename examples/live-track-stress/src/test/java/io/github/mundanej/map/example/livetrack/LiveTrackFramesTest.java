@@ -192,7 +192,9 @@ class LiveTrackFramesTest {
                     LiveTrackCoordinator.State.RUNNING, engine.telemetry(200_000_000_000L).state());
             assertTrue(engine.requestReset(210_000_000_000L));
             assertTrue(engine.awaitIdle(10_000L));
-            assertEquals(0, engine.telemetry(210_000_000_000L).simulationSecond());
+            LiveTrackTelemetry reset = engine.telemetry(210_000_000_000L);
+            assertEquals(0, reset.simulationSecond());
+            assertEquals(0, reset.backlogSeconds());
             assertNull(engine.handoff().frameForPaint(1L, 320, 200, 210_000_000_000L));
         } finally {
             engine.close();
@@ -365,6 +367,46 @@ class LiveTrackFramesTest {
     }
 
     @Test
+    void hundredThousandTrackTierBuildsBoundedDeterministicFrame() {
+        TrackSimulationConfig config = TrackSimulationConfig.reference(100_000, 8);
+        LiveTrackFrameEngine engine = new LiveTrackFrameEngine(config, 0L, ONE_GIBIBYTE);
+        LiveTrackViewport viewport =
+                new LiveTrackViewport(
+                        1L,
+                        MapViewport.fit(
+                                900,
+                                500,
+                                new Envelope(
+                                        -TrackShard.WORLD_X,
+                                        -TrackShard.MAX_Y,
+                                        TrackShard.WORLD_X,
+                                        TrackShard.MAX_Y),
+                                24.0));
+        try {
+            assertTrue(engine.requestVirtual(viewport, 120));
+            assertTrue(engine.awaitIdle(30_000L));
+            BufferedImage image = engine.handoff().frameForPaint(1L, 900, 500, System.nanoTime());
+            assertNotNull(image);
+            LiveTrackTelemetry telemetry = engine.telemetry(System.nanoTime());
+            assertEquals(100_000, telemetry.population());
+            assertEquals(1_200_483L, telemetry.processedReports());
+            assertEquals(100_000L, telemetry.pendingReports());
+            assertEquals(0, telemetry.backlogSeconds());
+            assertEquals(8, telemetry.shards().shardCount());
+            assertTrue(telemetry.shards().reportSkewRatio() >= 1.0);
+            assertTrue(telemetry.shards().workSkewRatio() >= 1.0);
+            assertEquals(11_325_600L, telemetry.logicalTrackBytes());
+            assertEquals(1_600_000L, telemetry.packedPositionBytes());
+            assertEquals(1, telemetry.frames().allocatedBuffers());
+            assertTrue(countTrackPixels(image) > 100_000L);
+        } finally {
+            engine.close();
+        }
+        assertFalse(engine.producerAlive());
+        assertTrue(engine.handoff().isClosed());
+    }
+
+    @Test
     void viewerKeepsNavigationOnTheMapAndClosesEveryOwnedResource() throws Exception {
         LiveTrackViewer.ViewerSession viewer = LiveTrackViewer.startHeadless();
         try {
@@ -383,6 +425,22 @@ class LiveTrackFramesTest {
         assertFalse(viewer.engine().producerAlive());
         assertTrue(viewer.engine().handoff().isClosed());
         assertTrue(viewer.chartClosed());
+    }
+
+    @Test
+    void viewerAcquiresTheHundredThousandTierBeforeStartingTheUi() throws Exception {
+        LiveTrackViewer.ViewerSession viewer = LiveTrackViewer.startHeadless(100_000);
+        try {
+            assertEquals(100_000, viewer.engine().telemetry(System.nanoTime()).population());
+            EventQueue.invokeAndWait(
+                    () -> assertTrue(viewer.telemetryText().contains("State RUNNING")));
+        } finally {
+            viewer.close();
+        }
+        assertTrue(viewer.chartClosed());
+        assertFalse(viewer.engine().producerAlive());
+        assertThrows(
+                IllegalArgumentException.class, () -> LiveTrackViewer.startHeadless(1_000_000));
     }
 
     @Test

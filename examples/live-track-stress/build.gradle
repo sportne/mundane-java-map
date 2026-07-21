@@ -34,3 +34,17 @@ tasks.register('liveTrackSmoke', JavaExec) {
     jvmArgs '-Djava.awt.headless=true'
     timeout = java.time.Duration.ofMinutes(5)
 }
+
+tasks.register('liveTrackScaleProbe', JavaExec) {
+    group = 'verification'
+    description = 'Runs the opt-in 100k live-track profiling probe.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.example.livetrack.LiveTrackScaleProbe'
+    args providers.gradleProperty('liveTrackWorkers').getOrElse('8'),
+            providers.gradleProperty('liveTrackSeconds').getOrElse('120')
+    jvmArgs '-Djava.awt.headless=true'
+    if (providers.gradleProperty('liveTrackJfr').getOrElse('false').toBoolean()) {
+        jvmArgs '-XX:StartFlightRecording=settings=profile,filename=/tmp/mundane-map-g15-006.jfr,dumponexit=true'
+    }
+    timeout = java.time.Duration.ofMinutes(5)
+}

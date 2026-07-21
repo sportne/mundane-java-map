@@ -5,10 +5,12 @@ public final class LiveTrackStress {
     private LiveTrackStress() {}
 
     /**
-     * Opens the 10,000-track live picture by default, the land chart with {@code --chart}, or the
-     * deterministic simulator-only slice with {@code --headless}.
+     * Opens the 10,000-track live picture by default, the 100,000-track tier with {@code
+     * --population=100000}, the land chart with {@code --chart}, or the deterministic
+     * simulator-only slice with {@code --headless}.
      *
-     * @param args no arguments or one of {@code --chart} and {@code --headless}
+     * @param args no arguments or one of {@code --chart}, {@code --headless}, and {@code
+     *     --population=100000}
      */
     public static void main(String[] args) {
         if (args.length == 1 && args[0].equals("--chart")) {
@@ -19,8 +21,13 @@ public final class LiveTrackStress {
             LiveTrackViewer.launch();
             return;
         }
+        if (args.length == 1 && args[0].equals("--population=100000")) {
+            LiveTrackViewer.launch(100_000);
+            return;
+        }
         if (args.length != 1 || !args[0].equals("--headless")) {
-            throw new IllegalArgumentException("Usage: live-track-stress [--chart|--headless]");
+            throw new IllegalArgumentException(
+                    "Usage: live-track-stress [--chart|--headless|--population=100000]");
         }
         int population = 10_000;
         int workers = TrackSimulationConfig.defaultWorkers(population);

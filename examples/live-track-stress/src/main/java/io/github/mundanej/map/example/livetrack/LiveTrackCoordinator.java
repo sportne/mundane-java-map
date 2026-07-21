@@ -277,6 +277,29 @@ final class LiveTrackCoordinator implements AutoCloseable {
         return sum(TrackShard::lateReports);
     }
 
+    synchronized void copyShardMetrics(long[] target) {
+        requireQuiescentRead();
+        if (target.length < 4) {
+            throw new IllegalArgumentException("shard metrics target needs four entries");
+        }
+        long minimumReports = Long.MAX_VALUE;
+        long maximumReports = 0L;
+        long minimumWork = Long.MAX_VALUE;
+        long maximumWork = 0L;
+        for (int index = 0; index < shards.length; index++) {
+            long reports = shards[index].processedReports();
+            minimumReports = Math.min(minimumReports, reports);
+            maximumReports = Math.max(maximumReports, reports);
+            long work = workers == null ? 0L : workers[index].workNanos();
+            minimumWork = Math.min(minimumWork, work);
+            maximumWork = Math.max(maximumWork, work);
+        }
+        target[0] = minimumReports == Long.MAX_VALUE ? 0L : minimumReports;
+        target[1] = maximumReports;
+        target[2] = minimumWork == Long.MAX_VALUE ? 0L : minimumWork;
+        target[3] = maximumWork;
+    }
+
     synchronized long checksum() {
         requireQuiescentRead();
         long value = 1L;
@@ -492,6 +515,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
         private int completedSecond;
         private boolean stop;
         private boolean failNextRequest;
+        private long workNanos;
 
         ShardWorker(
                 int index,
@@ -562,6 +586,12 @@ final class LiveTrackCoordinator implements AutoCloseable {
             return thread.isAlive();
         }
 
+        long workNanos() {
+            synchronized (monitor) {
+                return workNanos;
+            }
+        }
+
         @Override
         public void run() {
             try {
@@ -582,12 +612,19 @@ final class LiveTrackCoordinator implements AutoCloseable {
                         target = requestedSecond;
                         lateBefore = lateBeforeSecond;
                     }
-                    while (completedSecond < target) {
-                        int nextSecond = completedSecond + 1;
-                        shard.advanceSecond(nextSecond, nextSecond < lateBefore);
+                    long workStarted = System.nanoTime();
+                    try {
+                        while (completedSecond < target) {
+                            int nextSecond = completedSecond + 1;
+                            shard.advanceSecond(nextSecond, nextSecond < lateBefore);
+                            synchronized (monitor) {
+                                completedSecond++;
+                                monitor.notifyAll();
+                            }
+                        }
+                    } finally {
                         synchronized (monitor) {
-                            completedSecond++;
-                            monitor.notifyAll();
+                            workNanos = Math.addExact(workNanos, System.nanoTime() - workStarted);
                         }
                     }
                 }

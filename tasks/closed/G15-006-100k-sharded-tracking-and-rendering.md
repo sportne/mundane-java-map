@@ -1,6 +1,6 @@
 # G15-006 — 100k sharded tracking and rendering
 
-Status: Proposed
+Status: Complete
 Depends on: G15-005
 Gate: G15
 Type: AFK

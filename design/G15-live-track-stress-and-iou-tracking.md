@@ -19,11 +19,12 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 through G15-005 are approved. The decision freezes the mathematical,
+G15-001 through G15-006 are approved. The decision freezes the mathematical,
 provenance, workload, storage, lifecycle, rendering, and evidence profile below; the first two
 implementation slices prove the packed estimator and deterministic simulator, G15-004 proves the
-real chart path, and G15-005 joins them in the first live 10k picture. G15-006 through G15-008 remain Proposed until their working vertical slices
-pass review. No completed task creates a production API or module.
+real chart path, G15-005 joins them in the first live 10k picture, and G15-006 measures and tunes the
+100k sharded tier. G15-007 through G15-008 remain Proposed until their working vertical slices pass
+review. No completed task creates a production API or module.
 
 ## Research and provenance boundary
 
@@ -470,6 +471,16 @@ not emitted.
 - G15-006 scales the same behavior to 100k using measured sharding and packed frame construction.
 - G15-007 enables the 1m tier and creates the opt-in evidence/report lane.
 - G15-008 hardens lifecycle, overload, replay, documentation, and holistic simplicity.
+
+G15-006 implements the 100k tier without changing its truth, report, filter, or frame semantics.
+Stable one- and eight-shard runs reproduce the same outcome, while environment-labelled 1/2/4/8
+measurements retain the existing eight-worker cap as the default. Telemetry exposes report/work skew,
+bounded backlog, logical storage, and frame ownership. The 60 integer report transitions and the at
+most 61 display-age transitions per shard/frame are cached in small shard-owned primitive arrays;
+Box-Muller pairs reuse their shared radius. These changes preserve the frozen strict formula and
+remove measured redundant work without work stealing, auto-tuning, or a public abstraction. The
+named before/after evidence and `/tmp` JFR workflow are recorded in
+[`examples/live-track-stress/G15-006-PROFILE.md`](../examples/live-track-stress/G15-006-PROFILE.md).
 
 G15-002/G15-003 and G15-004 are dependency-parallel after G15-001, but all touch the example
 registration eventually; one integration owner must serialize shared Gradle/settings, design index,

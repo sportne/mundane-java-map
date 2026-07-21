@@ -5,6 +5,7 @@ import java.util.Arrays;
 final class PackedIouKalmanFilter {
     private static final int MAX_TRACKS = 1_000_000;
     private static final double MAX_PREDICTION_SECONDS = 60.0;
+    private static final int COEFFICIENT_COUNT = 5;
 
     private final IouKalmanConfig config;
     private final double[] x;
@@ -16,7 +17,9 @@ final class PackedIouKalmanFilter {
     private final double[] velocityVariance;
     private final long[] timestampSeconds;
     private final boolean[] initialized;
-    private final double[] coefficients = new double[5];
+    private final double[] integerCoefficients = new double[60 * COEFFICIENT_COUNT];
+    private final double[] displayCoefficients = new double[COEFFICIENT_COUNT];
+    private final double[] displayTransitions = new double[61];
     private long acceptedReports;
     private long rejectedReports;
 
@@ -34,6 +37,16 @@ final class PackedIouKalmanFilter {
         velocityVariance = new double[trackCount];
         timestampSeconds = new long[trackCount];
         initialized = new boolean[trackCount];
+        for (int delta = 1; delta <= 60; delta++) {
+            IouModel.coefficients(config, delta, displayCoefficients);
+            System.arraycopy(
+                    displayCoefficients,
+                    0,
+                    integerCoefficients,
+                    (delta - 1) * COEFFICIENT_COUNT,
+                    COEFFICIENT_COUNT);
+        }
+        Arrays.fill(displayCoefficients, 0.0);
     }
 
     int trackCount() {
@@ -77,17 +90,22 @@ final class PackedIouKalmanFilter {
             return false;
         }
 
-        IouModel.coefficients(config, (double) delta, coefficients);
-        double a = coefficients[IouModel.A];
-        double e = coefficients[IouModel.E];
+        int coefficientOffset = Math.toIntExact((delta - 1L) * COEFFICIENT_COUNT);
+        double a = integerCoefficients[coefficientOffset + IouModel.A];
+        double e = integerCoefficients[coefficientOffset + IouModel.E];
         double predictedX = x[track] + a * velocityX[track];
         double predictedY = y[track] + a * velocityY[track];
         double p00 = positionVariance[track];
         double p01 = positionVelocityCovariance[track];
         double p11 = velocityVariance[track];
-        double predictedP00 = p00 + 2.0 * a * p01 + a * a * p11 + coefficients[IouModel.Q00];
-        double predictedP01 = e * p01 + a * e * p11 + coefficients[IouModel.Q01];
-        double predictedP11 = e * e * p11 + coefficients[IouModel.Q11];
+        double predictedP00 =
+                p00
+                        + 2.0 * a * p01
+                        + a * a * p11
+                        + integerCoefficients[coefficientOffset + IouModel.Q00];
+        double predictedP01 =
+                e * p01 + a * e * p11 + integerCoefficients[coefficientOffset + IouModel.Q01];
+        double predictedP11 = e * e * p11 + integerCoefficients[coefficientOffset + IouModel.Q11];
 
         double innovationVariance = predictedP00 + config.measurementVariance();
         double positionGain = predictedP00 / innovationVariance;
@@ -139,19 +157,45 @@ final class PackedIouKalmanFilter {
         return y[track] + transitionForDisplay(track, displayTimestampSeconds) * velocityY[track];
     }
 
+    void copyDisplayPositions(
+            double displayTimestampSeconds, double[] positionsX, double[] positionsY, int offset) {
+        if (!Double.isFinite(displayTimestampSeconds)) {
+            throw new IllegalArgumentException("display time must be finite");
+        }
+        if (offset < 0
+                || offset + trackCount() > positionsX.length
+                || offset + trackCount() > positionsY.length) {
+            throw new IndexOutOfBoundsException("offset");
+        }
+        prepareDisplayTransitions(displayTimestampSeconds);
+        long wholeSecond = (long) StrictMath.floor(displayTimestampSeconds);
+        for (int track = 0; track < trackCount(); track++) {
+            checkInitializedTrack(track);
+            long age = wholeSecond - timestampSeconds[track];
+            double delta = displayTimestampSeconds - timestampSeconds[track];
+            if (age < 0L || age >= displayTransitions.length || delta < 0.0 || delta > 60.0) {
+                throw new IllegalArgumentException(
+                        "display time is outside [state time, state time + 60]");
+            }
+            double transition = displayTransitions[(int) age];
+            positionsX[offset + track] = x[track] + transition * velocityX[track];
+            positionsY[offset + track] = y[track] + transition * velocityY[track];
+        }
+    }
+
     double innovationVariance(int track, double measurementTimestampSeconds) {
         checkDisplayTime(track, measurementTimestampSeconds);
         double delta = measurementTimestampSeconds - timestampSeconds[track];
         if (delta == 0.0) {
             return positionVariance[track] + config.measurementVariance();
         }
-        IouModel.coefficients(config, delta, coefficients);
-        double a = coefficients[IouModel.A];
+        IouModel.coefficients(config, delta, displayCoefficients);
+        double a = displayCoefficients[IouModel.A];
         double predictedP00 =
                 positionVariance[track]
                         + 2.0 * a * positionVelocityCovariance[track]
                         + a * a * velocityVariance[track]
-                        + coefficients[IouModel.Q00];
+                        + displayCoefficients[IouModel.Q00];
         return predictedP00 + config.measurementVariance();
     }
 
@@ -206,7 +250,11 @@ final class PackedIouKalmanFilter {
     long logicalBytes() {
         return Math.addExact(
                 Math.multiplyExact((long) trackCount(), 7L * Double.BYTES + Long.BYTES + 1L),
-                (long) coefficients.length * Double.BYTES);
+                Math.multiplyExact(
+                        (long) integerCoefficients.length
+                                + displayCoefficients.length
+                                + displayTransitions.length,
+                        Double.BYTES));
     }
 
     void reset() {
@@ -219,7 +267,8 @@ final class PackedIouKalmanFilter {
         Arrays.fill(velocityVariance, 0.0);
         Arrays.fill(timestampSeconds, 0L);
         Arrays.fill(initialized, false);
-        Arrays.fill(coefficients, 0.0);
+        Arrays.fill(displayCoefficients, 0.0);
+        Arrays.fill(displayTransitions, 0.0);
         acceptedReports = 0L;
         rejectedReports = 0L;
     }
@@ -229,8 +278,27 @@ final class PackedIouKalmanFilter {
         if (delta == 0.0) {
             return 0.0;
         }
-        IouModel.coefficients(config, delta, coefficients);
-        return coefficients[IouModel.A];
+        int integerDelta = (int) delta;
+        if (Double.doubleToLongBits(delta) == Double.doubleToLongBits((double) integerDelta)) {
+            return integerCoefficients[(integerDelta - 1) * COEFFICIENT_COUNT + IouModel.A];
+        }
+        IouModel.coefficients(config, delta, displayCoefficients);
+        return displayCoefficients[IouModel.A];
+    }
+
+    private void prepareDisplayTransitions(double displayTimestampSeconds) {
+        double fraction = displayTimestampSeconds - StrictMath.floor(displayTimestampSeconds);
+        for (int age = 0; age < displayTransitions.length; age++) {
+            double delta = age + fraction;
+            if (delta == 0.0) {
+                displayTransitions[age] = 0.0;
+            } else if (delta <= MAX_PREDICTION_SECONDS) {
+                IouModel.coefficients(config, delta, displayCoefficients);
+                displayTransitions[age] = displayCoefficients[IouModel.A];
+            } else {
+                displayTransitions[age] = Double.NaN;
+            }
+        }
     }
 
     private void checkDisplayTime(int track, double displayTimestampSeconds) {
