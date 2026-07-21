@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
+/** Complete versioned evidence record with dependency-free JSON and Markdown renderings. */
 record LiveTrackEvidenceReport(
         String runId,
         String profile,

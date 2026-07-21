@@ -1,5 +1,6 @@
 package io.github.mundanej.map.example.livetrack;
 
+/** Validated scalar parameters shared by every estimator in one run. */
 record IouKalmanConfig(double beta, double sigma, double measurementStandardDeviation) {
     static final IouKalmanConfig REFERENCE = new IouKalmanConfig(0.05, 20.0, 5_000.0);
 

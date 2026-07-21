@@ -410,6 +410,17 @@ class TrackSimulatorTest {
     }
 
     @Test
+    void boundedLongRunReplayIsExactAndRetainsOneScheduledReportPerTrack() {
+        long[] first = longRunSummary();
+        long[] replay = longRunSummary();
+        assertTrue(Arrays.equals(first, replay));
+        assertTrue(first[1] > 3_000_000L);
+        assertEquals(10_000L, first[2]);
+        assertTrue(first[3] <= 192L * 10_000L);
+        assertTrue(first[4] <= 8L * 10_000L);
+    }
+
+    @Test
     void validatesPopulationAndWorkerLimits() {
         assertThrows(IllegalArgumentException.class, () -> TrackSimulationConfig.reference(0, 1));
         assertThrows(IllegalArgumentException.class, () -> TrackSimulationConfig.reference(10, 0));
@@ -435,5 +446,24 @@ class TrackSimulatorTest {
             Thread.onSpinWait();
         }
         assertTrue(coordinator.isAdvancing(), "advance did not become active before timeout");
+    }
+
+    private static long[] longRunSummary() {
+        try (LiveTrackCoordinator coordinator =
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(10_000, 8))) {
+            coordinator.start(0L);
+            coordinator.advanceTo(3_600);
+            assertEquals(0L, coordinator.rejectedReports());
+            assertEquals(
+                    coordinator.scheduledReports(),
+                    coordinator.processedReports() + coordinator.pendingReports());
+            return new long[] {
+                coordinator.checksum(),
+                coordinator.processedReports(),
+                coordinator.pendingReports(),
+                coordinator.logicalBytes(),
+                coordinator.largestAllocation()
+            };
+        }
     }
 }

@@ -1,6 +1,6 @@
 # G15-008 — Live-track hardening and closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G15-007
 Gate: G15
 Type: HITL

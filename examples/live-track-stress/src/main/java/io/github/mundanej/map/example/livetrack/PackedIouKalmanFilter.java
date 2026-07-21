@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.livetrack;
 
 import java.util.Arrays;
 
+/** Structure-of-arrays forward IOU-Kalman Filter state estimator for one shard. */
 final class PackedIouKalmanFilter {
     private static final int MAX_TRACKS = 1_000_000;
     private static final double MAX_PREDICTION_SECONDS = 60.0;

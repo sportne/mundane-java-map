@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.livetrack;
 
 import java.util.Arrays;
 
+/** Owns one contiguous track range, its timing wheel, truth state, and packed estimator. */
 final class TrackShard {
     static final double WORLD_X = 20_037_508.342789244;
     static final double MAX_Y = 15_538_711.09630922;

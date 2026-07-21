@@ -3,6 +3,7 @@ package io.github.mundanej.map.example.livetrack;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
+/** Owns stable simulator shards and coordinates deterministic virtual or real-time advancement. */
 final class LiveTrackCoordinator implements AutoCloseable {
     private static final int MAX_SIMULATION_SECOND = Integer.MAX_VALUE - 60;
 

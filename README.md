@@ -155,7 +155,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Eleven independent examples consume the published APIs without copying parsers or renderers:
+Thirteen independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -169,12 +169,16 @@ Eleven independent examples consume the published APIs without copying parsers o
 ./gradlew :examples:point-edit-viewer:run
 ./gradlew :examples:styling-label-viewer:run
 ./gradlew :examples:workspace-viewer:run
+./gradlew :examples:vector-export:run
+./gradlew :examples:live-track-stress:run --args='--population=1000000'
 ```
 
 The basic, symbol, measurement, elevation, editing, styling, and workspace examples are deterministic
 no-argument demonstrations. The format viewers are real file consumers, apply their modules' limits,
 present structured diagnostics under fixed non-path source identities, and transfer or retain source
-ownership according to their documented view/session lifecycle.
+ownership according to their documented view/session lifecycle. The
+[live-track stress example](examples/live-track-stress/README.md) is a JVM-only packed simulation,
+estimation, rendering, and evidence workload rather than a public tracking API.
 
 ## Design and roadmap
 

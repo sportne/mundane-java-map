@@ -19,12 +19,13 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 through G15-007 are approved. The decision freezes the mathematical,
+G15-001 through G15-008 and the holistic closeout are approved. The decision freezes the mathematical,
 provenance, workload, storage, lifecycle, rendering, and evidence profile below; the first two
 implementation slices prove the packed estimator and deterministic simulator, G15-004 proves the
 real chart path, G15-005 joins them in the first live 10k picture, and G15-006 measures and tunes the
-100k sharded tier, and G15-007 proves the complete 1m evidence path. G15-008 remains Proposed until
-its hardening and closeout slice passes review. No completed task creates a production API or module.
+100k sharded tier, G15-007 proves the complete 1m evidence path, and G15-008 closes lifecycle,
+replay, soak, documentation, and simplicity evidence. No completed task creates a production API or
+module.
 
 ## Research and provenance boundary
 
@@ -492,6 +493,22 @@ is summarized in
 [`examples/live-track-stress/G15-007-EVIDENCE.md`](../examples/live-track-stress/G15-007-EVIDENCE.md).
 It met the cap at all three tiers and processed approximately 100,000 reports/second at 1m on that
 machine. This is descriptive JVM evidence, not a portable performance or operational-accuracy claim.
+
+G15-008 closes the gate without widening the architecture. Direct failure injection now proves a
+worker failure becomes a visible terminal engine state, rejects later demand, cancels the active
+frame, and releases every worker and buffer. Seeded one-hour virtual replays agree exactly, while a
+resize-varying one-hour frame soak retains fixed logical storage, the three-buffer ceiling, report
+conservation, and complete cleanup. The example README records controls, equations/provenance,
+coordinate and accuracy limits, resource bounds, evidence commands, `/tmp` behavior, and JVM-only
+support wording.
+
+Holistic simplicity review: the packed estimator, timing wheel, shard workers, detached overlay,
+and evidence records still have exactly one consumer and intentionally coupled stress semantics.
+Keeping them beside the example is simpler than introducing a generic live source, tracker,
+scheduler, or dense-rendering API. The example continues to reuse the public map, shapefile, CRS,
+viewport, and interaction boundaries without leaking its mutable arrays or threads. A public
+abstraction remains deferred until a second independent consumer demonstrates the smaller common
+contract.
 
 G15-002/G15-003 and G15-004 are dependency-parallel after G15-001, but all touch the example
 registration eventually; one integration owner must serialize shared Gradle/settings, design index,

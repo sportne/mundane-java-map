@@ -1,5 +1,6 @@
 package io.github.mundanej.map.example.livetrack;
 
+/** Counter-derived deterministic uniform, Gaussian, and report-interval draws. */
 final class DeterministicDraws {
     static final long SCHEDULE_TAG = 0x5343484544554c45L;
     static final long TRUTH_TAG = 0x54525554484d4f54L;

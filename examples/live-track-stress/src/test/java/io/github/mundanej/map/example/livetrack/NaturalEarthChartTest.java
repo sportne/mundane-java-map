@@ -183,10 +183,37 @@ class NaturalEarthChartTest {
                 assertThrows(
                         IllegalArgumentException.class,
                         () -> LiveTrackStress.main(new String[] {"--unknown"}));
-        assertEquals(
-                "Usage: live-track-stress "
-                        + "[--chart|--headless|--population=100000|--population=1000000]",
-                failure.getMessage());
+        assertEquals(LiveTrackStress.USAGE, failure.getMessage());
+    }
+
+    @Test
+    void commandLineConfigurationIsValidatedBeforeViewerAllocation() {
+        LiveTrackViewer.ViewerConfiguration configuration =
+                LiveTrackStress.parseViewerConfiguration(
+                        new String[] {
+                            "--population=1000000",
+                            "--seed=0x1234",
+                            "--workers=4",
+                            "--report-profile=reference",
+                            "--fps=30"
+                        });
+        assertEquals(1_000_000, configuration.simulation().population());
+        assertEquals(0x1234L, configuration.simulation().seed());
+        assertEquals(4, configuration.simulation().workers());
+        assertEquals("reference", configuration.reportProfile());
+        assertEquals(30, configuration.fpsCap());
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LiveTrackStress.parseViewerConfiguration(new String[] {"--workers=33"}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        LiveTrackStress.parseViewerConfiguration(
+                                new String[] {"--report-profile=unknown"}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> LiveTrackStress.parseViewerConfiguration(new String[] {"--fps=20"}));
     }
 
     private static InputStream classpath(String name) throws IOException {

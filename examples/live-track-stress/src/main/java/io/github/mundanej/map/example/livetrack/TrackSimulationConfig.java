@@ -1,5 +1,6 @@
 package io.github.mundanej.map.example.livetrack;
 
+/** Immutable bounded configuration for one deterministic simulated track population. */
 record TrackSimulationConfig(int population, long seed, int workers, IouKalmanConfig filterConfig) {
     static final long REFERENCE_SEED = 0x4d554e44414e454cL;
 

@@ -602,6 +602,11 @@ separately decomposed.
   portable pass/fail threshold. The elevated large-population innovation summaries reflect the
   intentionally simple Cartesian estimator encountering global wrap/reflection discontinuities;
   they are retained evidence and do not support an operational-accuracy claim.
+- Complete G15-008 closes deterministic worker-failure, cancellation, pause/reset, resize/stale,
+  concurrent shutdown, replay, and one-hour virtual soak evidence. The reviewed viewer/report
+  documentation preserves the JVM-only, non-operational support boundary. The holistic closeout
+  keeps all estimator, scheduler, packed overlay, and evidence types inside the example because no
+  second consumer justifies a public live-source or tracking framework.
 - G15-002/G15-003 estimator/simulator work may proceed in parallel with G15-004 chart work after the
   G15-001 decision. G15-005 through G15-008 then deliver the 10k picture, evidence-guided 100k scale,
   1m reports, and lifecycle/simplicity closeout.

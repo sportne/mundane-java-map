@@ -33,29 +33,37 @@ final class LiveTrackViewer {
     private LiveTrackViewer() {}
 
     static void launch() {
-        launch(10_000);
+        launch(ViewerConfiguration.reference(10_000));
     }
 
     static void launch(int population) {
+        launch(ViewerConfiguration.reference(population));
+    }
+
+    static void launch(ViewerConfiguration configuration) {
         if (EventQueue.isDispatchThread()) {
             throw new IllegalStateException("live-track loading must run off the event thread");
         }
-        requireViewerPopulation(population);
-        int workers = TrackSimulationConfig.defaultWorkers(population);
+        Objects.requireNonNull(configuration, "configuration");
+        requireViewerPopulation(configuration.simulation().population());
         ViewerResources resources =
                 acquire(
                         () -> NaturalEarthChart.startHeadless(System.err::println),
                         () ->
                                 new LiveTrackFrameEngine(
-                                        TrackSimulationConfig.reference(population, workers),
-                                        System.nanoTime()));
+                                        configuration.simulation(), System.nanoTime()));
         NaturalEarthChart.ChartSession chart = resources.chart();
         LiveTrackFrameEngine engine = resources.engine();
         try {
             EventQueue.invokeLater(
                     () -> {
                         try {
-                            start(chart, engine, true);
+                            start(
+                                    chart,
+                                    engine,
+                                    true,
+                                    configuration.fpsCap(),
+                                    configuration.reportProfile());
                         } catch (RuntimeException | Error failure) {
                             Thread cleanup =
                                     new Thread(
@@ -80,28 +88,38 @@ final class LiveTrackViewer {
     }
 
     static ViewerSession startHeadless() {
-        return startHeadless(10_000);
+        return startHeadless(ViewerConfiguration.reference(10_000));
     }
 
     static ViewerSession startHeadless(int population) {
+        return startHeadless(ViewerConfiguration.reference(population));
+    }
+
+    static ViewerSession startHeadless(ViewerConfiguration configuration) {
         if (EventQueue.isDispatchThread()) {
             throw new IllegalStateException("live-track loading must run off the event thread");
         }
-        requireViewerPopulation(population);
+        Objects.requireNonNull(configuration, "configuration");
+        requireViewerPopulation(configuration.simulation().population());
         ViewerResources resources =
                 acquire(
                         NaturalEarthChart::startHeadless,
                         () ->
                                 new LiveTrackFrameEngine(
-                                        TrackSimulationConfig.reference(
-                                                population,
-                                                TrackSimulationConfig.defaultWorkers(population)),
-                                        System.nanoTime()));
+                                        configuration.simulation(), System.nanoTime()));
         NaturalEarthChart.ChartSession chart = resources.chart();
         LiveTrackFrameEngine engine = resources.engine();
         try {
             ViewerSession[] result = new ViewerSession[1];
-            EventQueue.invokeAndWait(() -> result[0] = start(chart, engine, false));
+            EventQueue.invokeAndWait(
+                    () ->
+                            result[0] =
+                                    start(
+                                            chart,
+                                            engine,
+                                            false,
+                                            configuration.fpsCap(),
+                                            configuration.reportProfile()));
             return Objects.requireNonNull(result[0]);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
@@ -155,17 +173,49 @@ final class LiveTrackViewer {
         }
     }
 
+    record ViewerConfiguration(TrackSimulationConfig simulation, int fpsCap, String reportProfile) {
+        ViewerConfiguration {
+            Objects.requireNonNull(simulation, "simulation");
+            Objects.requireNonNull(reportProfile, "reportProfile");
+            requireViewerPopulation(simulation.population());
+            if (fpsCap != 0
+                    && fpsCap != 1
+                    && fpsCap != 2
+                    && fpsCap != 5
+                    && fpsCap != 10
+                    && fpsCap != 15
+                    && fpsCap != 30
+                    && fpsCap != 60) {
+                throw new IllegalArgumentException("fps cap is outside the approved set");
+            }
+            if (!reportProfile.equals("reference")) {
+                throw new IllegalArgumentException("unsupported report profile");
+            }
+        }
+
+        static ViewerConfiguration reference(int population) {
+            return new ViewerConfiguration(
+                    TrackSimulationConfig.reference(
+                            population, TrackSimulationConfig.defaultWorkers(population)),
+                    DEFAULT_FPS,
+                    "reference");
+        }
+    }
+
     private static ViewerSession start(
             NaturalEarthChart.ChartSession chart,
             LiveTrackFrameEngine engine,
-            boolean installWindow) {
+            boolean installWindow,
+            int initialFps,
+            String reportProfile) {
         if (!EventQueue.isDispatchThread()) {
             throw new IllegalStateException("live-track viewer must start on the event thread");
         }
         MapView map = chart.view();
         LiveTrackOverlay overlay = new LiveTrackOverlay(engine.handoff());
         MapStack stack = new MapStack(map, overlay);
-        ViewerControls controls = new ViewerControls(map, overlay, engine);
+        ViewerControls controls =
+                new ViewerControls(map, overlay, engine, initialFps, reportProfile);
         JPanel content = new JPanel(new BorderLayout());
         content.add(controls.toolbar(), BorderLayout.NORTH);
         content.add(stack, BorderLayout.CENTER);
@@ -197,7 +247,7 @@ final class LiveTrackViewer {
         return session;
     }
 
-    private static void requireViewerPopulation(int population) {
+    static void requireViewerPopulation(int population) {
         if (population != 10_000 && population != 100_000 && population != 1_000_000) {
             throw new IllegalArgumentException(
                     "viewer population must be 10000, 100000, or 1000000");
@@ -253,6 +303,14 @@ final class LiveTrackViewer {
 
         String telemetryText() {
             return controls.telemetryLabel().getText();
+        }
+
+        String configurationText() {
+            return controls.configurationText();
+        }
+
+        int fpsCap() {
+            return controls.fpsCap();
         }
 
         boolean chartClosed() {
@@ -350,32 +408,46 @@ final class LiveTrackViewer {
         private final JPanel toolbar = new JPanel();
         private final JLabel telemetry = new JLabel("Starting live picture…");
         private final JButton pause = new JButton("Pause");
-        private final LiveTrackFramePacer pacer = new LiveTrackFramePacer(DEFAULT_FPS);
+        private final LiveTrackFramePacer pacer;
+        private final String configurationText;
         private final Timer frameTimer;
         private final Timer telemetryTimer;
         private MapViewport lastViewport;
         private long generation;
         private long lastCompleted;
 
-        ViewerControls(MapView map, LiveTrackOverlay overlay, LiveTrackFrameEngine engine) {
+        ViewerControls(
+                MapView map,
+                LiveTrackOverlay overlay,
+                LiveTrackFrameEngine engine,
+                int initialFps,
+                String reportProfile) {
             this.map = map;
             this.overlay = overlay;
             this.engine = engine;
+            pacer = new LiveTrackFramePacer(initialFps);
+            configurationText =
+                    String.format(
+                            Locale.ROOT,
+                            "Population: %,d Seed: 0x%s Workers: %d Reports: %s",
+                            engine.configuration().population(),
+                            Long.toHexString(engine.configuration().seed()),
+                            engine.configuration().workers(),
+                            reportProfile);
             toolbar.add(
                     new JLabel(
                             String.format(
                                     Locale.ROOT,
                                     "Population: %,d",
                                     engine.telemetry(System.nanoTime()).population())));
-            toolbar.add(
-                    new JLabel(
-                            " Seed: 0x" + Long.toHexString(TrackSimulationConfig.REFERENCE_SEED)));
+            toolbar.add(new JLabel(" Seed: 0x" + Long.toHexString(engine.configuration().seed())));
             toolbar.add(new JLabel(" Workers: " + engine.telemetry(System.nanoTime()).workers()));
+            toolbar.add(new JLabel(" Reports: " + reportProfile));
             toolbar.add(new JLabel(" Max FPS:"));
             JComboBox<String> fps =
                     new JComboBox<>(
                             new String[] {"1", "2", "5", "10", "15", "30", "60", "Uncapped"});
-            fps.setSelectedItem("10");
+            fps.setSelectedItem(initialFps == 0 ? "Uncapped" : Integer.toString(initialFps));
             fps.addActionListener(
                     ignored -> {
                         String selected = Objects.requireNonNull((String) fps.getSelectedItem());
@@ -402,6 +474,14 @@ final class LiveTrackViewer {
 
         JLabel telemetryLabel() {
             return telemetry;
+        }
+
+        String configurationText() {
+            return configurationText;
+        }
+
+        int fpsCap() {
+            return pacer.cap();
         }
 
         void start() {

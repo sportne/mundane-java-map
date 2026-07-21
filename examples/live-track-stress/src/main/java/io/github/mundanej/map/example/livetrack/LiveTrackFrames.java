@@ -8,6 +8,7 @@ import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Objects;
 
+/** Bounded packed-position rendering, frame ownership, pacing, and telemetry support. */
 final class LiveTrackFrames {
     private LiveTrackFrames() {}
 
@@ -182,6 +183,10 @@ final class LiveTrackFrames {
 
         LiveTrackFrameHandoff handoff() {
             return handoff;
+        }
+
+        TrackSimulationConfig configuration() {
+            return config;
         }
 
         long largestPositionAllocationBytes() {

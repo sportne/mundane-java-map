@@ -360,4 +360,4 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G15-005 — First 10k live-picture slice](closed/G15-005-first-10k-live-picture-slice.md) | Complete | HITL | G15-003, G15-004 | Displays 10k filtered tracks with bounded frame pacing, telemetry, and a fast smoke lane. |
 | [G15-006 — 100k sharded tracking and rendering](closed/G15-006-100k-sharded-tracking-and-rendering.md) | Complete | AFK | G15-005 | Scales the same deterministic behavior to 100k using measured packed sharding. |
 | [G15-007 — Million-track stress and evidence lane](closed/G15-007-million-track-stress-and-evidence-lane.md) | Complete | HITL | G15-006 | Runs the 1m tier and produces JSON/Markdown evidence for all three populations. |
-| [G15-008 — Live-track hardening and closeout](G15-008-live-track-hardening-and-closeout.md) | Proposed | HITL | G15-007 | Close lifecycle, overload, replay, documentation, visual, and simplicity evidence. |
+| [G15-008 — Live-track hardening and closeout](closed/G15-008-live-track-hardening-and-closeout.md) | Complete | HITL | G15-007 | Closes lifecycle, overload, replay, documentation, visual, and simplicity evidence. |

@@ -63,7 +63,7 @@ design task; there are no empty speculative design files.
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 through G12-006 draft proposal |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
-| G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-007 approved; G15-008 proposed |
+| G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -84,9 +84,9 @@ Live-stress decision record (2026-07-21): G15-001 approves an example-local, dep
 profile using an independently implemented forward IOU-Kalman state estimator derived from public
 equations, individually simulated tracks, deterministic `[1 s, 60 s]` report intervals,
 10k/100k/1m tiers, bounded packed execution, a capped/measured frame rate, and Natural Earth 4.1.0
-land-chart provenance. G15-002 through G15-007 now prove the packed estimator, deterministic
-simulator, provenance-verified global chart, 10k live picture, evidence-led 100k tier, and complete
-1m evidence lane; G15-008 remains Proposed. The profile deliberately separates a
+land-chart provenance. G15-002 through G15-008 now prove the packed estimator, deterministic
+simulator, provenance-verified global chart, 10k live picture, evidence-led 100k tier, complete 1m
+evidence lane, and lifecycle/replay/soak closeout. The profile deliberately separates a
 sub-five-minute 10k smoke from opt-in `/tmp` evidence and does not approve a public tracker/live-layer
 API, proprietary-equivalence claim, operational claim, or portable FPS threshold.
 
@@ -271,4 +271,5 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G15-005 | Non-intercepting packed frame overlay, capped EDT pacing, telemetry, 10k live picture, and fast smoke lane | Approved |
 | G15-006 | Evidence-led 100k sharding, packed projection/composition, allocation bounds, and 10k regression | Approved |
 | G15-007 | Preflighted 1m tier, opt-in `/tmp` evidence lane, JSON/Markdown reports, and named-machine interpretation | Approved |
-| G15-008 | Failure/lifecycle/replay/soak hardening, documentation, visual approval, and G15 simplicity closeout | Draft |
+| G15-008 | Failure/lifecycle/replay/soak hardening, documentation, visual approval, and G15 simplicity closeout | Approved |
+| G15 holistic closeout | Keep the packed estimator, scheduler, frame overlay, and evidence harness example-local; no public live-source or tracking framework without a second consumer | Approved |

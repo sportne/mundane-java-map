@@ -95,6 +95,29 @@ class LiveTrackFramesTest {
         assertNull(handoff.frameForPaint(3L, 8, 6, 10_200_000_000L));
         assertEquals(1L, handoff.metrics(10_200_000_000L).staleDiscards());
 
+        LiveTrackViewport oldSize = new LiveTrackViewport(4L, new MapViewport(8, 6, 0.0, 0.0, 1.0));
+        assertTrue(handoff.beginRequest());
+        FrameBuffer oldSizeBuffer = handoff.acquireProducerBuffer(oldSize);
+        handoff.publish(oldSizeBuffer, oldSize, 13, 100, 40L);
+        assertNull(handoff.frameForPaint(4L, 10, 5, 10_300_000_000L));
+        assertEquals(2L, handoff.metrics(10_300_000_000L).staleDiscards());
+
+        LiveTrackViewport resized =
+                new LiveTrackViewport(4L, new MapViewport(10, 5, 0.0, 0.0, 1.0));
+        assertTrue(handoff.beginRequest());
+        FrameBuffer resizedBuffer = handoff.acquireProducerBuffer(resized);
+        handoff.publish(resizedBuffer, resized, 14, 100, 50L);
+        assertNotNull(handoff.frameForPaint(4L, 10, 5, 10_400_000_000L));
+        assertNull(handoff.frameForPaint(4L, 12, 7, 10_500_000_000L));
+
+        LiveTrackViewport finalSize =
+                new LiveTrackViewport(4L, new MapViewport(12, 7, 0.0, 0.0, 1.0));
+        assertTrue(handoff.beginRequest());
+        FrameBuffer finalBuffer = handoff.acquireProducerBuffer(finalSize);
+        handoff.publish(finalBuffer, finalSize, 15, 100, 60L);
+        assertNotNull(handoff.frameForPaint(4L, 12, 7, 10_600_000_000L));
+        assertEquals(1, handoff.metrics(10_600_000_000L).allocatedBuffers());
+
         handoff.close();
         assertTrue(handoff.isClosed());
         assertEquals(0, handoff.metrics(10_200_000_000L).allocatedBuffers());
@@ -407,6 +430,87 @@ class LiveTrackFramesTest {
     }
 
     @Test
+    void virtualHourSoakKeepsFrameAndLogicalStorageBoundedAcrossResizes() {
+        TrackSimulationConfig config = TrackSimulationConfig.reference(10_000, 8);
+        LiveTrackFrameEngine engine = new LiveTrackFrameEngine(config, 0L, ONE_GIBIBYTE);
+        long logicalBytes = engine.telemetry(0L).logicalTrackBytes();
+        try {
+            for (int second = 0; second <= 3_600; second += 60) {
+                int width = second % 120 == 0 ? 320 : 480;
+                int height = second % 120 == 0 ? 180 : 270;
+                LiveTrackViewport viewport =
+                        new LiveTrackViewport(
+                                second / 60L + 1L,
+                                MapViewport.fit(
+                                        width,
+                                        height,
+                                        new Envelope(
+                                                -TrackShard.WORLD_X,
+                                                -TrackShard.MAX_Y,
+                                                TrackShard.WORLD_X,
+                                                TrackShard.MAX_Y),
+                                        8.0));
+                assertTrue(engine.requestVirtual(viewport, second));
+                assertTrue(engine.awaitIdle(30_000L));
+                assertNotNull(
+                        engine.handoff()
+                                .frameForPaint(
+                                        viewport.generation(),
+                                        viewport.width(),
+                                        viewport.height(),
+                                        System.nanoTime()));
+                LiveTrackTelemetry telemetry = engine.telemetry(System.nanoTime());
+                assertEquals(logicalBytes, telemetry.logicalTrackBytes());
+                assertTrue(telemetry.frames().allocatedBuffers() <= 3);
+                assertTrue(
+                        telemetry.frames().frameBufferBytes() <= 3L * 480L * 270L * Integer.BYTES);
+            }
+            LiveTrackTelemetry terminal = engine.telemetry(System.nanoTime());
+            assertEquals(3_600, terminal.simulationSecond());
+            assertTrue(terminal.processedReports() > 3_000_000L);
+            assertEquals(10_000L, terminal.pendingReports());
+            assertEquals(61L, terminal.frames().completedFrames());
+            assertEquals(61L, terminal.frames().paintedFrames());
+        } finally {
+            engine.close();
+        }
+        assertTrue(engine.workersTerminated());
+        assertTrue(engine.handoff().isClosed());
+        assertEquals(0, engine.telemetry(System.nanoTime()).frames().allocatedBuffers());
+    }
+
+    @Test
+    void workerFailureIsTerminalVisibleAndRejectsFurtherFrameDemand() {
+        LiveTrackFrameEngine engine =
+                new LiveTrackFrameEngine(
+                        TrackSimulationConfig.reference(1_000, 2), 0L, ONE_GIBIBYTE);
+        LiveTrackViewport viewport =
+                new LiveTrackViewport(1L, new MapViewport(64, 32, 0.0, 0.0, 1_000_000.0));
+        try {
+            assertTrue(engine.requestVirtual(viewport, 1));
+            assertTrue(engine.awaitIdle(10_000L));
+            assertNotNull(engine.handoff().frameForPaint(1L, 64, 32, System.nanoTime()));
+            assertEquals(1, engine.handoff().metrics(System.nanoTime()).allocatedBuffers());
+
+            engine.failWorkerForTest(1);
+            assertTrue(engine.requestVirtual(viewport, 2));
+            assertTrue(engine.awaitIdle(10_000L));
+            LiveTrackTelemetry failure = engine.telemetry(System.nanoTime());
+            assertEquals(LiveTrackCoordinator.State.FAILED, failure.state());
+            assertEquals("LIVE_TRACK_WORKER_FAILURE", failure.failureCategory());
+            assertEquals(2L, failure.frames().requestedFrames());
+            assertEquals(1L, failure.frames().completedFrames());
+            assertFalse(engine.requestVirtual(viewport, 3));
+            assertFalse(engine.handoff().requestActive());
+        } finally {
+            engine.close();
+        }
+        assertTrue(engine.workersTerminated());
+        assertTrue(engine.handoff().isClosed());
+        assertEquals(0, engine.handoff().metrics(System.nanoTime()).allocatedBuffers());
+    }
+
+    @Test
     void viewerKeepsNavigationOnTheMapAndClosesEveryOwnedResource() throws Exception {
         LiveTrackViewer.ViewerSession viewer = LiveTrackViewer.startHeadless();
         try {
@@ -441,6 +545,26 @@ class LiveTrackFramesTest {
         assertFalse(viewer.engine().producerAlive());
         assertThrows(
                 IllegalArgumentException.class, () -> LiveTrackViewer.startHeadless(1_000_001));
+    }
+
+    @Test
+    void configuredViewerCarriesSettingsIntoTheEngineAndControls() {
+        TrackSimulationConfig simulation =
+                new TrackSimulationConfig(10_000, 0x1234L, 4, IouKalmanConfig.REFERENCE);
+        LiveTrackViewer.ViewerConfiguration configuration =
+                new LiveTrackViewer.ViewerConfiguration(simulation, 30, "reference");
+        LiveTrackViewer.ViewerSession viewer = LiveTrackViewer.startHeadless(configuration);
+        try {
+            assertEquals(simulation, viewer.engine().configuration());
+            assertEquals(30, viewer.fpsCap());
+            assertEquals(
+                    "Population: 10,000 Seed: 0x1234 Workers: 4 Reports: reference",
+                    viewer.configurationText());
+        } finally {
+            viewer.close();
+        }
+        assertTrue(viewer.chartClosed());
+        assertFalse(viewer.engine().producerAlive());
     }
 
     @Test
