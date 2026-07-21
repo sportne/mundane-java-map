@@ -7,3 +7,20 @@ application {
 }
 
 description = 'Runnable packed IOU-Kalman live-track stress example.'
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-shapefile')
+}
+
+tasks.register('naturalEarthRenderRegression', Test) {
+    group = 'verification'
+    description = 'Runs the Natural Earth full-world offscreen rendering contract.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching '*NaturalEarthChartTest.offscreenChartShowsAFramedWorldWithLandAndOcean'
+    }
+}

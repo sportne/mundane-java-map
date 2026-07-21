@@ -572,9 +572,11 @@ separately decomposed.
   remain excluded.
 - Complete G15-003 supplies the packed deterministic truth/report simulator, 64-slot due-work wheel,
   stable worker shards, explicit virtual/real-time lifecycle, and 10k headless filtering slice.
-- Bundle the official Natural Earth `ne_110m_land` shapefile with exact version, hashes, retrieval
-  record, public-domain terms, and no runtime download. Render it through the existing shapefile and
-  CRS stack.
+- Complete G15-004 bundles the official Natural Earth `ne_110m_land` shapefile with exact version,
+  hashes, retrieval record, public-domain terms, and no runtime download. It verifies and stages the
+  unchanged sidecars, explicitly declares EPSG:4326 for the retained ESRI WKT, clips decoded land to
+  the Web Mercator source domain, renders through the existing shapefile/CRS/MapView stack, and
+  removes staged files with the owned layer.
 - Draw dense estimated positions through an example-owned detached AWT overlay rather than widening
   the immutable `FeatureSource` contract or allocating one million feature records per frame. Keep
   map navigation on the EDT and publish at most one generation-matched completed frame.

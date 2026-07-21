@@ -19,11 +19,11 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 is approved and G15-002/G15-003 are complete. The decision freezes the mathematical,
+G15-001 through G15-004 are approved. The decision freezes the mathematical,
 provenance, workload, storage, lifecycle, rendering, and evidence profile below; the first two
-implementation slices prove the packed estimator and deterministic simulator. G15-004 through
-G15-008 remain Proposed until their working
-vertical slices pass review. Neither completed task creates a production API or module.
+implementation slices prove the packed estimator and deterministic simulator, and G15-004 proves
+the real chart path. G15-005 through G15-008 remain Proposed until their working vertical slices
+pass review. No completed task creates a production API or module.
 
 ## Research and provenance boundary
 
@@ -50,6 +50,16 @@ site's raster and vector data as public domain. G15-004 records the exact upstre
 URL, files retained, hashes, retrieval date, terms snapshot/reference, and any transformation recipe.
 The repository bundles only the small land shapefile sidecars required by the example; runtime
 downloads are forbidden.
+
+G15-004 retains the five upstream sidecars byte-for-byte and verifies their fixed byte counts and
+SHA-256 hashes before every open. It stages them in one owned temporary directory because the
+bounded shapefile source is path-based, then removes the directory when the owned map binding
+closes. The retained ESRI WKT is outside the deliberately narrow recognized-WKT grammar, so this
+exact trusted asset uses an explicit EPSG:4326 override and exposes the resulting
+`SHAPEFILE_PRJ_OVERRIDE_USED` diagnostic. An example-local cursor decorator clips decoded polygons
+to longitude `[-180, 180]` and Web Mercator's latitude domain before the existing registry projects
+them; the bundled bytes remain unchanged. Missing, wrong-size, and wrong-hash resources fail with
+stable example-local categories before parser use.
 
 ## Architectural placement
 
@@ -440,7 +450,8 @@ not emitted.
   dense oracle.
 - G15-003 adds deterministic packed truth/report simulation, timing-wheel scheduling, and stable
   shard ownership.
-- G15-004 bundles and displays the Natural Earth chart with exact provenance and visual approval.
+- G15-004 bundles and displays the Natural Earth chart with exact provenance, bounded staging,
+  explicit CRS handling, projection-domain clipping, cleanup, and tolerant rendering regression.
 - G15-005 completes the first 10k live picture and creates the fast smoke lane.
 - G15-006 scales the same behavior to 100k using measured sharding and packed frame construction.
 - G15-007 enables the 1m tier and creates the opt-in evidence/report lane.

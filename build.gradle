@@ -93,6 +93,7 @@ tasks.register('renderRegression') {
     description = 'Runs the separate portable offscreen rendering-regression lane.'
     dependsOn ':modules:mundane-map-awt:renderRegressionTest'
     dependsOn ':examples:vector-export:test'
+    dependsOn ':examples:live-track-stress:naturalEarthRenderRegression'
 }
 
 tasks.register('performanceEvidence') {

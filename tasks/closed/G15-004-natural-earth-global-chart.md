@@ -1,6 +1,6 @@
 # G15-004 — Natural Earth global chart
 
-Status: Proposed
+Status: Complete
 Depends on: G15-001, G5-010
 Gate: G15
 Type: HITL
