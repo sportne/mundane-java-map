@@ -19,10 +19,10 @@ navigation-grade operational system. The first implementation remains inside a n
 `examples:live-track-stress` project. A public tracking API or production module requires a second
 consumer and a later task.
 
-G15-001 through G15-004 are approved. The decision freezes the mathematical,
+G15-001 through G15-005 are approved. The decision freezes the mathematical,
 provenance, workload, storage, lifecycle, rendering, and evidence profile below; the first two
-implementation slices prove the packed estimator and deterministic simulator, and G15-004 proves
-the real chart path. G15-005 through G15-008 remain Proposed until their working vertical slices
+implementation slices prove the packed estimator and deterministic simulator, G15-004 proves the
+real chart path, and G15-005 joins them in the first live 10k picture. G15-006 through G15-008 remain Proposed until their working vertical slices
 pass review. No completed task creates a production API or module.
 
 ## Research and provenance boundary
@@ -274,6 +274,10 @@ The coordinator supports start, pause, reset, and close. Cancellation is checked
 and frame intervals. Close stops new frame requests, cancels workers, joins them outside the EDT,
 releases frame buffers, closes the map/source, and leaves no non-daemon worker alive.
 
+Pause retains the exact fractional display instant after processing every integer report tick due at
+the pause request time. Paused frames reuse that instant, and resume continues from it without a
+backward display jump.
+
 Worker counts are integers in `[1, min(32, population)]`; the default is
 `min(8, Runtime.availableProcessors())`, with a floor of one. Shards are deterministic contiguous
 track-ID ranges formed by quotient/remainder partitioning. Real-time operation advances every due
@@ -318,6 +322,16 @@ the pending buffer, owns it through painting, and only then returns it to availa
 painting a previously acquired buffer while a producer fills or publishes another. The preflight
 frame bound is therefore `3 * width * height * 4` checked bytes. There is exactly one active frame
 request. No producer mutates a pending-published or EDT-owned buffer.
+
+G15-005 implements this boundary with one example-owned producer, separate packed `double[]` display
+X and Y arrays, and at most three reusable `TYPE_INT_ARGB` buffers. Each position array is exactly
+`8 * population` bytes, preserving the approved largest-allocation bound. The producer serializes simulation advance,
+pure display prediction, viewport projection, and deterministic `2 x 2` composition. A synchronized
+handoff owns the producer, pending, and EDT-current states; a newly published frame may replace only
+the single pending frame, and generation or dimension mismatch discards it before paint. The
+transparent overlay does not hit-test, so normal `MapView` pointer navigation remains the target.
+Reset invalidates pending and current pixels, and close joins the producer and shard workers off the
+EDT before releasing the chart.
 
 ## Frame pacing and telemetry
 

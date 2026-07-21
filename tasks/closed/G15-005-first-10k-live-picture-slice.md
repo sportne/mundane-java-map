@@ -1,6 +1,6 @@
 # G15-005 — First 10k live-picture slice
 
-Status: Proposed
+Status: Complete
 Depends on: G15-003, G15-004
 Gate: G15
 Type: HITL

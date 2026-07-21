@@ -129,6 +129,19 @@ final class TrackShard {
         return filter.y(local(globalTrackId));
     }
 
+    void copyDisplayPositions(
+            double timestampSeconds, double[] positionsX, double[] positionsY, int offset) {
+        if (offset < 0
+                || offset + trackCount() > positionsX.length
+                || offset + trackCount() > positionsY.length) {
+            throw new IndexOutOfBoundsException("offset");
+        }
+        for (int track = 0; track < trackCount(); track++) {
+            positionsX[offset + track] = filter.displayX(track, timestampSeconds);
+            positionsY[offset + track] = filter.displayY(track, timestampSeconds);
+        }
+    }
+
     double course(int globalTrackId) {
         return course[local(globalTrackId)];
     }

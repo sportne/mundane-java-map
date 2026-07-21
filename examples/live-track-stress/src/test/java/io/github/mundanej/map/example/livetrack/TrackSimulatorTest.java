@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -145,6 +146,64 @@ class TrackSimulatorTest {
     }
 
     @Test
+    void packedDisplayCopyIsConsistentAndDoesNotMutateTheEstimator() {
+        try (LiveTrackCoordinator coordinator =
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(128, 3))) {
+            coordinator.start(0L);
+            coordinator.advanceTo(60);
+            long before = coordinator.checksum();
+            double[] positionsX = new double[128];
+            double[] positionsY = new double[128];
+            coordinator.copyDisplayPositions(60.0, positionsX, positionsY);
+            double[] replayX = new double[128];
+            double[] replayY = new double[128];
+            coordinator.copyDisplayPositions(60.0, replayX, replayY);
+            assertTrue(Arrays.equals(positionsX, replayX));
+            assertTrue(Arrays.equals(positionsY, replayY));
+            assertTrue(Double.isFinite(positionsX[0]));
+            assertTrue(Double.isFinite(positionsY[0]));
+            assertTrue(Double.isFinite(positionsX[127]));
+            assertTrue(Double.isFinite(positionsY[127]));
+            assertEquals(before, coordinator.checksum());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> coordinator.copyDisplayPositions(60.0, new double[127], new double[128]));
+        }
+    }
+
+    @Test
+    void fractionalRealTimeDisplayPredictionIsPureAndRespectsPause() {
+        try (LiveTrackCoordinator coordinator =
+                new LiveTrackCoordinator(TrackSimulationConfig.reference(128, 3))) {
+            coordinator.start(1_000_000_000L);
+            coordinator.advanceRealTime(61_100_000_000L);
+            long before = coordinator.checksum();
+            double firstTimestamp = coordinator.displayTimestampSeconds(61_100_000_000L);
+            double[] firstX = new double[128];
+            double[] firstY = new double[128];
+            coordinator.copyDisplayPositions(firstTimestamp, firstX, firstY);
+
+            coordinator.advanceRealTime(61_900_000_000L);
+            double secondTimestamp = coordinator.displayTimestampSeconds(61_900_000_000L);
+            double[] secondX = new double[128];
+            double[] secondY = new double[128];
+            coordinator.copyDisplayPositions(secondTimestamp, secondX, secondY);
+
+            assertEquals(60, coordinator.simulationSecond());
+            assertEquals(60.1, firstTimestamp, 1.0e-12);
+            assertEquals(60.9, secondTimestamp, 1.0e-12);
+            assertFalse(Arrays.equals(firstX, secondX) && Arrays.equals(firstY, secondY));
+            assertEquals(before, coordinator.checksum());
+
+            coordinator.pause(61_900_000_000L);
+            assertEquals(60.9, coordinator.displayTimestampSeconds(99_000_000_000L), 1.0e-12);
+            coordinator.resume(100_000_000_000L);
+            coordinator.advanceRealTime(100_500_000_000L);
+            assertEquals(61.4, coordinator.displayTimestampSeconds(100_500_000_000L), 1.0e-12);
+        }
+    }
+
+    @Test
     void realTimePauseResumeResetAndCloseHaveExplicitState() {
         TrackSimulationConfig config = TrackSimulationConfig.reference(128, 3);
         LiveTrackCoordinator coordinator = new LiveTrackCoordinator(config);
@@ -155,13 +214,13 @@ class TrackSimulatorTest {
         coordinator.advanceRealTime(10_000_000_000L);
         assertEquals(5, coordinator.simulationSecond());
         assertTrue(coordinator.lateReports() > 0L);
-        coordinator.pause();
+        coordinator.pause(10_000_000_000L);
         assertEquals(LiveTrackCoordinator.State.PAUSED, coordinator.state());
         assertThrows(IllegalStateException.class, () -> coordinator.advanceTo(6));
         coordinator.resume(20_000_000_000L);
         coordinator.advanceRealTime(23_000_000_000L);
         assertEquals(8, coordinator.simulationSecond());
-        coordinator.pause();
+        coordinator.pause(23_000_000_000L);
         int shardIdentity = coordinator.shardIdentity();
         coordinator.reset();
         assertEquals(LiveTrackCoordinator.State.NEW, coordinator.state());
@@ -219,7 +278,8 @@ class TrackSimulatorTest {
                 IllegalStateException.class,
                 () -> assertEquals(0L, coordinator.processedReports()));
         assertThrows(IllegalStateException.class, () -> assertEquals(0.0, coordinator.truthX(0)));
-        Thread pause = new Thread(coordinator::pause, "test-live-track-pause");
+        Thread pause =
+                new Thread(() -> coordinator.pause(3_000_000_000_000L), "test-live-track-pause");
         pause.start();
         advance.join(15_000L);
         pause.join(15_000L);

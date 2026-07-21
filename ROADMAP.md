@@ -580,6 +580,11 @@ separately decomposed.
 - Draw dense estimated positions through an example-owned detached AWT overlay rather than widening
   the immutable `FeatureSource` contract or allocating one million feature records per frame. Keep
   map navigation on the EDT and publish at most one generation-matched completed frame.
+- Complete G15-005 supplies that first 10k picture with a non-intercepting overlay, three-buffer
+  ownership bound, one in-progress/one-pending frame handoff, generation-aware stale rejection,
+  exact 1/2/5/10/15/30/60/uncapped EDT pacing, visible telemetry, and asynchronous pause/reset/close
+  controls. Its deterministic `liveTrackSmoke` lane advances 120 virtual seconds and stays separate
+  from the normal quality gate.
 - Report achieved FPS and accept an explicit maximum-FPS cap while separately reporting update
   throughput, frame latency/skips/stale results, backlog, shard skew, logical/observed memory, and
   deterministic error summaries. The reference target is the approximately 100,000-report/second 1m

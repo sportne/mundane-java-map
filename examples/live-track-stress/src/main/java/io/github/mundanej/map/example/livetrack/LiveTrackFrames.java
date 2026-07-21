@@ -1,0 +1,919 @@
+package io.github.mundanej.map.example.livetrack;
+
+import io.github.mundanej.map.core.MapViewport;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Objects;
+
+final class LiveTrackFrames {
+    private LiveTrackFrames() {}
+
+    record LiveTrackViewport(long generation, MapViewport viewport) {
+        static final int MAX_PIXELS = 8_388_608;
+
+        LiveTrackViewport {
+            if (generation < 0L) {
+                throw new IllegalArgumentException("generation must be non-negative");
+            }
+            Objects.requireNonNull(viewport, "viewport");
+            long pixels = Math.multiplyExact((long) viewport.width(), viewport.height());
+            if (pixels > MAX_PIXELS) {
+                throw new IllegalArgumentException("LIVE_TRACK_FRAME_PIXEL_LIMIT");
+            }
+        }
+
+        int width() {
+            return viewport.width();
+        }
+
+        int height() {
+            return viewport.height();
+        }
+    }
+
+    record LiveTrackFrameMetrics(
+            long requestedFrames,
+            long completedFrames,
+            long paintedFrames,
+            long skippedRequests,
+            long staleDiscards,
+            long replacedPendingFrames,
+            double achievedFps,
+            long buildP50Nanos,
+            long buildP95Nanos,
+            long buildP99Nanos,
+            long buildMaximumNanos,
+            int allocatedBuffers,
+            long frameBufferBytes) {}
+
+    record LiveTrackTelemetry(
+            LiveTrackCoordinator.State state,
+            int population,
+            long seed,
+            int workers,
+            int simulationSecond,
+            long scheduledReports,
+            long processedReports,
+            long rejectedReports,
+            long lateReports,
+            long pendingReports,
+            long logicalTrackBytes,
+            long packedPositionBytes,
+            long maximumHeap,
+            long observedHeap,
+            LiveTrackFrameMetrics frames,
+            String failureCategory) {}
+
+    static final class LiveTrackFrameEngine implements AutoCloseable {
+        private static final long HEADROOM = 256L * 1024L * 1024L;
+
+        private enum Control {
+            PAUSE,
+            RESUME,
+            RESET
+        }
+
+        private final Object monitor = new Object();
+        private final TrackSimulationConfig config;
+        private final long maximumHeap;
+        private final LiveTrackCoordinator coordinator;
+        private final double[] positionsX;
+        private final double[] positionsY;
+        private final LiveTrackFrameHandoff handoff;
+        private final Runnable beforeWorkSelection;
+        private final Thread producer;
+        private FrameDemand pendingDemand;
+        private Control pendingControl;
+        private long controlNowNanos;
+        private boolean building;
+        private boolean closed;
+        private boolean closeComplete;
+        private volatile LiveTrackCoordinator.State observedState;
+        private volatile int observedSimulationSecond;
+        private volatile long observedScheduledReports;
+        private volatile long observedProcessedReports;
+        private volatile long observedRejectedReports;
+        private volatile long observedLateReports;
+        private volatile long observedPendingReports;
+        private volatile RuntimeException failure;
+
+        LiveTrackFrameEngine(TrackSimulationConfig config, long nowNanos) {
+            this(config, nowNanos, Runtime.getRuntime().maxMemory());
+        }
+
+        LiveTrackFrameEngine(TrackSimulationConfig config, long nowNanos, long maximumHeap) {
+            this(config, nowNanos, maximumHeap, () -> {});
+        }
+
+        LiveTrackFrameEngine(
+                TrackSimulationConfig config,
+                long nowNanos,
+                long maximumHeap,
+                Runnable beforeWorkSelection) {
+            this.config = Objects.requireNonNull(config, "config");
+            this.maximumHeap = maximumHeap;
+            this.beforeWorkSelection =
+                    Objects.requireNonNull(beforeWorkSelection, "beforeWorkSelection");
+            TrackStoragePlan storagePlan = TrackStoragePlan.preflight(config, maximumHeap);
+            long onePositionArrayBytes =
+                    Math.multiplyExact((long) config.population(), Double.BYTES);
+            long positionBytes = Math.multiplyExact(onePositionArrayBytes, 2L);
+            preflight(storagePlan.logicalBytes(), positionBytes, maximumHeap);
+            coordinator = new LiveTrackCoordinator(config, storagePlan);
+            positionsX = new double[config.population()];
+            positionsY = new double[config.population()];
+            handoff =
+                    new LiveTrackFrameHandoff(
+                            maximumHeap, Math.addExact(coordinator.logicalBytes(), positionBytes));
+            coordinator.start(nowNanos);
+            captureCoordinatorTelemetry();
+            producer = new Thread(this::run, "live-track-frame-producer");
+            producer.setDaemon(true);
+            producer.start();
+        }
+
+        boolean requestRealTime(LiveTrackViewport viewport, long nowNanos) {
+            return request(new FrameDemand(viewport, nowNanos, -1));
+        }
+
+        boolean requestVirtual(LiveTrackViewport viewport, int targetSecond) {
+            if (targetSecond < 0) {
+                throw new IllegalArgumentException("targetSecond must be non-negative");
+            }
+            return request(new FrameDemand(viewport, 0L, targetSecond));
+        }
+
+        boolean requestPause(long nowNanos) {
+            return requestControl(Control.PAUSE, nowNanos);
+        }
+
+        boolean requestResume(long nowNanos) {
+            return requestControl(Control.RESUME, nowNanos);
+        }
+
+        boolean requestReset(long nowNanos) {
+            return requestControl(Control.RESET, nowNanos);
+        }
+
+        LiveTrackFrameHandoff handoff() {
+            return handoff;
+        }
+
+        long largestPositionAllocationBytes() {
+            return Math.multiplyExact((long) positionsX.length, Double.BYTES);
+        }
+
+        LiveTrackTelemetry telemetry(long nowNanos) {
+            Runtime runtime = Runtime.getRuntime();
+            long used = runtime.totalMemory() - runtime.freeMemory();
+            RuntimeException currentFailure = failure;
+            return new LiveTrackTelemetry(
+                    observedState,
+                    config.population(),
+                    config.seed(),
+                    config.workers(),
+                    observedSimulationSecond,
+                    observedScheduledReports,
+                    observedProcessedReports,
+                    observedRejectedReports,
+                    observedLateReports,
+                    observedPendingReports,
+                    coordinator.logicalBytes(),
+                    Math.multiplyExact(
+                            Math.addExact((long) positionsX.length, positionsY.length),
+                            Double.BYTES),
+                    maximumHeap,
+                    used,
+                    handoff.metrics(nowNanos),
+                    failureCategory(currentFailure));
+        }
+
+        boolean awaitIdle(long timeoutMillis) {
+            if (timeoutMillis < 0L) {
+                throw new IllegalArgumentException("timeoutMillis must be non-negative");
+            }
+            long deadline = System.nanoTime() + timeoutMillis * 1_000_000L;
+            synchronized (monitor) {
+                while (!closed
+                        && (pendingDemand != null
+                                || pendingControl != null
+                                || building
+                                || handoff.requestActive())) {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining <= 0L) {
+                        return false;
+                    }
+                    try {
+                        long millis = Math.max(1L, remaining / 1_000_000L);
+                        monitor.wait(millis);
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(
+                                "interrupted while awaiting frame work", exception);
+                    }
+                }
+                return !building && pendingDemand == null && pendingControl == null;
+            }
+        }
+
+        boolean producerAlive() {
+            return producer.isAlive();
+        }
+
+        @Override
+        public void close() {
+            boolean interrupted = false;
+            synchronized (monitor) {
+                if (closed) {
+                    while (!closeComplete) {
+                        try {
+                            monitor.wait();
+                        } catch (InterruptedException exception) {
+                            interrupted = true;
+                        }
+                    }
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return;
+                }
+                closed = true;
+                pendingDemand = null;
+                pendingControl = null;
+                handoff.cancelRequest();
+                monitor.notifyAll();
+            }
+            producer.interrupt();
+            Throwable primary = null;
+            try {
+                coordinator.close();
+            } catch (RuntimeException | Error closeFailure) {
+                primary = closeFailure;
+            }
+            while (producer.isAlive()) {
+                try {
+                    producer.join();
+                } catch (InterruptedException exception) {
+                    interrupted = true;
+                }
+            }
+            try {
+                handoff.close();
+            } catch (RuntimeException | Error closeFailure) {
+                if (primary == null) {
+                    primary = closeFailure;
+                } else {
+                    primary.addSuppressed(closeFailure);
+                }
+            }
+            observedState = LiveTrackCoordinator.State.CLOSED;
+            synchronized (monitor) {
+                closeComplete = true;
+                monitor.notifyAll();
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            if (primary instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (primary instanceof Error error) {
+                throw error;
+            }
+        }
+
+        private boolean request(FrameDemand demand) {
+            synchronized (monitor) {
+                if (closed || failure != null) {
+                    return false;
+                }
+                if (pendingDemand != null || building || !handoff.beginRequest()) {
+                    handoff.recordSkippedRequest();
+                    return false;
+                }
+                pendingDemand = demand;
+                monitor.notifyAll();
+                return true;
+            }
+        }
+
+        private boolean requestControl(Control control, long nowNanos) {
+            synchronized (monitor) {
+                if (closed || failure != null || pendingControl != null) {
+                    return false;
+                }
+                if (pendingDemand != null) {
+                    pendingDemand = null;
+                    handoff.cancelQueuedRequest();
+                }
+                pendingControl = control;
+                controlNowNanos = nowNanos;
+                monitor.notifyAll();
+                return true;
+            }
+        }
+
+        private void run() {
+            while (true) {
+                beforeWorkSelection.run();
+                Work work;
+                synchronized (monitor) {
+                    while (!closed && pendingControl == null && pendingDemand == null) {
+                        try {
+                            monitor.wait();
+                        } catch (InterruptedException exception) {
+                            if (closed) {
+                                return;
+                            }
+                        }
+                    }
+                    if (closed) {
+                        return;
+                    }
+                    if (pendingControl != null) {
+                        work = new Work(pendingControl, controlNowNanos, null);
+                        pendingControl = null;
+                    } else {
+                        work = new Work(null, 0L, pendingDemand);
+                        pendingDemand = null;
+                        building = true;
+                    }
+                }
+                try {
+                    if (work.control() != null) {
+                        processControl(work.control(), work.controlNowNanos());
+                    } else {
+                        build(Objects.requireNonNull(work.demand(), "demand"));
+                    }
+                } catch (RuntimeException exception) {
+                    if (!closed) {
+                        failure = exception;
+                        observedState = LiveTrackCoordinator.State.FAILED;
+                    }
+                    handoff.cancelRequest();
+                } finally {
+                    synchronized (monitor) {
+                        building = false;
+                        monitor.notifyAll();
+                    }
+                }
+            }
+        }
+
+        private void processControl(Control control, long nowNanos) {
+            switch (control) {
+                case PAUSE -> {
+                    if (coordinator.state() == LiveTrackCoordinator.State.RUNNING) {
+                        coordinator.advanceRealTime(nowNanos);
+                        coordinator.pause(nowNanos);
+                    }
+                }
+                case RESUME -> {
+                    if (coordinator.state() == LiveTrackCoordinator.State.PAUSED) {
+                        coordinator.resume(nowNanos);
+                    }
+                }
+                case RESET -> {
+                    if (coordinator.state() == LiveTrackCoordinator.State.RUNNING) {
+                        coordinator.advanceRealTime(nowNanos);
+                        coordinator.pause(nowNanos);
+                    }
+                    coordinator.reset();
+                    coordinator.start(nowNanos);
+                    handoff.invalidateFrames();
+                }
+            }
+            captureCoordinatorTelemetry();
+        }
+
+        private void build(FrameDemand demand) {
+            long started = System.nanoTime();
+            if (coordinator.state() == LiveTrackCoordinator.State.RUNNING) {
+                if (demand.virtualSecond() >= 0) {
+                    coordinator.advanceTo(demand.virtualSecond());
+                } else {
+                    coordinator.advanceRealTime(demand.nowNanos());
+                }
+            }
+            int displaySecond = coordinator.simulationSecond();
+            double displayTimestamp =
+                    demand.virtualSecond() >= 0
+                            ? displaySecond
+                            : coordinator.displayTimestampSeconds(demand.nowNanos());
+            coordinator.copyDisplayPositions(displayTimestamp, positionsX, positionsY);
+            FrameBuffer buffer = handoff.acquireProducerBuffer(demand.viewport());
+            try {
+                LiveTrackRasterizer.render(
+                        positionsX, positionsY, demand.viewport(), buffer.pixels());
+                long duration = System.nanoTime() - started;
+                handoff.publish(
+                        buffer, demand.viewport(), displayTimestamp, config.population(), duration);
+                buffer = null;
+                captureCoordinatorTelemetry();
+            } finally {
+                if (buffer != null) {
+                    handoff.abandon(buffer);
+                }
+            }
+        }
+
+        private void captureCoordinatorTelemetry() {
+            observedState = coordinator.state();
+            observedSimulationSecond = coordinator.simulationSecond();
+            observedScheduledReports = coordinator.scheduledReports();
+            observedProcessedReports = coordinator.processedReports();
+            observedRejectedReports = coordinator.rejectedReports();
+            observedLateReports = coordinator.lateReports();
+            observedPendingReports = coordinator.pendingReports();
+        }
+
+        private static void preflight(long trackBytes, long positionBytes, long maximumHeap) {
+            long logical = Math.addExact(trackBytes, positionBytes);
+            long withHeadroom = Math.addExact(logical, HEADROOM);
+            long sixtyPercent = maximumHeap / 5L * 3L;
+            if (withHeadroom > maximumHeap || logical > sixtyPercent) {
+                throw new IllegalArgumentException("LIVE_TRACK_DISPLAY_STORAGE_LIMIT");
+            }
+        }
+
+        private static String failureCategory(RuntimeException currentFailure) {
+            if (currentFailure == null) {
+                return "";
+            }
+            String message = currentFailure.getMessage();
+            return message == null ? currentFailure.getClass().getSimpleName() : message;
+        }
+
+        private record FrameDemand(LiveTrackViewport viewport, long nowNanos, int virtualSecond) {
+            private FrameDemand {
+                Objects.requireNonNull(viewport, "viewport");
+            }
+        }
+
+        private record Work(Control control, long controlNowNanos, FrameDemand demand) {}
+    }
+
+    static final class LiveTrackFrameHandoff implements AutoCloseable {
+        private static final int MAX_BUFFERS = 3;
+        private static final int LATENCY_SAMPLES = 1_024;
+        private static final int PAINT_SAMPLES = 512;
+        private static final long HEADROOM = 256L * 1024L * 1024L;
+
+        private final long maximumHeap;
+        private final long baseLogicalBytes;
+        private final ArrayDeque<FrameBuffer> available = new ArrayDeque<>();
+        private final long[] latencyNanos = new long[LATENCY_SAMPLES];
+        private final long[] paintNanos = new long[PAINT_SAMPLES];
+        private int allocatedBuffers;
+        private TrackFrame pending;
+        private TrackFrame current;
+        private boolean requestActive;
+        private boolean closed;
+        private long requestedFrames;
+        private long completedFrames;
+        private long paintedFrames;
+        private long skippedRequests;
+        private long staleDiscards;
+        private long replacedPendingFrames;
+        private long latencyCount;
+        private long paintCount;
+        private long frameBufferBytes;
+
+        LiveTrackFrameHandoff(long maximumHeap, long baseLogicalBytes) {
+            if (maximumHeap <= 0L || baseLogicalBytes < 0L) {
+                throw new IllegalArgumentException("invalid frame handoff memory limits");
+            }
+            this.maximumHeap = maximumHeap;
+            this.baseLogicalBytes = baseLogicalBytes;
+        }
+
+        synchronized boolean beginRequest() {
+            if (closed || requestActive) {
+                return false;
+            }
+            requestActive = true;
+            requestedFrames++;
+            return true;
+        }
+
+        synchronized boolean requestActive() {
+            return requestActive;
+        }
+
+        synchronized long completedFrames() {
+            return completedFrames;
+        }
+
+        synchronized void recordSkippedRequest() {
+            skippedRequests++;
+        }
+
+        synchronized FrameBuffer acquireProducerBuffer(LiveTrackViewport viewport) {
+            requireRequest();
+            int width = viewport.width();
+            int height = viewport.height();
+            long bytes = frameBytes(width, height);
+            preflightFrameBytes(bytes);
+            FrameBuffer matching = null;
+            int availableCount = available.size();
+            for (int index = 0; index < availableCount; index++) {
+                FrameBuffer candidate = available.removeFirst();
+                if (matching == null && candidate.matches(width, height)) {
+                    matching = candidate;
+                } else if (candidate.matches(width, height)) {
+                    available.addLast(candidate);
+                } else {
+                    allocatedBuffers--;
+                    frameBufferBytes -= candidate.bytes();
+                }
+            }
+            if (matching != null) {
+                return matching;
+            }
+            if (allocatedBuffers >= MAX_BUFFERS) {
+                throw new IllegalStateException("LIVE_TRACK_FRAME_BUFFER_EXHAUSTED");
+            }
+            FrameBuffer created = new FrameBuffer(width, height);
+            allocatedBuffers++;
+            frameBufferBytes = Math.addExact(frameBufferBytes, created.bytes());
+            return created;
+        }
+
+        synchronized void publish(
+                FrameBuffer buffer,
+                LiveTrackViewport viewport,
+                double displayTimestampSeconds,
+                int population,
+                long buildNanos) {
+            Objects.requireNonNull(buffer, "buffer");
+            requireRequest();
+            if (!buffer.matches(viewport.width(), viewport.height())) {
+                throw new IllegalArgumentException("frame dimensions do not match request");
+            }
+            requestActive = false;
+            if (closed) {
+                recycle(buffer);
+                return;
+            }
+            if (pending != null) {
+                recycle(pending.buffer());
+                replacedPendingFrames++;
+            }
+            pending =
+                    new TrackFrame(
+                            buffer,
+                            viewport.generation(),
+                            viewport.width(),
+                            viewport.height(),
+                            displayTimestampSeconds,
+                            population,
+                            completedFrames + 1L);
+            completedFrames++;
+            latencyNanos[(int) (latencyCount % LATENCY_SAMPLES)] = buildNanos;
+            latencyCount++;
+        }
+
+        synchronized BufferedImage frameForPaint(
+                long generation, int width, int height, long nowNanos) {
+            if (closed) {
+                return null;
+            }
+            if (current != null && !current.matches(generation, width, height)) {
+                recycle(current.buffer());
+                current = null;
+            }
+            if (pending != null) {
+                if (!pending.matches(generation, width, height)) {
+                    recycle(pending.buffer());
+                    pending = null;
+                    staleDiscards++;
+                } else {
+                    if (current != null) {
+                        recycle(current.buffer());
+                    }
+                    current = pending;
+                    pending = null;
+                    paintedFrames++;
+                    paintNanos[(int) (paintCount % PAINT_SAMPLES)] = nowNanos;
+                    paintCount++;
+                }
+            }
+            return current == null ? null : current.buffer().image();
+        }
+
+        synchronized double currentDisplayTimestampSeconds() {
+            return current == null ? Double.NaN : current.displayTimestampSeconds();
+        }
+
+        synchronized long currentSequence() {
+            return current == null ? -1L : current.sequence();
+        }
+
+        synchronized void cancelRequest() {
+            requestActive = false;
+        }
+
+        synchronized void cancelQueuedRequest() {
+            requireRequest();
+            requestActive = false;
+            skippedRequests++;
+        }
+
+        synchronized void invalidateFrames() {
+            if (pending != null) {
+                recycle(pending.buffer());
+                pending = null;
+            }
+            if (current != null) {
+                recycle(current.buffer());
+                current = null;
+            }
+        }
+
+        synchronized void abandon(FrameBuffer buffer) {
+            requestActive = false;
+            recycle(buffer);
+        }
+
+        synchronized LiveTrackFrameMetrics metrics(long nowNanos) {
+            int latencySize = (int) Math.min(latencyCount, LATENCY_SAMPLES);
+            long[] ordered = Arrays.copyOf(latencyNanos, latencySize);
+            Arrays.sort(ordered);
+            return new LiveTrackFrameMetrics(
+                    requestedFrames,
+                    completedFrames,
+                    paintedFrames,
+                    skippedRequests,
+                    staleDiscards,
+                    replacedPendingFrames,
+                    achievedFps(nowNanos),
+                    quantile(ordered, 0.50),
+                    quantile(ordered, 0.95),
+                    quantile(ordered, 0.99),
+                    ordered.length == 0 ? 0L : ordered[ordered.length - 1],
+                    allocatedBuffers,
+                    frameBufferBytes);
+        }
+
+        @Override
+        public synchronized void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            requestActive = false;
+            if (pending != null) {
+                recycle(pending.buffer());
+                pending = null;
+            }
+            if (current != null) {
+                recycle(current.buffer());
+                current = null;
+            }
+            available.clear();
+            allocatedBuffers = 0;
+            frameBufferBytes = 0L;
+        }
+
+        synchronized boolean isClosed() {
+            return closed;
+        }
+
+        private double achievedFps(long nowNanos) {
+            long cutoff = nowNanos - 5_000_000_000L;
+            int size = (int) Math.min(paintCount, PAINT_SAMPLES);
+            int retained = 0;
+            for (int index = 0; index < size; index++) {
+                if (paintNanos[index] >= cutoff && paintNanos[index] <= nowNanos) {
+                    retained++;
+                }
+            }
+            return retained / 5.0;
+        }
+
+        private void preflightFrameBytes(long oneBufferBytes) {
+            long threeBuffers = Math.multiplyExact(oneBufferBytes, MAX_BUFFERS);
+            long logical = Math.addExact(baseLogicalBytes, threeBuffers);
+            long withHeadroom = Math.addExact(logical, HEADROOM);
+            long sixtyPercent = maximumHeap / 5L * 3L;
+            if (withHeadroom > maximumHeap || logical > sixtyPercent) {
+                throw new IllegalArgumentException("LIVE_TRACK_FRAME_STORAGE_LIMIT");
+            }
+        }
+
+        private void requireRequest() {
+            if (!requestActive) {
+                throw new IllegalStateException("no active frame request");
+            }
+        }
+
+        private void recycle(FrameBuffer buffer) {
+            available.addLast(buffer);
+        }
+
+        private static long frameBytes(int width, int height) {
+            return Math.multiplyExact(Math.multiplyExact((long) width, height), Integer.BYTES);
+        }
+
+        private static long quantile(long[] ordered, double quantile) {
+            if (ordered.length == 0) {
+                return 0L;
+            }
+            int index = (int) StrictMath.ceil(quantile * ordered.length) - 1;
+            return ordered[Math.max(0, index)];
+        }
+
+        private record TrackFrame(
+                FrameBuffer buffer,
+                long generation,
+                int width,
+                int height,
+                double displayTimestampSeconds,
+                int population,
+                long sequence) {
+            private TrackFrame {
+                Objects.requireNonNull(buffer, "buffer");
+                if (!Double.isFinite(displayTimestampSeconds) || displayTimestampSeconds < 0.0) {
+                    throw new IllegalArgumentException("invalid display timestamp");
+                }
+            }
+
+            boolean matches(long expectedGeneration, int expectedWidth, int expectedHeight) {
+                return generation == expectedGeneration
+                        && width == expectedWidth
+                        && height == expectedHeight;
+            }
+        }
+    }
+
+    static final class FrameBuffer {
+        private final int width;
+        private final int height;
+        private final BufferedImage image;
+        private final int[] pixels;
+
+        FrameBuffer(int width, int height) {
+            if (width <= 0 || height <= 0) {
+                throw new IllegalArgumentException("frame dimensions must be positive");
+            }
+            long count = Math.multiplyExact((long) width, height);
+            if (count > LiveTrackViewport.MAX_PIXELS) {
+                throw new IllegalArgumentException("LIVE_TRACK_FRAME_PIXEL_LIMIT");
+            }
+            this.width = width;
+            this.height = height;
+            image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+        }
+
+        boolean matches(int candidateWidth, int candidateHeight) {
+            return width == candidateWidth && height == candidateHeight;
+        }
+
+        int[] pixels() {
+            return pixels;
+        }
+
+        BufferedImage image() {
+            return image;
+        }
+
+        long bytes() {
+            return (long) pixels.length * Integer.BYTES;
+        }
+    }
+
+    static final class LiveTrackRasterizer {
+        static final int TRACK_ARGB = 0xff16d9e3;
+
+        private LiveTrackRasterizer() {}
+
+        static void render(
+                double[] positionsX,
+                double[] positionsY,
+                LiveTrackViewport viewport,
+                int[] targetPixels) {
+            Objects.requireNonNull(positionsX, "positionsX");
+            Objects.requireNonNull(positionsY, "positionsY");
+            Objects.requireNonNull(viewport, "viewport");
+            Objects.requireNonNull(targetPixels, "targetPixels");
+            if (positionsX.length != positionsY.length
+                    || targetPixels.length != viewport.width() * viewport.height()) {
+                throw new IllegalArgumentException(
+                        "packed frame arrays have inconsistent dimensions");
+            }
+            Arrays.fill(targetPixels, 0);
+            MapViewport transform = viewport.viewport();
+            double halfWidth = viewport.width() / 2.0;
+            double halfHeight = viewport.height() / 2.0;
+            double units = transform.worldUnitsPerPixel();
+            for (int index = 0; index < positionsX.length; index++) {
+                double screenX = halfWidth + (positionsX[index] - transform.centerX()) / units;
+                double screenY = halfHeight - (positionsY[index] - transform.centerY()) / units;
+                if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
+                    throw new IllegalStateException("LIVE_TRACK_FRAME_POSITION_NON_FINITE");
+                }
+                if (screenX < -1.0
+                        || screenY < -1.0
+                        || screenX >= viewport.width()
+                        || screenY >= viewport.height()) {
+                    continue;
+                }
+                int x = (int) StrictMath.floor(screenX);
+                int y = (int) StrictMath.floor(screenY);
+                plot2x2(targetPixels, viewport.width(), viewport.height(), x, y);
+            }
+        }
+
+        private static void plot2x2(int[] pixels, int width, int height, int x, int y) {
+            for (int offsetY = 0; offsetY < 2; offsetY++) {
+                int targetY = y + offsetY;
+                if (targetY < 0 || targetY >= height) {
+                    continue;
+                }
+                for (int offsetX = 0; offsetX < 2; offsetX++) {
+                    int targetX = x + offsetX;
+                    if (targetX >= 0 && targetX < width) {
+                        pixels[targetY * width + targetX] = TRACK_ARGB;
+                    }
+                }
+            }
+        }
+    }
+
+    static final class LiveTrackFramePacer {
+        private static final int[] CAPS = {1, 2, 5, 10, 15, 30, 60};
+
+        private int cap;
+        private long nextRequestNanos = Long.MIN_VALUE;
+
+        LiveTrackFramePacer(int cap) {
+            setCap(cap);
+        }
+
+        void setCap(int cap) {
+            if (cap != 0 && Arrays.binarySearch(CAPS, cap) < 0) {
+                throw new IllegalArgumentException("unsupported FPS cap");
+            }
+            this.cap = cap;
+            nextRequestNanos = Long.MIN_VALUE;
+        }
+
+        int cap() {
+            return cap;
+        }
+
+        boolean shouldRequest(long nowNanos) {
+            if (cap == 0) {
+                return true;
+            }
+            if (nextRequestNanos != Long.MIN_VALUE && nowNanos < nextRequestNanos) {
+                return false;
+            }
+            long interval = 1_000_000_000L / cap;
+            nextRequestNanos =
+                    nowNanos > Long.MAX_VALUE - interval ? Long.MAX_VALUE : nowNanos + interval;
+            return true;
+        }
+    }
+
+    @SuppressWarnings("serial")
+    static final class LiveTrackOverlay extends javax.swing.JComponent {
+        private final LiveTrackFrameHandoff handoff;
+        private long generation;
+
+        LiveTrackOverlay(LiveTrackFrameHandoff handoff) {
+            this.handoff = Objects.requireNonNull(handoff, "handoff");
+            setOpaque(false);
+            setFocusable(false);
+        }
+
+        void setViewportGeneration(long generation) {
+            if (!java.awt.EventQueue.isDispatchThread()) {
+                throw new IllegalStateException("track overlay generation must change on the EDT");
+            }
+            if (generation < 0L) {
+                throw new IllegalArgumentException("generation must be non-negative");
+            }
+            this.generation = generation;
+        }
+
+        @Override
+        public boolean contains(int x, int y) {
+            return false;
+        }
+
+        @Override
+        protected void paintComponent(java.awt.Graphics graphics) {
+            super.paintComponent(graphics);
+            BufferedImage frame =
+                    handoff.frameForPaint(generation, getWidth(), getHeight(), System.nanoTime());
+            if (frame != null) {
+                ((Graphics2D) graphics).drawImage(frame, 0, 0, null);
+            }
+        }
+    }
+}

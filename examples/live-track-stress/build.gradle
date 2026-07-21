@@ -22,5 +22,15 @@ tasks.register('naturalEarthRenderRegression', Test) {
     classpath = sourceSets.test.runtimeClasspath
     filter {
         includeTestsMatching '*NaturalEarthChartTest.offscreenChartShowsAFramedWorldWithLandAndOcean'
+        includeTestsMatching '*LiveTrackFramesTest.fullPictureRendersTenThousandTracksOverTheRealChart'
     }
+}
+
+tasks.register('liveTrackSmoke', JavaExec) {
+    group = 'verification'
+    description = 'Runs the bounded deterministic 10k live-track smoke.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.example.livetrack.LiveTrackSmoke'
+    jvmArgs '-Djava.awt.headless=true'
+    timeout = java.time.Duration.ofMinutes(5)
 }

@@ -1,5 +1,6 @@
 package io.github.mundanej.map.example.livetrack;
 
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 final class LiveTrackCoordinator implements AutoCloseable {
@@ -21,6 +22,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
     private State state = State.NEW;
     private int simulationSecond;
     private long realTimeOriginNanos;
+    private long pausedElapsedNanos;
     private boolean advancing;
     private boolean transitioning;
     private AtomicReference<RuntimeException> runFailure;
@@ -30,8 +32,12 @@ final class LiveTrackCoordinator implements AutoCloseable {
     }
 
     LiveTrackCoordinator(TrackSimulationConfig config, long maximumHeap) {
-        this.config = config;
-        storagePlan = TrackStoragePlan.preflight(config, maximumHeap);
+        this(config, TrackStoragePlan.preflight(config, maximumHeap));
+    }
+
+    LiveTrackCoordinator(TrackSimulationConfig config, TrackStoragePlan storagePlan) {
+        this.config = Objects.requireNonNull(config, "config");
+        this.storagePlan = Objects.requireNonNull(storagePlan, "storagePlan");
         shards = createShards(config);
     }
 
@@ -43,13 +49,14 @@ final class LiveTrackCoordinator implements AutoCloseable {
             workers[index] = new ShardWorker(index, shards[index], runFailure, this::workerFailed);
             workers[index].start();
         }
-        realTimeOriginNanos = nowNanos - simulationSecond * 1_000_000_000L;
+        pausedElapsedNanos = Math.multiplyExact((long) simulationSecond, 1_000_000_000L);
+        realTimeOriginNanos = Math.subtractExact(nowNanos, pausedElapsedNanos);
         state = State.RUNNING;
     }
 
     synchronized void resume(long nowNanos) {
         requireState(State.PAUSED);
-        realTimeOriginNanos = nowNanos - simulationSecond * 1_000_000_000L;
+        realTimeOriginNanos = Math.subtractExact(nowNanos, pausedElapsedNanos);
         state = State.RUNNING;
     }
 
@@ -126,10 +133,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
         int dueSecond;
         synchronized (this) {
             requireState(State.RUNNING);
-            long elapsed = nowNanos - realTimeOriginNanos;
-            if (elapsed < 0L) {
-                throw new IllegalArgumentException("real time cannot precede the run origin");
-            }
+            long elapsed = elapsedNanos(nowNanos);
             long due = elapsed / 1_000_000_000L;
             if (due > MAX_SIMULATION_SECOND) {
                 throw new IllegalArgumentException("real-time target exceeds supported simulation");
@@ -139,7 +143,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
         advance(dueSecond, true);
     }
 
-    synchronized void pause() {
+    synchronized void pause(long nowNanos) {
         requireState(State.RUNNING);
         while (advancing) {
             try {
@@ -150,6 +154,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
             }
             requireState(State.RUNNING);
         }
+        pausedElapsedNanos = elapsedNanos(nowNanos);
         state = State.PAUSED;
     }
 
@@ -171,6 +176,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
                     shard.reset();
                 }
                 simulationSecond = 0;
+                pausedElapsedNanos = 0L;
                 runFailure = null;
                 state = State.NEW;
             }
@@ -186,6 +192,20 @@ final class LiveTrackCoordinator implements AutoCloseable {
 
     synchronized int simulationSecond() {
         return simulationSecond;
+    }
+
+    synchronized double displayTimestampSeconds(long nowNanos) {
+        requireQuiescentRead();
+        if (state == State.PAUSED) {
+            return pausedElapsedNanos / 1_000_000_000.0;
+        }
+        requireState(State.RUNNING);
+        long elapsed = elapsedNanos(nowNanos);
+        double timestamp = elapsed / 1_000_000_000.0;
+        if (!Double.isFinite(timestamp) || timestamp > MAX_SIMULATION_SECOND) {
+            throw new IllegalArgumentException("real-time target exceeds supported simulation");
+        }
+        return timestamp;
     }
 
     synchronized boolean isAdvancing() {
@@ -286,6 +306,31 @@ final class LiveTrackCoordinator implements AutoCloseable {
         return shard(trackId).estimatedY(trackId);
     }
 
+    synchronized void copyDisplayPositions(
+            double timestampSeconds, double[] positionsX, double[] positionsY) {
+        requireQuiescentRead();
+        if (positionsX.length != config.population() || positionsY.length != config.population()) {
+            throw new IllegalArgumentException("position arrays have the wrong length");
+        }
+        int offset = 0;
+        for (TrackShard shard : shards) {
+            shard.copyDisplayPositions(timestampSeconds, positionsX, positionsY, offset);
+            offset += shard.trackCount();
+        }
+    }
+
+    int population() {
+        return config.population();
+    }
+
+    int workerCount() {
+        return config.workers();
+    }
+
+    long seed() {
+        return config.seed();
+    }
+
     synchronized int nextDueSecond(int trackId) {
         requireQuiescentRead();
         return shard(trackId).nextDueSecond(trackId);
@@ -376,6 +421,20 @@ final class LiveTrackCoordinator implements AutoCloseable {
         if (advancing || transitioning) {
             throw new IllegalStateException("live-track state is changing");
         }
+    }
+
+    private long elapsedNanos(long nowNanos) {
+        long elapsed;
+        try {
+            elapsed = Math.subtractExact(nowNanos, realTimeOriginNanos);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException(
+                    "real-time target exceeds supported simulation", exception);
+        }
+        if (elapsed < 0L) {
+            throw new IllegalArgumentException("real time cannot precede the run origin");
+        }
+        return elapsed;
     }
 
     private static boolean stopAndJoin(ShardWorker[] workersToJoin) {
