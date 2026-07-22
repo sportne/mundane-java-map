@@ -7,6 +7,8 @@ import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.HorizontalWrapPlan;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -24,9 +26,15 @@ final class NaturalEarthBackgroundRenderer implements StaticMapBackgroundCache.R
             new BasicStroke(0.75f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND);
 
     private final List<FeatureRecord> features;
+    private final HorizontalWrap wrap;
 
     NaturalEarthBackgroundRenderer(List<FeatureRecord> features) {
+        this(features, HorizontalWrap.webMercator());
+    }
+
+    NaturalEarthBackgroundRenderer(List<FeatureRecord> features, HorizontalWrap wrap) {
         this.features = List.copyOf(Objects.requireNonNull(features, "features"));
+        this.wrap = Objects.requireNonNull(wrap, "wrap");
     }
 
     @Override
@@ -44,19 +52,28 @@ final class NaturalEarthBackgroundRenderer implements StaticMapBackgroundCache.R
                     RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             graphics.setStroke(OUTLINE_STROKE);
             Envelope visible = viewport.visibleWorldEnvelope();
+            HorizontalWrapPlan plan =
+                    wrap.plan(visible.minX(), visible.maxX(), viewport.worldUnitsPerPixel());
             for (FeatureRecord feature : features) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new CancellationException("static background rendering cancelled");
                 }
                 Geometry geometry = feature.geometry();
-                if (!intersects(visible, geometry.envelope())) {
-                    continue;
+                for (long copyIndex = plan.minimumVisibleCopyIndex();
+                        copyIndex <= plan.maximumVisibleCopyIndex();
+                        copyIndex++) {
+                    double offset =
+                            wrap.translate(wrap.canonicalMinimumX(), copyIndex)
+                                    - wrap.canonicalMinimumX();
+                    if (!intersects(visible, geometry.envelope(), offset)) {
+                        continue;
+                    }
+                    Path2D.Double path = path(geometry, viewport, offset);
+                    graphics.setColor(color(NaturalEarthChart.LAND));
+                    graphics.fill(path);
+                    graphics.setColor(color(NaturalEarthChart.OUTLINE));
+                    graphics.draw(path);
                 }
-                Path2D.Double path = path(geometry, viewport);
-                graphics.setColor(color(NaturalEarthChart.LAND));
-                graphics.fill(path);
-                graphics.setColor(color(NaturalEarthChart.OUTLINE));
-                graphics.draw(path);
             }
         } finally {
             graphics.dispose();
@@ -64,12 +81,12 @@ final class NaturalEarthBackgroundRenderer implements StaticMapBackgroundCache.R
         return image;
     }
 
-    private static Path2D.Double path(Geometry geometry, MapViewport viewport) {
+    private static Path2D.Double path(Geometry geometry, MapViewport viewport, double offsetX) {
         Path2D.Double path = new Path2D.Double(Path2D.WIND_EVEN_ODD);
         if (geometry instanceof PolygonGeometry polygon) {
-            append(path, polygon.exterior(), 0, polygon.exterior().size(), viewport);
+            append(path, polygon.exterior(), 0, polygon.exterior().size(), viewport, offsetX);
             for (CoordinateSequence hole : polygon.holes()) {
-                append(path, hole, 0, hole.size(), viewport);
+                append(path, hole, 0, hole.size(), viewport, offsetX);
             }
             return path;
         }
@@ -80,7 +97,8 @@ final class NaturalEarthBackgroundRenderer implements StaticMapBackgroundCache.R
                     polygons.coordinates(),
                     polygons.ringOffset(ring),
                     polygons.ringOffset(ring + 1),
-                    viewport);
+                    viewport,
+                    offsetX);
         }
         return path;
     }
@@ -90,22 +108,27 @@ final class NaturalEarthBackgroundRenderer implements StaticMapBackgroundCache.R
             CoordinateSequence coordinates,
             int start,
             int end,
-            MapViewport viewport) {
+            MapViewport viewport,
+            double offsetX) {
         double units = viewport.worldUnitsPerPixel();
-        double x = viewport.width() / 2.0 + (coordinates.x(start) - viewport.centerX()) / units;
+        double x =
+                viewport.width() / 2.0
+                        + (coordinates.x(start) + offsetX - viewport.centerX()) / units;
         double y = viewport.height() / 2.0 - (coordinates.y(start) - viewport.centerY()) / units;
         path.moveTo(x, y);
         for (int index = start + 1; index < end - 1; index++) {
-            x = viewport.width() / 2.0 + (coordinates.x(index) - viewport.centerX()) / units;
+            x =
+                    viewport.width() / 2.0
+                            + (coordinates.x(index) + offsetX - viewport.centerX()) / units;
             y = viewport.height() / 2.0 - (coordinates.y(index) - viewport.centerY()) / units;
             path.lineTo(x, y);
         }
         path.closePath();
     }
 
-    private static boolean intersects(Envelope first, Envelope second) {
-        return first.minX() <= second.maxX()
-                && first.maxX() >= second.minX()
+    private static boolean intersects(Envelope first, Envelope second, double offsetX) {
+        return first.minX() <= second.maxX() + offsetX
+                && first.maxX() >= second.minX() + offsetX
                 && first.minY() <= second.maxY()
                 && first.maxY() >= second.minY();
     }

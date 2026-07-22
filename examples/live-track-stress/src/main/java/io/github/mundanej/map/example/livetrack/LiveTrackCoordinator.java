@@ -545,6 +545,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
         private int completedSecond;
         private boolean stop;
         private boolean failNextRequest;
+        private boolean working;
         private long workNanos;
 
         void resetWorkNanos() {
@@ -581,7 +582,9 @@ final class LiveTrackCoordinator implements AutoCloseable {
 
         void await(int targetSecond) {
             synchronized (monitor) {
-                while (completedSecond < targetSecond && sharedFailure.get() == null && !stop) {
+                while ((completedSecond < targetSecond || working)
+                        && sharedFailure.get() == null
+                        && !stop) {
                     try {
                         monitor.wait();
                     } catch (InterruptedException exception) {
@@ -647,6 +650,7 @@ final class LiveTrackCoordinator implements AutoCloseable {
                         }
                         target = requestedSecond;
                         lateBefore = lateBeforeSecond;
+                        working = true;
                     }
                     long workStarted = System.nanoTime();
                     try {
@@ -661,6 +665,8 @@ final class LiveTrackCoordinator implements AutoCloseable {
                     } finally {
                         synchronized (monitor) {
                             workNanos = Math.addExact(workNanos, System.nanoTime() - workStarted);
+                            working = false;
+                            monitor.notifyAll();
                         }
                     }
                 }

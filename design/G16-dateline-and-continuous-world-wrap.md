@@ -314,3 +314,11 @@ binding opt-in, transactional view changes, the public planner boundary, eight/6
 polygon rejection, exact raster tolerance, diagnostic precedence, and optional-by-default support
 wording. Later tasks may refine private implementation but require a new HITL decision to change
 these public semantics or limits.
+
+G16-002 completion record (2026-07-22): `HorizontalWrap` and its immutable public plan/problem values
+implement the approved half-open canonicalization, checked copy/precision limits, query intervals,
+translation, and canonical tile-column math in core. The G15 renderer uses that one planner to repeat
+Natural Earth and canonical track positions; its continuous-coordinate overscan cache remains
+coalesced off the EDT. Focused tests cover seams, full-world collapse, hostile limits, repeated land
+and tracks, and the presentation probe records cached and multi-world navigation at all population
+tiers without establishing a wall-clock SLA.

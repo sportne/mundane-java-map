@@ -1,6 +1,8 @@
 package io.github.mundanej.map.example.livetrack;
 
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackFrameMetrics;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackPresentationMetrics;
 import java.awt.EventQueue;
@@ -14,6 +16,7 @@ public final class LiveTrackPresentationProbe {
     private static final int HEIGHT = 500;
     private static final int FRAMES = 60;
     private static final int NAVIGATION_STEPS = 12;
+    private static final double[] WORLD_CROSSING_OFFSETS = {0.95, 1.05, 2.05, -0.95, -1.05, -2.05};
 
     private LiveTrackPresentationProbe() {}
 
@@ -60,20 +63,8 @@ public final class LiveTrackPresentationProbe {
                         });
             }
             long[] navigationPaints = cachedNavigationPaints(viewer, target);
-            long refreshesBeforeZoom =
-                    viewer.overlay().presentationMetrics(System.nanoTime()).backgroundRefreshes();
-            EventQueue.invokeAndWait(
-                    () -> {
-                        MapViewport current = viewer.map().viewport();
-                        viewer.map()
-                                .setViewport(
-                                        current.zoomAt(
-                                                current.width() / 2.0,
-                                                current.height() / 2.0,
-                                                2.0));
-                        viewer.refreshNow();
-                    });
-            awaitBackgroundRefresh(viewer, refreshesBeforeZoom + 1L);
+            long[] crossingPaints = worldCrossingPaints(viewer, target);
+            anchoredSeamZooms(viewer);
             LiveTrackFrameMetrics engine = viewer.engine().telemetry(System.nanoTime()).frames();
             LiveTrackPresentationMetrics presentation =
                     viewer.overlay().presentationMetrics(System.nanoTime());
@@ -81,7 +72,8 @@ public final class LiveTrackPresentationProbe {
                     "Live-track presentation: population=%d frames=%d "
                             + "build-p95=%.3fms EDT-paint-p95=%.3fms "
                             + "map-cache-refreshes=%d map-cache-last/max=%.3f/%.3fms "
-                            + "cached-navigation-p50/p95/max=%.3f/%.3f/%.3fms%n",
+                            + "cached-navigation-p50/p95/max=%.3f/%.3f/%.3fms "
+                            + "world-crossing-p50/p95/max=%.3f/%.3f/%.3fms%n",
                     population,
                     presentation.presentedFrames(),
                     milliseconds(engine.buildP95Nanos()),
@@ -91,7 +83,10 @@ public final class LiveTrackPresentationProbe {
                     milliseconds(presentation.backgroundMaximumNanos()),
                     milliseconds(percentile(navigationPaints, 0.50)),
                     milliseconds(percentile(navigationPaints, 0.95)),
-                    milliseconds(navigationPaints[navigationPaints.length - 1]));
+                    milliseconds(navigationPaints[navigationPaints.length - 1]),
+                    milliseconds(percentile(crossingPaints, 0.50)),
+                    milliseconds(percentile(crossingPaints, 0.95)),
+                    milliseconds(crossingPaints[crossingPaints.length - 1]));
         } finally {
             viewer.close();
         }
@@ -123,6 +118,97 @@ public final class LiveTrackPresentationProbe {
         }
         Arrays.sort(durations);
         return durations;
+    }
+
+    private static long[] worldCrossingPaints(
+            LiveTrackViewer.ViewerSession viewer, BufferedImage target) throws Exception {
+        long[] durations = new long[WORLD_CROSSING_OFFSETS.length];
+        MapViewport[] origin = new MapViewport[1];
+        EventQueue.invokeAndWait(() -> origin[0] = viewer.map().viewport());
+        double period = HorizontalWrap.webMercator().period();
+        for (int index = 0; index < WORLD_CROSSING_OFFSETS.length; index++) {
+            long refreshes =
+                    viewer.overlay().presentationMetrics(System.nanoTime()).backgroundRefreshes();
+            double centerX = origin[0].centerX() + WORLD_CROSSING_OFFSETS[index] * period;
+            boolean[] refreshExpected = new boolean[1];
+            EventQueue.invokeAndWait(
+                    () -> {
+                        MapViewport current = origin[0];
+                        MapViewport crossing =
+                                new MapViewport(
+                                        current.width(),
+                                        current.height(),
+                                        centerX,
+                                        current.centerY(),
+                                        current.worldUnitsPerPixel());
+                        refreshExpected[0] = !viewer.overlay().backgroundCovers(crossing);
+                        viewer.map().setViewport(crossing);
+                        viewer.refreshNow();
+                    });
+            if (refreshExpected[0]) {
+                awaitBackgroundRefresh(viewer, refreshes + 1L);
+            }
+            if (!viewer.engine().awaitIdle(120_000L)) {
+                throw new IllegalStateException("LIVE_TRACK_WORLD_CROSSING_FRAME_TIMEOUT");
+            }
+            int slot = index;
+            EventQueue.invokeAndWait(
+                    () -> {
+                        long started = System.nanoTime();
+                        Graphics2D graphics = target.createGraphics();
+                        try {
+                            viewer.overlay().paint(graphics);
+                        } finally {
+                            durations[slot] = System.nanoTime() - started;
+                            graphics.dispose();
+                        }
+                    });
+        }
+        Arrays.sort(durations);
+        return durations;
+    }
+
+    private static void anchoredSeamZooms(LiveTrackViewer.ViewerSession viewer) throws Exception {
+        double[] centers = {
+            WebMercatorProjection.WORLD_LIMIT - 100_000.0,
+            WebMercatorProjection.WORLD_LIMIT + 100_000.0
+        };
+        double[] anchors = {WIDTH * 0.2, WIDTH * 0.8};
+        for (int index = 0; index < centers.length; index++) {
+            long refreshes =
+                    viewer.overlay().presentationMetrics(System.nanoTime()).backgroundRefreshes();
+            boolean[] refreshExpected = new boolean[1];
+            int slot = index;
+            EventQueue.invokeAndWait(
+                    () -> {
+                        MapViewport current = viewer.map().viewport();
+                        MapViewport before =
+                                new MapViewport(
+                                        current.width(),
+                                        current.height(),
+                                        centers[slot],
+                                        current.centerY(),
+                                        current.worldUnitsPerPixel());
+                        double anchoredWorldX =
+                                before.screenToWorld(anchors[slot], HEIGHT / 2.0).x();
+                        MapViewport after = before.zoomAt(anchors[slot], HEIGHT / 2.0, 2.0);
+                        double retainedWorldX =
+                                after.screenToWorld(anchors[slot], HEIGHT / 2.0).x();
+                        if (StrictMath.abs(anchoredWorldX - retainedWorldX)
+                                > Math.ulp(anchoredWorldX) * 4.0) {
+                            throw new IllegalStateException("LIVE_TRACK_ZOOM_ANCHOR_MOVED");
+                        }
+                        refreshExpected[0] = !viewer.overlay().backgroundCovers(after);
+                        viewer.map().setViewport(after);
+                        viewer.refreshNow();
+                    });
+            if (refreshExpected[0]) {
+                awaitBackgroundRefresh(viewer, refreshes + 1L);
+            }
+            if (!viewer.engine().awaitIdle(120_000L)) {
+                throw new IllegalStateException("LIVE_TRACK_SEAM_ZOOM_FRAME_TIMEOUT");
+            }
+        }
     }
 
     private static void awaitBackgroundRefresh(

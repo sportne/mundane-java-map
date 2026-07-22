@@ -16,6 +16,7 @@ import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.EventQueue;
@@ -125,6 +126,59 @@ class NaturalEarthChartTest {
                             .render(viewport);
             assertTrue(countColor(image, NaturalEarthChart.OCEAN.getRGB()) > 100_000);
             assertTrue(countLandLike(image) > 20_000);
+        } finally {
+            dataset.source().close();
+        }
+    }
+
+    @Test
+    void detachedBackgroundRepeatsAcrossTheDatelineAndMultipleWorlds() {
+        NaturalEarthChart.MaterializedDataset dataset = NaturalEarthChart.openDataset();
+        try {
+            HorizontalWrap wrap = HorizontalWrap.webMercator();
+            NaturalEarthBackgroundRenderer renderer =
+                    new NaturalEarthBackgroundRenderer(dataset.projectedFeatures(), wrap);
+            MapViewport base =
+                    MapViewport.fit(
+                            900, 500, dataset.source().metadata().extent().orElseThrow(), 24.0);
+            BufferedImage canonical = renderer.render(base);
+            BufferedImage east =
+                    renderer.render(
+                            new MapViewport(
+                                    base.width(),
+                                    base.height(),
+                                    base.centerX() + 3.0 * wrap.period(),
+                                    base.centerY(),
+                                    base.worldUnitsPerPixel()));
+            assertEquals(countLandLike(canonical), countLandLike(east));
+            assertEquals(
+                    countColor(canonical, NaturalEarthChart.OCEAN.getRGB()),
+                    countColor(east, NaturalEarthChart.OCEAN.getRGB()));
+
+            BufferedImage seam =
+                    renderer.render(
+                            new MapViewport(
+                                    600, 400, WebMercatorProjection.WORLD_LIMIT, 0.0, 50_000.0));
+            assertTrue(countLandLike(seam) > 5_000);
+            assertTrue(countColor(seam, NaturalEarthChart.OCEAN.getRGB()) > 20_000);
+
+            for (double centerX :
+                    new double[] {
+                        WebMercatorProjection.WORLD_LIMIT - 100_000.0,
+                        WebMercatorProjection.WORLD_LIMIT + 100_000.0
+                    }) {
+                MapViewport before = new MapViewport(600, 400, centerX, 0.0, 50_000.0);
+                double anchorX = centerX < WebMercatorProjection.WORLD_LIMIT ? 100.0 : 500.0;
+                double anchoredWorldX = before.screenToWorld(anchorX, 200.0).x();
+                MapViewport after = before.zoomAt(anchorX, 200.0, 2.0);
+                assertEquals(
+                        anchoredWorldX,
+                        after.screenToWorld(anchorX, 200.0).x(),
+                        Math.ulp(anchoredWorldX) * 4.0);
+                BufferedImage zoomed = renderer.render(after);
+                assertTrue(countLandLike(zoomed) > 1_000);
+                assertTrue(countColor(zoomed, NaturalEarthChart.OCEAN.getRGB()) > 20_000);
+            }
         } finally {
             dataset.source().close();
         }

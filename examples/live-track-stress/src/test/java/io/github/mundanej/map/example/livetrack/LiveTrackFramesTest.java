@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.FrameBuffer;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackFrameEngine;
@@ -59,6 +60,40 @@ class LiveTrackFramesTest {
                 () ->
                         LiveTrackRasterizer.render(
                                 new double[] {Double.NaN}, new double[] {0.0}, viewport, pixels));
+    }
+
+    @Test
+    void rasterizerProjectsTheSameCanonicalTrackThroughARepeatedWorld() {
+        double period = HorizontalWrap.webMercator().period();
+        MapViewport map = new MapViewport(8, 6, period, 0.0, 1.0);
+        int[] pixels = new int[48];
+
+        LiveTrackRasterizer.render(
+                new double[] {0.0}, new double[] {0.0}, new LiveTrackViewport(1L, map), pixels);
+
+        assertEquals(LiveTrackRasterizer.TRACK_ARGB, pixels[3 * 8 + 4]);
+        assertEquals(LiveTrackRasterizer.TRACK_ARGB, pixels[4 * 8 + 5]);
+        assertEquals(4L, Arrays.stream(pixels).filter(value -> value != 0).count());
+    }
+
+    @Test
+    void rasterizerCanonicalizesEstimatorOvershootAtBothWorldEdges() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        double overshoot = 1_000.0;
+        for (double displayX :
+                new double[] {
+                    wrap.canonicalMaximumX() + overshoot, wrap.canonicalMinimumX() - overshoot
+                }) {
+            MapViewport map = new MapViewport(8, 6, displayX, 0.0, 1_000.0);
+            int[] pixels = new int[48];
+            LiveTrackRasterizer.render(
+                    new double[] {displayX},
+                    new double[] {0.0},
+                    new LiveTrackViewport(1L, map),
+                    pixels);
+            assertEquals(LiveTrackRasterizer.TRACK_ARGB, pixels[3 * 8 + 4]);
+            assertEquals(4L, Arrays.stream(pixels).filter(value -> value != 0).count());
+        }
     }
 
     @Test

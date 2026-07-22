@@ -1,6 +1,6 @@
 # G16-002 — Continuous Natural Earth and live-track slice
 
-Status: Proposed
+Status: Complete
 Depends on: G16-001
 Gate: G16
 Type: AFK
@@ -58,3 +58,7 @@ git diff --check
 
 Do not modulo mutable track/filter state or relax the projection. Choose translated visual copies
 from canonical positions. The presentation timing output remains evidence, not a pass/fail SLA.
+
+Completion record (2026-07-22): the shared bounded core planner drives repeated Natural Earth and
+canonical packed tracks, and the presentation probe exercises cached seam-adjacent and multi-world
+east/west navigation without moving background work onto the EDT.

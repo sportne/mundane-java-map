@@ -635,9 +635,9 @@ separately decomposed.
   copies, a 1,048,576 copy-index ceiling plus quarter-pixel precision check, aggregate query
   accounting, westward half-period ties, atomic polygon rejection, strict raster compatibility,
   diagnostic precedence, and optional-by-default support wording.
-- G16-002 first proves the policy in the responsive G15 viewer by repeating prepared Natural Earth
-  and canonical tracks through multiple east/west crossings without moving rendering back onto the
-  EDT.
+- G16-002 is complete: the responsive G15 viewer repeats prepared Natural Earth and canonical packed
+  tracks through multiple east/west crossings using the shared bounded planner, while overscanned
+  replacement rendering remains coalesced off the EDT and presentation timing remains evidence.
 - G16-003 adds the reusable explicit periodic display/binding boundary and a wrapped point-source
   `MapView` slice. G16-004 then handles geographic shortest-path line and polygon seam splitting,
   portrayal, labels, and visible vector export.

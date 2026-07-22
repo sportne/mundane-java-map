@@ -1,5 +1,8 @@
 package io.github.mundanej.map.example.livetrack;
 
+import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.HorizontalWrapPlan;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.Graphics2D;
 import java.awt.geom.AffineTransform;
@@ -412,8 +415,8 @@ final class LiveTrackFrames {
                     } else {
                         work = new Work(null, 0L, pendingDemand);
                         pendingDemand = null;
-                        building = true;
                     }
+                    building = true;
                 }
                 try {
                     if (work.control() != null) {
@@ -885,6 +888,7 @@ final class LiveTrackFrames {
 
     static final class LiveTrackRasterizer {
         static final int TRACK_ARGB = 0xff16d9e3;
+        private static final HorizontalWrap WRAP = HorizontalWrap.webMercator();
 
         private LiveTrackRasterizer() {}
 
@@ -907,21 +911,36 @@ final class LiveTrackFrames {
             double halfWidth = viewport.width() / 2.0;
             double halfHeight = viewport.height() / 2.0;
             double units = transform.worldUnitsPerPixel();
-            for (int index = 0; index < positionsX.length; index++) {
-                double screenX = halfWidth + (positionsX[index] - transform.centerX()) / units;
-                double screenY = halfHeight - (positionsY[index] - transform.centerY()) / units;
-                if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
-                    throw new IllegalStateException("LIVE_TRACK_FRAME_POSITION_NON_FINITE");
+            Envelope visible = transform.visibleWorldEnvelope();
+            HorizontalWrapPlan plan = WRAP.plan(visible.minX(), visible.maxX(), units);
+            for (long copyIndex = plan.minimumVisibleCopyIndex();
+                    copyIndex <= plan.maximumVisibleCopyIndex();
+                    copyIndex++) {
+                double offset =
+                        WRAP.translate(WRAP.canonicalMinimumX(), copyIndex)
+                                - WRAP.canonicalMinimumX();
+                for (int index = 0; index < positionsX.length; index++) {
+                    double canonicalX = positionsX[index];
+                    if (canonicalX < WRAP.canonicalMinimumX()
+                            || canonicalX >= WRAP.canonicalMaximumX()) {
+                        canonicalX = WRAP.canonicalize(canonicalX).canonicalX();
+                    }
+                    double screenX =
+                            halfWidth + (canonicalX + offset - transform.centerX()) / units;
+                    double screenY = halfHeight - (positionsY[index] - transform.centerY()) / units;
+                    if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
+                        throw new IllegalStateException("LIVE_TRACK_FRAME_POSITION_NON_FINITE");
+                    }
+                    if (screenX < -1.0
+                            || screenY < -1.0
+                            || screenX >= viewport.width()
+                            || screenY >= viewport.height()) {
+                        continue;
+                    }
+                    int x = (int) StrictMath.floor(screenX);
+                    int y = (int) StrictMath.floor(screenY);
+                    plot2x2(targetPixels, viewport.width(), viewport.height(), x, y);
                 }
-                if (screenX < -1.0
-                        || screenY < -1.0
-                        || screenX >= viewport.width()
-                        || screenY >= viewport.height()) {
-                    continue;
-                }
-                int x = (int) StrictMath.floor(screenX);
-                int y = (int) StrictMath.floor(screenY);
-                plot2x2(targetPixels, viewport.width(), viewport.height(), x, y);
             }
         }
 

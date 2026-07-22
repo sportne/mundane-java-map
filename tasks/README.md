@@ -379,7 +379,7 @@ strict CRS/source coordinates and adds bounded periodic display behavior above t
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G16-001 — Horizontal world-wrap profile decision](closed/G16-001-horizontal-world-wrap-profile-decision.md) | Complete | HITL | G4-002, G7-004, G15-008 | Approved explicit wrap configuration, numeric limits, dateline geometry behavior, and support wording. |
-| [G16-002 — Continuous Natural Earth and live-track slice](G16-002-continuous-natural-earth-live-track-slice.md) | Proposed | AFK | G16-001 | Pan the G15 land and track picture continuously through repeated east/west worlds without EDT regression. |
+| [G16-002 — Continuous Natural Earth and live-track slice](closed/G16-002-continuous-natural-earth-live-track-slice.md) | Complete | AFK | G16-001 | Pans the G15 land and track picture continuously through repeated east/west worlds without EDT regression. |
 | [G16-003 — Periodic display and wrapped point-source slice](G16-003-periodic-display-and-wrapped-point-source.md) | Proposed | AFK | G16-002 | Query and render explicitly repeating point sources through ordinary MapView with stable logical identity. |
 | [G16-004 — Dateline vector geometry and export](G16-004-dateline-vector-geometry-and-export.md) | Proposed | AFK | G16-003 | Split and render crossing lines/polygons and export their bounded visible copies. |
 | [G16-005 — Wrapped interaction, measurement, and editing](G16-005-wrapped-interaction-measurement-and-editing.md) | Proposed | AFK | G16-004, G11-013 | Resolve copied features through hit, selection, measurement, snapping, and canonical point edits. |
