@@ -316,7 +316,7 @@ class MapViewPointLabelTest {
     }
 
     @Test
-    void recordTextFailureWinsOverBatchBudgetAndOccursAfterAllGeometry() throws Exception {
+    void recordTextFailureWinsOverBatchBudgetBeforeAnyGeometryPaint() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
                     List<Feature> features =
@@ -342,7 +342,7 @@ class MapViewPointLabelTest {
                     assertEquals("LABEL_TEXT_LIMIT_EXCEEDED", failure.problem().code());
                     assertEquals("0", failure.problem().context().get("layerIndex"));
                     assertEquals("0", failure.problem().context().get("featureIndex"));
-                    assertColor(Rgba.rgb(30, 60, 210), image.getRGB(70, 50));
+                    assertEquals(0, image.getRGB(70, 50));
                     view.close();
                 });
     }

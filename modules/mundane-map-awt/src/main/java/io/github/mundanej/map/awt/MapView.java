@@ -86,6 +86,7 @@ import io.github.mundanej.map.api.VectorExportSnapshotLimits;
 import io.github.mundanej.map.api.VectorExportSnapshotProblem;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
+import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.ElevationRasterization;
@@ -93,6 +94,10 @@ import io.github.mundanej.map.core.FeatureQueryAccounting;
 import io.github.mundanej.map.core.GreedyPointLabelPlacement;
 import io.github.mundanej.map.core.HatchLayouts;
 import io.github.mundanej.map.core.HatchSegments;
+import io.github.mundanej.map.core.HorizontalInterval;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.HorizontalWrapException;
+import io.github.mundanej.map.core.HorizontalWrapPlan;
 import io.github.mundanej.map.core.LineEndpointBearings;
 import io.github.mundanej.map.core.LineTangents;
 import io.github.mundanej.map.core.MapScreenBasis;
@@ -243,6 +248,9 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     /** Immutable resolved feature-binding map. */
     private Map<MapLayerBinding, ResolvedFeatureBinding> resolvedFeatureBindings = Map.of();
+
+    /** Optional explicit horizontal display-repetition profile. */
+    private HorizontalWrap horizontalWrap;
 
     /** Identity-keyed view-owned raster presentation options. */
     private final IdentityHashMap<MapLayerBinding, RasterRenderOptions> rasterRenderOptions =
@@ -536,6 +544,81 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     /**
+     * Returns the explicit horizontal display-repetition profile, if configured.
+     *
+     * @return configured immutable profile or empty for ordinary non-wrapping display behavior
+     */
+    public Optional<HorizontalWrap> horizontalWrap() {
+        return Optional.ofNullable(horizontalWrap);
+    }
+
+    /**
+     * Installs or transactionally replaces the horizontal display-repetition profile.
+     *
+     * <p>The profile must exactly cover the display CRS horizontal domain. The current viewport and
+     * every attached repeating binding are validated before active source work is cancelled and the
+     * profile becomes visible. Existing constructors remain non-wrapping.
+     *
+     * @param profile immutable profile compatible with this view's display CRS
+     * @throws NullPointerException if {@code profile} is {@code null}
+     * @throws IllegalArgumentException if the profile does not match the display CRS
+     * @throws IllegalStateException if this view is closed or an installed repeating binding is not
+     *     supported by the current vertical slice
+     * @throws HorizontalWrapException if the current viewport exceeds the profile's checked limits
+     */
+    public void setHorizontalWrap(HorizontalWrap profile) {
+        requireOpen();
+        HorizontalWrap requested = Objects.requireNonNull(profile, "profile");
+        validateHorizontalWrapProfile(requested);
+        requested.plan(
+                viewport.visibleWorldEnvelope().minX(),
+                viewport.visibleWorldEnvelope().maxX(),
+                viewport.worldUnitsPerPixel());
+        for (MapLayerBinding binding : bindings) {
+            if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+                validateRepeatingBinding(binding, requested);
+            }
+        }
+        if (requested.equals(horizontalWrap)) {
+            return;
+        }
+        cancelSourceOperations();
+        horizontalWrap = requested;
+        hoverProbe = Optional.empty();
+        hoverPaintState = Optional.empty();
+        selectionPaintState = Optional.empty();
+        if (!transitionInteraction(selection, Optional.empty(), true)) {
+            repaint();
+        }
+    }
+
+    /**
+     * Clears horizontal repetition when no attached binding requests it.
+     *
+     * @throws IllegalStateException if this view is closed or a repeating binding is attached
+     */
+    public void clearHorizontalWrap() {
+        requireOpen();
+        for (MapLayerBinding binding : bindings) {
+            if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+                throw new IllegalStateException(
+                        "Cannot clear horizontal wrap while a repeating binding is attached");
+            }
+        }
+        if (horizontalWrap == null) {
+            return;
+        }
+        cancelSourceOperations();
+        horizontalWrap = null;
+        hoverProbe = Optional.empty();
+        hoverPaintState = Optional.empty();
+        selectionPaintState = Optional.empty();
+        if (!transitionInteraction(selection, Optional.empty(), true)) {
+            repaint();
+        }
+    }
+
+    /**
      * Replaces the ordered eager-layer compatibility snapshot.
      *
      * <p>The input list is defensively copied and mapped to non-owning snapshot bindings.
@@ -720,13 +803,23 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         List<MapLayerBinding> bindingSnapshot = List.copyOf(bindings);
         for (int layerIndex = 0; layerIndex < bindingSnapshot.size(); layerIndex++) {
-            MapLayerBinding.Kind kind = bindingSnapshot.get(layerIndex).kind();
+            MapLayerBinding binding = bindingSnapshot.get(layerIndex);
+            MapLayerBinding.Kind kind = binding.kind();
             if (kind == MapLayerBinding.Kind.RASTER || kind == MapLayerBinding.Kind.ELEVATION) {
                 LinkedHashMap<String, String> context = new LinkedHashMap<>();
                 context.put("layerIndex", Integer.toString(layerIndex));
                 context.put("kind", kind == MapLayerBinding.Kind.RASTER ? "raster" : "elevation");
                 throw new VectorExportSnapshotException(
                         "Vector export does not support raster or elevation layers",
+                        new VectorExportSnapshotProblem(
+                                "VECTOR_EXPORT_LAYER_UNSUPPORTED", context));
+            }
+            if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+                LinkedHashMap<String, String> context = new LinkedHashMap<>();
+                context.put("layerIndex", Integer.toString(layerIndex));
+                context.put("kind", "horizontalWrap");
+                throw new VectorExportSnapshotException(
+                        "Vector export support for repeated bindings is not installed",
                         new VectorExportSnapshotProblem(
                                 "VECTOR_EXPORT_LAYER_UNSUPPORTED", context));
             }
@@ -1111,6 +1204,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             double tolerancePixels) {
         Rectangle2D clip = new Rectangle2D.Double(0.0, 0.0, size.width, size.height);
         List<MapHit> hits = new ArrayList<>();
+        Set<MapHit> retained = new HashSet<>();
         for (int layerIndex = snapshot.layers().size() - 1; layerIndex >= 0; layerIndex--) {
             LayerSnapshot layer = snapshot.layers().get(layerIndex);
             for (int featureIndex = layer.features().size() - 1;
@@ -1119,7 +1213,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                 VisualFeature feature = layer.features().get(featureIndex);
                 if (hitFeature(
                         feature, viewportSnapshot, clip, screenX, screenY, tolerancePixels)) {
-                    hits.add(new MapHit(layer.id(), feature.id()));
+                    MapHit hit = new MapHit(layer.id(), feature.id());
+                    if (retained.add(hit)) {
+                        hits.add(hit);
+                    }
                 }
             }
         }
@@ -1424,6 +1521,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         Error errorFailure = null;
         try {
             ViewContentSnapshot content = captureContent(bindings, viewport, true);
+            preflightPointLabels(content);
             interactionChanged = reconcileInteraction(content, false, false);
             MapViewport viewportSnapshot = viewport;
             MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
@@ -1441,7 +1539,6 @@ public final class MapView extends JComponent implements AutoCloseable {
             OverlayCandidate hoverCandidate = null;
             OverlayCandidate selectionCandidate = null;
             List<PendingPointLabel> pendingLabels = new ArrayList<>();
-            LabelPlacementException deferredLabelFailure = null;
             if (isOpaque()) {
                 graphics2D.setColor(getBackground());
                 graphics2D.fillRect(0, 0, getWidth(), getHeight());
@@ -1457,24 +1554,13 @@ public final class MapView extends JComponent implements AutoCloseable {
                     SymbolRenderResult result =
                             renderFeature(graphics2D, feature, viewportSnapshot, basisSnapshot);
                     if (feature.label().isPresent()) {
-                        if (pendingLabels.size() >= GreedyPointLabelPlacement.MAXIMUM_REQUESTS) {
-                            if (deferredLabelFailure == null) {
-                                deferredLabelFailure =
-                                        labelBatchFailure(
-                                                "LABEL_REQUEST_LIMIT_EXCEEDED",
-                                                "Point-label request limit exceeded",
-                                                GreedyPointLabelPlacement.MAXIMUM_REQUESTS,
-                                                GreedyPointLabelPlacement.MAXIMUM_REQUESTS + 1);
-                            }
-                        } else {
-                            pendingLabels.add(
-                                    new PendingPointLabel(
-                                            layer.id(),
-                                            layerIndex,
-                                            feature,
-                                            feature.label().orElseThrow(),
-                                            screenBox(result.nominalMarkerBounds().orElseThrow())));
-                        }
+                        pendingLabels.add(
+                                new PendingPointLabel(
+                                        layer.id(),
+                                        layerIndex,
+                                        feature,
+                                        feature.label().orElseThrow(),
+                                        screenBox(result.nominalMarkerBounds().orElseThrow())));
                     }
                     if (hoverSnapshot.isPresent()
                             && matches(hoverSnapshot.orElseThrow(), layer.id(), feature.id())) {
@@ -1485,26 +1571,6 @@ public final class MapView extends JComponent implements AutoCloseable {
                         selectionCandidate = new OverlayCandidate(feature, result.paintPresence());
                     }
                 }
-            }
-            if (deferredLabelFailure != null) {
-                throw deferredLabelFailure;
-            }
-            int labelCodePoints = 0;
-            for (PendingPointLabel pending : pendingLabels) {
-                int codePoints =
-                        LabelTextMetrics.validateText(
-                                pending.label().text(),
-                                pending.layerIndex(),
-                                pending.feature().featureIndex());
-                int attempted = Math.addExact(labelCodePoints, codePoints);
-                if (attempted > 262_144) {
-                    throw labelBatchFailure(
-                            "LABEL_TEXT_BUDGET_EXCEEDED",
-                            "Point-label text budget exceeded",
-                            262_144,
-                            attempted);
-                }
-                labelCodePoints = attempted;
             }
             List<LabelTextMetrics.Measurement> measurements = new ArrayList<>(pendingLabels.size());
             List<PointLabelPlacementRequest> placementRequests =
@@ -1701,6 +1767,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             VisualFeature feature,
             MapViewport viewportSnapshot,
             MapScreenBasis basisSnapshot) {
+        MapViewport featureViewport = featureViewport(feature, viewportSnapshot);
         Symbol symbol = feature.symbol();
         if (!(symbol instanceof FeatureStyle)
                 && symbol.role() != geometryRole(feature.geometry())) {
@@ -1712,14 +1779,14 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 toScreen(
                                         point.coordinate(),
                                         feature.sourceToDisplay(),
-                                        viewportSnapshot))
+                                        featureViewport))
                         : Optional.empty();
         ScreenRenderPlan screenPlan =
                 buildScreenRenderPlan(
                         symbol,
                         feature.geometry(),
                         feature.sourceToDisplay(),
-                        viewportSnapshot,
+                        featureViewport,
                         basisSnapshot);
         AwtSymbolRenderContext context =
                 contextWithScreenPlan(
@@ -1733,7 +1800,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                         false,
                         OptionalDouble.empty(),
                         markerAnchor,
-                        viewportSnapshot,
+                        featureViewport,
                         basisSnapshot,
                         screenPlan,
                         -1);
@@ -1751,6 +1818,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             return;
         }
         VisualFeature feature = candidate.feature();
+        MapViewport featureViewport = featureViewport(feature, viewportSnapshot);
         Symbol symbol = overlaySymbol(overlay, feature.geometry());
         Optional<Coordinate> markerAnchor =
                 feature.geometry() instanceof PointGeometry point
@@ -1758,14 +1826,14 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 toScreen(
                                         point.coordinate(),
                                         feature.sourceToDisplay(),
-                                        viewportSnapshot))
+                                        featureViewport))
                         : Optional.empty();
         ScreenRenderPlan screenPlan =
                 buildScreenRenderPlan(
                         symbol,
                         feature.geometry(),
                         feature.sourceToDisplay(),
-                        viewportSnapshot,
+                        featureViewport,
                         basisSnapshot);
         dispatch(
                 symbol,
@@ -1780,7 +1848,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                         false,
                         OptionalDouble.empty(),
                         markerAnchor,
-                        viewportSnapshot,
+                        featureViewport,
                         basisSnapshot,
                         screenPlan,
                         -1));
@@ -1904,6 +1972,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             double queryX,
             double queryY,
             double tolerance) {
+        MapViewport featureViewport = featureViewport(feature, viewportSnapshot);
         Symbol symbol = feature.symbol();
         Optional<Coordinate> markerAnchor =
                 feature.geometry() instanceof PointGeometry point
@@ -1911,7 +1980,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 toScreen(
                                         point.coordinate(),
                                         feature.sourceToDisplay(),
-                                        viewportSnapshot))
+                                        featureViewport))
                         : Optional.empty();
         AwtSymbolHitContext context =
                 hitContext(
@@ -1920,7 +1989,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                         feature.geometry(),
                         feature.geometry(),
                         feature.sourceToDisplay(),
-                        viewportSnapshot,
+                        featureViewport,
                         1.0,
                         false,
                         OptionalDouble.empty(),
@@ -1930,6 +1999,19 @@ public final class MapView extends JComponent implements AutoCloseable {
                         tolerance,
                         clip);
         return dispatchHit(symbol, context);
+    }
+
+    private static MapViewport featureViewport(
+            VisualFeature feature, MapViewport viewportSnapshot) {
+        if (feature.displayOffsetX() == 0.0) {
+            return viewportSnapshot;
+        }
+        return new MapViewport(
+                viewportSnapshot.width(),
+                viewportSnapshot.height(),
+                viewportSnapshot.centerX() - feature.displayOffsetX(),
+                viewportSnapshot.centerY(),
+                viewportSnapshot.worldUnitsPerPixel());
     }
 
     private AwtSymbolHitContext hitContext(
@@ -4105,6 +4187,40 @@ public final class MapView extends JComponent implements AutoCloseable {
         return new ScreenBox(bounds.minX(), bounds.minY(), bounds.maxX(), bounds.maxY());
     }
 
+    private static void preflightPointLabels(ViewContentSnapshot content) {
+        int requests = 0;
+        int codePoints = 0;
+        for (int layerIndex = 0; layerIndex < content.layers().size(); layerIndex++) {
+            LayerSnapshot layer = content.layers().get(layerIndex);
+            for (VisualFeature feature : layer.features()) {
+                if (feature.label().isEmpty()) {
+                    continue;
+                }
+                requests++;
+                if (requests > GreedyPointLabelPlacement.MAXIMUM_REQUESTS) {
+                    throw labelBatchFailure(
+                            "LABEL_REQUEST_LIMIT_EXCEEDED",
+                            "Point-label request limit exceeded",
+                            GreedyPointLabelPlacement.MAXIMUM_REQUESTS,
+                            requests);
+                }
+                int next =
+                        LabelTextMetrics.validateText(
+                                feature.label().orElseThrow().text(),
+                                layerIndex,
+                                feature.featureIndex());
+                if (next > 262_144 - codePoints) {
+                    throw labelBatchFailure(
+                            "LABEL_TEXT_BUDGET_EXCEEDED",
+                            "Point-label text budget exceeded",
+                            262_144,
+                            codePoints + next);
+                }
+                codePoints += next;
+            }
+        }
+    }
+
     private static LabelPlacementException labelBatchFailure(
             String code, String message, int limit, int attempted) {
         LinkedHashMap<String, String> context = new LinkedHashMap<>();
@@ -4858,6 +4974,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 feature.geometry(),
                                 symbol,
                                 mapToDisplay,
+                                0.0,
                                 resolvePointLabel(
                                         binding,
                                         feature.name(),
@@ -4904,6 +5021,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                                                     record.geometry(),
                                                     symbol,
                                                     mapToDisplay,
+                                                    0.0,
                                                     resolvePointLabel(
                                                             binding,
                                                             record.name(),
@@ -4934,6 +5052,14 @@ public final class MapView extends JComponent implements AutoCloseable {
             boolean includeLabels,
             boolean propagateFailure,
             CancellationToken externalCancellation) {
+        if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+            return captureWrappedFeatureSource(
+                    binding,
+                    viewportSnapshot,
+                    includeLabels,
+                    propagateFailure,
+                    externalCancellation);
+        }
         FeatureSource source = binding.source();
         ResolvedFeatureBinding resolved = resolvedFeatureBindings.get(binding);
         MapLayerBinding.Operation operation = binding.beginOperation();
@@ -5018,6 +5144,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                                                         record.geometry(),
                                                         symbol,
                                                         resolved.sourceToDisplay(),
+                                                        0.0,
                                                         resolvePointLabel(
                                                                 binding,
                                                                 record.name(),
@@ -5037,6 +5164,228 @@ public final class MapView extends JComponent implements AutoCloseable {
                                     && failureWarnings.omittedWarningCount() == 0
                             ? encountered
                             : mergeReports(planning, failureWarnings, source);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                            ? mergeReports(observed, cancellationReport(source), source)
+                            : mergeReports(observed, terminalOnly(failure.report()), source);
+            updateSourceResult(binding.id(), report, false);
+            if (propagateFailure) {
+                if (externalCancellation.isCancellationRequested()
+                        && failure.terminal().code().equals("SOURCE_CANCELLED")) {
+                    checkVectorExportCancellation(externalCancellation);
+                }
+                throw failure;
+            }
+            return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
+        } catch (CrsException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                            ? mergeReports(encountered, cancellationReport(source), source)
+                            : mergeReports(encountered, crsFailure(source, failure), source);
+            updateSourceResult(binding.id(), report, false);
+            if (propagateFailure) {
+                throw failure;
+            }
+            return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
+        } catch (RuntimeException | Error failure) {
+            operation.finish(false);
+            throw failure;
+        } finally {
+            binding.endOperation(operation);
+        }
+    }
+
+    private LayerSnapshot captureWrappedFeatureSource(
+            MapLayerBinding binding,
+            MapViewport viewportSnapshot,
+            boolean includeLabels,
+            boolean propagateFailure,
+            CancellationToken externalCancellation) {
+        FeatureSource source = binding.source();
+        ResolvedFeatureBinding resolved = resolvedFeatureBindings.get(binding);
+        HorizontalWrap profile = Objects.requireNonNull(horizontalWrap, "horizontalWrap");
+        MapLayerBinding.Operation operation = binding.beginOperation();
+        CancellationToken captureCancellation =
+                () ->
+                        operation.token().isCancellationRequested()
+                                || externalCancellation.isCancellationRequested();
+        DiagnosticReport planning = DiagnosticReport.empty();
+        DiagnosticReport encountered = DiagnosticReport.empty();
+        DiagnosticReport beforeActiveCursor = DiagnosticReport.empty();
+        try {
+            Envelope visible = viewportSnapshot.visibleWorldEnvelope();
+            HorizontalWrapPlan wrapPlan =
+                    profile.plan(
+                            visible.minX(), visible.maxX(), viewportSnapshot.worldUnitsPerPixel());
+            List<Envelope> sourceQueries = new ArrayList<>(wrapPlan.canonicalIntervals().size());
+            boolean clipped = false;
+            for (HorizontalInterval interval : wrapPlan.canonicalIntervals()) {
+                if (captureCancellation.isCancellationRequested()) {
+                    throw cancellationException(source);
+                }
+                QueryEnvelopeTransform transformed =
+                        resolved.displayToSource()
+                                .transformQueryEnvelope(
+                                        new Envelope(
+                                                interval.minimumX(),
+                                                visible.minY(),
+                                                interval.maximumX(),
+                                                visible.maxY()));
+                if (transformed.status() != QueryEnvelopeStatus.OUTSIDE) {
+                    sourceQueries.add(transformed.transformedEnvelope().orElseThrow());
+                }
+                clipped |= transformed.status() == QueryEnvelopeStatus.CLIPPED;
+            }
+            if (clipped) {
+                planning = queryEnvelopeWarning(source, "CRS_QUERY_ENVELOPE_CLIPPED");
+            }
+            encountered = planning;
+            if (sourceQueries.isEmpty()) {
+                planning = queryEnvelopeWarning(source, "CRS_QUERY_ENVELOPE_OUTSIDE_DOMAIN");
+                encountered = planning;
+                MapLayerBinding.Phase phase = operation.finish(true);
+                if (phase == MapLayerBinding.Phase.CANCELLED) {
+                    DiagnosticReport cancelled = cancellationReport(source);
+                    updateSourceResult(binding.id(), cancelled, false);
+                    if (propagateFailure) {
+                        throwVectorExportSourceCancellation(cancelled, externalCancellation);
+                    }
+                    return new LayerSnapshot(
+                            binding.id(), List.of(), Optional.empty(), true, false);
+                }
+                updateSourceResult(binding.id(), planning, true);
+                return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, true);
+            }
+
+            LinkedHashMap<String, FeatureRecord> staged = new LinkedHashMap<>();
+            FeatureQueryAccounting accounting =
+                    new FeatureQueryAccounting(
+                            source.metadata().identity().id(), source.limits().queryLimits());
+            for (Envelope sourceQuery : sourceQueries) {
+                FeatureQuery query =
+                        new FeatureQuery(
+                                Optional.of(sourceQuery),
+                                paintAttributes(binding, viewportSnapshot, includeLabels),
+                                Optional.empty());
+                DiagnosticReport beforeCursor = encountered;
+                beforeActiveCursor = beforeCursor;
+                try (FeatureCursor cursor = source.openCursor(query, captureCancellation)) {
+                    while (cursor.advance()) {
+                        FeatureRecord record = cursor.current();
+                        encountered = mergeReports(beforeCursor, cursor.diagnostics(), source);
+                        FeatureRecord previous = staged.putIfAbsent(record.id(), record);
+                        if (previous == null) {
+                            accounting.recordReturned(record, 1, captureCancellation);
+                        } else if (!previous.equals(record)) {
+                            throw duplicateFeatureFailure(source, record.id());
+                        }
+                    }
+                    encountered = mergeReports(beforeCursor, cursor.diagnostics(), source);
+                }
+            }
+            for (FeatureRecord record : staged.values()) {
+                preflight(
+                        record.geometry(), resolved.sourceToDisplay(), captureCancellation, source);
+                requireWrappedPointGeometry(source, record.geometry());
+            }
+
+            List<VisualFeature> visual = new ArrayList<>();
+            int featureIndex = 0;
+            int wrappedLabelRequests = 0;
+            int wrappedLabelCodePoints = 0;
+            for (FeatureRecord record : staged.values()) {
+                Optional<Symbol> symbol =
+                        sourceSymbol(binding, record.geometry(), record.attributes());
+                int retainedCopies = 0;
+                for (long copyIndex = wrapPlan.minimumVisibleCopyIndex();
+                        copyIndex <= wrapPlan.maximumVisibleCopyIndex();
+                        copyIndex++) {
+                    Geometry geometry =
+                            repeatedPointGeometry(
+                                    record.geometry(),
+                                    resolved.sourceToDisplay(),
+                                    profile,
+                                    copyIndex);
+                    if (!intersects(geometry.envelope(), visible)) {
+                        continue;
+                    }
+                    if (retainedCopies++ > 0) {
+                        accounting.recordReturned(record, 1, captureCancellation);
+                    }
+                    if (symbol.isPresent()) {
+                        Optional<ResolvedPointLabel> label =
+                                resolvePointLabel(
+                                        binding,
+                                        record.name(),
+                                        record.geometry(),
+                                        record.attributes(),
+                                        viewportSnapshot,
+                                        includeLabels);
+                        if (label.isPresent()) {
+                            wrappedLabelRequests++;
+                            if (wrappedLabelRequests > GreedyPointLabelPlacement.MAXIMUM_REQUESTS) {
+                                throw wrappedLabelLimitFailure(
+                                        source,
+                                        GreedyPointLabelPlacement.MAXIMUM_REQUESTS,
+                                        wrappedLabelRequests);
+                            }
+                            String text = label.orElseThrow().text();
+                            int codePoints = text.codePointCount(0, text.length());
+                            if (codePoints > 262_144 - wrappedLabelCodePoints) {
+                                throw wrappedLabelLimitFailure(
+                                        source, 262_144, wrappedLabelCodePoints + codePoints);
+                            }
+                            wrappedLabelCodePoints += codePoints;
+                        }
+                        visual.add(
+                                new VisualFeature(
+                                        record.id(),
+                                        record.name(),
+                                        record.geometry(),
+                                        symbol.orElseThrow(),
+                                        resolved.sourceToDisplay(),
+                                        profile.translate(profile.canonicalMinimumX(), copyIndex)
+                                                - profile.canonicalMinimumX(),
+                                        label,
+                                        featureIndex));
+                    }
+                }
+                featureIndex++;
+            }
+            MapLayerBinding.Phase phase = operation.finish(true);
+            if (phase == MapLayerBinding.Phase.CANCELLED) {
+                DiagnosticReport cancelled =
+                        mergeReports(encountered, cancellationReport(source), source);
+                updateSourceResult(binding.id(), cancelled, false);
+                if (propagateFailure) {
+                    throwVectorExportSourceCancellation(cancelled, externalCancellation);
+                }
+                return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
+            }
+            updateSourceResult(binding.id(), encountered, true);
+            return new LayerSnapshot(
+                    binding.id(), List.copyOf(visual), Optional.empty(), true, true);
+        } catch (HorizontalWrapException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                            ? mergeReports(encountered, cancellationReport(source), source)
+                            : mergeReports(
+                                    encountered, horizontalWrapFailure(source, failure), source);
+            updateSourceResult(binding.id(), report, false);
+            if (propagateFailure) {
+                throw failure;
+            }
+            return new LayerSnapshot(binding.id(), List.of(), Optional.empty(), true, false);
+        } catch (SourceException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport failureWarnings = withoutTerminal(failure.report());
+            DiagnosticReport observed =
+                    failureWarnings.entries().isEmpty()
+                                    && failureWarnings.omittedWarningCount() == 0
+                            ? encountered
+                            : mergeReports(beforeActiveCursor, failureWarnings, source);
             DiagnosticReport report =
                     phase == MapLayerBinding.Phase.CANCELLED
                             ? mergeReports(observed, cancellationReport(source), source)
@@ -5325,6 +5674,53 @@ public final class MapView extends JComponent implements AutoCloseable {
                 .map(text -> new ResolvedPointLabel(text, profile.orElseThrow()));
     }
 
+    private static void requireWrappedPointGeometry(FeatureSource source, Geometry geometry) {
+        if (!(geometry instanceof PointGeometry) && !(geometry instanceof MultiPointGeometry)) {
+            throw sourceFailure(
+                    source,
+                    "WORLD_WRAP_GEOMETRY_UNSUPPORTED",
+                    "The current wrapped feature slice supports only point geometry",
+                    Map.of("reason", "geometryType"));
+        }
+    }
+
+    private static Geometry repeatedPointGeometry(
+            Geometry geometry,
+            CrsOperation sourceToDisplay,
+            HorizontalWrap profile,
+            long copyIndex) {
+        if (geometry instanceof PointGeometry point) {
+            return new PointGeometry(
+                    repeatedPoint(point.coordinate(), sourceToDisplay, profile, copyIndex));
+        }
+        CoordinateSequence source = ((MultiPointGeometry) geometry).coordinates();
+        double[] ordinates = new double[Math.multiplyExact(source.size(), 2)];
+        for (int index = 0; index < source.size(); index++) {
+            Coordinate repeated =
+                    repeatedPoint(source.coordinate(index), sourceToDisplay, profile, copyIndex);
+            ordinates[index * 2] = repeated.x();
+            ordinates[index * 2 + 1] = repeated.y();
+        }
+        return new MultiPointGeometry(CoordinateSequence.of(ordinates));
+    }
+
+    private static Coordinate repeatedPoint(
+            Coordinate source,
+            CrsOperation sourceToDisplay,
+            HorizontalWrap profile,
+            long copyIndex) {
+        Coordinate display = sourceToDisplay.transform(source);
+        double canonicalX = profile.canonicalize(display.x()).canonicalX();
+        return new Coordinate(profile.translate(canonicalX, copyIndex), display.y());
+    }
+
+    private static boolean intersects(Envelope first, Envelope second) {
+        return first.maxX() >= second.minX()
+                && first.minX() <= second.maxX()
+                && first.maxY() >= second.minY()
+                && first.minY() <= second.maxY();
+    }
+
     private static void preflight(
             Geometry geometry,
             CrsOperation sourceToDisplay,
@@ -5382,6 +5778,14 @@ public final class MapView extends JComponent implements AutoCloseable {
             }
             if (binding.isClosed()) {
                 throw new IllegalStateException("binding is closed: " + binding.id());
+            }
+            if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+                if (horizontalWrap == null) {
+                    throw new IllegalStateException(
+                            "A repeating binding requires a horizontal wrap profile: "
+                                    + binding.id());
+                }
+                validateRepeatingBinding(binding, horizontalWrap);
             }
             if (binding.kind() == MapLayerBinding.Kind.SNAPSHOT) {
                 validateSnapshotFeatures(binding);
@@ -5466,6 +5870,37 @@ public final class MapView extends JComponent implements AutoCloseable {
             resolved.put(binding, new ResolvedFeatureBinding(sourceToDisplay, displayToSource));
         }
         return new CandidateBindings(Collections.unmodifiableMap(resolved));
+    }
+
+    private void validateHorizontalWrapProfile(HorizontalWrap profile) {
+        Envelope domain = displayCrs.coordinateDomain();
+        if (Double.compare(profile.canonicalMinimumX(), domain.minX()) != 0
+                || Double.compare(profile.canonicalMaximumX(), domain.maxX()) != 0) {
+            throw new IllegalArgumentException(
+                    "Horizontal wrap bounds must equal the display CRS horizontal domain");
+        }
+        if (profile.equals(HorizontalWrap.webMercator())
+                && !displayCrs.equals(CrsDefinitions.EPSG_3857)) {
+            throw new IllegalArgumentException(
+                    "The Web Mercator wrap profile requires the exact EPSG:3857 display CRS");
+        }
+    }
+
+    private static void validateRepeatingBinding(MapLayerBinding binding, HorizontalWrap profile) {
+        Objects.requireNonNull(profile, "profile");
+        if (binding.kind() != MapLayerBinding.Kind.FEATURE) {
+            throw new IllegalStateException(
+                    "Only feature-source bindings may repeat in this vertical slice: "
+                            + binding.id());
+        }
+    }
+
+    private void cancelSourceOperations() {
+        for (MapLayerBinding binding : bindings) {
+            if (isSourceBinding(binding)) {
+                binding.cancelCurrentOperation();
+            }
+        }
     }
 
     private static boolean sameSource(MapLayerBinding binding, Object source) {
@@ -5924,6 +6359,54 @@ public final class MapView extends JComponent implements AutoCloseable {
         return new DiagnosticReport(List.of(terminal), 0);
     }
 
+    private static DiagnosticReport horizontalWrapFailure(
+            FeatureSource source, HorizontalWrapException failure) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        failure.problem().code(),
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        "Horizontal world-wrap planning failed",
+                        failure.problem().context());
+        return new DiagnosticReport(List.of(terminal), 0);
+    }
+
+    private static SourceException duplicateFeatureFailure(FeatureSource source, String featureId) {
+        return sourceFailure(
+                source,
+                "SOURCE_DUPLICATE_FEATURE_ID",
+                "Feature source returned conflicting records for one stable identifier",
+                Map.of("featureId", featureId));
+    }
+
+    private static SourceException wrappedLabelLimitFailure(
+            FeatureSource source, int maximum, int attempted) {
+        LinkedHashMap<String, String> context = new LinkedHashMap<>();
+        context.put("scope", "worldWrap");
+        context.put("limit", "labels");
+        context.put("maximum", Integer.toString(maximum));
+        context.put("attempted", Integer.toString(attempted));
+        return sourceFailure(
+                source,
+                "SOURCE_LIMIT_EXCEEDED",
+                "Wrapped point-label output exceeds its bounded profile",
+                context);
+    }
+
+    private static SourceException sourceFailure(
+            FeatureSource source, String code, String message, Map<String, String> context) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        code,
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        message,
+                        context);
+        return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal);
+    }
+
     private static DiagnosticReport cancellationReport(FeatureSource source) {
         return cancellationException(source).report();
     }
@@ -6380,6 +6863,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             Geometry geometry,
             Symbol symbol,
             CrsOperation sourceToDisplay,
+            double displayOffsetX,
             Optional<ResolvedPointLabel> label,
             int featureIndex) {}
 

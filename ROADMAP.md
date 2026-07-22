@@ -638,9 +638,11 @@ separately decomposed.
 - G16-002 is complete: the responsive G15 viewer repeats prepared Natural Earth and canonical packed
   tracks through multiple east/west crossings using the shared bounded planner, while overscanned
   replacement rendering remains coalesced off the EDT and presentation timing remains evidence.
-- G16-003 adds the reusable explicit periodic display/binding boundary and a wrapped point-source
-  `MapView` slice. G16-004 then handles geographic shortest-path line and polygon seam splitting,
-  portrayal, labels, and visible vector export.
+- G16-003 is complete: `MapView` has an explicit compatible horizontal profile, each binding keeps
+  a pre-attachment `NONE`/`REPEAT_X` choice, and ordinary in-memory and shapefile point sources use
+  bounded split/full-world queries, stable-ID deduplication, aggregate accounting, and paint-scoped
+  copies without changing canonical records. G16-004 next handles geographic shortest-path line and
+  polygon seam splitting, portrayal, labels, and visible vector export.
 - G16-005 resolves copied features through hit testing, hover, selection, measurement, snapping,
   canonical point editing, and undo/redo without persisting presentation copy indices.
 - G16-006 repeats only compatible explicitly global raster sources and establishes bounded canonical

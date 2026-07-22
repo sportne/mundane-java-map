@@ -1,6 +1,6 @@
 # G16-003 — Periodic display and wrapped point-source slice
 
-Status: Proposed
+Status: Complete
 Depends on: G16-002
 Gate: G16
 Type: AFK
@@ -59,3 +59,11 @@ git diff --check
 
 Feature identity is logical; copy index is paint-scoped state. Do not put presentation copies into
 attributes, workspaces, source records, registries, or format modules.
+
+Completion record (2026-07-22): `MapView` now owns an optional checked horizontal profile and
+`MapLayerBinding` owns an explicit pre-attachment `NONE`/`REPEAT_X` mode. The first ordinary source
+slice opens one or two canonical queries (or one full-world query), deduplicates stable IDs, applies
+aggregate limits, and renders point/multipoint marker and label copies with canonical geometry and
+paint-scoped viewport offsets. The basic viewer's `--world-wrap` mode demonstrates mixed local and
+repeating content; in-memory, hand-built shapefile, cancellation, hostile-limit, lifecycle, and
+compatibility tests exercise the real stack.

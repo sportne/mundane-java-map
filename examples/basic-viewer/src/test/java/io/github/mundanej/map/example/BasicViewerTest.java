@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.awt.HorizontalWrapMode;
 import io.github.mundanej.map.awt.MapView;
 import java.awt.Color;
 import java.awt.event.MouseEvent;
@@ -87,6 +88,44 @@ class BasicViewerTest {
         assertEquals(
                 io.github.mundanej.map.api.MapPointerEvent.Type.MOVED, pointers.getFirst().type());
         assertTrue(pointers.getFirst().mapCoordinate().isPresent());
+    }
+
+    @Test
+    void createsTheExplicitMixedContinuousWorldMode() throws Exception {
+        AtomicReference<MapView> result = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> result.set(BasicViewer.createWrappedMapView()));
+        MapView map = result.get();
+
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    assertTrue(map.horizontalWrap().isPresent());
+                    assertEquals(2, map.layerBindings().size());
+                    assertEquals(
+                            HorizontalWrapMode.NONE,
+                            map.layerBindings().getFirst().horizontalWrapMode());
+                    assertEquals(
+                            HorizontalWrapMode.REPEAT_X,
+                            map.layerBindings().getLast().horizontalWrapMode());
+                    map.setSize(640, 320);
+                    map.setViewport(
+                            new io.github.mundanej.map.core.MapViewport(
+                                    640,
+                                    320,
+                                    io.github.mundanej.map.core.WebMercatorProjection.WORLD_LIMIT,
+                                    -1_800_000.0,
+                                    25_000.0));
+                    BufferedImage image = new BufferedImage(640, 320, BufferedImage.TYPE_INT_ARGB);
+                    var graphics = image.createGraphics();
+                    try {
+                        graphics.setColor(Color.WHITE);
+                        graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                        map.paint(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    assertTrue(countNonWhite(image) > 20);
+                    map.close();
+                });
     }
 
     private static int countNonWhite(BufferedImage image) {

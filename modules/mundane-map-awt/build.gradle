@@ -9,6 +9,7 @@ dependencies {
     testImplementation project(':modules:mundane-map-io-geojson-jackson')
     testImplementation project(':modules:mundane-map-io-geotiff')
     testImplementation project(':modules:mundane-map-io-image')
+    testImplementation project(':modules:mundane-map-io-shapefile')
 }
 
 sourceSets {

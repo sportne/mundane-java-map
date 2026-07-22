@@ -3,19 +3,28 @@ package io.github.mundanej.map.example;
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Feature;
+import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
+import io.github.mundanej.map.awt.HorizontalWrapMode;
+import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.BuiltInMarkers;
+import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.BorderLayout;
@@ -34,7 +43,8 @@ public final class BasicViewer {
 
     /** Launches the viewer on the Swing event-dispatch thread. */
     public static void main(String[] arguments) {
-        SwingUtilities.invokeLater(BasicViewer::showWindow);
+        boolean worldWrap = List.of(arguments).contains("--world-wrap");
+        SwingUtilities.invokeLater(() -> showWindow(worldWrap));
     }
 
     /** Creates the configured map view without opening a window. */
@@ -44,11 +54,50 @@ public final class BasicViewer {
         return map;
     }
 
-    private static void showWindow() {
-        JFrame frame = new JFrame("mundane-java-map — basic viewer");
+    /**
+     * Creates a mixed local/global point-source demonstration with explicit horizontal repetition.
+     *
+     * @return configured caller-owned view; closing it closes the demonstration source
+     */
+    public static MapView createWrappedMapView() {
+        MapView map = new MapView(new WebMercatorProjection());
+        map.setHorizontalWrap(HorizontalWrap.webMercator());
+        InMemoryFeatureSource source =
+                InMemoryFeatureSource.open(
+                        new SourceIdentity("dateline-cities", "Dateline cities"),
+                        List.of(
+                                cityRecord("suva", "Suva", 178.4501, -18.1248),
+                                cityRecord("apia", "Apia", -171.7514, -13.8507)),
+                        Optional.empty(),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_4326,
+                                        Optional.empty(),
+                                        Optional.empty())),
+                        FeatureSourceLimits.LEVEL_1);
+        MapLayerBinding repeating =
+                MapLayerBinding.ownedFeature(
+                        "dateline-cities",
+                        "Repeating dateline cities",
+                        source,
+                        BuiltInMarkers.filledScreen(
+                                BuiltInMarker.DIAMOND, Rgba.rgb(180, 55, 45), 12.0, 1.0),
+                        SolidLineSymbol.of(stroke(Rgba.rgb(180, 55, 45), 2.0), 1.0),
+                        SolidFillSymbol.of(Rgba.rgb(180, 55, 45), 1.0));
+        repeating.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+        map.setLayerBindings(List.of(MapLayerBinding.snapshot(sampleLayer()), repeating));
+        return map;
+    }
+
+    private static void showWindow(boolean worldWrap) {
+        JFrame frame =
+                new JFrame(
+                        worldWrap
+                                ? "mundane-java-map — continuous-world viewer"
+                                : "mundane-java-map — basic viewer");
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
-        MapView map = createMapView();
+        MapView map = worldWrap ? createWrappedMapView() : createMapView();
         JLabel coordinates = new JLabel("Move the pointer over the map");
         map.addMapPointerListener(
                 event ->
@@ -121,6 +170,15 @@ public final class BasicViewer {
                         Optional.of(stroke(Rgba.rgb(28, 108, 184), 1.0)),
                         io.github.mundanej.map.api.MarkerPlacement.centeredScreen(10.0),
                         1.0));
+    }
+
+    private static FeatureRecord cityRecord(
+            String id, String name, double longitude, double latitude) {
+        return new FeatureRecord(
+                id,
+                name,
+                new PointGeometry(new Coordinate(longitude, latitude)),
+                Map.of("kind", "city"));
     }
 
     private static SymbolStroke stroke(Rgba color, double widthPixels) {

@@ -322,3 +322,12 @@ Natural Earth and canonical track positions; its continuous-coordinate overscan 
 coalesced off the EDT. Focused tests cover seams, full-world collapse, hostile limits, repeated land
 and tracks, and the presentation probe records cached and multi-world navigation at all population
 tiers without establishing a wall-clock SLA.
+
+G16-003 completion record (2026-07-22): ordinary `MapView` bindings remain non-wrapping by default;
+an optional compatible view profile and pre-attachment `HorizontalWrapMode.REPEAT_X` opt-in activate
+the first point/multipoint source slice. The host queries the unique canonical intervals once,
+deduplicates stable IDs, merges diagnostics in cursor order, accounts aggregate retained copies, and
+keeps source geometry/identity canonical while using a paint-scoped viewport offset for each visual
+copy. In-memory and hand-built shapefile fixtures cover split/full-world queries, labels, ordering,
+cancellation, conflicting IDs, limits, lifecycle, and mixed local/global layers. Vector geometry,
+export, interaction, and raster repetition remain assigned to G16-004 through G16-006.

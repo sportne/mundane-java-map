@@ -53,6 +53,7 @@ public final class MapLayerBinding implements AutoCloseable {
     private final RasterRequestLimits rasterLimits;
     private final boolean owned;
     private final AtomicReference<Operation> operation = new AtomicReference<>();
+    private HorizontalWrapMode horizontalWrapMode = HorizontalWrapMode.NONE;
     private Object owner;
     private FeatureEditListener editListener;
     private boolean closed;
@@ -572,6 +573,40 @@ public final class MapLayerBinding implements AutoCloseable {
      */
     public String name() {
         return name;
+    }
+
+    /**
+     * Returns this binding's explicit horizontal display-repetition mode.
+     *
+     * @return immutable mode value, initially {@link HorizontalWrapMode#NONE}
+     */
+    public synchronized HorizontalWrapMode horizontalWrapMode() {
+        return horizontalWrapMode;
+    }
+
+    /**
+     * Changes horizontal repetition while this binding is open and unattached.
+     *
+     * <p>Repeating elevation bindings are not supported. Attaching any repeating binding also
+     * requires a compatible {@link MapView#horizontalWrap()} profile.
+     *
+     * @param mode explicit non-null mode
+     * @throws NullPointerException if {@code mode} is {@code null}
+     * @throws IllegalArgumentException if elevation repetition is requested
+     * @throws IllegalStateException if this binding is closed or attached
+     */
+    public synchronized void setHorizontalWrapMode(HorizontalWrapMode mode) {
+        HorizontalWrapMode requested = Objects.requireNonNull(mode, "mode");
+        if (closed) {
+            throw new IllegalStateException("binding is closed");
+        }
+        if (owner != null) {
+            throw new IllegalStateException("An attached binding cannot change wrap mode");
+        }
+        if (kind == Kind.ELEVATION && requested == HorizontalWrapMode.REPEAT_X) {
+            throw new IllegalArgumentException("Elevation bindings cannot repeat horizontally");
+        }
+        horizontalWrapMode = requested;
     }
 
     /**
