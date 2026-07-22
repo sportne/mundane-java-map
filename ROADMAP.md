@@ -630,9 +630,11 @@ separately decomposed.
   canonical coordinate plus checked world-copy index, split seam viewports into unique canonical
   queries, query a full world once, deduplicate source records, and paint bounded translated copies
   in deterministic order.
-- G16-001 is the HITL profile gate for public API placement, half-open seam convention, numeric and
-  visible-copy limits, query accounting, dateline geometry, raster compatibility, diagnostics, and
-  support wording.
+- G16-001 is complete: it approved core/AWT API placement, the public planner boundary,
+  transactional view configuration, half-open seam convention, eight default and 64 hard visible
+  copies, a 1,048,576 copy-index ceiling plus quarter-pixel precision check, aggregate query
+  accounting, westward half-period ties, atomic polygon rejection, strict raster compatibility,
+  diagnostic precedence, and optional-by-default support wording.
 - G16-002 first proves the policy in the responsive G15 viewer by repeating prepared Natural Earth
   and canonical tracks through multiple east/west crossings without moving rendering back onto the
   EDT.

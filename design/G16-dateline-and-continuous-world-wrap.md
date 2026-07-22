@@ -23,13 +23,13 @@ base projected world. The result is empty space after a user crosses either hori
 This strictness is correct and remains. Projection is a coordinate operation; repetition is a
 display policy.
 
-## Approved design direction
+## Approved profile
 
 ### Explicit opt-in
 
 Wrapping is disabled by default. One immutable horizontal-wrap value defines:
 
-- the finite inclusive canonical X bounds;
+- the finite canonical X minimum and exclusive maximum;
 - the positive period derived from those bounds;
 - a configured maximum number of visible copies at or below a hard library ceiling; and
 - the supported absolute world-copy-index bound used to retain numeric precision and checked
@@ -40,9 +40,60 @@ chooses `NONE` or `REPEAT_X`; a local source never repeats merely because its CR
 Level 2 convenience profile uses `[-WebMercatorProjection.WORLD_LIMIT,
 WebMercatorProjection.WORLD_LIMIT]`, whose period is approximately 40,075,016.69 metres.
 
-G16-001 freezes names, exact limits, constructor/with-method shape, failure behavior, and whether the
-value lives in API or core before production changes. No classpath discovery, automatic CRS
-inference, or mutable global policy is permitted.
+The public immutable value is `io.github.mundanej.map.core.HorizontalWrap`. Its public constructor
+accepts `canonicalMinimumX`, `canonicalMaximumX`, `maximumVisibleCopies`, and
+`maximumAbsoluteCopyIndex`; `webMercator()` returns the approved defaults. Construction requires
+finite strictly ordered bounds, a finite positive period, `maximumVisibleCopies` in `1..64`, and
+`maximumAbsoluteCopyIndex` in `1..1_048_576`. The Web Mercator defaults are the existing strict world
+bounds, eight visible copies, and an absolute copy index of 1,048,576.
+
+The shared public core boundary is deliberately small:
+
+```text
+HorizontalWrap
+  canonicalize(double displayX) -> WrappedX
+  translate(double canonicalX, long copyIndex) -> double
+  plan(double displayMinimumX, double displayMaximumX,
+       double worldUnitsPerPixel) -> HorizontalWrapPlan
+  canonicalTileColumn(long displayColumn, long matrixWidth) -> long
+
+WrappedX(double canonicalX, long copyIndex)
+HorizontalInterval(double minimumX, double maximumX) // [minimum, maximum)
+HorizontalWrapPlan(List<HorizontalInterval> canonicalIntervals,
+                   long minimumVisibleCopyIndex,
+                   long maximumVisibleCopyIndex,
+                   boolean fullWorld)
+HorizontalWrapProblem(String code, Map<String, String> context)
+HorizontalWrapException extends RuntimeException
+  problem() -> HorizontalWrapProblem
+```
+
+These types are immutable, public, and live in core so AWT, examples, and later tile adapters share
+one implementation. Lists/maps are defensively copied and ordered. Public methods reject null,
+non-finite, reversed, non-positive-scale, non-positive-matrix, and non-canonical inputs with ordinary
+argument failures. Checked arithmetic, copy, visible-copy, and precision outcomes throw
+`HorizontalWrapException`; AWT translates its stable problem code/context into the layer diagnostic.
+The plan represents visible copies as one inclusive contiguous index range rather than allocating a
+copy list, and contains one or two half-open canonical intervals (one full interval when
+`fullWorld=true`).
+
+`MapView` adds `horizontalWrap()`, `setHorizontalWrap(HorizontalWrap)`, and
+`clearHorizontalWrap()`. Existing constructors and a newly constructed view remain non-wrapped.
+Clearing is rejected without state change while any attached binding is `REPEAT_X`. Replacement is
+transactional: the new profile must match the display CRS and validate the current viewport and every
+attached repeating binding, including raster compatibility, before current work is cancelled and the
+profile, caches, hover, and repaint state change. It never detaches a binding or changes its mode.
+`HorizontalWrapMode` lives in AWT with the closed values `NONE` and `REPEAT_X`.
+`MapLayerBinding.horizontalWrapMode()` reports the mode and
+`setHorizontalWrapMode(HorizontalWrapMode)` may change it only while the binding is open and
+unattached. The default is `NONE`; this avoids factory-overload growth and prevents copying an owned
+binding merely to change presentation. Snapshot, feature, editable-feature, and raster bindings may
+opt in. Elevation bindings reject `REPEAT_X` until a separate terrain-seam profile is approved.
+
+Attaching or retaining a repeating binding without a view profile is a caller configuration error.
+The Web Mercator convenience profile requires the view's exact registered EPSG:3857 display CRS. No
+classpath discovery, automatic CRS/extent inference, mutable global policy, or `MapViewport` record
+change is permitted.
 
 ### Canonical coordinates and continuous navigation
 
@@ -55,13 +106,14 @@ displayX = canonicalX + copyIndex * period
 
 with checked arithmetic and one canonical half-open interval. The exact upper seam canonicalizes to
 the lower seam in the next copy, eliminating two identities for one meridian. The planner uses a
-checked integer copy index and rejects values beyond the approved precision bound rather than
+checked `long` copy index and rejects values beyond the approved precision bound rather than
 silently losing low-order pixels.
 
 `MapViewport` remains source-compatible. G16 does not add a field to its public record. The approved
-copy-index bound must be large enough for effectively continuous human navigation while keeping a
-screen-pixel delta representable at every supported scale. Programmatic viewports beyond the bound
+copy-index bound is paired with a dynamic precision check: every translated visible edge must have
+an ULP no larger than one quarter of `worldUnitsPerPixel`. Programmatic viewports beyond either bound
 produce one stable structured layer diagnostic; interaction does not pan into an unsupported state.
+The absolute Web Mercator default retains that precision through zoom 22 at its extreme copy.
 
 Y never repeats. Web Mercator latitude and northing limits remain strict.
 
@@ -78,7 +130,9 @@ The visible display envelope is mapped onto unique canonical X intervals:
 `FeatureQuery` and `Envelope` stay non-wrapping. The AWT binding layer owns this small query plan,
 opens bounded cursors sequentially, merges reports deterministically, and deduplicates records by
 stable feature ID. Conflicting duplicate IDs retain the existing source-contract failure behavior.
-Logical paint order is layer order, source record order, then ascending visible copy index.
+A plan contains at most two unique canonical intervals; a span of at least one period collapses to
+one full-world query. Split queries consume one shared `FeatureQueryLimits` budget. Logical paint
+order is layer order, source record order, then ascending visible copy index.
 
 Planning checks cancellation and applies existing query accounting across the aggregate operation.
 Copy, interval, feature, coordinate, and allocation limits are prospective. Exceeding any limit
@@ -104,7 +158,8 @@ not create a second generic cache.
 
 Repetition alone is insufficient for a geographic segment from `170` to `-170` degrees. For an
 explicitly wrapped recognized geographic binding, adjacent longitudes are unwrapped to the shortest
-finite delta, with a deterministic policy for an exact half-period tie. A crossing is split at the
+finite delta normalized to `[-180, 180)`; an exact half-period tie therefore takes the negative,
+westward path. A crossing is split at the
 canonical seam before projection. Inserted seam coordinates interpolate all supported two-dimensional
 geometry ordinates exactly enough to retain closure and finite projection inputs.
 
@@ -112,8 +167,9 @@ Lines become ordered multipart lines as needed. Polygon rings are unwrapped inde
 against shifted canonical windows, closed, and packed into valid polygon parts. Hole fragments stay
 associated with their original polygon and are retained only in a resulting exterior by deterministic
 containment. Empty fragments are removed. Invalid input, excessive crossings, ambiguous containment,
-or inability to preserve a valid ring yields a stable record-level diagnostic; no topology repair or
-heuristic reassignment is attempted.
+or inability to preserve a valid ring rejects the complete record with one stable diagnostic; no
+partial polygon, topology repair, or heuristic reassignment is attempted. Seam work permits at most
+4,096 inserted crossings per logical geometry and remains subject to existing part/coordinate limits.
 
 Literal non-wrapping format semantics remain unchanged unless the application explicitly opts the
 binding into this geographic shortest-path profile. Already projected sources may repeat copies but
@@ -141,9 +197,10 @@ the cursor.
 
 A raster repeats only through an explicitly repeating binding. The source is read in its canonical
 extent; translated visual copies reuse the same detached decoded/request result where request keys
-are identical. Global PNG/JPEG/world-file rasters must cover the declared canonical period within the
-approved affine tolerance. Partial, rotated, sheared, or local rasters remain non-repeating unless a
-later profile proves unambiguous behavior.
+are identical. Global PNG/JPEG/world-file rasters must use zero rotation/shear and cover the declared
+canonical period. Each expected horizontal edge may differ by at most the larger of eight ULPs at
+that edge or `period * 1e-12`; vertical bounds remain ordinary source bounds. Partial, rotated,
+sheared, or local rasters remain non-repeating unless a later profile proves unambiguous behavior.
 
 The same canonical-column rule is reusable by future XYZ/MBTiles sources: display tile columns map
 to canonical columns modulo the matrix width while row limits remain strict. G16 does not add an
@@ -162,15 +219,34 @@ each emitted visual primitive and fail atomically when repetition exceeds them.
 
 ## Limits and diagnostics
 
-G16-001 freezes exact values. The initial recommendation is eight visible copies by default, a hard
-ceiling of 64, and an absolute copy-index bound justified by double-precision analysis rather than an
-arbitrary `long` maximum. Zoom interaction is clamped before it would exceed the configured visible-
-copy count. Programmatic requests report failure without partially painting the repeating layer.
+| Concern | Default | Hard maximum / rule |
+| --- | ---: | --- |
+| Visible copies | 8 | 64 |
+| Absolute copy index | 1,048,576 | 1,048,576 |
+| Unique canonical query intervals | 2 | 2; a full period collapses to 1 |
+| Inserted seam crossings per geometry | 4,096 | 4,096 |
+| Raster horizontal-edge tolerance | `max(8 ULP, period * 1e-12)` | same |
+| Display-coordinate precision | one-quarter screen pixel | same |
 
-New stable diagnostic categories cover invalid wrap configuration, copy-index precision bounds,
-visible-copy limits, aggregate wrapped-query limits, seam-split limits, unsupported projected seam
-rewriting, and raster-extent incompatibility. Context remains bounded and never includes complete
-geometry or hostile source text.
+Existing feature, coordinate, label, snap, raster-request, optimization, export, diagnostic, and
+owned-byte limits count aggregate wrapped output prospectively. Zoom interaction is clamped before a
+copy or precision violation; programmatic requests fail the repeating layer atomically.
+
+Invalid public values, missing view profiles, CRS mismatch, unsupported binding kinds, and mutation
+of an attached binding are argument/lifecycle failures. Runtime layer outcomes use stable codes:
+
+- `WORLD_WRAP_PRECISION_EXCEEDED` with numeric `copyIndex` and `maximum`;
+- `WORLD_WRAP_COPY_LIMIT_EXCEEDED` with numeric `requested` and `maximum`;
+- `SOURCE_LIMIT_EXCEEDED` with `scope=worldWrap` and
+  `limit=features|coordinates|labels|parts|seamCrossings|ownedBytes`;
+- `WORLD_WRAP_GEOMETRY_UNSUPPORTED` with
+  `reason=projectedSeam|invalidRing|ambiguousHole`; and
+- `WORLD_WRAP_RASTER_INCOMPATIBLE` with `reason=crs|extent|rotation|shear`.
+
+Precedence is configuration/lifecycle, already-cancelled token, copy index/precision, visible-copy
+planning, canonical query/output limits, source diagnostics in canonical query order,
+geometry/raster compatibility, final cancellation, then atomic publication. Context remains bounded
+and excludes complete geometry, source text, paths, and attributes.
 
 ## Verification strategy
 
@@ -231,3 +307,10 @@ semantically unchanged, interaction resolves canonical logical features, malform
 work fails predictably, the G15 viewer remains responsive at every population tier, all verification
 lanes pass independently, and the maintainer approves the visual seam behavior and public support
 statement.
+
+G16-001 completion record (2026-07-22): the maintainer approved core/AWT placement, pre-attachment
+binding opt-in, transactional view changes, the public planner boundary, eight/64 copy limits, the
+1,048,576 copy-index ceiling plus quarter-pixel precision check, westward half-period tie, atomic
+polygon rejection, exact raster tolerance, diagnostic precedence, and optional-by-default support
+wording. Later tasks may refine private implementation but require a new HITL decision to change
+these public semantics or limits.

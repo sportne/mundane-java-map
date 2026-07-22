@@ -64,7 +64,7 @@ design task; there are no empty speculative design files.
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
-| G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 through G16-007 draft proposal |
+| G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 approved; G16-002 through G16-007 draft |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -281,7 +281,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G15-007 | Preflighted 1m tier, opt-in `/tmp` evidence lane, JSON/Markdown reports, and named-machine interpretation | Approved |
 | G15-008 | Failure/lifecycle/replay/soak hardening, documentation, visual approval, and G15 simplicity closeout | Approved |
 | G15 holistic closeout | Keep the packed estimator, scheduler, frame overlay, and evidence harness example-local; no public live-source or tracking framework without a second consumer | Approved |
-| G16-001 | Explicit wrap API/profile, canonical seam, numeric limits, diagnostics, raster compatibility, and support wording | Draft |
+| G16-001 | Explicit wrap API/profile, canonical seam, numeric limits, diagnostics, raster compatibility, and support wording | Approved |
 | G16-002 | Repeated G15 Natural Earth/tracks, continuous overscan coordinates, multi-world presentation evidence, and lifecycle | Draft |
 | G16-003 | Binding-opted periodic display, canonical query planning/deduplication, point/label copies, and compatibility | Draft |
 | G16-004 | Geographic seam unwrapping/splitting, packed line/polygon parts, portrayal/labels, diagnostics, and vector export | Draft |

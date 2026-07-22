@@ -1,6 +1,6 @@
 # G16-001 — Horizontal world-wrap profile decision
 
-Status: Proposed
+Status: Complete
 Depends on: G4-002, G7-004, G15-008
 Gate: G16
 Type: HITL
@@ -56,4 +56,4 @@ git diff --check
 ## Notes
 
 HITL checkpoint: **horizontal world-wrap API, numeric limits, dateline geometry policy, and support
-wording approval**. A maintainer must approve the exact profile before G16-002 begins.
+wording approval**. Explicitly approved by the maintainer on 2026-07-22.
