@@ -510,6 +510,23 @@ viewport, and interaction boundaries without leaking its mutable arrays or threa
 abstraction remains deferred until a second independent consumer demonstrates the smaller common
 contract.
 
+Post-close presentation correction (2026-07-21): interactive evidence exposed that the canonical
+engine lane consumed completed buffers without measuring Swing presentation. Natural Earth is now
+decoded, clipped to the Web Mercator domain, projected, and packed into an explicitly indexed
+immutable source once during startup. The stress viewer retains one bounded two-screen overscan
+background, transforms it immediately during navigation, and coalesces replacement work on one
+owned renderer thread. The worker paints only detached immutable geometry; it never invokes a live
+Swing component. Results publish on the EDT only when they still cover the current viewport, stale
+work is harmless, ordinary covered pans require no refresh, and close cancels pending work.
+
+New-frame EDT paint latency and screen FPS are distinct from engine build latency and consumption
+FPS; absolute pacing deadlines avoid Swing timer drift, and startup rates use observed intervals.
+Selectable/copyable telemetry, optional stdout snapshots, and a separate threshold-free headless
+presentation probe make engine build, cached navigation, EDT composition, and off-EDT background
+rendering independently observable. The backing store remains example-local and single-image; it
+does not revive G7's rejected exact-viewport screen-plan cache, add a generic cache framework, change
+`MapView` or public APIs, or widen G15's JVM-only and non-portable-performance claims.
+
 G15-002/G15-003 and G15-004 are dependency-parallel after G15-001, but all touch the example
 registration eventually; one integration owner must serialize shared Gradle/settings, design index,
 task index, and roadmap files. G15-005 through G15-008 are serial because each extends the same

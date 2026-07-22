@@ -152,6 +152,23 @@ class LiveTrackFramesTest {
     }
 
     @Test
+    void achievedFpsUsesObservedIntervalsWithoutFiveSecondStartupDepression() {
+        LiveTrackFrameHandoff handoff = new LiveTrackFrameHandoff(ONE_GIBIBYTE, 1_000L);
+        LiveTrackViewport viewport =
+                new LiveTrackViewport(1L, new MapViewport(2, 2, 0.0, 0.0, 1.0));
+        for (int frame = 0; frame < 2; frame++) {
+            assertTrue(handoff.beginRequest());
+            FrameBuffer buffer = handoff.acquireProducerBuffer(viewport);
+            handoff.publish(buffer, viewport, frame, 1, 1L);
+            assertNotNull(handoff.frameForPaint(1L, 2, 2, 10_000_000_000L + frame * 100_000_000L));
+        }
+        assertEquals(10.0, handoff.metrics(10_100_000_000L).achievedFps(), 1.0e-12);
+        assertTrue(handoff.metrics(14_900_000_000L).achievedFps() < 1.0);
+        assertEquals(0.0, handoff.metrics(15_200_000_000L).achievedFps(), 1.0e-12);
+        handoff.close();
+    }
+
+    @Test
     void framePacerSupportsOnlyTheApprovedCapsWithoutCatchUpBursts() {
         LiveTrackFramePacer pacer = new LiveTrackFramePacer(10);
         assertTrue(pacer.shouldRequest(1_000_000_000L));
@@ -168,6 +185,15 @@ class LiveTrackFramesTest {
             assertEquals(cap, pacer.cap());
         }
         assertThrows(IllegalArgumentException.class, () -> pacer.setCap(20));
+
+        LiveTrackFramePacer cadenced = new LiveTrackFramePacer(10);
+        int requests = 0;
+        for (long now = 0L; now < 1_000_000_000L; now += 16_000_000L) {
+            if (cadenced.shouldRequest(now)) {
+                requests++;
+            }
+        }
+        assertEquals(10, requests);
     }
 
     @Test
@@ -298,25 +324,54 @@ class LiveTrackFramesTest {
     }
 
     @Test
-    void overlayIsTransparentNonInterceptingAndEdtConfined() throws Exception {
+    void overlayCachesBackgroundRemainsNonInterceptingAndIsEdtConfined() throws Exception {
         LiveTrackFrameHandoff handoff = new LiveTrackFrameHandoff(ONE_GIBIBYTE, 1_000L);
         LiveTrackOverlay overlay = new LiveTrackOverlay(handoff);
         assertFalse(overlay.isOpaque());
         assertFalse(overlay.contains(0, 0));
-        assertThrows(IllegalStateException.class, () -> overlay.setViewportGeneration(1L));
+        MapViewport mapViewport = new MapViewport(20, 10, 0.0, 0.0, 1.0);
+        assertThrows(IllegalStateException.class, () -> overlay.setViewport(1L, mapViewport));
 
+        LiveTrackViewport viewport = new LiveTrackViewport(1L, mapViewport);
+        assertTrue(handoff.beginRequest());
+        FrameBuffer buffer = handoff.acquireProducerBuffer(viewport);
+        buffer.pixels()[0] = LiveTrackRasterizer.TRACK_ARGB;
+        handoff.publish(buffer, viewport, 1.0, 1, 1L);
+
+        BufferedImage target = new BufferedImage(20, 10, BufferedImage.TYPE_INT_ARGB);
         EventQueue.invokeAndWait(
                 () -> {
                     overlay.setSize(20, 10);
-                    overlay.setViewportGeneration(1L);
-                    BufferedImage image = new BufferedImage(20, 10, BufferedImage.TYPE_INT_ARGB);
-                    Graphics2D graphics = image.createGraphics();
+                    overlay.setViewport(1L, mapViewport);
+                    BufferedImage background =
+                            new BufferedImage(40, 20, BufferedImage.TYPE_INT_RGB);
+                    Graphics2D backgroundGraphics = background.createGraphics();
+                    try {
+                        backgroundGraphics.setColor(java.awt.Color.BLUE);
+                        backgroundGraphics.fillRect(0, 0, 40, 20);
+                    } finally {
+                        backgroundGraphics.dispose();
+                    }
+                    assertTrue(
+                            overlay.installBackground(
+                                    new MapViewport(40, 20, 0.0, 0.0, 1.0),
+                                    background,
+                                    1_000_000L));
+                    assertTrue(overlay.backgroundCovers(mapViewport.panByPixels(5.0, 0.0)));
+                    Graphics2D graphics = target.createGraphics();
                     try {
                         overlay.paint(graphics);
                     } finally {
                         graphics.dispose();
                     }
                 });
+        assertTrue(overlay.isOpaque());
+        assertEquals(LiveTrackRasterizer.TRACK_ARGB, target.getRGB(0, 0));
+        assertEquals(java.awt.Color.BLUE.getRGB(), target.getRGB(10, 5));
+        assertEquals(1L, overlay.presentationMetrics(System.nanoTime()).presentedFrames());
+        assertEquals(1L, overlay.presentationMetrics(System.nanoTime()).backgroundRefreshes());
+        assertEquals(
+                1_000_000L, overlay.presentationMetrics(System.nanoTime()).backgroundLastNanos());
         handoff.close();
     }
 
@@ -357,8 +412,8 @@ class LiveTrackFramesTest {
                         chart.view().setSize(900, 500);
                         chart.view().fitToData(24.0);
                         overlay.setSize(900, 500);
-                        overlay.setViewportGeneration(1L);
                         viewport[0] = chart.view().viewport();
+                        overlay.setViewport(1L, viewport[0]);
                     });
             LiveTrackViewport snapshot =
                     new LiveTrackViewport(1L, java.util.Objects.requireNonNull(viewport[0]));
@@ -518,10 +573,21 @@ class LiveTrackFramesTest {
                     () -> {
                         viewer.stack().setSize(800, 500);
                         viewer.stack().doLayout();
+                        viewer.refreshNow();
                         assertSame(
                                 viewer.map(),
                                 SwingUtilities.getDeepestComponentAt(viewer.stack(), 400, 250));
                         assertTrue(viewer.telemetryText().contains("State RUNNING"));
+                    });
+            awaitBackground(viewer);
+            EventQueue.invokeAndWait(
+                    () -> {
+                        assertTrue(viewer.map().layerBindings().isEmpty());
+                        assertTrue(viewer.chartClosed());
+                        MapViewport panned = viewer.map().viewport().panByPixels(25.0, 0.0);
+                        assertTrue(viewer.overlay().backgroundCovers(panned));
+                        viewer.map().setViewport(panned);
+                        viewer.refreshNow();
                     });
         } finally {
             viewer.close();
@@ -529,6 +595,24 @@ class LiveTrackFramesTest {
         assertFalse(viewer.engine().producerAlive());
         assertTrue(viewer.engine().handoff().isClosed());
         assertTrue(viewer.chartClosed());
+    }
+
+    private static void awaitBackground(LiveTrackViewer.ViewerSession viewer) throws Exception {
+        long deadline = System.nanoTime() + 10_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            long[] refreshes = new long[1];
+            EventQueue.invokeAndWait(
+                    () ->
+                            refreshes[0] =
+                                    viewer.overlay()
+                                            .presentationMetrics(System.nanoTime())
+                                            .backgroundRefreshes());
+            if (refreshes[0] > 0L) {
+                return;
+            }
+            Thread.sleep(2L);
+        }
+        throw new AssertionError("static map background timed out");
     }
 
     @Test
@@ -552,11 +636,12 @@ class LiveTrackFramesTest {
         TrackSimulationConfig simulation =
                 new TrackSimulationConfig(10_000, 0x1234L, 4, IouKalmanConfig.REFERENCE);
         LiveTrackViewer.ViewerConfiguration configuration =
-                new LiveTrackViewer.ViewerConfiguration(simulation, 30, "reference");
+                new LiveTrackViewer.ViewerConfiguration(simulation, 30, "reference", false);
         LiveTrackViewer.ViewerSession viewer = LiveTrackViewer.startHeadless(configuration);
         try {
             assertEquals(simulation, viewer.engine().configuration());
             assertEquals(30, viewer.fpsCap());
+            assertFalse(viewer.telemetryComponent().isEditable());
             assertEquals(
                     "Population: 10,000 Seed: 0x1234 Workers: 4 Reports: reference",
                     viewer.configurationText());

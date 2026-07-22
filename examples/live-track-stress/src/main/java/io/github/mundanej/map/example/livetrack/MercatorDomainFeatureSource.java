@@ -1,9 +1,10 @@
 package io.github.mundanej.map.example.livetrack;
 
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
-import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
@@ -13,6 +14,8 @@ import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -21,34 +24,47 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/**
- * Example-local decorator that clips Natural Earth polygons to the Web Mercator latitude domain.
- */
+/** Example-local eagerly prepared Natural Earth snapshot in the Web Mercator display CRS. */
 final class MercatorDomainFeatureSource implements FeatureSource {
     private static final double MINIMUM_LATITUDE = -WebMercatorProjection.MAX_LATITUDE;
     private static final double MAXIMUM_LATITUDE = WebMercatorProjection.MAX_LATITUDE;
     private static final double MINIMUM_LONGITUDE = -180.0;
     private static final double MAXIMUM_LONGITUDE = 180.0;
+    private static final WebMercatorProjection PROJECTION = new WebMercatorProjection();
 
     private final FeatureSource delegate;
     private final Path stagedDirectory;
     private final Consumer<Path> cleanup;
     private final FeatureSourceMetadata metadata;
+    private final DiagnosticReport openingDiagnostics;
+    private final List<FeatureRecord> records;
     private boolean closed;
 
     MercatorDomainFeatureSource(
             FeatureSource delegate, Path stagedDirectory, Consumer<Path> cleanup) {
-        this.delegate = Objects.requireNonNull(delegate, "delegate");
+        Objects.requireNonNull(delegate, "delegate");
         this.stagedDirectory = Objects.requireNonNull(stagedDirectory, "stagedDirectory");
         this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
         FeatureSourceMetadata original = delegate.metadata();
-        this.metadata =
-                new FeatureSourceMetadata(
+        openingDiagnostics = delegate.openingDiagnostics();
+        records = materialize(delegate);
+        this.delegate =
+                InMemoryFeatureSource.openIndexed(
                         original.identity(),
-                        original.extent().flatMap(MercatorDomainFeatureSource::clipExtent),
-                        original.featureCount(),
+                        records,
                         original.schema(),
-                        original.crs());
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.empty(),
+                                        Optional.empty())),
+                        delegate.limits(),
+                        io.github.mundanej.map.core.FeatureIndexLimits.LEVEL_1);
+        metadata = this.delegate.metadata();
+    }
+
+    List<FeatureRecord> records() {
+        return records;
     }
 
     @Override
@@ -63,13 +79,13 @@ final class MercatorDomainFeatureSource implements FeatureSource {
 
     @Override
     public DiagnosticReport openingDiagnostics() {
-        return delegate.openingDiagnostics();
+        return openingDiagnostics;
     }
 
     @Override
     public FeatureCursor openCursor(FeatureQuery query, CancellationToken cancellation) {
         requireOpen();
-        return new ClippingCursor(delegate.openCursor(query, cancellation));
+        return delegate.openCursor(query, cancellation);
     }
 
     @Override
@@ -112,15 +128,56 @@ final class MercatorDomainFeatureSource implements FeatureSource {
         }
     }
 
-    private static Optional<Envelope> clipExtent(Envelope extent) {
-        double minimumX = Math.max(extent.minX(), MINIMUM_LONGITUDE);
-        double maximumX = Math.min(extent.maxX(), MAXIMUM_LONGITUDE);
-        double minimum = Math.max(extent.minY(), MINIMUM_LATITUDE);
-        double maximum = Math.min(extent.maxY(), MAXIMUM_LATITUDE);
-        if (minimumX > maximumX || minimum > maximum) {
-            return Optional.empty();
+    private static List<FeatureRecord> materialize(FeatureSource source) {
+        List<FeatureRecord> records = new ArrayList<>();
+        try (FeatureCursor cursor =
+                source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            while (cursor.advance()) {
+                FeatureRecord candidate = cursor.current();
+                clipGeometry(candidate.geometry())
+                        .ifPresent(
+                                geometry ->
+                                        records.add(
+                                                new FeatureRecord(
+                                                        candidate.id(),
+                                                        candidate.name(),
+                                                        projectGeometry(geometry),
+                                                        candidate.attributes())));
+            }
+        } finally {
+            source.close();
         }
-        return Optional.of(new Envelope(minimumX, minimum, maximumX, maximum));
+        return List.copyOf(records);
+    }
+
+    private static Geometry projectGeometry(Geometry geometry) {
+        if (geometry instanceof PolygonGeometry polygon) {
+            return projectPolygon(polygon);
+        }
+        MultiPolygonGeometry polygons = (MultiPolygonGeometry) geometry;
+        return MultiPolygonGeometry.of(
+                project(polygons.coordinates()),
+                polygons.ringOffsets(),
+                polygons.polygonRingOffsets());
+    }
+
+    private static PolygonGeometry projectPolygon(PolygonGeometry polygon) {
+        List<CoordinateSequence> holes = new ArrayList<>(polygon.holes().size());
+        for (CoordinateSequence hole : polygon.holes()) {
+            holes.add(project(hole));
+        }
+        return new PolygonGeometry(project(polygon.exterior()), holes);
+    }
+
+    private static CoordinateSequence project(CoordinateSequence coordinates) {
+        double[] values = new double[coordinates.size() * 2];
+        for (int index = 0; index < coordinates.size(); index++) {
+            Coordinate projected =
+                    PROJECTION.project(new Coordinate(coordinates.x(index), coordinates.y(index)));
+            values[index * 2] = projected.x();
+            values[index * 2 + 1] = projected.y();
+        }
+        return CoordinateSequence.of(values);
     }
 
     private static Optional<Geometry> clipGeometry(Geometry geometry) {
@@ -257,57 +314,5 @@ final class MercatorDomainFeatureSource implements FeatureSource {
     private enum Axis {
         X,
         Y
-    }
-
-    private static final class ClippingCursor implements FeatureCursor {
-        private final FeatureCursor delegate;
-        private FeatureRecord current;
-
-        private ClippingCursor(FeatureCursor delegate) {
-            this.delegate = Objects.requireNonNull(delegate, "delegate");
-        }
-
-        @Override
-        public boolean advance() {
-            current = null;
-            while (delegate.advance()) {
-                FeatureRecord candidate = delegate.current();
-                Optional<Geometry> geometry = clipGeometry(candidate.geometry());
-                if (geometry.isPresent()) {
-                    current =
-                            new FeatureRecord(
-                                    candidate.id(),
-                                    candidate.name(),
-                                    geometry.orElseThrow(),
-                                    candidate.attributes());
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        @Override
-        public FeatureRecord current() {
-            if (current == null) {
-                throw new IllegalStateException("No current Natural Earth feature");
-            }
-            return current;
-        }
-
-        @Override
-        public DiagnosticReport diagnostics() {
-            return delegate.diagnostics();
-        }
-
-        @Override
-        public boolean isClosed() {
-            return delegate.isClosed();
-        }
-
-        @Override
-        public void close() {
-            delegate.close();
-            current = null;
-        }
     }
 }

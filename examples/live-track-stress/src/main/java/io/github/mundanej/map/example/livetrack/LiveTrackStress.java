@@ -6,7 +6,8 @@ public final class LiveTrackStress {
             "Usage: live-track-stress "
                     + "[--chart|--headless|"
                     + "--population=<10000|100000|1000000> --seed=<long> --workers=<1..32> "
-                    + "--report-profile=reference --fps=<0|1|2|5|10|15|30|60>]";
+                    + "--report-profile=reference --fps=<0|1|2|5|10|15|30|60> "
+                    + "--telemetry-stdout]";
 
     private LiveTrackStress() {}
 
@@ -40,6 +41,7 @@ public final class LiveTrackStress {
         boolean workersSet = false;
         boolean fpsSet = false;
         boolean profileSet = false;
+        boolean telemetryStdout = false;
         try {
             for (String argument : args) {
                 if (argument.startsWith("--population=")) {
@@ -62,6 +64,9 @@ public final class LiveTrackStress {
                     requireUnset(fpsSet);
                     fps = Integer.parseInt(value(argument, "--fps="));
                     fpsSet = true;
+                } else if (argument.equals("--telemetry-stdout")) {
+                    requireUnset(telemetryStdout);
+                    telemetryStdout = true;
                 } else {
                     throw new IllegalArgumentException("unknown option");
                 }
@@ -77,7 +82,8 @@ public final class LiveTrackStress {
                             seed == null ? TrackSimulationConfig.REFERENCE_SEED : seed,
                             selectedWorkers,
                             reference.filterConfig());
-            return new LiveTrackViewer.ViewerConfiguration(simulation, fps, reportProfile);
+            return new LiveTrackViewer.ViewerConfiguration(
+                    simulation, fps, reportProfile, telemetryStdout);
         } catch (RuntimeException failure) {
             throw new IllegalArgumentException(USAGE, failure);
         }

@@ -62,3 +62,15 @@ tasks.register('liveTrackEvidence', JavaExec) {
     timeout = java.time.Duration.ofMinutes(10)
     outputs.upToDateWhen { false }
 }
+
+tasks.register('liveTrackPresentation', JavaExec) {
+    group = 'verification'
+    description = 'Measures cached-map composition and actual EDT overlay paint cost.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.example.livetrack.LiveTrackPresentationProbe'
+    args providers.gradleProperty('liveTrackProfile').getOrElse('10k')
+    jvmArgs '-Djava.awt.headless=true'
+    maxHeapSize = '1g'
+    timeout = java.time.Duration.ofMinutes(5)
+    outputs.upToDateWhen { false }
+}

@@ -50,7 +50,7 @@ final class LiveTrackSmoke {
             require(engine.awaitIdle(30_000L), "stale frame request timed out");
             EventQueue.invokeAndWait(
                     () -> {
-                        overlay.setViewportGeneration(3L);
+                        overlay.setViewport(3L, stale.viewport());
                         BufferedImage image =
                                 new BufferedImage(
                                         stale.width(), stale.height(), BufferedImage.TYPE_INT_ARGB);
@@ -87,8 +87,8 @@ final class LiveTrackSmoke {
                     chart.view().setSize(900, 500);
                     chart.view().fitToData(24.0);
                     overlay.setSize(900, 500);
-                    overlay.setViewportGeneration(1L);
                     result[0] = chart.view().viewport();
+                    overlay.setViewport(1L, result[0]);
                 });
         return result[0];
     }
@@ -98,7 +98,7 @@ final class LiveTrackSmoke {
             throws Exception {
         EventQueue.invokeAndWait(
                 () -> {
-                    overlay.setViewportGeneration(viewport.generation());
+                    overlay.setViewport(viewport.generation(), viewport.viewport());
                     BufferedImage image =
                             new BufferedImage(
                                     viewport.width(),

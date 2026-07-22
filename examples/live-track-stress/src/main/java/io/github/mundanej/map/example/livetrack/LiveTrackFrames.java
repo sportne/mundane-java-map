@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.livetrack;
 
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.Graphics2D;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 import java.util.ArrayDeque;
@@ -49,6 +50,17 @@ final class LiveTrackFrames {
             long buildMaximumNanos,
             int allocatedBuffers,
             long frameBufferBytes) {}
+
+    record LiveTrackPresentationMetrics(
+            long presentedFrames,
+            double achievedFps,
+            long paintP50Nanos,
+            long paintP95Nanos,
+            long paintP99Nanos,
+            long paintMaximumNanos,
+            long backgroundRefreshes,
+            long backgroundLastNanos,
+            long backgroundMaximumNanos) {}
 
     record LiveTrackShardMetrics(
             int shardCount,
@@ -776,15 +788,7 @@ final class LiveTrackFrames {
         }
 
         private double achievedFps(long nowNanos) {
-            long cutoff = nowNanos - 5_000_000_000L;
-            int size = (int) Math.min(paintCount, PAINT_SAMPLES);
-            int retained = 0;
-            for (int index = 0; index < size; index++) {
-                if (paintNanos[index] >= cutoff && paintNanos[index] <= nowNanos) {
-                    retained++;
-                }
-            }
-            return retained / 5.0;
+            return sampleRate(paintNanos, paintCount, nowNanos);
         }
 
         private void preflightFrameBytes(long oneBufferBytes) {
@@ -967,16 +971,45 @@ final class LiveTrackFrames {
                 return false;
             }
             long interval = 1_000_000_000L / cap;
+            if (nextRequestNanos == Long.MIN_VALUE) {
+                nextRequestNanos = saturatedAdd(nowNanos, interval);
+                return true;
+            }
+            long overdue = nowNanos - nextRequestNanos;
+            long intervals = overdue / interval + 1L;
             nextRequestNanos =
-                    nowNanos > Long.MAX_VALUE - interval ? Long.MAX_VALUE : nowNanos + interval;
+                    saturatedAdd(nextRequestNanos, saturatedMultiply(interval, intervals));
             return true;
+        }
+
+        private static long saturatedMultiply(long left, long right) {
+            if (left != 0L && right > Long.MAX_VALUE / left) {
+                return Long.MAX_VALUE;
+            }
+            return left * right;
+        }
+
+        private static long saturatedAdd(long left, long right) {
+            return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
         }
     }
 
     @SuppressWarnings("serial")
     static final class LiveTrackOverlay extends javax.swing.JComponent {
+        private static final int PRESENTATION_SAMPLES = 512;
+
         private final LiveTrackFrameHandoff handoff;
+        private final long[] presentationNanos = new long[PRESENTATION_SAMPLES];
+        private final long[] paintDurationNanos = new long[PRESENTATION_SAMPLES];
         private long generation;
+        private MapViewport viewport;
+        private BufferedImage background;
+        private MapViewport backgroundViewport;
+        private long lastPresentedSequence = -1L;
+        private long presentedFrames;
+        private long backgroundRefreshes;
+        private long backgroundLastNanos;
+        private long backgroundMaximumNanos;
 
         LiveTrackOverlay(LiveTrackFrameHandoff handoff) {
             this.handoff = Objects.requireNonNull(handoff, "handoff");
@@ -984,14 +1017,57 @@ final class LiveTrackFrames {
             setFocusable(false);
         }
 
-        void setViewportGeneration(long generation) {
-            if (!java.awt.EventQueue.isDispatchThread()) {
-                throw new IllegalStateException("track overlay generation must change on the EDT");
+        boolean installBackground(
+                MapViewport renderedViewport, BufferedImage image, long renderNanos) {
+            requireEdt();
+            Objects.requireNonNull(renderedViewport, "renderedViewport");
+            Objects.requireNonNull(image, "image");
+            if (image.getWidth() != renderedViewport.width()
+                    || image.getHeight() != renderedViewport.height()
+                    || renderNanos < 0L) {
+                throw new IllegalArgumentException("invalid live-track background snapshot");
             }
+            if (viewport == null || !StaticMapBackgroundCache.covers(renderedViewport, viewport)) {
+                return false;
+            }
+            background = image;
+            backgroundViewport = renderedViewport;
+            backgroundRefreshes++;
+            backgroundLastNanos = renderNanos;
+            backgroundMaximumNanos = Math.max(backgroundMaximumNanos, renderNanos);
+            setOpaque(true);
+            return true;
+        }
+
+        boolean backgroundCovers(MapViewport candidate) {
+            requireEdt();
+            return backgroundViewport != null
+                    && StaticMapBackgroundCache.covers(backgroundViewport, candidate);
+        }
+
+        LiveTrackPresentationMetrics presentationMetrics(long nowNanos) {
+            int size = (int) Math.min(presentedFrames, PRESENTATION_SAMPLES);
+            long[] ordered = Arrays.copyOf(paintDurationNanos, size);
+            Arrays.sort(ordered);
+            return new LiveTrackPresentationMetrics(
+                    presentedFrames,
+                    sampleRate(presentationNanos, presentedFrames, nowNanos),
+                    quantile(ordered, 0.50),
+                    quantile(ordered, 0.95),
+                    quantile(ordered, 0.99),
+                    ordered.length == 0 ? 0L : ordered[ordered.length - 1],
+                    backgroundRefreshes,
+                    backgroundLastNanos,
+                    backgroundMaximumNanos);
+        }
+
+        void setViewport(long generation, MapViewport viewport) {
+            requireEdt();
             if (generation < 0L) {
                 throw new IllegalArgumentException("generation must be non-negative");
             }
             this.generation = generation;
+            this.viewport = Objects.requireNonNull(viewport, "viewport");
         }
 
         @Override
@@ -1002,11 +1078,76 @@ final class LiveTrackFrames {
         @Override
         protected void paintComponent(java.awt.Graphics graphics) {
             super.paintComponent(graphics);
+            long started = System.nanoTime();
+            Graphics2D presentation = (Graphics2D) graphics.create();
+            try {
+                if (background != null && viewport != null && backgroundViewport != null) {
+                    presentation.setColor(getBackground());
+                    presentation.fillRect(0, 0, getWidth(), getHeight());
+                    presentation.drawImage(
+                            background, backgroundTransform(backgroundViewport, viewport), null);
+                }
+            } finally {
+                presentation.dispose();
+            }
             BufferedImage frame =
                     handoff.frameForPaint(generation, getWidth(), getHeight(), System.nanoTime());
             if (frame != null) {
                 ((Graphics2D) graphics).drawImage(frame, 0, 0, null);
+                long sequence = handoff.currentSequence();
+                if (sequence != lastPresentedSequence) {
+                    long completed = System.nanoTime();
+                    int slot = (int) (presentedFrames % PRESENTATION_SAMPLES);
+                    presentationNanos[slot] = completed;
+                    paintDurationNanos[slot] = completed - started;
+                    presentedFrames++;
+                    lastPresentedSequence = sequence;
+                }
             }
         }
+
+        private static void requireEdt() {
+            if (!java.awt.EventQueue.isDispatchThread()) {
+                throw new IllegalStateException("live-track overlay mutation must run on the EDT");
+            }
+        }
+
+        private static AffineTransform backgroundTransform(MapViewport source, MapViewport target) {
+            double scale = source.worldUnitsPerPixel() / target.worldUnitsPerPixel();
+            double translateX =
+                    target.width() / 2.0
+                            + (source.centerX() - target.centerX()) / target.worldUnitsPerPixel()
+                            - source.width() / 2.0 * scale;
+            double translateY =
+                    target.height() / 2.0
+                            - (source.centerY() - target.centerY()) / target.worldUnitsPerPixel()
+                            - source.height() / 2.0 * scale;
+            return new AffineTransform(scale, 0.0, 0.0, scale, translateX, translateY);
+        }
+
+        private static long quantile(long[] ordered, double quantile) {
+            if (ordered.length == 0) {
+                return 0L;
+            }
+            int index = (int) StrictMath.ceil(quantile * ordered.length) - 1;
+            return ordered[Math.max(0, index)];
+        }
+    }
+
+    private static double sampleRate(long[] samples, long count, long nowNanos) {
+        long cutoff = nowNanos - 5_000_000_000L;
+        int size = (int) Math.min(count, samples.length);
+        int retained = 0;
+        long first = Long.MAX_VALUE;
+        for (int index = 0; index < size; index++) {
+            long sample = samples[index];
+            if (sample >= cutoff && sample <= nowNanos) {
+                retained++;
+                first = Math.min(first, sample);
+            }
+        }
+        return retained < 2 || nowNanos == first
+                ? 0.0
+                : (retained - 1L) * 1_000_000_000.0 / (nowNanos - first);
     }
 }

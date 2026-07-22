@@ -1,11 +1,14 @@
 package io.github.mundanej.map.example.livetrack;
 
+import io.github.mundanej.map.api.Envelope;
+import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackFrameEngine;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackFrameMetrics;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackFramePacer;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackOverlay;
+import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackPresentationMetrics;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackTelemetry;
 import io.github.mundanej.map.example.livetrack.LiveTrackFrames.LiveTrackViewport;
 import java.awt.BorderLayout;
@@ -14,6 +17,7 @@ import java.awt.EventQueue;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -23,6 +27,7 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
 
@@ -63,7 +68,8 @@ final class LiveTrackViewer {
                                     engine,
                                     true,
                                     configuration.fpsCap(),
-                                    configuration.reportProfile());
+                                    configuration.reportProfile(),
+                                    configuration.telemetryStdout());
                         } catch (RuntimeException | Error failure) {
                             Thread cleanup =
                                     new Thread(
@@ -119,7 +125,8 @@ final class LiveTrackViewer {
                                             engine,
                                             false,
                                             configuration.fpsCap(),
-                                            configuration.reportProfile()));
+                                            configuration.reportProfile(),
+                                            configuration.telemetryStdout()));
             return Objects.requireNonNull(result[0]);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
@@ -173,7 +180,11 @@ final class LiveTrackViewer {
         }
     }
 
-    record ViewerConfiguration(TrackSimulationConfig simulation, int fpsCap, String reportProfile) {
+    record ViewerConfiguration(
+            TrackSimulationConfig simulation,
+            int fpsCap,
+            String reportProfile,
+            boolean telemetryStdout) {
         ViewerConfiguration {
             Objects.requireNonNull(simulation, "simulation");
             Objects.requireNonNull(reportProfile, "reportProfile");
@@ -198,7 +209,8 @@ final class LiveTrackViewer {
                     TrackSimulationConfig.reference(
                             population, TrackSimulationConfig.defaultWorkers(population)),
                     DEFAULT_FPS,
-                    "reference");
+                    "reference",
+                    false);
         }
     }
 
@@ -207,15 +219,25 @@ final class LiveTrackViewer {
             LiveTrackFrameEngine engine,
             boolean installWindow,
             int initialFps,
-            String reportProfile) {
+            String reportProfile,
+            boolean telemetryStdout) {
         if (!EventQueue.isDispatchThread()) {
             throw new IllegalStateException("live-track viewer must start on the event thread");
         }
         MapView map = chart.view();
         LiveTrackOverlay overlay = new LiveTrackOverlay(engine.handoff());
+        overlay.setBackground(NaturalEarthChart.OCEAN);
         MapStack stack = new MapStack(map, overlay);
         ViewerControls controls =
-                new ViewerControls(map, overlay, engine, initialFps, reportProfile);
+                new ViewerControls(
+                        map,
+                        overlay,
+                        engine,
+                        chart.projectedFeatures(),
+                        chart.metadata().extent().orElseThrow(),
+                        initialFps,
+                        reportProfile,
+                        telemetryStdout);
         JPanel content = new JPanel(new BorderLayout());
         content.add(controls.toolbar(), BorderLayout.NORTH);
         content.add(stack, BorderLayout.CENTER);
@@ -305,12 +327,24 @@ final class LiveTrackViewer {
             return controls.telemetryLabel().getText();
         }
 
+        JTextField telemetryComponent() {
+            return controls.telemetryLabel();
+        }
+
         String configurationText() {
             return controls.configurationText();
         }
 
         int fpsCap() {
             return controls.fpsCap();
+        }
+
+        void refreshNow() {
+            controls.frameTick();
+        }
+
+        void stopTimers() {
+            controls.stop();
         }
 
         boolean chartClosed() {
@@ -325,7 +359,7 @@ final class LiveTrackViewer {
                 return;
             }
             closing = true;
-            controls.stop();
+            controls.close();
             installedFrame.setEnabled(false);
             Thread closer =
                     new Thread(
@@ -364,7 +398,7 @@ final class LiveTrackViewer {
 
         private void stopControls() {
             try {
-                EventQueue.invokeAndWait(controls::stop);
+                EventQueue.invokeAndWait(controls::close);
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("LIVE_TRACK_VIEWER_CLOSE_INTERRUPTED", failure);
@@ -406,26 +440,42 @@ final class LiveTrackViewer {
         private final LiveTrackOverlay overlay;
         private final LiveTrackFrameEngine engine;
         private final JPanel toolbar = new JPanel();
-        private final JLabel telemetry = new JLabel("Starting live picture…");
+        private final JTextField telemetry = new JTextField("Starting live picture…");
         private final JButton pause = new JButton("Pause");
         private final LiveTrackFramePacer pacer;
         private final String configurationText;
+        private final boolean telemetryStdout;
         private final Timer frameTimer;
         private final Timer telemetryTimer;
+        private final StaticMapBackgroundCache backgroundCache;
+        private final Envelope chartExtent;
         private MapViewport lastViewport;
         private long generation;
         private long lastCompleted;
+        private boolean mapContentDetached;
 
         ViewerControls(
                 MapView map,
                 LiveTrackOverlay overlay,
                 LiveTrackFrameEngine engine,
+                List<FeatureRecord> projectedFeatures,
+                Envelope chartExtent,
                 int initialFps,
-                String reportProfile) {
+                String reportProfile,
+                boolean telemetryStdout) {
             this.map = map;
             this.overlay = overlay;
             this.engine = engine;
+            this.telemetryStdout = telemetryStdout;
+            this.chartExtent = Objects.requireNonNull(chartExtent, "chartExtent");
+            backgroundCache =
+                    new StaticMapBackgroundCache(
+                            new NaturalEarthBackgroundRenderer(projectedFeatures),
+                            this::installBackgroundSnapshot,
+                            this::backgroundFailure);
             pacer = new LiveTrackFramePacer(initialFps);
+            telemetry.setEditable(false);
+            telemetry.setBorder(null);
             configurationText =
                     String.format(
                             Locale.ROOT,
@@ -460,8 +510,16 @@ final class LiveTrackViewer {
             reset.addActionListener(ignored -> engine.requestReset(System.nanoTime()));
             toolbar.add(reset);
             JButton fit = new JButton("Fit world");
-            fit.addActionListener(ignored -> map.fitToData(24.0));
+            fit.addActionListener(ignored -> fitWorld());
             toolbar.add(fit);
+            JButton copy = new JButton("Copy telemetry");
+            copy.addActionListener(
+                    ignored -> {
+                        telemetry.requestFocusInWindow();
+                        telemetry.selectAll();
+                        telemetry.copy();
+                    });
+            toolbar.add(copy);
             frameTimer = new Timer(16, ignored -> frameTick());
             frameTimer.setCoalesce(true);
             telemetryTimer = new Timer(1_000, ignored -> telemetryTick());
@@ -472,7 +530,7 @@ final class LiveTrackViewer {
             return toolbar;
         }
 
-        JLabel telemetryLabel() {
+        JTextField telemetryLabel() {
             return telemetry;
         }
 
@@ -497,13 +555,22 @@ final class LiveTrackViewer {
             telemetryTimer.stop();
         }
 
+        void close() {
+            requireEdt();
+            stop();
+            backgroundCache.close();
+        }
+
         private void frameTick() {
             requireEdt();
             MapViewport viewport = map.viewport();
             if (!viewport.equals(lastViewport)) {
                 lastViewport = viewport;
                 generation++;
-                overlay.setViewportGeneration(generation);
+                overlay.setViewport(generation, viewport);
+                if (!overlay.backgroundCovers(viewport)) {
+                    backgroundCache.request(viewport);
+                }
             }
             long now = System.nanoTime();
             if (pacer.shouldRequest(now)) {
@@ -520,29 +587,42 @@ final class LiveTrackViewer {
             requireEdt();
             LiveTrackTelemetry snapshot = engine.telemetry(System.nanoTime());
             LiveTrackFrameMetrics frames = snapshot.frames();
+            LiveTrackPresentationMetrics presentation =
+                    overlay.presentationMetrics(System.nanoTime());
             pause.setText(
                     snapshot.state() == LiveTrackCoordinator.State.PAUSED ? "Resume" : "Pause");
-            telemetry.setText(
+            String telemetryText =
                     String.format(
                             Locale.ROOT,
-                            "State %s | t=%ds | %.1f FPS (cap %s) | frames r/c/p %d/%d/%d, "
+                            "State %s | t=%ds | screen %.1f FPS, engine %.1f FPS (cap %s) | "
+                                    + "frames r/c/present %d/%d/%d, "
                                     + "skip/stale %d/%d | build p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms | "
+                                    + "EDT paint p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms | "
+                                    + "map cache refresh/last/max %d/%.2f/%.2f ms | "
                                     + "reports scheduled/processed/pending/rejected/late %d/%d/%d/%d/%d | "
                                     + "backlog %ds | shard reports %d..%d (%.3fx), work %.3fx | "
                                     + "memory logical/frame/heap %.1f/%.1f/%.1f MiB%s",
                             snapshot.state(),
                             snapshot.simulationSecond(),
+                            presentation.achievedFps(),
                             frames.achievedFps(),
                             pacer.cap() == 0 ? "uncapped" : Integer.toString(pacer.cap()),
                             frames.requestedFrames(),
                             frames.completedFrames(),
-                            frames.paintedFrames(),
+                            presentation.presentedFrames(),
                             frames.skippedRequests(),
                             frames.staleDiscards(),
                             milliseconds(frames.buildP50Nanos()),
                             milliseconds(frames.buildP95Nanos()),
                             milliseconds(frames.buildP99Nanos()),
                             milliseconds(frames.buildMaximumNanos()),
+                            milliseconds(presentation.paintP50Nanos()),
+                            milliseconds(presentation.paintP95Nanos()),
+                            milliseconds(presentation.paintP99Nanos()),
+                            milliseconds(presentation.paintMaximumNanos()),
+                            presentation.backgroundRefreshes(),
+                            milliseconds(presentation.backgroundLastNanos()),
+                            milliseconds(presentation.backgroundMaximumNanos()),
                             snapshot.scheduledReports(),
                             snapshot.processedReports(),
                             snapshot.pendingReports(),
@@ -559,7 +639,37 @@ final class LiveTrackViewer {
                             mebibytes(snapshot.observedHeap()),
                             snapshot.failureCategory().isEmpty()
                                     ? ""
-                                    : " | failure " + snapshot.failureCategory()));
+                                    : " | failure " + snapshot.failureCategory());
+            telemetry.setText(telemetryText);
+            if (telemetryStdout) {
+                System.out.println("live-track telemetry: " + telemetryText);
+            }
+        }
+
+        private void installBackgroundSnapshot(StaticMapBackgroundCache.Snapshot snapshot) {
+            requireEdt();
+            if (overlay.installBackground(
+                    snapshot.renderViewport(), snapshot.image(), snapshot.renderNanos())) {
+                if (!mapContentDetached) {
+                    map.setLayerBindings(List.of());
+                    mapContentDetached = true;
+                }
+                overlay.repaint();
+            }
+        }
+
+        private void fitWorld() {
+            requireEdt();
+            int width = map.getWidth();
+            int height = map.getHeight();
+            if (width > 0 && height > 0) {
+                map.setViewport(MapViewport.fit(width, height, chartExtent, 24.0));
+            }
+        }
+
+        private void backgroundFailure(Throwable failure) {
+            requireEdt();
+            telemetry.setText("Static map rendering failed: " + failure.getClass().getSimpleName());
         }
 
         private void togglePause() {

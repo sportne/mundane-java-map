@@ -12,18 +12,27 @@ tracking system.
 ./gradlew :examples:live-track-stress:run --args='--population=100000'
 ./gradlew :examples:live-track-stress:run --args='--population=1000000'
 ./gradlew :examples:live-track-stress:run \
-  --args='--population=100000 --seed=0x1234 --workers=4 --report-profile=reference --fps=30'
+  --args='--population=100000 --seed=0x1234 --workers=4 --report-profile=reference --fps=30 --telemetry-stdout'
 ```
 
 Population, seed, worker count, the fixed `reference` report profile, and the initial FPS cap are
 selected before packed state allocation. Population must be 10k, 100k, or 1m; workers are bounded to
 1 through 32 and the population; and FPS is one of 1/2/5/10/15/30/60 or 0 for uncapped. The toolbar
 shows the active choices, changes the FPS cap, pauses or resumes simulation time, resets the same
-seeded run, and fits the world. Normal map drag/wheel navigation remains active because the
-transparent track overlay does not consume pointer events.
-Telemetry reports simulation time, achieved FPS, frame requests/completions/paints/skips/stale
-results, build-latency quantiles, report conservation and lateness, backlog, shard skew, and logical,
-frame, and observed heap use. A terminal engine failure appears with its stable category.
+seeded run, fits the world, and copies the full telemetry snapshot. The read-only telemetry field is
+also selectable, and `--telemetry-stdout` mirrors its once-per-second snapshots to the launching
+terminal. Normal map drag/wheel navigation remains active because the track presentation does not
+consume pointer events.
+
+Telemetry separates engine-consumption FPS from actual new-frame EDT presentation FPS. It reports
+frame requests/completions/presentations/skips/stale results, build and EDT-paint latency quantiles,
+asynchronous map-cache refresh cost, report conservation and lateness, backlog, shard skew, and
+logical, frame, and observed heap use. Natural Earth records are decoded, clipped, and projected
+once into an immutable packed indexed source. A dedicated worker renders a coalesced two-screen
+overscan image while the EDT only transforms and composites the last completed image. Ordinary pans
+inside that overscan require no map refresh; zoom and larger navigation immediately transform the
+old image while a current replacement is built off the EDT. A terminal engine failure appears with
+its stable category.
 
 ## Workload and estimator
 
@@ -76,6 +85,16 @@ writes versioned JSON and concise Markdown under `build/reports/live-track/`:
 ./gradlew liveTrackEvidence -PliveTrackProfile=10k --console=plain
 ./gradlew liveTrackEvidence -PliveTrackProfile=100k --console=plain
 ./gradlew liveTrackEvidence -PliveTrackProfile=1m --console=plain
+```
+
+The engine evidence intentionally remains separate from the cached-map presentation probe. The
+latter performs sixty actual headless overlay paints, cached pan steps, and one asynchronous zoom
+refresh. It reports engine-build, EDT-paint, off-EDT map-render, and cached-navigation costs without
+assigning a portable timing threshold:
+
+```bash
+./gradlew :examples:live-track-stress:liveTrackPresentation \
+  -PliveTrackProfile=1m --console=plain
 ```
 
 Reports include environment/configuration, phase counters, storage, update throughput, latency,

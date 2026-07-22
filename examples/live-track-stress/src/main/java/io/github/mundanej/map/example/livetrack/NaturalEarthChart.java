@@ -105,11 +105,11 @@ final class NaturalEarthChart {
                             shp,
                             options);
             requireWgs84(opened.metadata());
-            FeatureSource bounded =
+            MercatorDomainFeatureSource bounded =
                     new MercatorDomainFeatureSource(
                             opened, directory, NaturalEarthChart::deleteTree);
             opened = null;
-            return new MaterializedDataset(bounded, directory);
+            return new MaterializedDataset(bounded, directory, bounded.records());
         } catch (RuntimeException | Error failure) {
             closeSuppressing(opened, failure);
             cleanupSuppressing(directory, failure);
@@ -208,7 +208,8 @@ final class NaturalEarthChart {
                     source,
                     dataset.directory(),
                     source.metadata(),
-                    source.openingDiagnostics());
+                    source.openingDiagnostics(),
+                    dataset.projectedFeatures());
         } catch (RuntimeException | Error failure) {
             if (frame != null) {
                 frame.dispose();
@@ -431,10 +432,15 @@ final class NaturalEarthChart {
         }
     }
 
-    record MaterializedDataset(FeatureSource source, Path directory) {
+    record MaterializedDataset(
+            FeatureSource source,
+            Path directory,
+            List<io.github.mundanej.map.api.FeatureRecord> projectedFeatures) {
         MaterializedDataset {
             Objects.requireNonNull(source, "source");
             Objects.requireNonNull(directory, "directory");
+            projectedFeatures =
+                    List.copyOf(Objects.requireNonNull(projectedFeatures, "projectedFeatures"));
         }
     }
 
@@ -471,6 +477,7 @@ final class NaturalEarthChart {
         private final Path materializedDirectory;
         private final FeatureSourceMetadata metadata;
         private final DiagnosticReport openingDiagnostics;
+        private final List<io.github.mundanej.map.api.FeatureRecord> projectedFeatures;
 
         ChartSession(
                 MapView view,
@@ -478,7 +485,8 @@ final class NaturalEarthChart {
                 FeatureSource source,
                 Path materializedDirectory,
                 FeatureSourceMetadata metadata,
-                DiagnosticReport openingDiagnostics) {
+                DiagnosticReport openingDiagnostics,
+                List<io.github.mundanej.map.api.FeatureRecord> projectedFeatures) {
             this.view = Objects.requireNonNull(view, "view");
             this.frame = Objects.requireNonNull(frame, "frame");
             this.source = Objects.requireNonNull(source, "source");
@@ -487,6 +495,8 @@ final class NaturalEarthChart {
             this.metadata = Objects.requireNonNull(metadata, "metadata");
             this.openingDiagnostics =
                     Objects.requireNonNull(openingDiagnostics, "openingDiagnostics");
+            this.projectedFeatures =
+                    List.copyOf(Objects.requireNonNull(projectedFeatures, "projectedFeatures"));
         }
 
         MapView view() {
@@ -499,6 +509,10 @@ final class NaturalEarthChart {
 
         DiagnosticReport openingDiagnostics() {
             return openingDiagnostics;
+        }
+
+        List<io.github.mundanej.map.api.FeatureRecord> projectedFeatures() {
+            return projectedFeatures;
         }
 
         Path materializedDirectory() {

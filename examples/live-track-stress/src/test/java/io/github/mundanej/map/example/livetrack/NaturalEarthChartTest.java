@@ -16,6 +16,7 @@ import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.EventQueue;
 import java.awt.Graphics2D;
@@ -46,28 +47,29 @@ class NaturalEarthChartTest {
     }
 
     @Test
-    void sourceOpensQueriesAndClipsIntoTheProjectionDomain() throws IOException {
+    void sourceIsPreparedOnceInTheDisplayProjection() throws IOException {
         NaturalEarthChart.MaterializedDataset dataset = NaturalEarthChart.openDataset();
         Path directory = dataset.directory();
         FeatureSource source = dataset.source();
         try {
             assertTrue(Files.isDirectory(directory));
-            assertTrue(source.metadata().featureCount().isEmpty());
+            assertEquals(127L, source.metadata().featureCount().orElseThrow());
             assertEquals(
-                    CrsDefinitions.EPSG_4326.canonicalIdentifier(),
+                    CrsDefinitions.EPSG_3857.canonicalIdentifier(),
                     source.metadata().crs().orElseThrow().canonicalIdentifier().orElseThrow());
-            assertTrue(source.metadata().extent().orElseThrow().minX() <= -180.0);
-            assertTrue(source.metadata().extent().orElseThrow().maxX() >= 180.0);
-            assertEquals(
-                    -WebMercatorProjection.MAX_LATITUDE,
-                    source.metadata().extent().orElseThrow().minY());
+            assertTrue(
+                    source.metadata().extent().orElseThrow().minX()
+                            >= -WebMercatorProjection.WORLD_LIMIT);
+            assertTrue(
+                    source.metadata().extent().orElseThrow().maxX()
+                            <= WebMercatorProjection.WORLD_LIMIT);
 
             int records = 0;
             try (FeatureCursor cursor =
                     source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
                 while (cursor.advance()) {
                     FeatureRecord record = cursor.current();
-                    assertWithinMercatorDomain(record.geometry());
+                    assertWithinProjectedMercatorDomain(record.geometry());
                     records++;
                 }
                 assertTrue(cursor.diagnostics().entries().isEmpty());
@@ -112,6 +114,23 @@ class NaturalEarthChartTest {
     }
 
     @Test
+    void detachedBackgroundRendererProducesThePreparedChartOffTheEdt() {
+        NaturalEarthChart.MaterializedDataset dataset = NaturalEarthChart.openDataset();
+        try {
+            MapViewport viewport =
+                    MapViewport.fit(
+                            900, 500, dataset.source().metadata().extent().orElseThrow(), 24.0);
+            BufferedImage image =
+                    new NaturalEarthBackgroundRenderer(dataset.projectedFeatures())
+                            .render(viewport);
+            assertTrue(countColor(image, NaturalEarthChart.OCEAN.getRGB()) > 100_000);
+            assertTrue(countLandLike(image) > 20_000);
+        } finally {
+            dataset.source().close();
+        }
+    }
+
+    @Test
     void offscreenChartShowsAFramedWorldWithLandAndOcean() throws Exception {
         List<String> diagnostics = new java.util.ArrayList<>();
         NaturalEarthChart.ChartSession session = NaturalEarthChart.startHeadless(diagnostics::add);
@@ -129,7 +148,7 @@ class NaturalEarthChartTest {
                                     + "coordinate-reference diagnostic"),
                     diagnostics);
             assertEquals(
-                    CrsDefinitions.EPSG_4326.canonicalIdentifier(),
+                    CrsDefinitions.EPSG_3857.canonicalIdentifier(),
                     session.metadata().crs().orElseThrow().canonicalIdentifier().orElseThrow());
 
             BufferedImage image = new BufferedImage(900, 500, BufferedImage.TYPE_INT_ARGB);
@@ -195,13 +214,15 @@ class NaturalEarthChartTest {
                             "--seed=0x1234",
                             "--workers=4",
                             "--report-profile=reference",
-                            "--fps=30"
+                            "--fps=30",
+                            "--telemetry-stdout"
                         });
         assertEquals(1_000_000, configuration.simulation().population());
         assertEquals(0x1234L, configuration.simulation().seed());
         assertEquals(4, configuration.simulation().workers());
         assertEquals("reference", configuration.reportProfile());
         assertEquals(30, configuration.fpsCap());
+        assertTrue(configuration.telemetryStdout());
 
         assertThrows(
                 IllegalArgumentException.class,
@@ -234,22 +255,22 @@ class NaturalEarthChartTest {
         }
     }
 
-    private static void assertWithinMercatorDomain(Geometry geometry) {
+    private static void assertWithinProjectedMercatorDomain(Geometry geometry) {
         if (geometry instanceof PolygonGeometry polygon) {
-            assertWithinMercatorDomain(polygon.exterior());
-            polygon.holes().forEach(NaturalEarthChartTest::assertWithinMercatorDomain);
+            assertWithinProjectedMercatorDomain(polygon.exterior());
+            polygon.holes().forEach(NaturalEarthChartTest::assertWithinProjectedMercatorDomain);
             return;
         }
         MultiPolygonGeometry polygons = assertInstanceOf(MultiPolygonGeometry.class, geometry);
-        assertWithinMercatorDomain(polygons.coordinates());
+        assertWithinProjectedMercatorDomain(polygons.coordinates());
     }
 
-    private static void assertWithinMercatorDomain(CoordinateSequence coordinates) {
+    private static void assertWithinProjectedMercatorDomain(CoordinateSequence coordinates) {
         for (int index = 0; index < coordinates.size(); index++) {
-            assertTrue(coordinates.x(index) >= -180.0);
-            assertTrue(coordinates.x(index) <= 180.0);
-            assertTrue(coordinates.y(index) >= -WebMercatorProjection.MAX_LATITUDE);
-            assertTrue(coordinates.y(index) <= WebMercatorProjection.MAX_LATITUDE);
+            assertTrue(coordinates.x(index) >= -WebMercatorProjection.WORLD_LIMIT);
+            assertTrue(coordinates.x(index) <= WebMercatorProjection.WORLD_LIMIT);
+            assertTrue(coordinates.y(index) >= -WebMercatorProjection.WORLD_LIMIT);
+            assertTrue(coordinates.y(index) <= WebMercatorProjection.WORLD_LIMIT);
         }
     }
 
