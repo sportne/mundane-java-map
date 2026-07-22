@@ -76,6 +76,10 @@ must name supported behavior, limits, malformed-input handling, and stable diagn
   - G15-007 creates
     `./gradlew liveTrackEvidence -PliveTrackProfile=<10k|100k|1m> --console=plain`.
     The evidence lane is opt-in and remains outside `qualityGate` and ordinary CI.
+  - The completed G15 presentation correction provides
+    `./gradlew :examples:live-track-stress:liveTrackPresentation
+    -PliveTrackProfile=<10k|100k|1m> --console=plain`; G16 extends this threshold-free diagnostic
+    lane rather than creating another benchmark command.
   - G0-001 creates `offlineRepositoryVerification` and `publicationDryRun`; the expensive offline
     proof remains separate from `qualityGate`. G8-003 hardens publication staging and creates
     `consumerSmoke`, yielding `./gradlew publicationDryRun consumerSmoke --console=plain`.
@@ -124,6 +128,11 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
   dependency-parallel. They share example registration and later converge at G15-005, so one owner
   serializes root settings/Gradle and example inventory changes. G15-005 through G15-008 extend one
   viewer/coordinator/evidence path and are serial.
+- G16 follows the complete G4/G6/G7/G11/G15 foundations. G16-002 first proves the approved wrap math
+  in the G15 example, then G16-003 owns the shared API/core/MapView point-source boundary. After
+  G16-003, G16-004 vector geometry/export and G16-006 raster behavior may proceed in parallel if one
+  owner serializes shared `MapView`, architecture, rendering-regression, and task documentation.
+  G16-005 waits for G16-004; G16-007 is the single integration and closeout owner.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -361,3 +370,18 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G15-006 — 100k sharded tracking and rendering](closed/G15-006-100k-sharded-tracking-and-rendering.md) | Complete | AFK | G15-005 | Scales the same deterministic behavior to 100k using measured packed sharding. |
 | [G15-007 — Million-track stress and evidence lane](closed/G15-007-million-track-stress-and-evidence-lane.md) | Complete | HITL | G15-006 | Runs the 1m tier and produces JSON/Markdown evidence for all three populations. |
 | [G15-008 — Live-track hardening and closeout](closed/G15-008-live-track-hardening-and-closeout.md) | Complete | HITL | G15-007 | Closes lifecycle, overload, replay, documentation, visual, and simplicity evidence. |
+
+### G16 — Dateline and continuous world wrap
+
+Wrapping remains disabled unless both the view and an individual layer opt in. The gate preserves
+strict CRS/source coordinates and adds bounded periodic display behavior above them.
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G16-001 — Horizontal world-wrap profile decision](G16-001-horizontal-world-wrap-profile-decision.md) | Proposed | HITL | G4-002, G7-004, G15-008 | Approve explicit wrap configuration, numeric limits, dateline geometry behavior, and support wording. |
+| [G16-002 — Continuous Natural Earth and live-track slice](G16-002-continuous-natural-earth-live-track-slice.md) | Proposed | AFK | G16-001 | Pan the G15 land and track picture continuously through repeated east/west worlds without EDT regression. |
+| [G16-003 — Periodic display and wrapped point-source slice](G16-003-periodic-display-and-wrapped-point-source.md) | Proposed | AFK | G16-002 | Query and render explicitly repeating point sources through ordinary MapView with stable logical identity. |
+| [G16-004 — Dateline vector geometry and export](G16-004-dateline-vector-geometry-and-export.md) | Proposed | AFK | G16-003 | Split and render crossing lines/polygons and export their bounded visible copies. |
+| [G16-005 — Wrapped interaction, measurement, and editing](G16-005-wrapped-interaction-measurement-and-editing.md) | Proposed | AFK | G16-004, G11-013 | Resolve copied features through hit, selection, measurement, snapping, and canonical point edits. |
+| [G16-006 — Explicit global raster wrap](G16-006-explicit-global-raster-wrap.md) | Proposed | AFK | G16-003, G6-004 | Repeat compatible global rasters while local and affine-incompatible layers remain bounded. |
+| [G16-007 — World-wrap hardening and closeout](G16-007-world-wrap-hardening-and-closeout.md) | Proposed | HITL | G16-002, G16-004, G16-005, G16-006 | Close limits, rendering/performance/native/consumer evidence, documentation, and visual approval. |

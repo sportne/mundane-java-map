@@ -607,8 +607,49 @@ separately decomposed.
   documentation preserves the JVM-only, non-operational support boundary. The holistic closeout
   keeps all estimator, scheduler, packed overlay, and evidence types inside the example because no
   second consumer justifies a public live-source or tracking framework.
+- A post-close presentation correction prepares and projects Natural Earth once, renders a bounded
+  two-screen background on one owned worker, coalesces stale viewport demand, and detaches duplicate
+  covered `MapView` content after publication. On the recorded environment, cached pan composition
+  measured below one millisecond while exact replacement work stayed off the EDT. These are
+  threshold-free observations, not a portable responsiveness claim.
 - G15-002/G15-003 estimator/simulator work may proceed in parallel with G15-004 chart work after the
   G15-001 decision. G15-005 through G15-008 then deliver the 10k picture, evidence-guided 100k scale,
   1m reports, and lifecycle/simplicity closeout.
 - See the [G15 detailed design](design/G15-live-track-stress-and-iou-tracking.md) and the
   [G15 task set](tasks/README.md#g15--live-track-stress-and-iou-tracking).
+
+### G16 — Dateline and continuous world wrap
+
+- Add explicit, bounded horizontal repetition so global maps can pan continuously east or west
+  across the Web Mercator dateline. Wrapping is a display policy above strict projection and source
+  coordinates; EPSG:4326/EPSG:3857 domains do not widen.
+- Wrapping remains disabled by default. The view declares one periodic display profile and each
+  global layer independently opts into `REPEAT_X`; local layers never repeat from CRS or extent
+  inference.
+- Keep canonical source geometry and stable logical feature identity. Decompose display X into a
+  canonical coordinate plus checked world-copy index, split seam viewports into unique canonical
+  queries, query a full world once, deduplicate source records, and paint bounded translated copies
+  in deterministic order.
+- G16-001 is the HITL profile gate for public API placement, half-open seam convention, numeric and
+  visible-copy limits, query accounting, dateline geometry, raster compatibility, diagnostics, and
+  support wording.
+- G16-002 first proves the policy in the responsive G15 viewer by repeating prepared Natural Earth
+  and canonical tracks through multiple east/west crossings without moving rendering back onto the
+  EDT.
+- G16-003 adds the reusable explicit periodic display/binding boundary and a wrapped point-source
+  `MapView` slice. G16-004 then handles geographic shortest-path line and polygon seam splitting,
+  portrayal, labels, and visible vector export.
+- G16-005 resolves copied features through hit testing, hover, selection, measurement, snapping,
+  canonical point editing, and undo/redo without persisting presentation copy indices.
+- G16-006 repeats only compatible explicitly global raster sources and establishes bounded canonical
+  tile-column math for later G10 HTTP/MBTiles consumers; it creates no empty format or network module.
+- G16-007 closes malformed/precision/copy limits, tolerant rendering, performance evidence, Linux
+  Native Image, staged consumer, Javadocs, examples, and maintainer visual approval. Performance
+  remains evidence rather than a wall-clock quality threshold.
+- G16 excludes automatic wrap discovery, vertical/polar wrapping, globe rendering, topology repair,
+  projected seam guessing, external dependencies, native acceleration, and implementation of open
+  tile/container tasks.
+- G16-004 and G16-006 may proceed in parallel after G16-003 with one shared `MapView` integration
+  owner. G16-005 follows vector completion, and G16-007 is the convergence owner.
+- See the [G16 detailed design](design/G16-dateline-and-continuous-world-wrap.md) and the
+  [G16 task set](tasks/README.md#g16--dateline-and-continuous-world-wrap).
