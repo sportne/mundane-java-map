@@ -27,7 +27,7 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
-import javax.swing.JTextField;
+import javax.swing.JTextArea;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
 
@@ -327,7 +327,7 @@ final class LiveTrackViewer {
             return controls.telemetryLabel().getText();
         }
 
-        JTextField telemetryComponent() {
+        JTextArea telemetryComponent() {
             return controls.telemetryLabel();
         }
 
@@ -440,7 +440,7 @@ final class LiveTrackViewer {
         private final LiveTrackOverlay overlay;
         private final LiveTrackFrameEngine engine;
         private final JPanel toolbar = new JPanel();
-        private final JTextField telemetry = new JTextField("Starting live picture…");
+        private final JTextArea telemetry = new JTextArea("Starting live picture…", 5, 1);
         private final JButton pause = new JButton("Pause");
         private final LiveTrackFramePacer pacer;
         private final String configurationText;
@@ -476,6 +476,9 @@ final class LiveTrackViewer {
             pacer = new LiveTrackFramePacer(initialFps);
             telemetry.setEditable(false);
             telemetry.setBorder(null);
+            telemetry.setLineWrap(true);
+            telemetry.setWrapStyleWord(true);
+            telemetry.setOpaque(false);
             configurationText =
                     String.format(
                             Locale.ROOT,
@@ -530,7 +533,7 @@ final class LiveTrackViewer {
             return toolbar;
         }
 
-        JTextField telemetryLabel() {
+        JTextArea telemetryLabel() {
             return telemetry;
         }
 
@@ -595,12 +598,12 @@ final class LiveTrackViewer {
                     String.format(
                             Locale.ROOT,
                             "State %s | t=%ds | screen %.1f FPS, engine %.1f FPS (cap %s) | "
-                                    + "frames r/c/present %d/%d/%d, "
-                                    + "skip/stale %d/%d | build p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms | "
-                                    + "EDT paint p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms | "
-                                    + "map cache refresh/last/max %d/%.2f/%.2f ms | "
-                                    + "reports scheduled/processed/pending/rejected/late %d/%d/%d/%d/%d | "
-                                    + "backlog %ds | shard reports %d..%d (%.3fx), work %.3fx | "
+                                    + "frames r/c/present %d/%d/%d, skip/stale %d/%d%n"
+                                    + "Build p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms | "
+                                    + "EDT paint p50/p95/p99/max %.2f/%.2f/%.2f/%.2f ms%n"
+                                    + "Map cache refresh/last/max %d/%.2f/%.2f ms | "
+                                    + "reports scheduled/processed/pending/rejected/late %d/%d/%d/%d/%d%n"
+                                    + "Backlog %ds | shard reports %d..%d (%.3fx), work %.3fx%n"
                                     + "memory logical/frame/heap %.1f/%.1f/%.1f MiB%s",
                             snapshot.state(),
                             snapshot.simulationSecond(),
@@ -642,7 +645,9 @@ final class LiveTrackViewer {
                                     : " | failure " + snapshot.failureCategory());
             telemetry.setText(telemetryText);
             if (telemetryStdout) {
-                System.out.println("live-track telemetry: " + telemetryText);
+                System.out.println(
+                        "live-track telemetry: "
+                                + telemetryText.replace(System.lineSeparator(), " | "));
             }
         }
 

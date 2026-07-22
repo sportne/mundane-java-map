@@ -642,6 +642,9 @@ class LiveTrackFramesTest {
             assertEquals(simulation, viewer.engine().configuration());
             assertEquals(30, viewer.fpsCap());
             assertFalse(viewer.telemetryComponent().isEditable());
+            assertTrue(viewer.telemetryComponent().getLineWrap());
+            assertTrue(viewer.telemetryComponent().getWrapStyleWord());
+            assertEquals(5, viewer.telemetryText().lines().count());
             assertEquals(
                     "Population: 10,000 Seed: 0x1234 Workers: 4 Reports: reference",
                     viewer.configurationText());
