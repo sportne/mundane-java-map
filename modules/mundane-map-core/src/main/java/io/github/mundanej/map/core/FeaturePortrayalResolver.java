@@ -8,6 +8,10 @@ import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.GraduatedSymbolSelector;
 import io.github.mundanej.map.api.GraduatedSymbolStep;
 import io.github.mundanej.map.api.PointLabelProfile;
+import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.ResolvedFeaturePortrayal;
+import io.github.mundanej.map.api.RulePortrayalPlan;
+import io.github.mundanej.map.api.RuleSymbolSelector;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolSelector;
@@ -34,18 +38,22 @@ public final class FeaturePortrayalResolver {
     private final List<String> requiredSymbolAttributes;
     private final List<Symbol> reachableSymbols;
     private final Optional<PointLabelProfile> pointLabel;
+    private final Optional<RulePortrayalEvaluator> ruleEvaluator;
 
     private FeaturePortrayalResolver(FeaturePortrayal portrayal) {
         this.portrayal = Objects.requireNonNull(portrayal, "portrayal");
         EnumMap<SymbolRole, SymbolSelector> byRole = new EnumMap<>(SymbolRole.class);
         EnumMap<SymbolRole, Map<ThematicValue, Symbol>> compiled = new EnumMap<>(SymbolRole.class);
         EnumMap<SymbolRole, GraduatedTable> graduatedCompiled = new EnumMap<>(SymbolRole.class);
+        EnumMap<SymbolRole, List<Symbol>> symbolsByRole = new EnumMap<>(SymbolRole.class);
         Set<String> attributes = new LinkedHashSet<>();
-        List<Symbol> symbols = new ArrayList<>();
+        RulePortrayalPlan sharedRulePlan = null;
         for (SymbolSelector selector : portrayal.selectors()) {
             byRole.put(selector.role(), selector);
             if (selector instanceof FixedSymbolSelector fixed) {
-                symbols.add(fixed.symbol());
+                symbolsByRole
+                        .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
+                        .add(fixed.symbol());
                 continue;
             }
             if (selector instanceof CategoricalSymbolSelector categories) {
@@ -53,10 +61,28 @@ public final class FeaturePortrayalResolver {
                 Map<ThematicValue, Symbol> lookup = new LinkedHashMap<>();
                 for (CategoricalSymbolRule rule : categories.rules()) {
                     lookup.put(rule.value(), rule.symbol());
-                    symbols.add(rule.symbol());
+                    symbolsByRole
+                            .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
+                            .add(rule.symbol());
                 }
-                categories.fallback().ifPresent(symbols::add);
+                categories
+                        .fallback()
+                        .ifPresent(
+                                symbol ->
+                                        symbolsByRole
+                                                .computeIfAbsent(
+                                                        selector.role(),
+                                                        ignored -> new ArrayList<>())
+                                                .add(symbol));
                 compiled.put(categories.role(), Collections.unmodifiableMap(lookup));
+                continue;
+            }
+            if (selector instanceof RuleSymbolSelector rules) {
+                if (sharedRulePlan != null && !sharedRulePlan.equals(rules.plan())) {
+                    throw new IllegalArgumentException(
+                            "rule selectors in one portrayal must share one plan");
+                }
+                sharedRulePlan = rules.plan();
                 continue;
             }
             GraduatedSymbolSelector ranges = (GraduatedSymbolSelector) selector;
@@ -67,17 +93,42 @@ public final class FeaturePortrayalResolver {
                 GraduatedSymbolStep step = ranges.steps().get(index);
                 thresholds[index] = step.lowerInclusive();
                 selected[index] = step.symbol();
-                symbols.add(step.symbol());
+                symbolsByRole
+                        .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
+                        .add(step.symbol());
             }
-            ranges.fallback().ifPresent(symbols::add);
+            ranges.fallback()
+                    .ifPresent(
+                            symbol ->
+                                    symbolsByRole
+                                            .computeIfAbsent(
+                                                    selector.role(), ignored -> new ArrayList<>())
+                                            .add(symbol));
             graduatedCompiled.put(ranges.role(), new GraduatedTable(thresholds, selected));
         }
+        RulePortrayalEvaluator compiledRules =
+                sharedRulePlan == null ? null : new RulePortrayalEvaluator(sharedRulePlan);
+        if (compiledRules != null) {
+            attributes.addAll(compiledRules.requiredAttributes());
+            for (SymbolSelector selector : portrayal.selectors()) {
+                if (selector instanceof RuleSymbolSelector) {
+                    symbolsByRole
+                            .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
+                            .addAll(compiledRules.reachableSymbols(selector.role()));
+                }
+            }
+        }
+        List<Symbol> symbols = new ArrayList<>();
+        symbols.addAll(symbolsByRole.getOrDefault(SymbolRole.MARKER, List.of()));
+        symbols.addAll(symbolsByRole.getOrDefault(SymbolRole.LINE, List.of()));
+        symbols.addAll(symbolsByRole.getOrDefault(SymbolRole.FILL, List.of()));
         this.selectors = Collections.unmodifiableMap(byRole);
         this.categorical = Collections.unmodifiableMap(compiled);
         this.graduated = Collections.unmodifiableMap(graduatedCompiled);
         this.requiredSymbolAttributes = List.copyOf(attributes);
         this.reachableSymbols = List.copyOf(symbols);
         this.pointLabel = portrayal.pointLabel();
+        this.ruleEvaluator = Optional.ofNullable(compiledRules);
     }
 
     /**
@@ -124,6 +175,15 @@ public final class FeaturePortrayalResolver {
      */
     public Optional<PointLabelProfile> pointLabel() {
         return pointLabel;
+    }
+
+    /**
+     * Returns whether this portrayal requires an explicit scale denominator.
+     *
+     * @return true for a scale-constrained rule plan
+     */
+    public boolean requiresScaleContext() {
+        return ruleEvaluator.map(RulePortrayalEvaluator::requiresScaleContext).orElse(false);
     }
 
     /**
@@ -187,6 +247,15 @@ public final class FeaturePortrayalResolver {
         if (selector == null) {
             return Optional.empty();
         }
+        if (selector instanceof RuleSymbolSelector) {
+            return resolveAll(attributes, PortrayalEvaluationContext.UNSCALED).forRole(role);
+        }
+        return resolveOrdinary(selector, attributes);
+    }
+
+    private Optional<Symbol> resolveOrdinary(
+            SymbolSelector selector, Map<String, Object> attributes) {
+        SymbolRole role = selector.role();
         if (selector instanceof FixedSymbolSelector fixed) {
             return Optional.of(fixed.symbol());
         }
@@ -214,6 +283,38 @@ public final class FeaturePortrayalResolver {
         Symbol matched =
                 graduated.get(role).greatestLowerBound((BigDecimal) value.orElseThrow().value());
         return matched == null ? ranges.fallback() : Optional.of(matched);
+    }
+
+    /**
+     * Resolves all roles once using explicit evaluation context.
+     *
+     * @param attributes immutable canonical feature attributes
+     * @param context immutable scale context
+     * @return immutable all-role result
+     */
+    public ResolvedFeaturePortrayal resolveAll(
+            Map<String, Object> attributes, PortrayalEvaluationContext context) {
+        Objects.requireNonNull(attributes, "attributes");
+        Objects.requireNonNull(context, "context");
+        ResolvedFeaturePortrayal rules =
+                ruleEvaluator
+                        .map(evaluator -> evaluator.resolve(attributes, context))
+                        .orElse(ResolvedFeaturePortrayal.EMPTY);
+        return new ResolvedFeaturePortrayal(
+                resolveRole(SymbolRole.MARKER, attributes, rules),
+                resolveRole(SymbolRole.LINE, attributes, rules),
+                resolveRole(SymbolRole.FILL, attributes, rules));
+    }
+
+    private Optional<Symbol> resolveRole(
+            SymbolRole role, Map<String, Object> attributes, ResolvedFeaturePortrayal ruleResult) {
+        SymbolSelector selector = selectors.get(role);
+        if (selector == null) {
+            return Optional.empty();
+        }
+        return selector instanceof RuleSymbolSelector
+                ? ruleResult.forRole(role)
+                : resolveOrdinary(selector, attributes);
     }
 
     private List<String> requiredPaintAttributes(boolean includeLabel) {

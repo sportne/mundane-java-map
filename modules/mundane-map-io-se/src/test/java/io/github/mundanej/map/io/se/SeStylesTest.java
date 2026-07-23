@@ -9,12 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
-import io.github.mundanej.map.api.FixedSymbolSelector;
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
+import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolRotationMode;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
+import io.github.mundanej.map.core.FeaturePortrayalResolver;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -317,6 +320,100 @@ class SeStylesTest {
                 SeReadOptions.defaults());
     }
 
+    @Test
+    void parsesOrderedRulesFiltersScaleAndElseIntoSharedPlan() {
+        String xml =
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"
+                    xmlns:ogc="http://www.opengis.net/ogc" version="1.1.0">
+                  <se:Rule>
+                    <ogc:Filter><ogc:PropertyIsEqualTo>
+                      <ogc:PropertyName>kind</ogc:PropertyName><ogc:Literal>primary</ogc:Literal>
+                    </ogc:PropertyIsEqualTo></ogc:Filter>
+                    <se:PointSymbolizer><se:Graphic><se:Mark>
+                      <se:WellKnownName>circle</se:WellKnownName>
+                    </se:Mark></se:Graphic></se:PointSymbolizer>
+                  </se:Rule>
+                  <se:Rule>
+                    <ogc:Filter><ogc:PropertyIsBetween>
+                      <ogc:PropertyName>score</ogc:PropertyName>
+                      <ogc:LowerBoundary><ogc:Literal>1</ogc:Literal></ogc:LowerBoundary>
+                      <ogc:UpperBoundary><ogc:Literal>3</ogc:Literal></ogc:UpperBoundary>
+                    </ogc:PropertyIsBetween></ogc:Filter>
+                    <se:MinScaleDenominator>100</se:MinScaleDenominator>
+                    <se:MaxScaleDenominator>200</se:MaxScaleDenominator>
+                    <se:PointSymbolizer><se:Graphic><se:Mark>
+                      <se:WellKnownName>triangle</se:WellKnownName>
+                    </se:Mark></se:Graphic></se:PointSymbolizer>
+                  </se:Rule>
+                  <se:Rule>
+                    <se:ElseFilter/>
+                    <se:PointSymbolizer><se:Graphic><se:Mark/></se:Graphic></se:PointSymbolizer>
+                  </se:Rule>
+                </se:FeatureTypeStyle>
+                """;
+        SeFeatureStyle style = read(xml);
+        FeaturePortrayalResolver resolver = FeaturePortrayalResolver.compile(style.portrayal());
+
+        CompositeSymbol composed =
+                assertInstanceOf(
+                        CompositeSymbol.class,
+                        resolver.resolveAll(
+                                        java.util.Map.of("kind", "primary", "score", 2L),
+                                        PortrayalEvaluationContext.atScale(150))
+                                .marker()
+                                .orElseThrow());
+        assertEquals(2, composed.children().size());
+        assertEquals(List.of("kind", "score"), resolver.requiredSymbolAttributes());
+        Symbol fallback =
+                resolver.resolveAll(
+                                java.util.Map.of("kind", "other"),
+                                PortrayalEvaluationContext.atScale(150))
+                        .marker()
+                        .orElseThrow();
+        assertEquals(
+                BuiltInMarkers.path(BuiltInMarker.SQUARE),
+                assertInstanceOf(VectorMarkerSymbol.class, fallback).path());
+        assertTrue(
+                resolver.resolveAll(
+                                java.util.Map.of("kind", "other"),
+                                PortrayalEvaluationContext.atScale(250))
+                        .marker()
+                        .isPresent());
+    }
+
+    @Test
+    void predicateNodeAndDepthLimitsFailBeforePlanPublication() {
+        String xml =
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"
+                    xmlns:ogc="http://www.opengis.net/ogc">
+                  <se:Rule>
+                    <ogc:Filter><ogc:And>
+                      <ogc:PropertyIsNull><ogc:PropertyName>a</ogc:PropertyName>
+                      </ogc:PropertyIsNull>
+                      <ogc:PropertyIsNull><ogc:PropertyName>b</ogc:PropertyName>
+                      </ogc:PropertyIsNull>
+                    </ogc:And></ogc:Filter>
+                    <se:PointSymbolizer><se:Graphic><se:Mark/></se:Graphic></se:PointSymbolizer>
+                  </se:Rule>
+                </se:FeatureTypeStyle>
+                """;
+        SeReadLimits defaults = SeReadLimits.defaults();
+        assertCode(
+                "SE_LIMIT_EXCEEDED",
+                xml.getBytes(StandardCharsets.UTF_8),
+                new SeReadOptions(
+                        withPredicates(defaults, 2, defaults.maximumPredicateDepth()),
+                        CancellationToken.none()));
+        assertCode(
+                "SE_LIMIT_EXCEEDED",
+                xml.getBytes(StandardCharsets.UTF_8),
+                new SeReadOptions(
+                        withPredicates(defaults, defaults.maximumPredicates(), 1),
+                        CancellationToken.none()));
+    }
+
     private static SeFeatureStyle read(String xml) {
         return SeStyles.read(
                 "test",
@@ -326,10 +423,14 @@ class SeStylesTest {
     }
 
     private static VectorMarkerSymbol marker(SeFeatureStyle style) {
-        FixedSymbolSelector selector =
-                assertInstanceOf(
-                        FixedSymbolSelector.class, style.portrayal().marker().orElseThrow());
-        return assertInstanceOf(VectorMarkerSymbol.class, selector.symbol());
+        return assertInstanceOf(
+                VectorMarkerSymbol.class,
+                FeaturePortrayalResolver.compile(style.portrayal())
+                        .resolveAll(
+                                java.util.Map.of(),
+                                io.github.mundanej.map.api.PortrayalEvaluationContext.UNSCALED)
+                        .marker()
+                        .orElseThrow());
     }
 
     private static byte[] validBytes() {
@@ -427,6 +528,24 @@ class SeStylesTest {
                 source.maximumCatalogReferences(),
                 source.maximumOutputSymbols(),
                 ownedBytes);
+    }
+
+    private static SeReadLimits withPredicates(
+            SeReadLimits source, int predicates, int predicateDepth) {
+        return new SeReadLimits(
+                source.maximumInputBytes(),
+                source.maximumElementDepth(),
+                source.maximumElements(),
+                source.maximumAttributes(),
+                source.maximumAggregateTextCharacters(),
+                source.maximumValueCharacters(),
+                source.maximumRules(),
+                predicates,
+                predicateDepth,
+                source.maximumSymbolizers(),
+                source.maximumCatalogReferences(),
+                source.maximumOutputSymbols(),
+                source.maximumOwnedBytes());
     }
 
     private static final class CloseFailingInputStream extends ByteArrayInputStream {

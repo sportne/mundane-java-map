@@ -29,7 +29,12 @@ import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PortrayalOperand;
+import io.github.mundanej.map.api.PortrayalPredicate;
+import io.github.mundanej.map.api.PortrayalRule;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.RulePortrayalPlan;
+import io.github.mundanej.map.api.ScaleInterval;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRendererKey;
@@ -38,6 +43,7 @@ import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.FeatureEditSession;
 import io.github.mundanej.map.core.FeaturePortrayalResolver;
 import io.github.mundanej.map.core.InMemoryLayer;
@@ -51,6 +57,7 @@ import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -64,6 +71,92 @@ class MapViewPortrayalTest {
             BuiltInMarkers.filledScreen(BuiltInMarker.TRIANGLE, Rgba.rgb(30, 170, 60), 16, 1);
     private static final MarkerSymbol FEATURE_OWNED =
             BuiltInMarkers.filledScreen(BuiltInMarker.DIAMOND, Rgba.rgb(20, 20, 20), 40, 1);
+
+    @Test
+    void scaleRuleUsesOneViewportContextAndRejectsGeographicAttachment() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    PortrayalRule rule =
+                            new PortrayalRule(
+                                    Optional.empty(),
+                                    new ScaleInterval(
+                                            OptionalDouble.of(3_000), OptionalDouble.of(4_000)),
+                                    Optional.of(
+                                            new PortrayalPredicate.IsNull(
+                                                    new PortrayalOperand.Property("nullable"))),
+                                    false,
+                                    List.of(RED),
+                                    List.of(),
+                                    List.of());
+                    FeaturePortrayal portrayal = new RulePortrayalPlan(List.of(rule)).portrayal();
+                    Feature feature =
+                            feature(
+                                    "scaled",
+                                    0,
+                                    Map.of(
+                                            "nullable",
+                                            io.github.mundanej.map.api.AttributeNull.INSTANCE));
+                    MapLayerBinding binding =
+                            MapLayerBinding.portrayedSnapshot(
+                                    new InMemoryLayer("scaled", "scaled", List.of(feature)),
+                                    portrayal);
+                    CapturingSource source =
+                            new CapturingSource(
+                                    "scaled-source",
+                                    record(
+                                            "scaled-source",
+                                            20,
+                                            Map.of(
+                                                    "nullable",
+                                                    io.github.mundanej.map.api.AttributeNull
+                                                            .INSTANCE)),
+                                    Optional.of(schema("nullable")));
+                    MapView projected = TestMapViews.identity();
+                    projected.setSize(100, 100);
+                    projected.setViewport(new MapViewport(100, 100, 0, 0, 1));
+                    projected.setLayerBindings(
+                            List.of(
+                                    binding,
+                                    MapLayerBinding.borrowedFeature(
+                                            "scaled-source", "scaled-source", source, portrayal)));
+
+                    paint(projected);
+                    assertEquals(
+                            AttributeSelection.only(List.of("nullable")),
+                            source.lastQuery.attributes());
+                    assertEquals(
+                            "scaled",
+                            projected.hitTest(50, 50, 0).topmost().orElseThrow().featureId());
+                    assertEquals(
+                            "scaled-source",
+                            projected.hitTest(70, 50, 0).topmost().orElseThrow().featureId());
+                    projected.setViewport(new MapViewport(100, 100, 0, 0, 2));
+                    paint(projected);
+                    assertTrue(projected.hitTest(50, 50, 0).topmost().isEmpty());
+                    projected.close();
+                    source.close();
+
+                    MapView geographic =
+                            new MapView(
+                                    CrsRegistry.level1(),
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_4326);
+                    SymbolException failure =
+                            assertThrows(
+                                    SymbolException.class,
+                                    () ->
+                                            geographic.setLayerBindings(
+                                                    List.of(
+                                                            MapLayerBinding.portrayedSnapshot(
+                                                                    new InMemoryLayer(
+                                                                            "geographic",
+                                                                            "geographic",
+                                                                            List.of(feature)),
+                                                                    portrayal))));
+                    assertEquals(SymbolException.PORTRAYAL_SCALE_CRS_UNSUPPORTED, failure.code());
+                    geographic.close();
+                });
+    }
 
     @Test
     void militarySidcPortrayalAgreesAcrossSnapshotSourceAndEditableBindings() throws Exception {

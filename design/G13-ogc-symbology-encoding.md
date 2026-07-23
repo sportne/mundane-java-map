@@ -281,3 +281,20 @@ later rule/filter/scale, vector-role, and catalog work remains assigned to G13-0
 The `se-viewer` example renders the checked-in point style through the ordinary `MapView` stack.
 Module, example, architecture, security, malformed-input, cancellation, limit, publication, and
 Javadoc checks constitute the completion evidence; G13-006 still owns Native Image evidence.
+
+## G13-003 implementation evidence
+
+The shared API now contains one closed immutable rule plan, property/literal operands,
+explicit-null/comparison/between/boolean predicates, lower-inclusive/upper-exclusive scale
+intervals, role views, and one all-role result. Core compiles required properties in first-use order
+and evaluates each rule decision once per feature/context. Matching ordinary rules retain document
+and symbolizer painter order; an eligible else rule contributes only when no active ordinary rule
+matches. Literal conversion is strict and type-directed, while missing, unsupported, and failed
+conversion values produce an ordinary false result.
+
+The SE reader accepts the approved bounded Filter 1.1 grammar, multiple rules and point
+symbolizers, `ElseFilter`, and scale denominators while retaining stable adapter diagnostics and
+predicate limits. MapView derives the denominator from projected metre world units and the SE
+0.28 mm logical pixel, rejects scale-constrained attachment to a geographic display CRS, requests
+the exact deduplicated filter attributes, and shares one context snapshot across paint, hit, hover,
+and selection capture. Line, polygon, and catalog graphics remain assigned to G13-004.

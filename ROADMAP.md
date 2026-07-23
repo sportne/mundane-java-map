@@ -563,8 +563,11 @@ separately decomposed.
   standards-neutral rule-portrayal bridge. It is a named subset, not an SE conformance-class claim.
 - Complete G13-002 supplies the published JDK-only, AWT-free module with bounded path/byte input,
   secure direct StAX parsing, immutable metadata, the unconditional literal point-mark slice, stable
-  diagnostics, and a runnable ordinary-map example. G13-003 through G13-006 deliver rules/scale,
-  complete vector roles, hostile/interoperability/gallery evidence, and
+  diagnostics, and a runnable ordinary-map example. Complete G13-003 adds the shared closed
+  rule/predicate plan, exact missing/null/type semantics, ordered multi-match composition,
+  `ElseFilter`, explicit scale context, stable required-attribute projection, and consistent
+  MapView paint/query/interaction evaluation. G13-004 through G13-006 deliver complete vector roles,
+  hostile/interoperability/gallery evidence, and
   publication/consumer/Linux Native Image closeout.
 - See the [G13 detailed design](design/G13-ogc-symbology-encoding.md) and the
   [G13 task set](tasks/README.md#g13--ogc-symbology-encoding).

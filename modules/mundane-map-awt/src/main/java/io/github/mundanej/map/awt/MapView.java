@@ -59,6 +59,7 @@ import io.github.mundanej.map.api.PlacedPointLabel;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.PortrayalEvaluationContext;
 import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.RasterAffineTransform;
 import io.github.mundanej.map.api.RasterGridPlacement;
@@ -5008,8 +5009,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             Symbol symbol =
                     resolver == null
                             ? feature.symbol()
-                            : resolver.resolve(
-                                            geometryRole(feature.geometry()), feature.attributes())
+                            : resolver.resolveAll(
+                                            feature.attributes(),
+                                            portrayalContext(viewportSnapshot))
+                                    .forRole(geometryRole(feature.geometry()))
                                     .orElse(null);
             if (symbol != null) {
                 visual.add(
@@ -5059,7 +5062,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             FeatureRecord record = snapshot.records().get(featureIndex);
             int capturedFeatureIndex = featureIndex;
             featureIds.add(record.id());
-            sourceSymbol(binding, record.geometry(), record.attributes())
+            sourceSymbol(binding, record.geometry(), record.attributes(), viewportSnapshot)
                     .ifPresent(
                             symbol ->
                                     visual.add(
@@ -5106,7 +5109,8 @@ public final class MapView extends JComponent implements AutoCloseable {
         for (int featureIndex = 0; featureIndex < snapshot.records().size(); featureIndex++) {
             FeatureRecord record = snapshot.records().get(featureIndex);
             featureIds.add(record.id());
-            Optional<Symbol> symbol = sourceSymbol(binding, record.geometry(), record.attributes());
+            Optional<Symbol> symbol =
+                    sourceSymbol(binding, record.geometry(), record.attributes(), viewportSnapshot);
             if (symbol.isEmpty()) {
                 continue;
             }
@@ -5308,7 +5312,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             for (int featureIndex = 0; featureIndex < staged.size(); featureIndex++) {
                 FeatureRecord record = staged.get(featureIndex);
                 int capturedFeatureIndex = featureIndex;
-                sourceSymbol(binding, record.geometry(), record.attributes())
+                sourceSymbol(binding, record.geometry(), record.attributes(), viewportSnapshot)
                         .ifPresent(
                                 symbol ->
                                         visual.add(
@@ -5487,7 +5491,8 @@ public final class MapView extends JComponent implements AutoCloseable {
             int wrappedLabelCodePoints = 0;
             for (FeatureRecord record : staged.values()) {
                 Optional<Symbol> symbol =
-                        sourceSymbol(binding, record.geometry(), record.attributes());
+                        sourceSymbol(
+                                binding, record.geometry(), record.attributes(), viewportSnapshot);
                 List<GeographicSeamSplitter.Fragment> fragments =
                         wrappedGeometryFragments(
                                 source,
@@ -6080,12 +6085,28 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private static Optional<Symbol> sourceSymbol(
-            MapLayerBinding binding, Geometry geometry, Map<String, Object> attributes) {
+            MapLayerBinding binding,
+            Geometry geometry,
+            Map<String, Object> attributes,
+            MapViewport viewportSnapshot) {
         SymbolRole role = geometryRole(geometry);
         if (role == SymbolRole.LEGACY_GEOMETRY) {
             throw new IllegalArgumentException("Unsupported source geometry");
         }
-        return binding.portrayalResolver().resolve(role, attributes);
+        return binding.portrayalResolver()
+                .resolveAll(attributes, portrayalContext(viewportSnapshot))
+                .forRole(role);
+    }
+
+    private static PortrayalEvaluationContext portrayalContext(MapViewport viewportSnapshot) {
+        double denominator = viewportSnapshot.worldUnitsPerPixel() / 0.00028;
+        if (!Double.isFinite(denominator) || denominator < 0) {
+            throw new SymbolException(
+                    SymbolException.PORTRAYAL_SCALE_CRS_UNSUPPORTED,
+                    "Viewport cannot provide a finite scale denominator",
+                    Map.of());
+        }
+        return PortrayalEvaluationContext.atScale(denominator);
     }
 
     private static AttributeSelection paintAttributes(
@@ -6718,6 +6739,13 @@ public final class MapView extends JComponent implements AutoCloseable {
     private void validatePortrayal(MapLayerBinding binding) {
         if (binding.portrayalResolver() == null) {
             return;
+        }
+        if (binding.portrayalResolver().requiresScaleContext()
+                && displayCrs.kind() != io.github.mundanej.map.api.CrsKind.PROJECTED) {
+            throw new SymbolException(
+                    SymbolException.PORTRAYAL_SCALE_CRS_UNSUPPORTED,
+                    "Scale-constrained portrayal requires projected metre display axes",
+                    Map.of("displayCrs", displayCrs.canonicalIdentifier()));
         }
         for (Symbol symbol : binding.portrayalResolver().reachableSymbols()) {
             validateSourceSymbol(symbol, symbol.role());

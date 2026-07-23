@@ -35,6 +35,13 @@ public final class SymbolException extends RuntimeException {
     /** A renderer registry already contains the same role and key. */
     public static final String RENDERER_DUPLICATE = "SYMBOL_RENDERER_DUPLICATE";
 
+    /** A scale-constrained portrayal was evaluated without scale context. */
+    public static final String PORTRAYAL_SCALE_CONTEXT_REQUIRED =
+            "PORTRAYAL_SCALE_CONTEXT_REQUIRED";
+
+    /** A scale-constrained portrayal cannot attach to the requested display CRS. */
+    public static final String PORTRAYAL_SCALE_CRS_UNSUPPORTED = "PORTRAYAL_SCALE_CRS_UNSUPPORTED";
+
     /** A renderer returned a result incompatible with its registered role. */
     public static final String RENDERER_INVALID_RESULT = "SYMBOL_RENDERER_INVALID_RESULT";
 

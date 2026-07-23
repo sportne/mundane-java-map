@@ -1,6 +1,6 @@
 # G13-003 — SE rules, filters, and scale
 
-Status: Proposed
+Status: Complete
 Depends on: G13-002
 Gate: G13
 Type: AFK

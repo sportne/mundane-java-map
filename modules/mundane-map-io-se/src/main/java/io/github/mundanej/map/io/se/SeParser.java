@@ -1,11 +1,16 @@
 package io.github.mundanej.map.io.se;
 
 import io.github.mundanej.map.api.BuiltInMarker;
-import io.github.mundanej.map.api.FeaturePortrayal;
-import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
+import io.github.mundanej.map.api.PortrayalComparison;
+import io.github.mundanej.map.api.PortrayalLogicalOperator;
+import io.github.mundanej.map.api.PortrayalOperand;
+import io.github.mundanej.map.api.PortrayalPredicate;
+import io.github.mundanej.map.api.PortrayalRule;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.RulePortrayalPlan;
+import io.github.mundanej.map.api.ScaleInterval;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolRotationMode;
@@ -27,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import javax.xml.XMLConstants;
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLInputFactory;
@@ -57,6 +63,7 @@ final class SeParser {
     private int attributes;
     private int textCharacters;
     private int rules;
+    private int predicates;
     private int symbolizers;
     private int outputSymbols;
     private int events;
@@ -133,7 +140,7 @@ final class SeParser {
         SeDescription description = SeDescription.empty();
         Optional<String> featureTypeName = Optional.empty();
         List<String> semanticTypes = new ArrayList<>();
-        ParsedRule parsedRule = null;
+        List<ParsedRule> parsedRules = new ArrayList<>();
         int phase = 0;
         while (true) {
             int event = nextChild();
@@ -171,30 +178,30 @@ final class SeParser {
                     if (++rules > limits.maximumRules()) {
                         throw limit("rules", rules, limits.maximumRules());
                     }
-                    if (parsedRule != null) {
-                        throw failure(
-                                "SE_ELEMENT_UNSUPPORTED",
-                                currentPath(),
-                                "multipleRulesNotInFirstSlice");
-                    }
-                    parsedRule = parseRule();
+                    parsedRules.add(parseRule());
                 }
                 default -> throw unsupportedElement(local);
             }
         }
-        if (parsedRule == null) {
+        if (parsedRules.isEmpty()) {
             throw failure("SE_ELEMENT_UNSUPPORTED", currentPath(), "missingRule");
         }
         budget.charge(512, currentPath());
-        FeaturePortrayal portrayal =
-                FeaturePortrayal.markers(new FixedSymbolSelector(parsedRule.marker()));
+        List<PortrayalRule> portrayalRules =
+                parsedRules.stream().map(ParsedRule::portrayal).toList();
+        RulePortrayalPlan plan;
+        try {
+            plan = new RulePortrayalPlan(portrayalRules);
+        } catch (IllegalArgumentException failure) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "rulePlan");
+        }
         return new SeFeatureStyle(
                 name,
                 description,
                 featureTypeName,
                 semanticTypes,
-                List.of(parsedRule.metadata()),
-                portrayal);
+                parsedRules.stream().map(ParsedRule::metadata).toList(),
+                plan.portrayal());
     }
 
     private ParsedRule parseRule() throws XMLStreamException {
@@ -202,7 +209,11 @@ final class SeParser {
         requireNoAttributes();
         Optional<String> name = Optional.empty();
         SeDescription description = SeDescription.empty();
-        VectorMarkerSymbol marker = null;
+        Optional<PortrayalPredicate> predicate = Optional.empty();
+        boolean elseRule = false;
+        OptionalDouble minimumScale = OptionalDouble.empty();
+        OptionalDouble maximumScale = OptionalDouble.empty();
+        List<io.github.mundanej.map.api.Symbol> markers = new ArrayList<>();
         int phase = 0;
         while (true) {
             int event = nextChild();
@@ -212,7 +223,10 @@ final class SeParser {
             String namespace = reader.getNamespaceURI();
             String local = reader.getLocalName();
             if (OGC.equals(namespace) && "Filter".equals(local)) {
-                throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "filtersNotInFirstSlice");
+                requirePhase(phase <= 2 && predicate.isEmpty() && !elseRule, local);
+                phase = 3;
+                predicate = Optional.of(parseFilter());
+                continue;
             }
             if (!SE.equals(namespace)) {
                 throw failure("SE_NAMESPACE_UNSUPPORTED", currentPath(), namespace());
@@ -228,38 +242,203 @@ final class SeParser {
                     phase = 2;
                     description = parseDescription();
                 }
-                case "ElseFilter" ->
-                        throw failure(
-                                "SE_FILTER_UNSUPPORTED",
-                                currentPath(),
-                                "elseFilterNotInFirstSlice");
-                case "MinScaleDenominator", "MaxScaleDenominator" ->
-                        throw failure(
-                                "SE_ELEMENT_UNSUPPORTED", currentPath(), "scaleNotInFirstSlice");
-                case "PointSymbolizer" -> {
-                    requirePhase(phase <= 3, local);
+                case "ElseFilter" -> {
+                    requirePhase(phase <= 2 && predicate.isEmpty() && !elseRule, local);
                     phase = 3;
+                    parseElseFilter();
+                    elseRule = true;
+                }
+                case "MinScaleDenominator" -> {
+                    requirePhase(phase <= 3, local);
+                    phase = 4;
+                    minimumScale =
+                            OptionalDouble.of(decimalElement(local, 0.0, Double.MAX_VALUE, false));
+                }
+                case "MaxScaleDenominator" -> {
+                    requirePhase(phase <= 4, local);
+                    phase = 5;
+                    maximumScale =
+                            OptionalDouble.of(decimalElement(local, 0.0, Double.MAX_VALUE, false));
+                }
+                case "PointSymbolizer" -> {
+                    requirePhase(phase <= 5, local);
+                    phase = 5;
                     if (++symbolizers > limits.maximumSymbolizers()) {
                         throw limit("symbolizers", symbolizers, limits.maximumSymbolizers());
                     }
-                    if (marker != null) {
-                        throw failure(
-                                "SE_SYMBOLIZER_UNSUPPORTED",
-                                currentPath(),
-                                "multiplePointSymbolizersNotInFirstSlice");
-                    }
-                    marker = parsePointSymbolizer();
+                    markers.add(parsePointSymbolizer());
                 }
                 case "LineSymbolizer", "PolygonSymbolizer", "TextSymbolizer", "RasterSymbolizer" ->
                         throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), local);
                 default -> throw unsupportedElement(local);
             }
         }
-        if (marker == null) {
+        if (markers.isEmpty()) {
             throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingPointSymbolizer");
         }
         budget.charge(128, currentPath());
-        return new ParsedRule(new SeRuleMetadata(name, description), marker);
+        ScaleInterval scale;
+        try {
+            scale = new ScaleInterval(minimumScale, maximumScale);
+        } catch (IllegalArgumentException failure) {
+            throw failure("SE_VALUE_INVALID", currentPath(), "scaleInterval");
+        }
+        PortrayalRule portrayal =
+                new PortrayalRule(name, scale, predicate, elseRule, markers, List.of(), List.of());
+        return new ParsedRule(new SeRuleMetadata(name, description), portrayal);
+    }
+
+    private PortrayalPredicate parseFilter() throws XMLStreamException {
+        requireElement(OGC, "Filter", "SE_FILTER_UNSUPPORTED");
+        requireNoAttributes();
+        int event = nextChild();
+        if (event == XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "missingPredicate");
+        }
+        PortrayalPredicate result = parsePredicate(1);
+        if (nextChild() != XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "multiplePredicates");
+        }
+        return result;
+    }
+
+    private PortrayalPredicate parsePredicate(int predicateDepth) throws XMLStreamException {
+        if (++predicates > limits.maximumPredicates()) {
+            throw limit("predicates", predicates, limits.maximumPredicates());
+        }
+        if (predicateDepth > limits.maximumPredicateDepth()) {
+            throw limit("predicateDepth", predicateDepth, limits.maximumPredicateDepth());
+        }
+        budget.charge(128, currentPath());
+        requireNamespace(OGC);
+        String local = reader.getLocalName();
+        return switch (local) {
+            case "PropertyIsEqualTo" -> parseComparison(PortrayalComparison.EQUAL);
+            case "PropertyIsNotEqualTo" -> parseComparison(PortrayalComparison.NOT_EQUAL);
+            case "PropertyIsLessThan" -> parseComparison(PortrayalComparison.LESS_THAN);
+            case "PropertyIsLessThanOrEqualTo" ->
+                    parseComparison(PortrayalComparison.LESS_THAN_OR_EQUAL);
+            case "PropertyIsGreaterThan" -> parseComparison(PortrayalComparison.GREATER_THAN);
+            case "PropertyIsGreaterThanOrEqualTo" ->
+                    parseComparison(PortrayalComparison.GREATER_THAN_OR_EQUAL);
+            case "PropertyIsBetween" -> parseBetween();
+            case "PropertyIsNull" -> parseIsNull();
+            case "And" -> parseLogical(PortrayalLogicalOperator.AND, predicateDepth);
+            case "Or" -> parseLogical(PortrayalLogicalOperator.OR, predicateDepth);
+            case "Not" -> parseLogical(PortrayalLogicalOperator.NOT, predicateDepth);
+            default -> throw failure("SE_FILTER_UNSUPPORTED", currentPath(), local);
+        };
+    }
+
+    private PortrayalPredicate parseComparison(PortrayalComparison operation)
+            throws XMLStreamException {
+        requireNoAttributes();
+        PortrayalOperand left = nextOperand();
+        PortrayalOperand right = nextOperand();
+        requirePredicateEnd();
+        try {
+            return new PortrayalPredicate.Comparison(operation, left, right);
+        } catch (IllegalArgumentException failure) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "propertyRequired");
+        }
+    }
+
+    private PortrayalPredicate parseBetween() throws XMLStreamException {
+        requireNoAttributes();
+        PortrayalOperand first = nextOperand();
+        if (!(first instanceof PortrayalOperand.Property property)) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "betweenPropertyRequired");
+        }
+        PortrayalOperand lower = parseBoundary("LowerBoundary");
+        PortrayalOperand upper = parseBoundary("UpperBoundary");
+        requirePredicateEnd();
+        return new PortrayalPredicate.Between(property, lower, upper);
+    }
+
+    private PortrayalPredicate parseIsNull() throws XMLStreamException {
+        requireNoAttributes();
+        PortrayalOperand operand = nextOperand();
+        requirePredicateEnd();
+        if (!(operand instanceof PortrayalOperand.Property property)) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "nullPropertyRequired");
+        }
+        return new PortrayalPredicate.IsNull(property);
+    }
+
+    private PortrayalPredicate parseLogical(PortrayalLogicalOperator operation, int predicateDepth)
+            throws XMLStreamException {
+        requireNoAttributes();
+        List<PortrayalPredicate> children = new ArrayList<>();
+        while (true) {
+            int event = nextChild();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            children.add(parsePredicate(predicateDepth + 1));
+        }
+        try {
+            return new PortrayalPredicate.Logical(operation, children);
+        } catch (IllegalArgumentException failure) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "logicalArity");
+        }
+    }
+
+    private PortrayalOperand parseBoundary(String expected) throws XMLStreamException {
+        if (nextChild() == XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "missing:" + expected);
+        }
+        requireElement(OGC, expected, "SE_FILTER_UNSUPPORTED");
+        requireNoAttributes();
+        PortrayalOperand operand = nextOperand();
+        if (nextChild() != XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "boundaryArity");
+        }
+        return operand;
+    }
+
+    private PortrayalOperand nextOperand() throws XMLStreamException {
+        if (nextChild() == XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "missingOperand");
+        }
+        requireNamespace(OGC);
+        String local = reader.getLocalName();
+        try {
+            return switch (local) {
+                case "PropertyName" -> new PortrayalOperand.Property(readOgcText(local, true));
+                case "Literal" -> new PortrayalOperand.Literal(readOgcText(local, false));
+                default -> throw failure("SE_FILTER_UNSUPPORTED", currentPath(), local);
+            };
+        } catch (IllegalArgumentException failure) {
+            throw failure("SE_VALUE_INVALID", currentPath(), "operand");
+        }
+    }
+
+    private String readOgcText(String element, boolean stripped) throws XMLStreamException {
+        requireElement(OGC, element, "SE_FILTER_UNSUPPORTED");
+        requireNoAttributes();
+        String value = readTextBody();
+        if (!stripped) {
+            return value;
+        }
+        String result = value.strip();
+        if (result.isBlank()) {
+            throw failure("SE_VALUE_INVALID", currentPath(), "blankProperty");
+        }
+        return result;
+    }
+
+    private void requirePredicateEnd() throws XMLStreamException {
+        if (nextChild() != XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "operandArity");
+        }
+    }
+
+    private void parseElseFilter() throws XMLStreamException {
+        requireElement(SE, "ElseFilter", "SE_FILTER_UNSUPPORTED");
+        requireNoAttributes();
+        if (nextChild() != XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_FILTER_UNSUPPORTED", currentPath(), "elseContent");
+        }
     }
 
     private VectorMarkerSymbol parsePointSymbolizer() throws XMLStreamException {
@@ -928,7 +1107,7 @@ final class SeParser {
         }
     }
 
-    private record ParsedRule(SeRuleMetadata metadata, VectorMarkerSymbol marker) {}
+    private record ParsedRule(SeRuleMetadata metadata, PortrayalRule portrayal) {}
 
     private record Mark(BuiltInMarker shape, Rgba fill, Optional<SymbolStroke> stroke) {}
 
