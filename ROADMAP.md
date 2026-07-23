@@ -423,9 +423,9 @@ separately decomposed.
   PNG/JPEG XYZ tile with bounded response handling and returns a detached EPSG:3857 raster that
   remains readable after client/server close. G10-061 is complete with exact tile-aligned region
   selection, deterministic concurrent batches, transparent missing-tile warnings, transactional
-  decoded LRU caching, detached mosaics, and a worker-driven loopback viewer. G10-062 remains
-  Proposed for exhaustive hostile-response, lifecycle, cancellation, cleanup, cache-rollback
-  hardening, and the JVM-only closeout.
+  decoded LRU caching, detached mosaics, and a worker-driven loopback viewer. G10-062 is complete:
+  hostile-response, limits, interruption, cancellation, close/drain, and cache-rollback evidence now
+  closes the adapter's Java 21 JVM profile. The module makes no Native Image or public-network claim.
 - G10-007 is complete with outcome `DEFER`: no third CRS, formula, PROJ adapter, or raster
   warp is selected. A later proposal must supply one complete workflow/domain/accuracy/format/platform/
   conformance evidence packet, then choose `CORE_DIRECT` or `PROJ_REQUIRED` explicitly before creating

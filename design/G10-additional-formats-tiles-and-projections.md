@@ -2731,6 +2731,14 @@ reads. The self-contained HTTP tile viewer performs loopback acquisition and dec
 before installing the source in `MapView`; tolerant broad-color evidence runs in `renderRegression`.
 The hostile-response and race matrix plus the final JVM-only support audit remain in G10-062.
 
+Implementation record (2026-07-22): G10-062 closes the bounded response, exact-limit, operation
+deadline, interruption, cancellation, close arbitration, cleanup-owner, and transactional rollback
+paths. An external close awaits complete fetch termination, not only transport settlement; an
+owner-thread re-entrant close performs bounded transport shutdown and returns so that its enclosing
+fetch can unwind without self-waiting. The module records its OpenJDK 21.0.11, Ubuntu 24.04.1 under
+WSL2, x86-64 loopback evidence and explicitly makes no Native Image, public-network,
+security-boundary, or performance claim.
+
 ## Additional-projection evidence decision (G10-007)
 
 ### Current decision: DEFER

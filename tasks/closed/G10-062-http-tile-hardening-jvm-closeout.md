@@ -1,6 +1,6 @@
 # G10-062 — HTTP tile hardening and JVM closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G10-061
 Gate: G10
 Type: AFK

@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.EncodedRasterDecoder;
+import io.github.mundanej.map.api.EncodedRasterDecoderRegistry;
 import io.github.mundanej.map.api.EncodedRasterFormat;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterRequest;
@@ -43,6 +45,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import javax.imageio.ImageIO;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -118,6 +121,9 @@ class HttpXyzTilesTest {
     @Test
     void rejectsInvalidResponseProfilesAndOversizedBodies() throws IOException {
         byte[] image = image("png", Color.BLUE);
+        for (int status : List.of(204, 301, 401, 403, 429, 500, 503)) {
+            assertFailure(status, "image/png", image, defaults(), "HTTP_TILE_RESPONSE_INVALID");
+        }
         assertFailure(200, "text/plain", image, defaults(), "HTTP_TILE_RESPONSE_INVALID");
         assertFailure(
                 200, "image/png; charset=binary", image, defaults(), "HTTP_TILE_RESPONSE_INVALID");
@@ -231,6 +237,320 @@ class HttpXyzTilesTest {
         byte[] wrongSize = image("png", Color.BLUE, 32, 32);
         HttpServer dimensions = server(exchange -> respond(exchange, 200, "image/png", wrongSize));
         assertFetchCode(dimensions, defaults(), "HTTP_TILE_IMAGE_INVALID");
+    }
+
+    @Test
+    void validatesChunkedExactAndOneOverBodyLimits() throws IOException {
+        byte[] valid = image("png", Color.ORANGE);
+        HttpServer exact = server(exchange -> respondChunked(exchange, valid));
+        try (HttpXyzTileClient client = client(exact, optionsWithBodyLimit(valid.length));
+                RasterSource source =
+                        client.fetch(XyzTileRegion.single(0, 0, 0), CancellationToken.none())) {
+            assertEquals(0xffc800ff, pixel(source, 0, 0));
+        } finally {
+            exact.stop(0);
+        }
+        HttpServer over = server(exchange -> respondChunked(exchange, valid));
+        assertFetchCode(over, optionsWithBodyLimit(valid.length - 1), "SOURCE_LIMIT_EXCEEDED");
+    }
+
+    @Test
+    void cumulativeBodyBudgetAcceptsEqualityAndRejectsOneOverTransactionally() throws IOException {
+        byte[] valid = image("png", Color.ORANGE);
+        AtomicInteger exactRequests = new AtomicInteger();
+        HttpServer exact =
+                server(
+                        exchange -> {
+                            exactRequests.incrementAndGet();
+                            respond(exchange, 200, "image/png", valid);
+                        });
+        long twoBodies = Math.multiplyExact(2L, valid.length);
+        try (HttpXyzTileClient client =
+                        client(exact, optionsWithFetchBudgets(valid.length, twoBodies));
+                RasterSource source =
+                        client.fetch(new XyzTileRegion(1, 0, 0, 1, 0), CancellationToken.none())) {
+            assertEquals(512, source.metadata().width());
+            assertEquals(2, exactRequests.get());
+        } finally {
+            exact.stop(0);
+        }
+
+        HttpServer over = server(exchange -> respond(exchange, 200, "image/png", valid));
+        try (HttpXyzTileClient client =
+                client(over, optionsWithFetchBudgets(valid.length, twoBodies - 1))) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            new XyzTileRegion(1, 0, 0, 1, 0),
+                                            CancellationToken.none()));
+            assertEquals("SOURCE_LIMIT_EXCEEDED", failure.terminal().code());
+            assertEquals("bodyBytes", failure.terminal().context().get("limit"));
+        } finally {
+            over.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsRepeatedHeadersAndMalformedImagesWithRedactedDiagnostics() throws IOException {
+        byte[] valid = image("png", Color.BLUE);
+        HttpServer duplicateType =
+                server(
+                        exchange -> {
+                            exchange.getResponseHeaders().add("Content-Type", "image/png");
+                            exchange.getResponseHeaders().add("Content-Type", "image/jpeg");
+                            exchange.sendResponseHeaders(200, valid.length);
+                            try (exchange;
+                                    var output = exchange.getResponseBody()) {
+                                output.write(valid);
+                            }
+                        });
+        assertFetchCode(duplicateType, defaults(), "HTTP_TILE_RESPONSE_INVALID");
+
+        byte[] malformed =
+                "secret-hostile-body".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        HttpServer malformedImage =
+                server(exchange -> respond(exchange, 200, "image/png", malformed));
+        try (HttpXyzTileClient client = client(malformedImage, defaults())) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            XyzTileRegion.single(0, 0, 0),
+                                            CancellationToken.none()));
+            assertEquals("HTTP_TILE_IMAGE_INVALID", failure.terminal().code());
+            assertEquals("decode", failure.terminal().context().get("reason"));
+            assertFalse(failure.getMessage().contains("secret-hostile-body"));
+            assertFalse(failure.getMessage().contains("127.0.0.1"));
+        } finally {
+            malformedImage.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsEncodingLengthAndFramingVariantsWithStableOutcomes() throws IOException {
+        byte[] valid = image("png", Color.BLUE);
+        HttpServer duplicateEncoding =
+                server(
+                        exchange -> {
+                            exchange.getResponseHeaders().add("Content-Encoding", "identity");
+                            exchange.getResponseHeaders().add("Content-Encoding", "identity");
+                            respond(exchange, 200, "image/png", valid);
+                        });
+        assertFetchCode(duplicateEncoding, defaults(), "HTTP_TILE_RESPONSE_INVALID");
+
+        SourceException range =
+                rawFailure(
+                        String.join(
+                                "",
+                                "HTTP/1.1 200 OK\r\n",
+                                "Content-Type: image/png\r\n",
+                                "Content-Length: 9223372036854775808\r\n",
+                                "Connection: close\r\n\r\n"));
+        assertEquals("HTTP_TILE_RESPONSE_INVALID", range.terminal().code());
+        assertEquals(
+                Map.of("field", "contentLength", "reason", "range"), range.terminal().context());
+
+        SourceException malformed =
+                rawFailure(
+                        String.join(
+                                "",
+                                "HTTP/1.1 200 OK\r\n",
+                                "Content-Type: image/png\r\n",
+                                "Bad Header: value\r\n",
+                                "Connection: close\r\n\r\n"));
+        assertEquals("HTTP_TILE_REQUEST_FAILED", malformed.terminal().code());
+
+        SourceException truncatedChunk =
+                rawFailure(
+                        String.join(
+                                "",
+                                "HTTP/1.1 200 OK\r\n",
+                                "Content-Type: image/png\r\n",
+                                "Transfer-Encoding: chunked\r\n",
+                                "Connection: close\r\n\r\n",
+                                "10\r\nabc\r\n"));
+        assertEquals("HTTP_TILE_REQUEST_FAILED", truncatedChunk.terminal().code());
+    }
+
+    @Test
+    void reentrantCancellationCloseDoesNotWaitForItsOwnFetch() throws IOException {
+        HttpServer server = server(HttpExchange::close);
+        HttpXyzTileClient client = client(server, defaults());
+        AtomicInteger polls = new AtomicInteger();
+        try {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            XyzTileRegion.single(0, 0, 0),
+                                            () -> {
+                                                if (polls.incrementAndGet() == 2) {
+                                                    client.close();
+                                                    return true;
+                                                }
+                                                return false;
+                                            }));
+            assertEquals("HTTP_TILE_CLIENT_CLOSED", failure.terminal().code());
+            assertTrue(client.isClosed());
+        } finally {
+            client.close();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void operationDeadlineIsEnforcedInsideDecoderCheckpoints() throws IOException {
+        byte[] valid = image("png", Color.BLUE);
+        HttpServer server = server(exchange -> respond(exchange, 200, "image/png", valid));
+        EncodedRasterDecoder slow =
+                (input, context) -> {
+                    while (true) {
+                        context.checkpoint();
+                        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+                    }
+                };
+        EncodedRasterDecoderRegistry registry =
+                EncodedRasterDecoderRegistry.builder()
+                        .register(EncodedRasterFormat.PNG, slow)
+                        .register(
+                                EncodedRasterFormat.JPEG,
+                                AwtRasterDecoders.level1()
+                                        .find(EncodedRasterFormat.JPEG)
+                                        .orElseThrow())
+                        .build();
+        try (HttpXyzTileClient client =
+                HttpXyzTiles.open(
+                        IDENTITY,
+                        template(server),
+                        withOperationTimeout(Duration.ofMillis(250)),
+                        registry)) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            XyzTileRegion.single(0, 0, 0),
+                                            CancellationToken.none()));
+            assertEquals("HTTP_TILE_REQUEST_FAILED", failure.terminal().code());
+            assertEquals(
+                    Map.of("phase", "wait", "reason", "timeout"), failure.terminal().context());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void cancellationDuringMosaicPublishesNeitherPixelsNorCache() throws IOException {
+        byte[] valid = image("png", Color.GREEN);
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server =
+                server(
+                        exchange -> {
+                            requests.incrementAndGet();
+                            respond(exchange, 200, "image/png", valid);
+                        });
+        AtomicBoolean decoded = new AtomicBoolean();
+        AtomicInteger postDecodePolls = new AtomicInteger();
+        EncodedRasterDecoder delegate =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.PNG).orElseThrow();
+        EncodedRasterDecoderRegistry registry =
+                EncodedRasterDecoderRegistry.builder()
+                        .register(
+                                EncodedRasterFormat.PNG,
+                                (input, context) -> {
+                                    var result = delegate.decode(input, context);
+                                    decoded.set(true);
+                                    return result;
+                                })
+                        .register(
+                                EncodedRasterFormat.JPEG,
+                                AwtRasterDecoders.level1()
+                                        .find(EncodedRasterFormat.JPEG)
+                                        .orElseThrow())
+                        .build();
+        try (HttpXyzTileClient client =
+                HttpXyzTiles.open(IDENTITY, template(server), memoryOptions(1), registry)) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            XyzTileRegion.single(0, 0, 0),
+                                            () ->
+                                                    decoded.get()
+                                                            && postDecodePolls.incrementAndGet()
+                                                                    == 2));
+            assertEquals("SOURCE_CANCELLED", failure.terminal().code());
+            assertTrue(postDecodePolls.get() >= 2);
+            try (RasterSource retried =
+                    client.fetch(XyzTileRegion.single(0, 0, 0), CancellationToken.none())) {
+                assertEquals(0x00ff00ff, pixel(retried, 0, 0));
+            }
+            assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void undrainableDecodePoisonsClientWithoutAllowingOverlappingWork() throws Exception {
+        byte[] valid = image("png", Color.BLUE);
+        HttpServer server = server(exchange -> respond(exchange, 200, "image/png", valid));
+        CountDownLatch decoderStarted = new CountDownLatch(1);
+        CountDownLatch releaseDecoder = new CountDownLatch(1);
+        EncodedRasterDecoder delegate =
+                AwtRasterDecoders.level1().find(EncodedRasterFormat.PNG).orElseThrow();
+        EncodedRasterDecoderRegistry registry =
+                EncodedRasterDecoderRegistry.builder()
+                        .register(
+                                EncodedRasterFormat.PNG,
+                                (input, context) -> {
+                                    decoderStarted.countDown();
+                                    await(releaseDecoder);
+                                    return delegate.decode(input, context);
+                                })
+                        .register(
+                                EncodedRasterFormat.JPEG,
+                                AwtRasterDecoders.level1()
+                                        .find(EncodedRasterFormat.JPEG)
+                                        .orElseThrow())
+                        .build();
+        HttpXyzTileClient client =
+                HttpXyzTiles.open(
+                        IDENTITY,
+                        template(server),
+                        withCloseTimeout(Duration.ofMillis(100)),
+                        registry);
+        CompletableFuture<RasterSource> running =
+                CompletableFuture.supplyAsync(
+                        () ->
+                                client.fetch(
+                                        XyzTileRegion.single(0, 0, 0), CancellationToken.none()));
+        try {
+            assertTrue(decoderStarted.await(5, TimeUnit.SECONDS));
+            SourceException closeFailure = assertThrows(SourceException.class, client::close);
+            assertEquals("HTTP_TILE_CLOSE_FAILED", closeFailure.terminal().code());
+            assertEquals(
+                    Map.of("reason", "timeout", "resource", "body"),
+                    closeFailure.terminal().context());
+            assertTrue(client.isClosed());
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> client.fetch(XyzTileRegion.single(0, 0, 0), CancellationToken.none()));
+        } finally {
+            releaseDecoder.countDown();
+            CompletionException fetchFailure =
+                    assertThrows(CompletionException.class, running::join);
+            assertEquals(
+                    "HTTP_TILE_CLIENT_CLOSED",
+                    ((SourceException) fetchFailure.getCause()).terminal().code());
+            client.close();
+            server.stop(0);
+        }
     }
 
     @Test
@@ -389,6 +709,55 @@ class HttpXyzTilesTest {
             assertEquals(code, failure.terminal().code());
         } finally {
             server.stop(0);
+        }
+    }
+
+    private static SourceException rawFailure(String response) throws IOException {
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            CompletableFuture<Void> serving =
+                    CompletableFuture.runAsync(
+                            () -> {
+                                try (var socket = server.accept();
+                                        var input = socket.getInputStream();
+                                        var output = socket.getOutputStream()) {
+                                    int state = 0;
+                                    while (state < 4) {
+                                        int next = input.read();
+                                        if (next < 0) {
+                                            throw new IOException("request ended before headers");
+                                        }
+                                        state =
+                                                switch (state) {
+                                                    case 0 -> next == '\r' ? 1 : 0;
+                                                    case 1 -> next == '\n' ? 2 : 0;
+                                                    case 2 -> next == '\r' ? 3 : 0;
+                                                    default -> next == '\n' ? 4 : 0;
+                                                };
+                                    }
+                                    output.write(
+                                            response.getBytes(
+                                                    java.nio.charset.StandardCharsets.US_ASCII));
+                                    output.flush();
+                                } catch (IOException failure) {
+                                    throw new java.io.UncheckedIOException(failure);
+                                }
+                            });
+            HttpXyzTemplate template =
+                    HttpXyzTemplate.parse(
+                            "http://127.0.0.1:" + server.getLocalPort() + "/{z}/{x}/{y}.png");
+            SourceException failure;
+            try (HttpXyzTileClient client =
+                    HttpXyzTiles.open(IDENTITY, template, defaults(), AwtRasterDecoders.level1())) {
+                failure =
+                        assertThrows(
+                                SourceException.class,
+                                () ->
+                                        client.fetch(
+                                                XyzTileRegion.single(0, 0, 0),
+                                                CancellationToken.none()));
+            }
+            serving.join();
+            return failure;
         }
     }
 
@@ -598,6 +967,48 @@ class HttpXyzTilesTest {
     }
 
     @Test
+    void laterCompletedFailureCannotOverrideRowMajorDiagnostic() throws Exception {
+        CountDownLatch bothStarted = new CountDownLatch(2);
+        CountDownLatch secondCompleted = new CountDownLatch(1);
+        HttpServer server =
+                server(
+                        exchange -> {
+                            int x = coordinate(exchange)[0];
+                            bothStarted.countDown();
+                            if (!awaitWithin(bothStarted)) {
+                                exchange.close();
+                                return;
+                            }
+                            if (x == 1) {
+                                respond(exchange, 500, "text/plain", new byte[0]);
+                                secondCompleted.countDown();
+                            } else {
+                                if (!awaitWithin(secondCompleted)) {
+                                    exchange.close();
+                                    return;
+                                }
+                                respond(exchange, 429, "text/plain", new byte[0]);
+                            }
+                        });
+        try (HttpXyzTileClient client = client(server, defaults())) {
+            SourceException failure =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            new XyzTileRegion(1, 0, 0, 1, 0),
+                                            CancellationToken.none()));
+            assertEquals("HTTP_TILE_RESPONSE_INVALID", failure.terminal().code());
+            assertEquals("429", failure.terminal().context().get("status"));
+            assertEquals(
+                    1L, failure.terminal().location().orElseThrow().recordNumber().orElseThrow());
+        } finally {
+            secondCompleted.countDown();
+            server.stop(0);
+        }
+    }
+
+    @Test
     void missingTilesAreTransparentWarningsAndMemoryCacheUsesCommittedLru() throws IOException {
         AtomicInteger requests = new AtomicInteger();
         AtomicBoolean failLast = new AtomicBoolean();
@@ -728,6 +1139,171 @@ class HttpXyzTilesTest {
         }
     }
 
+    @Test
+    void threadInterruptionWinsWaitAndRestoresStatus() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        HttpServer server =
+                server(
+                        exchange -> {
+                            started.countDown();
+                            await(release);
+                            exchange.close();
+                        });
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        try (HttpXyzTileClient client = client(server, defaults())) {
+            Thread thread =
+                    Thread.ofPlatform()
+                            .start(
+                                    () -> {
+                                        try {
+                                            client.fetch(
+                                                    XyzTileRegion.single(0, 0, 0),
+                                                    CancellationToken.none());
+                                        } catch (Throwable thrown) {
+                                            failure.set(thrown);
+                                            interrupted.set(Thread.currentThread().isInterrupted());
+                                        }
+                                    });
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            thread.interrupt();
+            thread.join(5_000);
+            assertFalse(thread.isAlive());
+            SourceException source = (SourceException) failure.get();
+            assertEquals("HTTP_TILE_REQUEST_FAILED", source.terminal().code());
+            assertEquals("interrupted", source.terminal().context().get("reason"));
+            assertTrue(interrupted.get());
+        } finally {
+            release.countDown();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void exactDocumentedDefaultsAndRegionLimitPreflightAreStable() throws IOException {
+        HttpXyzLimits limits = defaults().limits();
+        assertEquals(67_108_864L, limits.cumulativeResponseBytes());
+        assertEquals(268_435_456L, limits.ownedBytes());
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server =
+                server(
+                        exchange -> {
+                            requests.incrementAndGet();
+                            exchange.close();
+                        });
+        HttpXyzClientOptions oneTile = withLimits(copyWithTileLimit(limits, 1, 1));
+        try (HttpXyzTileClient client = client(server, oneTile)) {
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> client.fetch(new XyzTileRegion(1, 0, 0, 1, 0), CancellationToken.none()));
+            assertEquals(0, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void hardLimitAndDurationCeilingsAcceptEqualityAndRejectOneOver() {
+        HttpXyzLimits hard =
+                new HttpXyzLimits(
+                        8_192,
+                        22,
+                        1_024,
+                        128,
+                        16,
+                        256,
+                        16_384,
+                        65_536,
+                        16 * 1_024 * 1_024,
+                        512L * 1_024 * 1_024,
+                        Integer.MAX_VALUE,
+                        4_096,
+                        1_024,
+                        256L * 1_024 * 1_024);
+        assertEquals(1_024, hard.tilesPerRequest());
+        Map<String, Long> oneOver =
+                Map.ofEntries(
+                        Map.entry("templateCharacters", 8_193L),
+                        Map.entry("zoom", 23L),
+                        Map.entry("tilesPerRequest", 1_025L),
+                        Map.entry("regionAxisTiles", 129L),
+                        Map.entry("concurrency", 17L),
+                        Map.entry("responseHeaders", 257L),
+                        Map.entry("headerNameOrValueCharacters", 16_385L),
+                        Map.entry("aggregateHeaderCharacters", 65_537L),
+                        Map.entry("responseBodyBytes", 16L * 1_024 * 1_024 + 1),
+                        Map.entry("cumulativeResponseBytes", 512L * 1_024 * 1_024 + 1),
+                        Map.entry("ownedBytes", (long) Integer.MAX_VALUE + 1),
+                        Map.entry("warnings", 4_097L),
+                        Map.entry("cacheEntries", 1_025L),
+                        Map.entry("cacheBytes", 256L * 1_024 * 1_024 + 1));
+        oneOver.forEach(
+                (field, value) ->
+                        assertThrows(
+                                IllegalArgumentException.class,
+                                () -> copyLimit(hard, field, value),
+                                field));
+
+        HttpXyzClientOptions maximumDurations =
+                withDurations(
+                        Duration.ofMinutes(2),
+                        Duration.ofMinutes(5),
+                        Duration.ofMinutes(15),
+                        Duration.ofSeconds(30));
+        assertEquals(Duration.ofMinutes(15), maximumDurations.operationTimeout());
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        withDurations(
+                                Duration.ofMinutes(2).plusMillis(1),
+                                Duration.ofMinutes(5),
+                                Duration.ofMinutes(15),
+                                Duration.ofSeconds(30)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        withDurations(
+                                Duration.ofMinutes(2),
+                                Duration.ofMinutes(5).plusMillis(1),
+                                Duration.ofMinutes(15),
+                                Duration.ofSeconds(30)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        withDurations(
+                                Duration.ofMinutes(2),
+                                Duration.ofMinutes(5),
+                                Duration.ofMinutes(15).plusMillis(1),
+                                Duration.ofSeconds(30)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        withDurations(
+                                Duration.ofMinutes(2),
+                                Duration.ofMinutes(5),
+                                Duration.ofMinutes(15),
+                                Duration.ofSeconds(30).plusMillis(1)));
+    }
+
+    @Test
+    void status410UsesBoundedWarningOmissionAndTransparentPixels() throws IOException {
+        HttpServer server = server(exchange -> respond(exchange, 410, "text/plain", new byte[0]));
+        HttpXyzLimits limits = copyLimit(defaults().limits(), "warnings", 1);
+        try (HttpXyzTileClient client = client(server, withLimits(limits));
+                RasterSource source =
+                        client.fetch(new XyzTileRegion(1, 0, 0, 1, 0), CancellationToken.none())) {
+            assertEquals(0x00000000, pixel(source, 0, 0));
+            assertEquals(1, source.openingDiagnostics().entries().size());
+            assertEquals(1, source.openingDiagnostics().omittedWarningCount());
+            assertEquals(
+                    "410",
+                    source.openingDiagnostics().entries().getFirst().context().get("status"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static HttpXyzTileClient client(HttpServer server, HttpXyzClientOptions options) {
         return open(server, options);
     }
@@ -774,6 +1350,36 @@ class HttpXyzTilesTest {
                 defaults.closeTimeout());
     }
 
+    private static HttpXyzClientOptions optionsWithFetchBudgets(
+            int tileBodyBytes, long cumulativeBodyBytes) {
+        HttpXyzClientOptions defaults = defaults();
+        HttpXyzLimits limits = defaults.limits();
+        return new HttpXyzClientOptions(
+                defaults.schemePolicy(),
+                new HttpXyzLimits(
+                        limits.templateCharacters(),
+                        limits.zoom(),
+                        limits.tilesPerRequest(),
+                        limits.regionAxisTiles(),
+                        limits.concurrency(),
+                        limits.responseHeaders(),
+                        limits.headerNameOrValueCharacters(),
+                        limits.aggregateHeaderCharacters(),
+                        tileBodyBytes,
+                        cumulativeBodyBytes,
+                        limits.ownedBytes(),
+                        limits.warnings(),
+                        limits.cacheEntries(),
+                        limits.cacheBytes()),
+                defaults.snapshotLimits(),
+                defaults.decodeOptions(),
+                defaults.cachePolicy(),
+                defaults.connectTimeout(),
+                defaults.requestTimeout(),
+                defaults.operationTimeout(),
+                defaults.closeTimeout());
+    }
+
     private static HttpXyzClientOptions withTimeouts(Duration duration) {
         HttpXyzClientOptions defaults = defaults();
         return new HttpXyzClientOptions(
@@ -786,6 +1392,75 @@ class HttpXyzTilesTest {
                 duration,
                 duration,
                 defaults.closeTimeout());
+    }
+
+    private static HttpXyzClientOptions withOperationTimeout(Duration duration) {
+        HttpXyzClientOptions defaults = defaults();
+        return new HttpXyzClientOptions(
+                defaults.schemePolicy(),
+                defaults.limits(),
+                defaults.snapshotLimits(),
+                defaults.decodeOptions(),
+                defaults.cachePolicy(),
+                Duration.ofMillis(50),
+                Duration.ofMillis(100),
+                duration,
+                defaults.closeTimeout());
+    }
+
+    private static HttpXyzClientOptions withCloseTimeout(Duration duration) {
+        HttpXyzClientOptions defaults = defaults();
+        return new HttpXyzClientOptions(
+                defaults.schemePolicy(),
+                defaults.limits(),
+                defaults.snapshotLimits(),
+                defaults.decodeOptions(),
+                defaults.cachePolicy(),
+                defaults.connectTimeout(),
+                defaults.requestTimeout(),
+                defaults.operationTimeout(),
+                duration);
+    }
+
+    private static HttpXyzClientOptions withDurations(
+            Duration connect, Duration request, Duration operation, Duration close) {
+        HttpXyzClientOptions defaults = defaults();
+        return new HttpXyzClientOptions(
+                defaults.schemePolicy(),
+                defaults.limits(),
+                defaults.snapshotLimits(),
+                defaults.decodeOptions(),
+                defaults.cachePolicy(),
+                connect,
+                request,
+                operation,
+                close);
+    }
+
+    private static HttpXyzLimits copyLimit(HttpXyzLimits limits, String field, long value) {
+        return new HttpXyzLimits(
+                field.equals("templateCharacters")
+                        ? Math.toIntExact(value)
+                        : limits.templateCharacters(),
+                field.equals("zoom") ? Math.toIntExact(value) : limits.zoom(),
+                field.equals("tilesPerRequest") ? Math.toIntExact(value) : limits.tilesPerRequest(),
+                field.equals("regionAxisTiles") ? Math.toIntExact(value) : limits.regionAxisTiles(),
+                field.equals("concurrency") ? Math.toIntExact(value) : limits.concurrency(),
+                field.equals("responseHeaders") ? Math.toIntExact(value) : limits.responseHeaders(),
+                field.equals("headerNameOrValueCharacters")
+                        ? Math.toIntExact(value)
+                        : limits.headerNameOrValueCharacters(),
+                field.equals("aggregateHeaderCharacters")
+                        ? Math.toIntExact(value)
+                        : limits.aggregateHeaderCharacters(),
+                field.equals("responseBodyBytes")
+                        ? Math.toIntExact(value)
+                        : limits.responseBodyBytes(),
+                field.equals("cumulativeResponseBytes") ? value : limits.cumulativeResponseBytes(),
+                field.equals("ownedBytes") ? value : limits.ownedBytes(),
+                field.equals("warnings") ? Math.toIntExact(value) : limits.warnings(),
+                field.equals("cacheEntries") ? Math.toIntExact(value) : limits.cacheEntries(),
+                field.equals("cacheBytes") ? value : limits.cacheBytes());
     }
 
     private static HttpXyzClientOptions withDecodeOptions(EncodedRasterDecodeOptions decode) {
@@ -908,6 +1583,25 @@ class HttpXyzTilesTest {
                 defaults.closeTimeout());
     }
 
+    private static HttpXyzLimits copyWithTileLimit(
+            HttpXyzLimits limits, int tiles, int concurrency) {
+        return new HttpXyzLimits(
+                limits.templateCharacters(),
+                limits.zoom(),
+                tiles,
+                limits.regionAxisTiles(),
+                concurrency,
+                limits.responseHeaders(),
+                limits.headerNameOrValueCharacters(),
+                limits.aggregateHeaderCharacters(),
+                limits.responseBodyBytes(),
+                limits.cumulativeResponseBytes(),
+                limits.ownedBytes(),
+                limits.warnings(),
+                limits.cacheEntries(),
+                limits.cacheBytes());
+    }
+
     private static HttpServer server(com.sun.net.httpserver.HttpHandler handler)
             throws IOException {
         HttpServer server =
@@ -942,6 +1636,15 @@ class HttpXyzTilesTest {
             throws IOException {
         exchange.getResponseHeaders().set("Content-Type", media);
         exchange.sendResponseHeaders(status, body.length);
+        try (exchange;
+                var output = exchange.getResponseBody()) {
+            output.write(body);
+        }
+    }
+
+    private static void respondChunked(HttpExchange exchange, byte[] body) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", "image/png");
+        exchange.sendResponseHeaders(200, 0);
         try (exchange;
                 var output = exchange.getResponseBody()) {
             output.write(body);
@@ -1007,6 +1710,15 @@ class HttpXyzTilesTest {
             latch.await();
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static boolean awaitWithin(CountDownLatch latch) {
+        try {
+            return latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 }
