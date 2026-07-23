@@ -531,6 +531,10 @@ separately decomposed.
   2026-07-23. G12-002 through G12-006 then
   deliver parsing, first rendering, the finite catalog and portrayal integration, reference/gallery
   hardening, and publication/consumer/Linux Native Image closeout.
+- G12-002 now supplies the published JDK-only, AWT-free module with packed canonical SIDC parsing,
+  complete field access, stable structured syntax/support problems, and deterministic strict versus
+  degradable support classification. Native Image targeting remains unclaimed until G12-006 adds
+  executable evidence.
 - G13 is deliberately dependent on G12-006 so the requested MIL-STD-2525-first order is explicit.
 - See the [G12 detailed design](design/G12-milstd2525-symbology.md) and the
   [G12 task set](tasks/README.md#g12--mil-std-2525-symbology).

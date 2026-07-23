@@ -1,6 +1,6 @@
 # G12-002 — Canonical SIDC model and parser
 
-Status: Proposed
+Status: Complete
 Depends on: G12-001
 Gate: G12
 Type: AFK
@@ -52,3 +52,8 @@ git diff --check
 
 Module creation is justified by working public SIDC parse/classification behavior and tests; this is
 not an empty symbol catalog scaffold.
+
+Completed with two packed 60-bit halves, exact uppercase round trips, primitive access to every SIDC
+field, complete malformed/support problem values, fixed assessment precedence, and the approved
+fifteen-entity/seven-modifier profile. The module is published, JDK-only, AWT-free, and explicitly
+inventoried. It remains `nativeTarget: false` until G12-006 supplies executable evidence.

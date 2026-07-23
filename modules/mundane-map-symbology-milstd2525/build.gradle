@@ -1,0 +1,10 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+}
+
+description = 'Bounded MIL-STD-2525E Change 1 icon-based point symbology profile.'

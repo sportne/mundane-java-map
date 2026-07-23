@@ -1324,6 +1324,68 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void militarySymbologyModuleIsJdkOnlyAwtFreeExplicitAndWorking() {
+        ModuleDescriptor military = moduleEndingWith("mundane-map-symbology-milstd2525");
+        JavaClasses classes = classesByModule.get(military);
+        JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+        List<String> toolkitOrDiscoveryDependencies =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("java.net.")
+                                                || target.startsWith("java.lang.reflect.")
+                                                || target.startsWith("java.util.ServiceLoader"))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                classes.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals(
+                                                        "io.github.mundanej.map.symbology"
+                                                                + ".milstd2525"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+
+        assertEquals("JDK_RUNTIME", military.category());
+        assertEquals(2, military.releaseLevel());
+        assertFalse(military.nativeTarget(), "G12-006 must supply executable native evidence");
+        assertEquals(Set.of(":modules:mundane-map-api"), military.allowedRuntimeProjects());
+        assertFalse(classes.isEmpty(), "Expected the working military symbology module");
+        assertTrue(
+                toolkitOrDiscoveryDependencies.isEmpty(),
+                () -> String.join("\n", toolkitOrDiscoveryDependencies));
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        assertEquals(
+                Set.of(
+                        "MilitarySymbolAssessment",
+                        "MilitarySymbolException",
+                        "MilitarySymbolId",
+                        "MilitarySymbolProblem",
+                        "MilitarySymbolProfile",
+                        "MilitarySymbolSupport"),
+                publicTypes);
+        assertTrue(
+                apiClasses.stream()
+                        .noneMatch(type -> type.getSimpleName().startsWith("MilitarySymbol")),
+                "MIL-STD-2525-specific types must not leak into mundane-map-api");
+    }
+
+    @Test
     void nativeSmokeSupportAvoidsProhibitedMechanisms() {
         List<String> violations =
                 ArchitecturePolicy.prohibitedMechanismViolations(nativeSupportClasses);

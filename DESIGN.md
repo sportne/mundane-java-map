@@ -254,7 +254,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Reviewed |
 | G11-005 | Detached vector-export snapshot, AWT capture, canonical static SVG, exact effect/text/limit/failure policy, four later slices, and G11/G0–G11 simplicity closeout | Approved |
 | G12-001 | Exact 2525E Change 1 point profile, code-table inventory, fixture rights, diagnostics, and conformance wording | Approved |
-| G12-002 | Canonical packed 30-position SIDC parsing, retained fields, support classification, and module boundary | Draft |
+| G12-002 | Canonical packed 30-position SIDC parsing, retained fields, support classification, and module boundary | Approved |
 | G12-003 | Existing-vector standard-identity frames, palette/status behavior, first entity, paint, and hit testing | Draft |
 | G12-004 | Finite land/activity entity and graphical-modifier tables plus SIDC-attribute portrayal | Draft |
 | G12-005 | Provenance-backed reference matrix, hostile/table hardening, gallery, and tolerant regression | Draft |
