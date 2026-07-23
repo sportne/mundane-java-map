@@ -225,6 +225,7 @@ each emitted visual primitive and fail atomically when repetition exceeds them.
 | Absolute copy index | 1,048,576 | 1,048,576 |
 | Unique canonical query intervals | 2 | 2; a full period collapses to 1 |
 | Inserted seam crossings per geometry | 4,096 | 4,096 |
+| Polygon containment comparisons per geometry | 1,048,576 | 1,048,576 |
 | Raster horizontal-edge tolerance | `max(8 ULP, period * 1e-12)` | same |
 | Display-coordinate precision | one-quarter screen pixel | same |
 
@@ -238,9 +239,9 @@ of an attached binding are argument/lifecycle failures. Runtime layer outcomes u
 - `WORLD_WRAP_PRECISION_EXCEEDED` with numeric `copyIndex` and `maximum`;
 - `WORLD_WRAP_COPY_LIMIT_EXCEEDED` with numeric `requested` and `maximum`;
 - `SOURCE_LIMIT_EXCEEDED` with `scope=worldWrap` and
-  `limit=features|coordinates|labels|parts|seamCrossings|ownedBytes`;
+  `limit=features|coordinates|labels|parts|seamCrossings|containmentComparisons|ownedBytes`;
 - `WORLD_WRAP_GEOMETRY_UNSUPPORTED` with
-  `reason=projectedSeam|invalidRing|ambiguousHole`; and
+  `reason=projectedSeam|invalidRing|ambiguousRing|ambiguousHole`; and
 - `WORLD_WRAP_RASTER_INCOMPATIBLE` with `reason=crs|extent|rotation|shear`.
 
 Precedence is configuration/lifecycle, already-cancelled token, copy index/precision, visible-copy
@@ -331,3 +332,18 @@ keeps source geometry/identity canonical while using a paint-scoped viewport off
 copy. In-memory and hand-built shapefile fixtures cover split/full-world queries, labels, ordering,
 cancellation, conflicting IDs, limits, lifecycle, and mixed local/global layers. Vector geometry,
 export, interaction, and raster repetition remain assigned to G16-004 through G16-006.
+
+G16-004 completion record (2026-07-22): recognized geographic line and polygon records now use one
+bounded JDK-only shortest-path seam splitter before strict projection. It emits packed canonical
+fragments with explicit world offsets, retains real line endpoints while suppressing artificial
+seam endpoint markers, and preserves built-in polygon fill/hatch ordering without drawing invented
+clip-boundary outlines. Ambiguous disconnected concave clips and seam-crossing holes that would
+require topology repair reject the complete record; contained holes remain associated with their
+original polygon. Because ordinary source envelopes cannot find every shortest-path seam geometry,
+recognized geographic wrapped bindings query the full canonical longitude range while retaining the
+visible transformed latitude interval before visual culling.
+In-memory, GeoJSON, and shapefile sources share the same explicit binding opt-in; projected sources
+repeat literally and non-wrapped sources remain unchanged. Paint, hit
+geometry, labels inherited from the point slice, and detached vector export consume the same
+ordered visible fragments with aggregate accounting. Deterministic SVG and tolerant raster evidence
+cover seam-adjacent line, polygon, and hole portrayal. Interaction remains assigned to G16-005.

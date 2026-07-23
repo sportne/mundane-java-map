@@ -91,6 +91,7 @@ import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.ElevationRasterization;
 import io.github.mundanej.map.core.FeatureQueryAccounting;
+import io.github.mundanej.map.core.GeographicSeamSplitter;
 import io.github.mundanej.map.core.GreedyPointLabelPlacement;
 import io.github.mundanej.map.core.HatchLayouts;
 import io.github.mundanej.map.core.HatchSegments;
@@ -814,15 +815,6 @@ public final class MapView extends JComponent implements AutoCloseable {
                         new VectorExportSnapshotProblem(
                                 "VECTOR_EXPORT_LAYER_UNSUPPORTED", context));
             }
-            if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
-                LinkedHashMap<String, String> context = new LinkedHashMap<>();
-                context.put("layerIndex", Integer.toString(layerIndex));
-                context.put("kind", "horizontalWrap");
-                throw new VectorExportSnapshotException(
-                        "Vector export support for repeated bindings is not installed",
-                        new VectorExportSnapshotProblem(
-                                "VECTOR_EXPORT_LAYER_UNSUPPORTED", context));
-            }
         }
         synchronizeViewportSize();
         MapViewport viewportSnapshot = viewport;
@@ -855,17 +847,17 @@ public final class MapView extends JComponent implements AutoCloseable {
         for (int layerIndex = 0; layerIndex < content.layers().size(); layerIndex++) {
             checkVectorExportCancellation(cancellation);
             LayerSnapshot layer = content.layers().get(layerIndex);
+            int visualOrdinal = 0;
             for (VisualFeature feature : layer.features()) {
                 checkVectorExportCancellation(cancellation);
                 Geometry screenGeometry =
                         toExportScreenGeometry(
-                                feature.geometry(), feature.sourceToDisplay(), viewportSnapshot);
+                                feature.geometry(),
+                                feature.sourceToDisplay(),
+                                featureViewport(feature, viewportSnapshot));
                 VectorExportSnapshot.Primitive primitive =
                         new VectorExportSnapshot.Primitive(
-                                layerIndex,
-                                feature.featureIndex(),
-                                screenGeometry,
-                                feature.symbol());
+                                layerIndex, visualOrdinal++, screenGeometry, feature.symbol());
                 VectorExportSnapshot.of(
                         width,
                         height,
@@ -5218,24 +5210,42 @@ public final class MapView extends JComponent implements AutoCloseable {
             HorizontalWrapPlan wrapPlan =
                     profile.plan(
                             visible.minX(), visible.maxX(), viewportSnapshot.worldUnitsPerPixel());
-            List<Envelope> sourceQueries = new ArrayList<>(wrapPlan.canonicalIntervals().size());
+            boolean geographicSeamProfile =
+                    resolved.sourceToDisplay().sourceCrs().equals(CrsDefinitions.EPSG_4326);
+            List<Optional<Envelope>> sourceQueries =
+                    new ArrayList<>(wrapPlan.canonicalIntervals().size());
             boolean clipped = false;
-            for (HorizontalInterval interval : wrapPlan.canonicalIntervals()) {
-                if (captureCancellation.isCancellationRequested()) {
-                    throw cancellationException(source);
-                }
+            if (geographicSeamProfile) {
                 QueryEnvelopeTransform transformed =
                         resolved.displayToSource()
                                 .transformQueryEnvelope(
                                         new Envelope(
-                                                interval.minimumX(),
+                                                profile.canonicalMinimumX(),
                                                 visible.minY(),
-                                                interval.maximumX(),
+                                                profile.canonicalMaximumX(),
                                                 visible.maxY()));
                 if (transformed.status() != QueryEnvelopeStatus.OUTSIDE) {
-                    sourceQueries.add(transformed.transformedEnvelope().orElseThrow());
+                    sourceQueries.add(transformed.transformedEnvelope());
                 }
-                clipped |= transformed.status() == QueryEnvelopeStatus.CLIPPED;
+                clipped = transformed.status() == QueryEnvelopeStatus.CLIPPED;
+            } else {
+                for (HorizontalInterval interval : wrapPlan.canonicalIntervals()) {
+                    if (captureCancellation.isCancellationRequested()) {
+                        throw cancellationException(source);
+                    }
+                    QueryEnvelopeTransform transformed =
+                            resolved.displayToSource()
+                                    .transformQueryEnvelope(
+                                            new Envelope(
+                                                    interval.minimumX(),
+                                                    visible.minY(),
+                                                    interval.maximumX(),
+                                                    visible.maxY()));
+                    if (transformed.status() != QueryEnvelopeStatus.OUTSIDE) {
+                        sourceQueries.add(transformed.transformedEnvelope());
+                    }
+                    clipped |= transformed.status() == QueryEnvelopeStatus.CLIPPED;
+                }
             }
             if (clipped) {
                 planning = queryEnvelopeWarning(source, "CRS_QUERY_ENVELOPE_CLIPPED");
@@ -5262,10 +5272,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             FeatureQueryAccounting accounting =
                     new FeatureQueryAccounting(
                             source.metadata().identity().id(), source.limits().queryLimits());
-            for (Envelope sourceQuery : sourceQueries) {
+            for (Optional<Envelope> sourceQuery : sourceQueries) {
                 FeatureQuery query =
                         new FeatureQuery(
-                                Optional.of(sourceQuery),
+                                sourceQuery,
                                 paintAttributes(binding, viewportSnapshot, includeLabels),
                                 Optional.empty());
                 DiagnosticReport beforeCursor = encountered;
@@ -5287,7 +5297,6 @@ public final class MapView extends JComponent implements AutoCloseable {
             for (FeatureRecord record : staged.values()) {
                 preflight(
                         record.geometry(), resolved.sourceToDisplay(), captureCancellation, source);
-                requireWrappedPointGeometry(source, record.geometry());
             }
 
             List<VisualFeature> visual = new ArrayList<>();
@@ -5297,28 +5306,53 @@ public final class MapView extends JComponent implements AutoCloseable {
             for (FeatureRecord record : staged.values()) {
                 Optional<Symbol> symbol =
                         sourceSymbol(binding, record.geometry(), record.attributes());
-                int retainedCopies = 0;
+                List<GeographicSeamSplitter.Fragment> fragments =
+                        wrappedGeometryFragments(
+                                source,
+                                record.geometry(),
+                                resolved.sourceToDisplay(),
+                                captureCancellation);
+                List<WrappedSymbolFragment> renderFragments =
+                        symbol.isEmpty()
+                                ? List.of()
+                                : wrappedSymbolFragments(
+                                        source,
+                                        record.geometry(),
+                                        resolved.sourceToDisplay(),
+                                        captureCancellation,
+                                        fragments,
+                                        symbol.orElseThrow());
+                int retainedFragments = 0;
                 for (long copyIndex = wrapPlan.minimumVisibleCopyIndex();
                         copyIndex <= wrapPlan.maximumVisibleCopyIndex();
                         copyIndex++) {
-                    Geometry geometry =
-                            repeatedPointGeometry(
-                                    record.geometry(),
-                                    resolved.sourceToDisplay(),
-                                    profile,
-                                    copyIndex);
-                    if (!intersects(geometry.envelope(), visible)) {
-                        continue;
-                    }
-                    if (retainedCopies++ > 0) {
-                        accounting.recordReturned(record, 1, captureCancellation);
-                    }
-                    if (symbol.isPresent()) {
+                    for (WrappedSymbolFragment fragment : renderFragments) {
+                        long visualCopy = Math.addExact(copyIndex, fragment.worldOffset());
+                        Envelope geometryEnvelope =
+                                repeatedGeometryEnvelope(
+                                        fragment.geometry(),
+                                        resolved.sourceToDisplay(),
+                                        profile,
+                                        visualCopy);
+                        if (!intersects(geometryEnvelope, visible)) {
+                            continue;
+                        }
+                        if (retainedFragments++ > 0) {
+                            recordWrappedOutput(
+                                    source,
+                                    accounting,
+                                    new FeatureRecord(
+                                            record.id(),
+                                            record.name(),
+                                            fragment.geometry(),
+                                            record.attributes()),
+                                    captureCancellation);
+                        }
                         Optional<ResolvedPointLabel> label =
                                 resolvePointLabel(
                                         binding,
                                         record.name(),
-                                        record.geometry(),
+                                        fragment.geometry(),
                                         record.attributes(),
                                         viewportSnapshot,
                                         includeLabels);
@@ -5342,11 +5376,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                                 new VisualFeature(
                                         record.id(),
                                         record.name(),
-                                        record.geometry(),
-                                        symbol.orElseThrow(),
+                                        fragment.geometry(),
+                                        fragment.symbol(),
                                         resolved.sourceToDisplay(),
-                                        profile.translate(profile.canonicalMinimumX(), copyIndex)
-                                                - profile.canonicalMinimumX(),
+                                        visualCopy * profile.period(),
                                         label,
                                         featureIndex));
                     }
@@ -5674,44 +5707,189 @@ public final class MapView extends JComponent implements AutoCloseable {
                 .map(text -> new ResolvedPointLabel(text, profile.orElseThrow()));
     }
 
-    private static void requireWrappedPointGeometry(FeatureSource source, Geometry geometry) {
-        if (!(geometry instanceof PointGeometry) && !(geometry instanceof MultiPointGeometry)) {
+    private static List<GeographicSeamSplitter.Fragment> wrappedGeometryFragments(
+            FeatureSource source,
+            Geometry geometry,
+            CrsOperation sourceToDisplay,
+            CancellationToken cancellation) {
+        if (sourceToDisplay.sourceCrs().equals(CrsDefinitions.EPSG_4326)) {
+            try {
+                return GeographicSeamSplitter.split(geometry, cancellation).fragments();
+            } catch (GeographicSeamSplitter.GeographicSeamException failure) {
+                throw sourceFailure(
+                        source, failure.code(), failure.getMessage(), failure.context());
+            }
+        }
+        if (sourceToDisplay.sourceCrs().kind() == io.github.mundanej.map.api.CrsKind.GEOGRAPHIC) {
             throw sourceFailure(
                     source,
                     "WORLD_WRAP_GEOMETRY_UNSUPPORTED",
-                    "The current wrapped feature slice supports only point geometry",
-                    Map.of("reason", "geometryType"));
+                    "Only the registered EPSG:4326 geographic seam profile is supported",
+                    Map.of("reason", "projectedSeam"));
         }
+        return List.of(new GeographicSeamSplitter.Fragment(geometry, 0L));
     }
 
-    private static Geometry repeatedPointGeometry(
+    private static List<WrappedSymbolFragment> wrappedSymbolFragments(
+            FeatureSource source,
+            Geometry sourceGeometry,
+            CrsOperation sourceToDisplay,
+            CancellationToken cancellation,
+            List<GeographicSeamSplitter.Fragment> geometryFragments,
+            Symbol symbol) {
+        if (geometryRole(sourceGeometry) != SymbolRole.FILL
+                || !sourceToDisplay.sourceCrs().equals(CrsDefinitions.EPSG_4326)) {
+            return geometryFragments.stream()
+                    .map(
+                            fragment ->
+                                    new WrappedSymbolFragment(
+                                            fragment.geometry(),
+                                            fragment.worldOffset(),
+                                            symbolForWrappedFragment(symbol, fragment)))
+                    .toList();
+        }
+        List<GeographicSeamSplitter.Fragment> boundaries =
+                wrappedGeometryFragments(
+                        source, polygonBoundary(sourceGeometry), sourceToDisplay, cancellation);
+        List<WrappedSymbolFragment> result = new ArrayList<>();
+        for (PolygonSymbolLayer layer : polygonSymbolLayers(symbol)) {
+            for (GeographicSeamSplitter.Fragment fragment : geometryFragments) {
+                result.add(
+                        new WrappedSymbolFragment(
+                                fragment.geometry(), fragment.worldOffset(), layer.fill()));
+            }
+            if (layer.outline().isPresent()) {
+                for (GeographicSeamSplitter.Fragment boundary : boundaries) {
+                    result.add(
+                            new WrappedSymbolFragment(
+                                    boundary.geometry(),
+                                    boundary.worldOffset(),
+                                    withoutLineEndpointMarkers(layer.outline().orElseThrow())));
+                }
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<PolygonSymbolLayer> polygonSymbolLayers(Symbol symbol) {
+        if (symbol instanceof CompositeSymbol composite) {
+            List<PolygonSymbolLayer> result = new ArrayList<>();
+            for (Symbol child : composite.children()) {
+                for (PolygonSymbolLayer layer : polygonSymbolLayers(child)) {
+                    Symbol fill = CompositeSymbol.of(List.of(layer.fill()), composite.opacity());
+                    Optional<Symbol> outline =
+                            layer.outline()
+                                    .map(
+                                            value ->
+                                                    CompositeSymbol.of(
+                                                            List.of(value), composite.opacity()));
+                    result.add(new PolygonSymbolLayer(fill, outline));
+                }
+            }
+            return List.copyOf(result);
+        }
+        if (symbol instanceof SolidFillSymbol fill) {
+            return List.of(
+                    new PolygonSymbolLayer(
+                            SolidFillSymbol.of(fill.fill(), fill.opacity()),
+                            fill.outline()
+                                    .map(
+                                            outline ->
+                                                    CompositeSymbol.of(
+                                                            List.of(outline), fill.opacity()))));
+        }
+        if (symbol instanceof HatchFillSymbol hatch) {
+            return List.of(
+                    new PolygonSymbolLayer(
+                            HatchFillSymbol.of(
+                                    hatch.pattern(),
+                                    hatch.stroke(),
+                                    hatch.spacing(),
+                                    hatch.rotationMode(),
+                                    Optional.empty(),
+                                    hatch.opacity(),
+                                    hatch.maxSegments()),
+                            hatch.outline()
+                                    .map(
+                                            outline ->
+                                                    CompositeSymbol.of(
+                                                            List.of(outline), hatch.opacity()))));
+        }
+        return List.of(new PolygonSymbolLayer(symbol, Optional.empty()));
+    }
+
+    private static Geometry polygonBoundary(Geometry geometry) {
+        List<CoordinateSequence> rings = new ArrayList<>();
+        if (geometry instanceof PolygonGeometry polygon) {
+            rings.add(polygon.exterior());
+            rings.addAll(polygon.holes());
+        } else {
+            MultiPolygonGeometry polygons = (MultiPolygonGeometry) geometry;
+            for (int ring = 0; ring < polygons.ringCount(); ring++) {
+                rings.add(
+                        coordinateSlice(
+                                polygons.coordinates(),
+                                polygons.ringOffset(ring),
+                                polygons.ringOffset(ring + 1)));
+            }
+        }
+        return rings.size() == 1
+                ? new LineStringGeometry(rings.getFirst())
+                : MultiLineStringGeometry.ofParts(rings);
+    }
+
+    private static Symbol symbolForWrappedFragment(
+            Symbol symbol, GeographicSeamSplitter.Fragment fragment) {
+        if (fragment.retainsLogicalStart() && fragment.retainsLogicalEnd()) {
+            return symbol;
+        }
+        if (symbol instanceof SolidLineSymbol line) {
+            return SolidLineSymbol.of(
+                    line.stroke(),
+                    fragment.retainsLogicalStart() ? line.startMarker() : Optional.empty(),
+                    fragment.retainsLogicalEnd() ? line.endMarker() : Optional.empty(),
+                    line.opacity());
+        }
+        if (symbol instanceof CompositeSymbol composite && composite.role() == SymbolRole.LINE) {
+            return CompositeSymbol.of(
+                    composite.children().stream()
+                            .map(child -> symbolForWrappedFragment(child, fragment))
+                            .toList(),
+                    composite.opacity());
+        }
+        return symbol;
+    }
+
+    private static Symbol withoutLineEndpointMarkers(Symbol symbol) {
+        if (symbol instanceof SolidLineSymbol line) {
+            return SolidLineSymbol.of(line.stroke(), line.opacity());
+        }
+        if (symbol instanceof CompositeSymbol composite && composite.role() == SymbolRole.LINE) {
+            return CompositeSymbol.of(
+                    composite.children().stream().map(MapView::withoutLineEndpointMarkers).toList(),
+                    composite.opacity());
+        }
+        return symbol;
+    }
+
+    private static Envelope repeatedGeometryEnvelope(
             Geometry geometry,
             CrsOperation sourceToDisplay,
             HorizontalWrap profile,
             long copyIndex) {
-        if (geometry instanceof PointGeometry point) {
-            return new PointGeometry(
-                    repeatedPoint(point.coordinate(), sourceToDisplay, profile, copyIndex));
+        Envelope canonical = sourceToDisplay.transformEnvelopeStrict(geometry.envelope());
+        double offset = copyIndex * profile.period();
+        double minimumX = canonical.minX() + offset;
+        double maximumX = canonical.maxX() + offset;
+        if (!Double.isFinite(minimumX) || !Double.isFinite(maximumX)) {
+            throw new HorizontalWrapException(
+                    new io.github.mundanej.map.core.HorizontalWrapProblem(
+                            "WORLD_WRAP_PRECISION_EXCEEDED",
+                            Map.of(
+                                    "copyIndex", Long.toString(copyIndex),
+                                    "maximum", Long.toString(profile.maximumAbsoluteCopyIndex()))));
         }
-        CoordinateSequence source = ((MultiPointGeometry) geometry).coordinates();
-        double[] ordinates = new double[Math.multiplyExact(source.size(), 2)];
-        for (int index = 0; index < source.size(); index++) {
-            Coordinate repeated =
-                    repeatedPoint(source.coordinate(index), sourceToDisplay, profile, copyIndex);
-            ordinates[index * 2] = repeated.x();
-            ordinates[index * 2 + 1] = repeated.y();
-        }
-        return new MultiPointGeometry(CoordinateSequence.of(ordinates));
-    }
-
-    private static Coordinate repeatedPoint(
-            Coordinate source,
-            CrsOperation sourceToDisplay,
-            HorizontalWrap profile,
-            long copyIndex) {
-        Coordinate display = sourceToDisplay.transform(source);
-        double canonicalX = profile.canonicalize(display.x()).canonicalX();
-        return new Coordinate(profile.translate(canonicalX, copyIndex), display.y());
+        return new Envelope(minimumX, canonical.minY(), maximumX, canonical.maxY());
     }
 
     private static boolean intersects(Envelope first, Envelope second) {
@@ -6394,6 +6572,46 @@ public final class MapView extends JComponent implements AutoCloseable {
                 context);
     }
 
+    private static void recordWrappedOutput(
+            FeatureSource source,
+            FeatureQueryAccounting accounting,
+            FeatureRecord record,
+            CancellationToken cancellation) {
+        try {
+            accounting.recordReturned(record, 1, cancellation);
+        } catch (SourceException failure) {
+            if (!failure.terminal().code().equals("SOURCE_LIMIT_EXCEEDED")) {
+                throw failure;
+            }
+            String queryLimit = failure.terminal().context().get("limit");
+            String wrapLimit =
+                    switch (queryLimit) {
+                        case "recordsReturned" -> "features";
+                        case "coordinatesReturned" -> "coordinates";
+                        case "ownedPayloadBytes" -> "ownedBytes";
+                        default -> "ownedBytes";
+                    };
+            LinkedHashMap<String, String> context = new LinkedHashMap<>();
+            context.put("scope", "worldWrap");
+            context.put("limit", wrapLimit);
+            copyContext(failure.terminal().context(), context, "requested");
+            copyContext(failure.terminal().context(), context, "maximum");
+            throw sourceFailure(
+                    source,
+                    "SOURCE_LIMIT_EXCEEDED",
+                    "Wrapped vector output exceeds its bounded profile",
+                    context);
+        }
+    }
+
+    private static void copyContext(
+            Map<String, String> source, Map<String, String> target, String key) {
+        String value = source.get(key);
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
     private static SourceException sourceFailure(
             FeatureSource source, String code, String message, Map<String, String> context) {
         SourceDiagnostic terminal =
@@ -6866,6 +7084,20 @@ public final class MapView extends JComponent implements AutoCloseable {
             double displayOffsetX,
             Optional<ResolvedPointLabel> label,
             int featureIndex) {}
+
+    private record WrappedSymbolFragment(Geometry geometry, long worldOffset, Symbol symbol) {
+        private WrappedSymbolFragment {
+            Objects.requireNonNull(geometry, "geometry");
+            Objects.requireNonNull(symbol, "symbol");
+        }
+    }
+
+    private record PolygonSymbolLayer(Symbol fill, Optional<Symbol> outline) {
+        private PolygonSymbolLayer {
+            Objects.requireNonNull(fill, "fill");
+            Objects.requireNonNull(outline, "outline");
+        }
+    }
 
     private record ResolvedPointLabel(String text, PointLabelProfile profile) {
         private ResolvedPointLabel {

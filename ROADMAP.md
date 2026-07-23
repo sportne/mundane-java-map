@@ -641,8 +641,14 @@ separately decomposed.
 - G16-003 is complete: `MapView` has an explicit compatible horizontal profile, each binding keeps
   a pre-attachment `NONE`/`REPEAT_X` choice, and ordinary in-memory and shapefile point sources use
   bounded split/full-world queries, stable-ID deduplication, aggregate accounting, and paint-scoped
-  copies without changing canonical records. G16-004 next handles geographic shortest-path line and
-  polygon seam splitting, portrayal, labels, and visible vector export.
+  copies without changing canonical records.
+- G16-004 is complete: one bounded core seam splitter takes recognized geographic line and polygon
+  geometry along the deterministic shortest path, emits canonical packed fragments, preserves real
+  endpoint and built-in fill/outline semantics, and feeds the same ordered copies to paint, hit
+  geometry, labels, detached vector export, and deterministic SVG. A full-longitude, visible-latitude
+  geographic query prevents ordinary literal envelopes from hiding seam-crossing records without
+  admitting unrelated latitudes; topology requiring repair is rejected atomically. Projected
+  sources repeat literally; default non-wrapped sources remain unchanged.
 - G16-005 resolves copied features through hit testing, hover, selection, measurement, snapping,
   canonical point editing, and undo/redo without persisting presentation copy indices.
 - G16-006 repeats only compatible explicitly global raster sources and establishes bounded canonical

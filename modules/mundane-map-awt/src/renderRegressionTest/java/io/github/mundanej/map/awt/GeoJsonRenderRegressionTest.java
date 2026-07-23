@@ -1,5 +1,6 @@
 package io.github.mundanej.map.awt;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.BuiltInMarker;
@@ -13,11 +14,16 @@ import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.VectorExportSnapshot;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import io.github.mundanej.map.io.geojson.GeoJsonFiles;
 import io.github.mundanej.map.io.geojson.GeoJsonOpenOptions;
+import io.github.mundanej.map.io.svg.SvgMapExports;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -29,6 +35,103 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class GeoJsonRenderRegressionTest {
+    @Test
+    void explicitWorldWrapPaintsBothSidesOfTheDatelineWithoutAnOutlineSeam() throws Exception {
+        byte[] document =
+                """
+                {"type":"FeatureCollection","features":[
+                  {"type":"Feature","id":"area","geometry":{"type":"Polygon","coordinates":[
+                    [[170,-12],[-170,-12],[-170,12],[170,12],[170,-12]]]},"properties":{}},
+                  {"type":"Feature","id":"line","geometry":{"type":"LineString",
+                    "coordinates":[[170,16],[-170,16]]},"properties":{}}
+                ]}
+                """
+                        .getBytes(StandardCharsets.UTF_8);
+        FeatureSource source =
+                GeoJsonFiles.open(
+                        document,
+                        new SourceIdentity("wrapped-geojson", "Wrapped GeoJSON"),
+                        GeoJsonOpenOptions.defaults(),
+                        CancellationToken.none());
+        AtomicReference<BufferedImage> imageReference = new AtomicReference<>();
+        AtomicReference<MapView> viewReference = new AtomicReference<>();
+        AtomicReference<VectorExportSnapshot> exportReference = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    SolidLineSymbol line =
+                            SolidLineSymbol.of(
+                                    new SymbolStroke(
+                                            Rgba.rgb(25, 90, 190),
+                                            new SymbolLength(3, SymbolUnit.SCREEN_PIXEL)),
+                                    Optional.of(
+                                            BuiltInMarkers.filledScreen(
+                                                    BuiltInMarker.ARROW,
+                                                    Rgba.rgb(25, 90, 190),
+                                                    12,
+                                                    1)),
+                                    Optional.of(
+                                            BuiltInMarkers.filledScreen(
+                                                    BuiltInMarker.ARROW,
+                                                    Rgba.rgb(25, 90, 190),
+                                                    12,
+                                                    1)),
+                                    1);
+                    MapLayerBinding binding =
+                            MapLayerBinding.ownedFeature(
+                                    "wrapped",
+                                    "Wrapped",
+                                    source,
+                                    BuiltInMarkers.filledScreen(
+                                            BuiltInMarker.DIAMOND, Rgba.rgb(25, 90, 190), 10, 1),
+                                    line,
+                                    SolidFillSymbol.of(
+                                            new Rgba(25, 130, 80, 190), Optional.of(line), 0.5));
+                    binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    MapView view =
+                            new MapView(
+                                    CrsRegistry.level1(),
+                                    CrsDefinitions.EPSG_3857,
+                                    CrsDefinitions.EPSG_3857);
+                    view.setSize(400, 240);
+                    view.setViewport(
+                            new MapViewport(
+                                    400, 240, WebMercatorProjection.WORLD_LIMIT, 0, 12_000));
+                    view.setHorizontalWrap(HorizontalWrap.webMercator());
+                    view.setLayerBindings(List.of(binding));
+                    BufferedImage image = new BufferedImage(400, 240, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = image.createGraphics();
+                    try {
+                        graphics.setColor(Color.WHITE);
+                        graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                        view.paint(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    imageReference.set(image);
+                    viewReference.set(view);
+                    exportReference.set(view.captureVectorExportSnapshot());
+                });
+
+        BufferedImage image = imageReference.get();
+        assertGreenEvidence(image, 145, 125, 175, 150, "west dateline fill");
+        assertGreenEvidence(image, 225, 125, 255, 150, "east dateline fill");
+        Color seam = new Color(image.getRGB(200, 135), true);
+        assertTrue(
+                seam.getGreen() > seam.getBlue() + 10,
+                "artificial seam must retain fill rather than outline ink");
+        byte[] firstSvg = SvgMapExports.encode(exportReference.get());
+        byte[] secondSvg = SvgMapExports.encode(exportReference.get());
+        assertArrayEquals(firstSvg, secondSvg);
+        String svg = new String(firstSvg, StandardCharsets.UTF_8);
+        assertTrue(svg.contains("fill=\"#198250\""), "wrapped fill must survive SVG export");
+        assertTrue(svg.contains("stroke=\"#195abe\""), "wrapped line must survive SVG export");
+        assertTrue(
+                svg.contains("stroke-opacity=\"0.5\""),
+                "polygon outline must inherit parent opacity in SVG export");
+        SwingUtilities.invokeAndWait(viewReference.get()::close);
+        assertTrue(source.isClosed());
+    }
+
     @Test
     void sourceBackedGeometryAndHoleHavePortableColorAndTopologyEvidence() throws Exception {
         byte[] document =
@@ -137,5 +240,25 @@ class GeoJsonRenderRegressionTest {
             }
         }
         assertTrue(colored > 2, family + " produced no tolerant blue evidence");
+    }
+
+    private static void assertGreenEvidence(
+            BufferedImage image,
+            int minimumX,
+            int minimumY,
+            int maximumX,
+            int maximumY,
+            String family) {
+        int colored = 0;
+        for (int y = minimumY; y < maximumY; y++) {
+            for (int x = minimumX; x < maximumX; x++) {
+                Color color = new Color(image.getRGB(x, y), true);
+                if (color.getGreen() > color.getRed() + 15
+                        && color.getGreen() > color.getBlue() + 10) {
+                    colored++;
+                }
+            }
+        }
+        assertTrue(colored > 20, family + " produced no tolerant green evidence");
     }
 }

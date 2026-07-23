@@ -1,6 +1,6 @@
 # G16-004 — Dateline vector geometry and export
 
-Status: Proposed
+Status: Complete
 Depends on: G16-003
 Gate: G16
 Type: AFK
