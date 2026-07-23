@@ -1,6 +1,6 @@
 # G12-003 — First frame and entity rendering slice
 
-Status: Proposed
+Status: Complete
 Depends on: G12-002
 Gate: G12
 Type: AFK

@@ -167,17 +167,26 @@ MilitarySymbolPalette
   darkBackground()
 
 MilitarySymbols
-  resolveStrict(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette) -> MarkerSymbol
+  resolveStrict(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette) -> Symbol
+  resolveStrict(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette, opacity) -> Symbol
   resolveDegraded(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette)
+      -> MilitarySymbolResolution
+  resolveDegraded(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette, opacity)
       -> MilitarySymbolResolution
 
 MilitarySymbolResolution
-  symbol() -> MarkerSymbol
+  symbol() -> Symbol
   problem() -> Optional<MilitarySymbolProblem>
 ```
 
-Names are fixed for G12 unless a compatibility review explicitly amends this decision. Parsing and
-profile data stay in the module, and successful resolution returns ordinary immutable API symbols.
+G12-003's compatibility review changed the return contract from `MarkerSymbol` to `Symbol`.
+`CompositeSymbol` deliberately represents any homogeneous role and therefore does not implement
+`MarkerSymbol`; returning the common `Symbol` contract preserves the existing G2 composition model
+without inventing a military renderer or an unsafe wrapper. The opacity overloads expose the caller
+control required by the approved profile while the three-argument methods retain a convenient
+full-opacity default. Other names are fixed for G12 unless a later compatibility review explicitly
+amends this decision. Parsing and profile data stay in the module, and successful resolution returns
+ordinary immutable API symbols.
 There is no
 global registry, service loader, classpath scan, reflection, mutable catalog, or AWT callback.
 
@@ -197,6 +206,13 @@ The finite code inventory is explicit generated Java data or checked source cons
 generator may be used only if its deterministic input is committed and its output is reviewed; no
 production runtime resource discovery is allowed. A missing table entry yields a structured module
 diagnostic rather than a guessed icon.
+
+G12-003 implements graphical resolution only for Infantry `121100` without sector modifiers.
+Strict resolution of another profile-supported entity or a supported nonzero modifier reports
+`MIL2525_RENDER_LIMIT`; degraded resolution returns the recognizable identity/status frame with the
+same warning. G12-004 removes that temporary rendering limit as it adds each finite catalog entry.
+The `java-test-fixtures` artifact publishes project-authored first-slice SIDCs to module, AWT, and
+later example tests without exposing example constants in the production API.
 
 G12-004 integrates resolved markers with the completed G11 portrayal path by selecting a SIDC from
 one explicitly named feature attribute. Parsing or resolution happens once per captured record and

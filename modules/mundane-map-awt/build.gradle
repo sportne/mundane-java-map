@@ -10,6 +10,8 @@ dependencies {
     testImplementation project(':modules:mundane-map-io-geotiff')
     testImplementation project(':modules:mundane-map-io-image')
     testImplementation project(':modules:mundane-map-io-shapefile')
+    testImplementation project(':modules:mundane-map-symbology-milstd2525')
+    testImplementation testFixtures(project(':modules:mundane-map-symbology-milstd2525'))
 }
 
 sourceSets {
@@ -28,6 +30,7 @@ configurations {
 
 dependencies {
     renderRegressionTestImplementation project(':modules:mundane-map-io-svg')
+    renderRegressionTestImplementation project(':modules:mundane-map-symbology-milstd2525')
 }
 
 tasks.register('renderRegressionTest', Test) {

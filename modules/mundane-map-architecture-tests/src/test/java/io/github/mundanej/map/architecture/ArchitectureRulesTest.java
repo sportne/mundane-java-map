@@ -1375,8 +1375,11 @@ class ArchitectureRulesTest {
                         "MilitarySymbolAssessment",
                         "MilitarySymbolException",
                         "MilitarySymbolId",
+                        "MilitarySymbolPalette",
                         "MilitarySymbolProblem",
                         "MilitarySymbolProfile",
+                        "MilitarySymbolResolution",
+                        "MilitarySymbols",
                         "MilitarySymbolSupport"),
                 publicTypes);
         assertTrue(
