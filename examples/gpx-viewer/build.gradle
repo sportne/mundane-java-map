@@ -1,0 +1,16 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-gpx')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.gpx.GpxViewer'
+}
+
+description = 'Runnable bounded GPX waypoint and track viewer example.'

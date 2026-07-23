@@ -15,6 +15,7 @@ import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceException;
@@ -155,8 +156,6 @@ class GpxFilesTest {
                         + " creator=\"test\"><wpt lat=\"0\" lon=\"0\"></gpx>");
         assertFailure("GPX_PROFILE_UNSUPPORTED", Map.of("construct", "route"), root("<rte/>"));
         assertFailure(
-                "GPX_PROFILE_UNSUPPORTED", Map.of("construct", "coreElement"), root("<trk/>"));
-        assertFailure(
                 "GPX_XML_INVALID",
                 Map.of("reason", "cardinality"),
                 root("<extensions/><extensions/>"));
@@ -250,6 +249,170 @@ class GpxFilesTest {
     }
 
     @Test
+    void opensOrderedTrackSegmentsWithInheritedAttributesAndLiteralDatelineCoordinates() {
+        FeatureSource source =
+                open(
+                        root(
+                                "<wpt lat=\"1\" lon=\"2\"><name>First</name></wpt>"
+                                        + "<trk><name>Patrol</name><cmt>Comment</cmt>"
+                                        + "<desc>Description</desc><src>Survey</src>"
+                                        + "<number>7</number><type>surface</type>"
+                                        + "<trkseg><trkpt lat=\"10\" lon=\"179\"/>"
+                                        + "<trkpt lat=\"11\" lon=\"-179\"/></trkseg>"
+                                        + "<trkseg><trkpt lat=\"12\" lon=\"-178\"/>"
+                                        + "<trkpt lat=\"13\" lon=\"-177\"/></trkseg></trk>"));
+
+        try (source;
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            assertTrue(cursor.advance());
+            assertEquals("gpx:wpt:1", cursor.current().id());
+
+            assertTrue(cursor.advance());
+            FeatureRecord firstSegment = cursor.current();
+            assertEquals("gpx:trk:1:seg:1", firstSegment.id());
+            assertEquals("Patrol", firstSegment.name());
+            assertEquals("trackSegment", firstSegment.attributes().get("gpxKind"));
+            assertEquals(1L, firstSegment.attributes().get("trackIndex"));
+            assertEquals(1L, firstSegment.attributes().get("segmentIndex"));
+            assertEquals("Comment", firstSegment.attributes().get("comment"));
+            assertEquals("Description", firstSegment.attributes().get("description"));
+            assertEquals("Survey", firstSegment.attributes().get("source"));
+            assertEquals("surface", firstSegment.attributes().get("type"));
+            assertEquals(7L, firstSegment.attributes().get("trackNumber"));
+            LineStringGeometry firstLine =
+                    assertInstanceOf(LineStringGeometry.class, firstSegment.geometry());
+            assertEquals(2, firstLine.coordinates().size());
+            assertEquals(179, firstLine.coordinates().x(0));
+            assertEquals(-179, firstLine.coordinates().x(1));
+
+            assertTrue(cursor.advance());
+            FeatureRecord secondSegment = cursor.current();
+            assertEquals("gpx:trk:1:seg:2", secondSegment.id());
+            assertEquals(2L, secondSegment.attributes().get("segmentIndex"));
+            assertFalse(cursor.advance());
+        }
+    }
+
+    @Test
+    void skippedSegmentsAndTrackPointDataProduceStableWarnings() {
+        FeatureSource source =
+                open(
+                        root(
+                                "<trk><link href=\"https://example.invalid/ignored\"/>"
+                                        + "<extensions><x:track xmlns:x=\"urn:test\"/></extensions>"
+                                        + "<trkseg/>"
+                                        + "<trkseg><trkpt lat=\"0\" lon=\"0\"/></trkseg>"
+                                        + "<trkseg><trkpt lat=\"1\" lon=\"1\">"
+                                        + "<ele>4</ele><time>2024-01-02T03:04:05Z</time>"
+                                        + "<name>ignored</name>"
+                                        + "<extensions><x:point xmlns:x=\"urn:test\"/></extensions>"
+                                        + "</trkpt><trkpt lat=\"2\" lon=\"2\"/></trkseg>"
+                                        + "</trk>"));
+        assertEquals(1, source.metadata().featureCount().orElseThrow());
+        assertEquals(
+                List.of(
+                        "GPX_FIELD_IGNORED",
+                        "GPX_EXTENSION_IGNORED",
+                        "GPX_TRACK_SEGMENT_SKIPPED",
+                        "GPX_TRACK_SEGMENT_SKIPPED",
+                        "GPX_TRACK_POINT_DATA_IGNORED",
+                        "GPX_TRACK_POINT_DATA_IGNORED",
+                        "GPX_TRACK_POINT_DATA_IGNORED",
+                        "GPX_EXTENSION_IGNORED"),
+                source.openingDiagnostics().entries().stream()
+                        .map(io.github.mundanej.map.api.SourceDiagnostic::code)
+                        .toList());
+        assertEquals(
+                List.of("empty", "singlePoint"),
+                source.openingDiagnostics().entries().stream()
+                        .filter(diagnostic -> diagnostic.code().equals("GPX_TRACK_SEGMENT_SKIPPED"))
+                        .map(diagnostic -> diagnostic.context().get("reason"))
+                        .toList());
+        source.close();
+    }
+
+    @Test
+    void segmentAndGeometryCoordinateLimitsAreProspectiveAndIndexed() {
+        GpxLimits onePart = limits(1, 10);
+        FeatureSource exactPart =
+                open(
+                        root(
+                                "<trk><trkseg><trkpt lat=\"0\" lon=\"0\"/>"
+                                        + "<trkpt lat=\"1\" lon=\"1\"/></trkseg></trk>"),
+                        onePart);
+        exactPart.close();
+        SourceException partFailure =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                open(
+                                        root(
+                                                "<trk><trkseg><trkpt lat=\"0\" lon=\"0\"/>"
+                                                        + "<trkpt lat=\"1\" lon=\"1\"/></trkseg>"
+                                                        + "<trkseg><trkpt lat=\"2\" lon=\"2\"/>"
+                                                        + "<trkpt lat=\"3\" lon=\"3\"/></trkseg></trk>"),
+                                        onePart));
+        assertEquals("SOURCE_LIMIT_EXCEEDED", partFailure.terminal().code());
+        assertEquals("parts", partFailure.terminal().context().get("limit"));
+        assertEquals("2", partFailure.terminal().context().get("requested"));
+        assertEquals("1", partFailure.terminal().context().get("maximum"));
+
+        GpxLimits twoCoordinates = limits(10, 2);
+        FeatureSource exactCoordinates =
+                open(
+                        root(
+                                "<trk><trkseg><trkpt lat=\"0\" lon=\"0\"/>"
+                                        + "<trkpt lat=\"1\" lon=\"1\"/></trkseg></trk>"),
+                        twoCoordinates);
+        exactCoordinates.close();
+        SourceException coordinateFailure =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                open(
+                                        root(
+                                                "<trk><trkseg><trkpt lat=\"0\" lon=\"0\"/>"
+                                                        + "<trkpt lat=\"1\" lon=\"1\"/>"
+                                                        + "<trkpt lat=\"2\" lon=\"2\"/></trkseg></trk>"),
+                                        twoCoordinates));
+        assertEquals("SOURCE_LIMIT_EXCEEDED", coordinateFailure.terminal().code());
+        assertEquals(
+                Map.of(
+                        "scope",
+                        "gpxOpen",
+                        "limit",
+                        "geometryCoordinates",
+                        "requested",
+                        "3",
+                        "maximum",
+                        "2",
+                        "pointIndex",
+                        "2"),
+                coordinateFailure.terminal().context());
+    }
+
+    @Test
+    void malformedLaterTrackPointIncludesCandidateAndZeroBasedPointIndex() {
+        SourceException failure =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                open(
+                                        root(
+                                                "<wpt lat=\"4\" lon=\"5\"/>"
+                                                        + "<trk><trkseg>"
+                                                        + "<trkpt lat=\"0\" lon=\"0\"/>"
+                                                        + "<trkpt lat=\"91\" lon=\"1\"/>"
+                                                        + "</trkseg></trk>")));
+        assertEquals("GPX_VALUE_INVALID", failure.terminal().code());
+        assertEquals(
+                Map.of("field", "latitude", "reason", "range", "pointIndex", "1"),
+                failure.terminal().context());
+        assertEquals(2, failure.terminal().location().orElseThrow().recordNumber().orElseThrow());
+    }
+
+    @Test
     void rendersWaypointThroughOwnedFeatureSourceBinding() throws Exception {
         SwingUtilities.invokeAndWait(
                 () -> {
@@ -337,6 +500,34 @@ class GpxFilesTest {
     private static FeatureSource open(String document) {
         return GpxFiles.openSnapshot(
                 bytes(document), IDENTITY, GpxOpenOptions.defaults(), CancellationToken.none());
+    }
+
+    private static FeatureSource open(String document, GpxLimits limits) {
+        return GpxFiles.openSnapshot(
+                bytes(document),
+                IDENTITY,
+                GpxOpenOptions.defaults().withFormatLimits(limits),
+                CancellationToken.none());
+    }
+
+    private static GpxLimits limits(int maximumParts, int maximumCoordinatesPerSegment) {
+        GpxLimits defaults = GpxLimits.defaults();
+        return new GpxLimits(
+                defaults.maximumInputBytes(),
+                defaults.maximumXmlDepth(),
+                defaults.maximumXmlEvents(),
+                defaults.maximumElements(),
+                defaults.maximumAttributes(),
+                defaults.maximumNamespaceDeclarations(),
+                defaults.maximumPhysicalFeatures(),
+                defaults.maximumTotalCoordinates(),
+                maximumCoordinatesPerSegment,
+                maximumParts,
+                defaults.maximumScalarCharacters(),
+                defaults.maximumTextCharacters(),
+                defaults.maximumNumberCharacters(),
+                defaults.maximumOwnedBytes(),
+                defaults.retainedWarnings());
     }
 
     private static void assertFailure(String code, Map<String, String> context, String document) {

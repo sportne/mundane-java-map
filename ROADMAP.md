@@ -409,12 +409,13 @@ separately decomposed.
   EPSG:4326 features; GPX
   routes/extensions and KML network, temporal, region, altitude, style, and presentation semantics
   remain explicit rejects or warned omissions rather than implicit behavior.
-- G10-050 is complete: the published JDK-only GPX adapter securely snapshots bounded UTF-8 GPX 1.1
-  files, exposes ordered waypoint records through the ordinary source/query/render stack, and passes
-  staged offline-consumer verification. G10-051 through G10-053 remain the Proposed GPX track,
-  hardening/fixture, viewer, and Native Image closeout slices. G10-054 through G10-057 remain the
-  Proposed independent KML branch; the two parsers converge only for shared final security/native
-  evidence.
+- G10-050 and G10-051 are complete: the published JDK-only GPX adapter securely snapshots bounded
+  UTF-8 GPX 1.1 files and exposes ordered waypoint and packed track-segment records through the
+  ordinary source/query/render stack. The runnable local-file viewer and tolerant rendering lane
+  cover both geometry kinds, while per-vertex data loss and skipped short segments remain explicit
+  warnings. G10-052 and G10-053 remain the Proposed hardening/fixture and Native Image closeouts.
+  G10-054 through G10-057 remain the Proposed independent KML branch; the two parsers converge only
+  for shared final security/native evidence.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native

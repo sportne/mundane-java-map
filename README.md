@@ -27,7 +27,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
 | `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
 | `mundane-map-io-se` | Secure Level 2 OGC SE 1.1 feature-style subset import. |
-| `mundane-map-io-gpx` | Bounded Level 2 GPX 1.1 waypoint feature sources. |
+| `mundane-map-io-gpx` | Bounded Level 2 GPX 1.1 waypoint and track feature sources. |
 | `mundane-map-symbology-milstd2525` | Bounded Level 2 MIL-STD-2525E Change 1 icon-based point symbology. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
 | `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |
@@ -234,7 +234,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Fourteen independent examples consume the published APIs without copying parsers or renderers:
+Fifteen independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -244,6 +244,7 @@ Fourteen independent examples consume the published APIs without copying parsers
 ./gradlew :examples:raster-viewer:run --args='<image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857]'
 ./gradlew :examples:elevation-viewer:run
 ./gradlew :examples:geojson-viewer:run --args='<optional-path.geojson>'
+./gradlew :examples:gpx-viewer:run --args='<path.gpx>'
 ./gradlew :examples:geotiff-viewer:run
 ./gradlew :examples:point-edit-viewer:run
 ./gradlew :examples:styling-label-viewer:run

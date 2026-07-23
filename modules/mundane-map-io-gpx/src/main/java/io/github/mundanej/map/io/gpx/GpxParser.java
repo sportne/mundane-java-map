@@ -6,8 +6,10 @@ import io.github.mundanej.map.api.AttributeSchema;
 import io.github.mundanej.map.api.AttributeType;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
+import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
@@ -50,6 +52,7 @@ final class GpxParser {
     private static final QName SCHEMA_LOCATION = new QName(XSI, "schemaLocation");
     private static final Pattern DECIMAL =
             Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
+    private static final Pattern NON_NEGATIVE_INTEGER = Pattern.compile("[0-9]+");
     private static final Pattern TIME =
             Pattern.compile(
                     "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
@@ -77,6 +80,17 @@ final class GpxParser {
                     Map.entry("extensions", 19));
     private static final Set<String> RETAINED_WAYPOINT_FIELDS =
             Set.of("ele", "time", "name", "cmt", "desc", "src", "sym", "type");
+    private static final Map<String, Integer> TRACK_ORDER =
+            Map.ofEntries(
+                    Map.entry("name", 1),
+                    Map.entry("cmt", 2),
+                    Map.entry("desc", 3),
+                    Map.entry("src", 4),
+                    Map.entry("link", 5),
+                    Map.entry("number", 6),
+                    Map.entry("type", 7),
+                    Map.entry("extensions", 8),
+                    Map.entry("trkseg", 9));
 
     private final byte[] bytes;
     private final GpxLimits limits;
@@ -92,6 +106,8 @@ final class GpxParser {
     private int textCharacters;
     private int physicalFeatures;
     private int coordinates;
+    private int parts;
+    private int currentPointIndex = -1;
     private long ownedBytes;
     private long currentRecord;
 
@@ -164,6 +180,7 @@ final class GpxParser {
 
         int phase = 0;
         int waypointOrdinal = 0;
+        int trackOrdinal = 0;
         boolean metadataSeen = false;
         boolean extensionsSeen = false;
         while (true) {
@@ -191,7 +208,13 @@ final class GpxParser {
                     records.add(parseWaypoint(++waypointOrdinal));
                 }
                 case "rte" -> throw profileFailure("route");
-                case "trk" -> throw profileFailure("coreElement");
+                case "trk" -> {
+                    if (phase > 3) {
+                        throw xmlFailure("order", null);
+                    }
+                    phase = 3;
+                    parseTrack(++trackOrdinal);
+                }
                 case "extensions" -> {
                     if (extensionsSeen) {
                         throw xmlFailure("cardinality", null);
@@ -312,6 +335,244 @@ final class GpxParser {
         currentRecord = 0;
         return new FeatureRecord(
                 "gpx:wpt:" + ordinal, name, new PointGeometry(new Coordinate(x, y)), values);
+    }
+
+    private void parseTrack(int trackOrdinal) throws XMLStreamException {
+        requireAttributes(Set.of());
+        String name = "";
+        Object comment = AttributeNull.INSTANCE;
+        Object description = AttributeNull.INSTANCE;
+        Object source = AttributeNull.INSTANCE;
+        Object type = AttributeNull.INSTANCE;
+        Object trackNumber = AttributeNull.INSTANCE;
+        Set<String> seen = new java.util.HashSet<>();
+        int phase = 0;
+        int segmentOrdinal = 0;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                return;
+            }
+            if (!GPX.equals(reader.getNamespaceURI())) {
+                throw profileFailure("foreignElement");
+            }
+            String local = reader.getLocalName();
+            Integer rank = TRACK_ORDER.get(local);
+            if (rank == null) {
+                throw profileFailure("coreElement");
+            }
+            if (rank < phase) {
+                throw xmlFailure("order", null);
+            }
+            phase = rank;
+            if (!"link".equals(local) && !"trkseg".equals(local) && !seen.add(local)) {
+                throw valueFailure(trackFieldName(local), "duplicate");
+            }
+            switch (local) {
+                case "name" -> {
+                    requireAttributes(Set.of());
+                    name = validateText("name", readScalar());
+                }
+                case "cmt" -> {
+                    requireAttributes(Set.of());
+                    comment = validateText("comment", readScalar());
+                }
+                case "desc" -> {
+                    requireAttributes(Set.of());
+                    description = validateText("description", readScalar());
+                }
+                case "src" -> {
+                    requireAttributes(Set.of());
+                    source = validateText("source", readScalar());
+                }
+                case "type" -> {
+                    requireAttributes(Set.of());
+                    type = validateText("type", readScalar());
+                }
+                case "number" -> {
+                    requireAttributes(Set.of());
+                    trackNumber = trackNumber(readScalar());
+                }
+                case "link" -> {
+                    diagnostics.warning("GPX_FIELD_IGNORED", Map.of("scope", "track"), 0);
+                    skipSubtree();
+                }
+                case "extensions" -> {
+                    diagnostics.warning("GPX_EXTENSION_IGNORED", Map.of("scope", "track"), 0);
+                    skipSubtree();
+                }
+                case "trkseg" ->
+                        parseTrackSegment(
+                                trackOrdinal,
+                                ++segmentOrdinal,
+                                name,
+                                comment,
+                                description,
+                                source,
+                                type,
+                                trackNumber);
+                default -> throw new IllegalStateException("Unexpected GPX track field");
+            }
+        }
+    }
+
+    private void parseTrackSegment(
+            int trackOrdinal,
+            int segmentOrdinal,
+            String name,
+            Object comment,
+            Object description,
+            Object source,
+            Object type,
+            Object trackNumber)
+            throws XMLStreamException {
+        currentRecord = chargePhysicalFeature();
+        chargePart();
+        requireAttributes(Set.of());
+        PackedCoordinates packed = new PackedCoordinates();
+        boolean extensionsSeen = false;
+        int pointIndex = 0;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            if (!GPX.equals(reader.getNamespaceURI())) {
+                throw profileFailure("foreignElement");
+            }
+            switch (reader.getLocalName()) {
+                case "trkpt" -> {
+                    if (extensionsSeen) {
+                        throw xmlFailure("order", null);
+                    }
+                    parseTrackPoint(packed, pointIndex++);
+                }
+                case "extensions" -> {
+                    if (extensionsSeen) {
+                        throw xmlFailure("cardinality", null);
+                    }
+                    extensionsSeen = true;
+                    diagnostics.warning(
+                            "GPX_EXTENSION_IGNORED", Map.of("scope", "segment"), currentRecord);
+                    skipSubtree();
+                }
+                default -> throw profileFailure("coreElement");
+            }
+        }
+        int pointCount = packed.size();
+        if (pointCount < 2) {
+            diagnostics.warning(
+                    "GPX_TRACK_SEGMENT_SKIPPED",
+                    Map.of("reason", pointCount == 0 ? "empty" : "singlePoint"),
+                    currentRecord);
+            currentRecord = 0;
+            return;
+        }
+        LinkedHashMap<String, Object> values = new LinkedHashMap<>();
+        values.put("gpxKind", "trackSegment");
+        values.put("trackIndex", (long) trackOrdinal);
+        values.put("segmentIndex", (long) segmentOrdinal);
+        values.put("elevationMetres", AttributeNull.INSTANCE);
+        values.put("time", AttributeNull.INSTANCE);
+        values.put("comment", comment);
+        values.put("description", description);
+        values.put("source", source);
+        values.put("symbol", AttributeNull.INSTANCE);
+        values.put("type", type);
+        values.put("trackNumber", trackNumber);
+        chargeOwned(320L + 2L * name.length());
+        records.add(
+                new FeatureRecord(
+                        "gpx:trk:" + trackOrdinal + ":seg:" + segmentOrdinal,
+                        name,
+                        new LineStringGeometry(CoordinateSequence.of(packed.toArray())),
+                        values));
+        currentRecord = 0;
+    }
+
+    private void parseTrackPoint(PackedCoordinates packed, int pointIndex)
+            throws XMLStreamException {
+        currentPointIndex = pointIndex;
+        requireAttributes(Set.of(new QName("", "lat"), new QName("", "lon")));
+        String latitude = reader.getAttributeValue("", "lat");
+        String longitude = reader.getAttributeValue("", "lon");
+        if (latitude == null) {
+            throw valueFailure("latitude", "missing");
+        }
+        if (longitude == null) {
+            throw valueFailure("longitude", "missing");
+        }
+        double y = coordinate("latitude", latitude, -90, 90, true);
+        double x = coordinate("longitude", longitude, -180, 180, false);
+        if (pointIndex >= limits.maximumCoordinatesPerSegment()) {
+            throw limit(
+                    "geometryCoordinates",
+                    (long) pointIndex + 1,
+                    limits.maximumCoordinatesPerSegment());
+        }
+        chargeCoordinate();
+        packed.add(x, y);
+
+        Set<String> seen = new java.util.HashSet<>();
+        int phase = 0;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                currentPointIndex = -1;
+                return;
+            }
+            if (!GPX.equals(reader.getNamespaceURI())) {
+                throw profileFailure("foreignElement");
+            }
+            String local = reader.getLocalName();
+            Integer rank = WAYPOINT_ORDER.get(local);
+            if (rank == null) {
+                throw profileFailure("coreElement");
+            }
+            if (rank < phase) {
+                throw xmlFailure("order", null);
+            }
+            phase = rank;
+            if (!"link".equals(local) && !seen.add(local)) {
+                throw valueFailure(fieldName(local), "duplicate");
+            }
+            if ("extensions".equals(local)) {
+                diagnostics.warning(
+                        "GPX_EXTENSION_IGNORED", Map.of("scope", "trackPoint"), currentRecord);
+                skipSubtree();
+            } else if ("ele".equals(local)) {
+                requireAttributes(Set.of());
+                elevation(readScalar());
+                diagnostics.warning(
+                        "GPX_TRACK_POINT_DATA_IGNORED",
+                        Map.of("field", "elevation"),
+                        currentRecord);
+            } else if ("time".equals(local)) {
+                requireAttributes(Set.of());
+                time(readScalar());
+                diagnostics.warning(
+                        "GPX_TRACK_POINT_DATA_IGNORED", Map.of("field", "time"), currentRecord);
+            } else {
+                diagnostics.warning(
+                        "GPX_TRACK_POINT_DATA_IGNORED", Map.of("field", "other"), currentRecord);
+                skipSubtree();
+            }
+        }
+    }
+
+    private long trackNumber(String value) {
+        String token = value.strip();
+        if (token.length() > limits.maximumNumberCharacters()) {
+            throw limit("numberCharacters", token.length(), limits.maximumNumberCharacters());
+        }
+        if (!NON_NEGATIVE_INTEGER.matcher(token).matches()) {
+            throw valueFailure("trackNumber", "syntax");
+        }
+        try {
+            return Long.parseLong(token);
+        } catch (NumberFormatException failure) {
+            throw valueFailure("trackNumber", "range");
+        }
     }
 
     private void finishDocument() throws XMLStreamException {
@@ -465,6 +726,13 @@ final class GpxParser {
             throw limit("coordinates", coordinates, limits.maximumTotalCoordinates());
         }
         chargeOwned(16);
+    }
+
+    private void chargePart() {
+        if (++parts > limits.maximumParts()) {
+            throw limit("parts", parts, limits.maximumParts());
+        }
+        chargeOwned(4);
     }
 
     private void chargeOwned(long count) {
@@ -705,15 +973,16 @@ final class GpxParser {
     private SourceException limit(String limit, long requested, long maximum) {
         return diagnostics.failure(
                 "SOURCE_LIMIT_EXCEEDED",
-                Map.of(
-                        "scope",
-                        "gpxOpen",
-                        "limit",
-                        limit,
-                        "requested",
-                        Long.toString(requested),
-                        "maximum",
-                        Long.toString(maximum)),
+                pointContext(
+                        Map.of(
+                                "scope",
+                                "gpxOpen",
+                                "limit",
+                                limit,
+                                "requested",
+                                Long.toString(requested),
+                                "maximum",
+                                Long.toString(maximum))),
                 currentRecord,
                 "GPX opening limit exceeded",
                 null);
@@ -731,7 +1000,7 @@ final class GpxParser {
     private SourceException xmlFailure(String reason, Throwable cause) {
         return diagnostics.failure(
                 "GPX_XML_INVALID",
-                Map.of("reason", reason),
+                pointContext(Map.of("reason", reason)),
                 currentRecord,
                 "GPX XML is invalid",
                 cause);
@@ -740,7 +1009,7 @@ final class GpxParser {
     private SourceException profileFailure(String construct) {
         return diagnostics.failure(
                 "GPX_PROFILE_UNSUPPORTED",
-                Map.of("construct", construct),
+                pointContext(Map.of("construct", construct)),
                 currentRecord,
                 "GPX construct is outside the supported profile",
                 null);
@@ -749,10 +1018,19 @@ final class GpxParser {
     private SourceException valueFailure(String field, String reason) {
         return diagnostics.failure(
                 "GPX_VALUE_INVALID",
-                Map.of("field", field, "reason", reason),
+                pointContext(Map.of("field", field, "reason", reason)),
                 currentRecord,
                 "GPX value is invalid",
                 null);
+    }
+
+    private Map<String, String> pointContext(Map<String, String> base) {
+        if (currentPointIndex < 0) {
+            return base;
+        }
+        LinkedHashMap<String, String> context = new LinkedHashMap<>(base);
+        context.put("pointIndex", Integer.toString(currentPointIndex));
+        return Map.copyOf(context);
     }
 
     private static String fieldName(String local) {
@@ -762,6 +1040,16 @@ final class GpxParser {
             case "desc" -> "description";
             case "src" -> "source";
             case "sym" -> "symbol";
+            default -> local;
+        };
+    }
+
+    private static String trackFieldName(String local) {
+        return switch (local) {
+            case "cmt" -> "comment";
+            case "desc" -> "description";
+            case "src" -> "source";
+            case "number" -> "trackNumber";
             default -> local;
         };
     }
@@ -777,6 +1065,31 @@ final class GpxParser {
                 || (codePoint >= 0x20 && codePoint <= 0xd7ff)
                 || (codePoint >= 0xe000 && codePoint <= 0xfffd)
                 || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+    }
+
+    private static final class PackedCoordinates {
+        private double[] ordinates = new double[16];
+        private int size;
+
+        void add(double x, double y) {
+            int required = Math.addExact(size, 2);
+            if (required > ordinates.length) {
+                ordinates =
+                        java.util.Arrays.copyOf(
+                                ordinates, Math.max(required, Math.multiplyExact(size, 2)));
+            }
+            ordinates[size] = x;
+            ordinates[size + 1] = y;
+            size = required;
+        }
+
+        int size() {
+            return size / 2;
+        }
+
+        double[] toArray() {
+            return java.util.Arrays.copyOf(ordinates, size);
+        }
     }
 
     record Opening(List<FeatureRecord> records, DiagnosticReport diagnostics) {}

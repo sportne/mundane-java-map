@@ -1,6 +1,6 @@
 # G10-051 — GPX track rendering slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-050
 Gate: G10
 Type: AFK
@@ -55,3 +55,10 @@ git diff --check
 
 Keep source order equal to document order and use the approved one-based track/segment IDs. Do not
 silently reinterpret routes as tracks or retain unbounded per-vertex metadata.
+
+Completed with bounded GPX track and segment state machines that emit ordinary packed
+`LineStringGeometry` records in source order, inherit the approved fixed track attributes, preserve
+literal dateline coordinates, and retain stable warnings for short segments and discarded
+per-vertex data. The new local-file GPX viewer owns the source through `MapView`; its offscreen tests
+provide tolerant waypoint/line placement and color evidence through the existing
+`renderRegression` lane. Exhaustive grammar/limit closure and independent fixtures remain G10-052.

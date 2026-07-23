@@ -95,6 +95,7 @@ tasks.register('renderRegression') {
     dependsOn ':examples:vector-export:test'
     dependsOn ':examples:live-track-stress:naturalEarthRenderRegression'
     dependsOn ':examples:http-tile-viewer:test'
+    dependsOn ':examples:gpx-viewer:test'
 }
 
 tasks.register('performanceEvidence') {

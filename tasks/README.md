@@ -285,7 +285,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-043 — MBTiles raster slice](G10-043-mbtiles-raster-slice.md) | Proposed | AFK | G10-039, G11-004 | Read and render bounded TMS PNG/JPEG MBTiles through a staged adapter. |
 | [G10-044 — SQLite adapter hardening and Linux evidence](G10-044-sqlite-adapter-hardening-and-linux-evidence.md) | Proposed | HITL | G10-042, G10-043 | Close MBTiles hardening and approve exact Linux JVM support for both adapters. |
 | [G10-050 — GPX waypoint first slice](closed/G10-050-gpx-waypoint-first-slice.md) | Complete | AFK | G10-005 | Read, query, render, publish, and consume bounded GPX waypoints. |
-| [G10-051 — GPX track rendering slice](G10-051-gpx-track-rendering-slice.md) | Proposed | AFK | G10-050 | Render bounded track segments with fixed attributes and warned omissions. |
+| [G10-051 — GPX track rendering slice](closed/G10-051-gpx-track-rendering-slice.md) | Complete | AFK | G10-050 | Render bounded track segments with fixed attributes and warned omissions. |
 | [G10-052 — GPX hardening and fixtures](G10-052-gpx-hardening-and-fixtures.md) | Proposed | HITL | G10-051 | Close grammar and hostile-input behavior and approve fixture provenance. |
 | [G10-053 — Native Image GPX smoke](G10-053-native-image-gpx-smoke.md) | Proposed | HITL | G10-052 | Prove bounded GPX success, warning, and malformed Linux native paths. |
 | [G10-054 — KML point and line first slice](G10-054-kml-point-line-first-slice.md) | Proposed | AFK | G10-005 | Read, query, render, publish, and consume bounded KML points and lines. |
