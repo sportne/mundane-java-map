@@ -1324,6 +1324,76 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void seModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndStreamingOnly() {
+        ModuleDescriptor se = moduleEndingWith("mundane-map-io-se");
+        JavaClasses classes = classesByModule.get(se);
+        List<String> prohibitedToolkitNetworkOrXmlModels =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("java.net.")
+                                                || target.startsWith("org.w3c.dom.")
+                                                || target.startsWith("org.xml.sax.")
+                                                || target.startsWith("java.lang.reflect.")
+                                                || target.startsWith("java.util.ServiceLoader")
+                                                || (target.startsWith("javax.xml.")
+                                                        && !target.equals("javax.xml.XMLConstants")
+                                                        && !target.startsWith("javax.xml.stream.")
+                                                        && !target.startsWith(
+                                                                "javax.xml.namespace.")))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                classes.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.se"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+
+        assertEquals("JDK_RUNTIME", se.category());
+        assertEquals(2, se.releaseLevel());
+        assertFalse(se.nativeTarget(), "G13-006 owns executable Native Image evidence");
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                se.allowedRuntimeProjects());
+        assertFalse(classes.isEmpty(), "Expected the working SE format module");
+        assertTrue(
+                prohibitedToolkitNetworkOrXmlModels.isEmpty(),
+                () -> String.join("\n", prohibitedToolkitNetworkOrXmlModels));
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        assertEquals(
+                Set.of(
+                        "SeDescription",
+                        "SeFeatureStyle",
+                        "SeReadException",
+                        "SeReadLimits",
+                        "SeReadOptions",
+                        "SeReadProblem",
+                        "SeRuleMetadata",
+                        "SeStyles"),
+                publicTypes);
+        assertTrue(
+                apiClasses.stream().noneMatch(type -> type.getSimpleName().startsWith("Se")),
+                "SE-specific types must not leak into mundane-map-api");
+    }
+
+    @Test
     void militarySymbologyModuleIsJdkOnlyAwtFreeExplicitAndWorking() {
         ModuleDescriptor military = moduleEndingWith("mundane-map-symbology-milstd2525");
         JavaClasses classes = classesByModule.get(military);

@@ -561,8 +561,11 @@ separately decomposed.
   vector symbolizers, bounded Filter 1.1 algebra, standard `ElseFilter` and 0.28 mm scale semantics,
   explicit catalog-only graphics, hard limits/diagnostics, and the smallest closed
   standards-neutral rule-portrayal bridge. It is a named subset, not an SE conformance-class claim.
-  G13-002 through G13-006 deliver the first point slice, rules/scale, complete vector roles,
-  hostile/interoperability/gallery evidence, and publication/consumer/Linux Native Image closeout.
+- Complete G13-002 supplies the published JDK-only, AWT-free module with bounded path/byte input,
+  secure direct StAX parsing, immutable metadata, the unconditional literal point-mark slice, stable
+  diagnostics, and a runnable ordinary-map example. G13-003 through G13-006 deliver rules/scale,
+  complete vector roles, hostile/interoperability/gallery evidence, and
+  publication/consumer/Linux Native Image closeout.
 - See the [G13 detailed design](design/G13-ogc-symbology-encoding.md) and the
   [G13 task set](tasks/README.md#g13--ogc-symbology-encoding).
 

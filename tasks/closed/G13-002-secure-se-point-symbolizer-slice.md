@@ -1,6 +1,6 @@
 # G13-002 — Secure SE point-symbolizer slice
 
-Status: Proposed
+Status: Complete
 Depends on: G13-001
 Gate: G13
 Type: AFK

@@ -218,9 +218,12 @@ multiple external resources do not occur. The catalog result must have marker ro
 `SeReadLimits.defaults()` uses these ceilings: 1 MiB input, depth 32, 4096 elements, 8192
 attributes, 256 KiB aggregate text, 4096 characters per metadata value, 256 rules, 1024 predicates,
 predicate depth 32, 1024 symbolizers, 1024 graphic children/catalog references, and 2048 total output
-symbols/composite children. Callers may provide positive tighter values up to those hard ceilings.
-Accounting occurs before the next allocation or append. Cancellation is checked while reading each
-64 KiB chunk and at least every 256 XML events and predicate/output nodes.
+symbols/composite children. Total immutable output ownership is additionally capped at 16 MiB.
+Callers may provide positive tighter values up to those hard ceilings. One cumulative budget covers
+the defensive encoded snapshot, path-buffer growth and compaction, conservative decoded text,
+retained values, and portrayal output for both input overloads. Accounting occurs before the next
+reader-owned allocation or append. Cancellation is checked while reading each 64 KiB chunk and at
+least every 256 XML events and predicate/output nodes.
 
 ## Diagnostics and evidence
 
@@ -265,3 +268,16 @@ parses one literal resource, resolves one catalog marker, evaluates rules, and r
 6. G13-006 closes publication, consumer, and Linux Native Image evidence.
 
 G14 starts only after G13-006 so MapLibre reuses one proven rule/portrayal bridge.
+
+## G13-002 implementation evidence
+
+The first working slice creates the published, JDK-only and AWT-free `mundane-map-io-se` module.
+`SeStyles` accepts a bounded local path or caller-owned byte array, validates a strict UTF-8
+`FeatureTypeStyle` through a directly constructed hardened StAX reader, and publishes immutable
+metadata plus one ordinary `FeaturePortrayal` only after the whole document succeeds. The supported
+slice is intentionally one unconditional `Rule`, one `PointSymbolizer`, and one literal `Mark`;
+later rule/filter/scale, vector-role, and catalog work remains assigned to G13-003 and G13-004.
+
+The `se-viewer` example renders the checked-in point style through the ordinary `MapView` stack.
+Module, example, architecture, security, malformed-input, cancellation, limit, publication, and
+Javadoc checks constitute the completion evidence; G13-006 still owns Native Image evidence.
