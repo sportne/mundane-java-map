@@ -1,7 +1,11 @@
 package io.github.mundanej.map.io.se;
 
 import io.github.mundanej.map.api.BuiltInMarker;
+import io.github.mundanej.map.api.CompositeSymbol;
+import io.github.mundanej.map.api.FillSymbol;
+import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MarkerPlacement;
+import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PortrayalComparison;
 import io.github.mundanej.map.api.PortrayalLogicalOperator;
@@ -11,7 +15,11 @@ import io.github.mundanej.map.api.PortrayalRule;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.RulePortrayalPlan;
 import io.github.mundanej.map.api.ScaleInterval;
+import io.github.mundanej.map.api.SolidFillSymbol;
+import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
+import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolRotationMode;
 import io.github.mundanej.map.api.SymbolSize;
@@ -45,12 +53,13 @@ final class SeParser {
     private static final String SE = "http://www.opengis.net/se";
     private static final String OGC = "http://www.opengis.net/ogc";
     private static final String XSI = XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI;
+    private static final String XLINK = "http://www.w3.org/1999/xlink";
     private static final String PIXEL_UOM = "http://www.opengeospatial.org/se/units/pixel";
+    private static final String CATALOG_FORMAT = "application/vnd.mundane-map.symbol";
 
     private final String source;
     private final byte[] bytes;
 
-    @SuppressWarnings("unused")
     private final NamedSymbolCatalog catalog;
 
     private final SeReadOptions options;
@@ -65,6 +74,7 @@ final class SeParser {
     private int rules;
     private int predicates;
     private int symbolizers;
+    private int catalogReferences;
     private int outputSymbols;
     private int events;
 
@@ -213,7 +223,9 @@ final class SeParser {
         boolean elseRule = false;
         OptionalDouble minimumScale = OptionalDouble.empty();
         OptionalDouble maximumScale = OptionalDouble.empty();
-        List<io.github.mundanej.map.api.Symbol> markers = new ArrayList<>();
+        List<Symbol> markers = new ArrayList<>();
+        List<Symbol> lines = new ArrayList<>();
+        List<Symbol> fills = new ArrayList<>();
         int phase = 0;
         while (true) {
             int event = nextChild();
@@ -268,13 +280,25 @@ final class SeParser {
                     }
                     markers.add(parsePointSymbolizer());
                 }
-                case "LineSymbolizer", "PolygonSymbolizer", "TextSymbolizer", "RasterSymbolizer" ->
+                case "LineSymbolizer" -> {
+                    requirePhase(phase <= 5, local);
+                    phase = 5;
+                    countSymbolizer();
+                    lines.add(parseLineSymbolizer());
+                }
+                case "PolygonSymbolizer" -> {
+                    requirePhase(phase <= 5, local);
+                    phase = 5;
+                    countSymbolizer();
+                    fills.add(parsePolygonSymbolizer());
+                }
+                case "TextSymbolizer", "RasterSymbolizer" ->
                         throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), local);
                 default -> throw unsupportedElement(local);
             }
         }
-        if (markers.isEmpty()) {
-            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingPointSymbolizer");
+        if (markers.isEmpty() && lines.isEmpty() && fills.isEmpty()) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingSymbolizer");
         }
         budget.charge(128, currentPath());
         ScaleInterval scale;
@@ -284,7 +308,7 @@ final class SeParser {
             throw failure("SE_VALUE_INVALID", currentPath(), "scaleInterval");
         }
         PortrayalRule portrayal =
-                new PortrayalRule(name, scale, predicate, elseRule, markers, List.of(), List.of());
+                new PortrayalRule(name, scale, predicate, elseRule, markers, lines, fills);
         return new ParsedRule(new SeRuleMetadata(name, description), portrayal);
     }
 
@@ -441,7 +465,7 @@ final class SeParser {
         }
     }
 
-    private VectorMarkerSymbol parsePointSymbolizer() throws XMLStreamException {
+    private Symbol parsePointSymbolizer() throws XMLStreamException {
         requireElement(SE, "PointSymbolizer", "SE_SYMBOLIZER_UNSUPPORTED");
         requireAttributes(Map.of(new QName("", "uom"), AttributeRule.optionalAny()));
         String uom = attribute("", "uom");
@@ -450,7 +474,7 @@ final class SeParser {
         }
         int phase = 0;
         boolean graphic = false;
-        VectorMarkerSymbol marker = null;
+        Symbol marker = null;
         while (true) {
             int event = nextChild();
             if (event == XMLStreamConstants.END_ELEMENT) {
@@ -486,10 +510,11 @@ final class SeParser {
         return marker;
     }
 
-    private VectorMarkerSymbol parseGraphic() throws XMLStreamException {
+    private Symbol parseGraphic() throws XMLStreamException {
         requireElement(SE, "Graphic", "SE_SYMBOLIZER_UNSUPPORTED");
         requireNoAttributes();
         Mark mark = null;
+        Symbol external = null;
         double opacity = 1.0;
         double size = 6.0;
         double rotation = 0.0;
@@ -506,36 +531,40 @@ final class SeParser {
             String local = reader.getLocalName();
             switch (local) {
                 case "Mark" -> {
-                    requirePhase(phase <= 0 && mark == null, local);
+                    requirePhase(phase <= 0 && mark == null && external == null, local);
                     phase = 1;
                     mark = parseMark();
                 }
-                case "ExternalGraphic" ->
-                        throw failure(
-                                "SE_SYMBOLIZER_UNSUPPORTED",
-                                currentPath(),
-                                "externalGraphicNotInFirstSlice");
+                case "ExternalGraphic" -> {
+                    requirePhase(phase <= 0 && mark == null && external == null, local);
+                    phase = 1;
+                    external = parseExternalGraphic();
+                }
                 case "Opacity" -> {
-                    requirePhase(phase <= 1 && mark != null, local);
+                    requirePhase(phase <= 1 && (mark != null || external != null), local);
                     phase = 2;
                     opacity = decimalElement(local, 0.0, 1.0, false);
                 }
                 case "Size" -> {
+                    rejectExternalPlacement(external, local);
                     requirePhase(phase <= 2 && mark != null, local);
                     phase = 3;
                     size = decimalElement(local, 0.0, Double.MAX_VALUE, true);
                 }
                 case "Rotation" -> {
+                    rejectExternalPlacement(external, local);
                     requirePhase(phase <= 3 && mark != null, local);
                     phase = 4;
                     rotation = decimalElement(local, -Double.MAX_VALUE, Double.MAX_VALUE, false);
                 }
                 case "AnchorPoint" -> {
+                    rejectExternalPlacement(external, local);
                     requirePhase(phase <= 4 && mark != null, local);
                     phase = 5;
                     anchor = parseAnchor();
                 }
                 case "Displacement" -> {
+                    rejectExternalPlacement(external, local);
                     requirePhase(phase <= 5 && mark != null, local);
                     phase = 6;
                     Offset offset = parseDisplacement();
@@ -545,12 +574,19 @@ final class SeParser {
                 default -> throw unsupportedElement(local);
             }
         }
-        if (mark == null) {
-            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingMark");
+        if (mark == null && external == null) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingGraphic");
         }
-        if (++outputSymbols > limits.maximumOutputSymbols()) {
-            throw limit("outputSymbols", outputSymbols, limits.maximumOutputSymbols());
+        if (external != null) {
+            countOutputSymbol();
+            if (Double.compare(opacity, 1.0) == 0) {
+                return external;
+            }
+            countOutputSymbol();
+            budget.charge(128, currentPath());
+            return CompositeSymbol.of(List.of(external), opacity);
         }
+        countOutputSymbol();
         budget.charge(1_024, currentPath());
         MarkerPlacement placement =
                 new MarkerPlacement(
@@ -567,6 +603,176 @@ final class SeParser {
                 mark.stroke(),
                 placement,
                 opacity);
+    }
+
+    private void rejectExternalPlacement(Symbol external, String element) {
+        if (external != null) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "externalGraphic" + element);
+        }
+    }
+
+    private Symbol parseExternalGraphic() throws XMLStreamException {
+        requireElement(SE, "ExternalGraphic", "SE_SYMBOLIZER_UNSUPPORTED");
+        requireNoAttributes();
+        if (++catalogReferences > limits.maximumCatalogReferences()) {
+            throw limit("catalogReferences", catalogReferences, limits.maximumCatalogReferences());
+        }
+        if (nextChild() == XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_RESOURCE_UNRESOLVED", currentPath(), "missingOnlineResource");
+        }
+        requireElement(SE, "OnlineResource", "SE_SYMBOLIZER_UNSUPPORTED");
+        requireAttributes(
+                Map.of(
+                        new QName(XLINK, "type"), AttributeRule.requiredExact("simple"),
+                        new QName(XLINK, "href"), AttributeRule.requiredAny()));
+        String key = attribute(XLINK, "href");
+        if (key == null || !key.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
+            throw failure("SE_RESOURCE_UNRESOLVED", currentPath(), "catalogKey");
+        }
+        if (nextChild() != XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "onlineResourceContent");
+        }
+        if (nextChild() == XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingFormat");
+        }
+        String format = readValueText("Format");
+        if (!CATALOG_FORMAT.equals(format)) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "format");
+        }
+        if (nextChild() != XMLStreamConstants.END_ELEMENT) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "externalGraphicContent");
+        }
+        Symbol resolved;
+        try {
+            resolved = catalog.require(key);
+        } catch (SymbolException failure) {
+            throw failure("SE_RESOURCE_UNRESOLVED", currentPath(), "catalogMissing");
+        }
+        if (resolved.role() != io.github.mundanej.map.api.SymbolRole.MARKER
+                || (!(resolved instanceof MarkerSymbol)
+                        && !(resolved instanceof CompositeSymbol))) {
+            throw failure("SE_RESOURCE_UNRESOLVED", currentPath(), "catalogRole");
+        }
+        return resolved;
+    }
+
+    private LineSymbol parseLineSymbolizer() throws XMLStreamException {
+        requireSymbolizerStart("LineSymbolizer");
+        SolidLineSymbol line = null;
+        int phase = 0;
+        while (true) {
+            int event = nextChild();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            requireNamespace(SE);
+            String local = reader.getLocalName();
+            switch (local) {
+                case "Name" -> {
+                    requirePhase(phase <= 0, local);
+                    phase = 1;
+                    readMetadataText(local);
+                }
+                case "Description" -> {
+                    requirePhase(phase <= 1, local);
+                    phase = 2;
+                    parseDescription();
+                }
+                case "Geometry" ->
+                        throw failure(
+                                "SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "geometryExpression");
+                case "Stroke" -> {
+                    requirePhase(phase <= 3 && line == null, local);
+                    phase = 3;
+                    Paint paint = parseParameters(false, true);
+                    countOutputSymbol();
+                    budget.charge(256, currentPath());
+                    line =
+                            SolidLineSymbol.of(
+                                    new SymbolStroke(
+                                            paint.color(),
+                                            new SymbolLength(
+                                                    paint.width(), SymbolUnit.SCREEN_PIXEL)),
+                                    1.0);
+                }
+                default -> throw unsupportedElement(local);
+            }
+        }
+        if (line == null) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingStroke");
+        }
+        return line;
+    }
+
+    private FillSymbol parsePolygonSymbolizer() throws XMLStreamException {
+        requireSymbolizerStart("PolygonSymbolizer");
+        Optional<Rgba> fill = Optional.empty();
+        Optional<Symbol> outline = Optional.empty();
+        boolean fillSeen = false;
+        boolean strokeSeen = false;
+        int phase = 0;
+        while (true) {
+            int event = nextChild();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            requireNamespace(SE);
+            String local = reader.getLocalName();
+            switch (local) {
+                case "Name" -> {
+                    requirePhase(phase <= 0, local);
+                    phase = 1;
+                    readMetadataText(local);
+                }
+                case "Description" -> {
+                    requirePhase(phase <= 1, local);
+                    phase = 2;
+                    parseDescription();
+                }
+                case "Geometry" ->
+                        throw failure(
+                                "SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "geometryExpression");
+                case "Fill" -> {
+                    requirePhase(phase <= 3 && !fillSeen, local);
+                    phase = 3;
+                    fillSeen = true;
+                    fill = Optional.of(parseParameters(true, false).color());
+                }
+                case "Stroke" -> {
+                    requirePhase(phase <= 4 && !strokeSeen, local);
+                    phase = 4;
+                    strokeSeen = true;
+                    Paint paint = parseParameters(false, false);
+                    countOutputSymbol();
+                    budget.charge(192, currentPath());
+                    outline =
+                            Optional.of(
+                                    SolidLineSymbol.of(
+                                            new SymbolStroke(
+                                                    paint.color(),
+                                                    new SymbolLength(
+                                                            paint.width(),
+                                                            SymbolUnit.SCREEN_PIXEL)),
+                                            1.0));
+                }
+                default -> throw unsupportedElement(local);
+            }
+        }
+        if (!fillSeen && !strokeSeen) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingFillAndStroke");
+        }
+        countOutputSymbol();
+        budget.charge(192, currentPath());
+        return SolidFillSymbol.of(fill.orElse(new Rgba(0, 0, 0, 0)), outline, 1.0);
+    }
+
+    private void requireSymbolizerStart(String local) {
+        requireElement(SE, local, "SE_SYMBOLIZER_UNSUPPORTED");
+        requireAttributes(Map.of(new QName("", "uom"), AttributeRule.optionalAny()));
+        String uom = attribute("", "uom");
+        if (uom != null && !PIXEL_UOM.equals(uom)) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "uom");
+        }
     }
 
     private Mark parseMark() throws XMLStreamException {
@@ -592,13 +798,13 @@ final class SeParser {
                 case "Fill" -> {
                     requirePhase(phase <= 1, local);
                     phase = 2;
-                    Paint paint = parseParameters(true);
+                    Paint paint = parseParameters(true, false);
                     fill = paint.color();
                 }
                 case "Stroke" -> {
                     requirePhase(phase <= 2, local);
                     phase = 3;
-                    Paint paint = parseParameters(false);
+                    Paint paint = parseParameters(false, false);
                     stroke =
                             Optional.of(
                                     new SymbolStroke(
@@ -612,13 +818,14 @@ final class SeParser {
         return new Mark(shape, fill, stroke);
     }
 
-    private Paint parseParameters(boolean fill) throws XMLStreamException {
+    private Paint parseParameters(boolean fill, boolean requireColor) throws XMLStreamException {
         String parent = fill ? "Fill" : "Stroke";
         requireElement(SE, parent, "SE_SYMBOLIZER_UNSUPPORTED");
         requireNoAttributes();
         Rgba color = fill ? new Rgba(128, 128, 128, 255) : new Rgba(0, 0, 0, 255);
         double opacity = 1.0;
         double width = 1.0;
+        boolean colorSeen = false;
         Map<String, Boolean> seen = new HashMap<>();
         while (true) {
             int event = nextChild();
@@ -639,7 +846,10 @@ final class SeParser {
             }
             String value = readTextBody();
             switch (name) {
-                case "fill", "stroke" -> color = color(value, opacity);
+                case "fill", "stroke" -> {
+                    color = color(value, opacity);
+                    colorSeen = true;
+                }
                 case "fill-opacity", "stroke-opacity" -> {
                     opacity = decimalValue(value, 0.0, 1.0, false);
                     color = withOpacity(color, opacity);
@@ -648,7 +858,22 @@ final class SeParser {
                 default -> throw new AssertionError(name);
             }
         }
+        if (requireColor && !colorSeen) {
+            throw failure("SE_SYMBOLIZER_UNSUPPORTED", currentPath(), "missingStrokeColor");
+        }
         return new Paint(withOpacity(color, opacity), width);
+    }
+
+    private void countSymbolizer() {
+        if (++symbolizers > limits.maximumSymbolizers()) {
+            throw limit("symbolizers", symbolizers, limits.maximumSymbolizers());
+        }
+    }
+
+    private void countOutputSymbol() {
+        if (++outputSymbols > limits.maximumOutputSymbols()) {
+            throw limit("outputSymbols", outputSymbols, limits.maximumOutputSymbols());
+        }
     }
 
     private SeDescription parseDescription() throws XMLStreamException {
@@ -1122,6 +1347,10 @@ final class SeParser {
 
         static AttributeRule requiredAny() {
             return new AttributeRule(true, null);
+        }
+
+        static AttributeRule requiredExact(String value) {
+            return new AttributeRule(true, value);
         }
     }
 }

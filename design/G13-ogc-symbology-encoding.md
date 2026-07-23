@@ -50,7 +50,7 @@ listed cardinality reject the document, and non-whitespace mixed content is neve
 | `Description` | `Title?`, `Abstract?`; no attributes |
 | `Rule` | `Name?`, `Description?`, exactly one of `ogc:Filter?` or `ElseFilter?`, `MinScaleDenominator?`, `MaxScaleDenominator?`, then one or more supported symbolizers; no attributes |
 | `PointSymbolizer` | `Name?`, `Description?`, exactly one `Graphic`; absent or exact pixel `uom` only |
-| `Graphic` | exactly one `Mark` or `ExternalGraphic`, then `Opacity?`, `Size?`, `Rotation?`, `AnchorPoint?`, `Displacement?`; all numeric values are literal text |
+| `Graphic` | exactly one `Mark` or `ExternalGraphic`, then `Opacity?`; a `Mark` may then use `Size?`, `Rotation?`, `AnchorPoint?`, `Displacement?`; all numeric values are literal text |
 | `Mark` | `WellKnownName?`, `Fill?`, `Stroke?`; no external mark or `MarkIndex` |
 | `LineSymbolizer` | `Name?`, `Description?`, exactly one `Stroke`; absent or exact pixel `uom` only |
 | `PolygonSymbolizer` | `Name?`, `Description?`, `Fill?`, `Stroke?`, at least one present; absent or exact pixel `uom` only |
@@ -215,6 +215,11 @@ have exact `xlink:type="simple"` and one `xlink:href` matching
 resolved as a URI, path, classpath resource, or network location; format sniffing and fallback among
 multiple external resources do not occur. The catalog result must have marker role.
 
+The catalog value is already a complete immutable marker, including its intrinsic size, anchor,
+offset, and rotation. `Graphic/Opacity` may multiply that marker through a one-child
+`CompositeSymbol`; the four placement elements are rejected for `ExternalGraphic` rather than
+adding a second placement-wrapper abstraction or silently replacing caller-owned placement.
+
 `SeReadLimits.defaults()` uses these ceilings: 1 MiB input, depth 32, 4096 elements, 8192
 attributes, 256 KiB aggregate text, 4096 characters per metadata value, 256 rules, 1024 predicates,
 predicate depth 32, 1024 symbolizers, 1024 graphic children/catalog references, and 2048 total output
@@ -298,3 +303,18 @@ predicate limits. MapView derives the denominator from projected metre world uni
 0.28 mm logical pixel, rejects scale-constrained attachment to a geographic display CRS, requests
 the exact deduplicated filter attributes, and shares one context snapshot across paint, hit, hover,
 and selection capture. Line, polygon, and catalog graphics remain assigned to G13-004.
+
+## G13-004 implementation evidence
+
+The reader now maps solid line strokes and polygon fill/outline pairs into the existing ordinary
+symbols. Polygon fill plus outline remains one atomic fill-role value, so repeated polygon
+symbolizers retain document painter order. Stroke/fill defaults, opacity, width, role validation,
+symbolizer/catalog/output limits, and unsupported parameter branches fail through stable SE
+diagnostics.
+
+`ExternalGraphic` accepts only the exact local catalog-key grammar and project symbol MIME type,
+retains the resolved marker's intrinsic placement, and applies only optional outer opacity. It
+never gains path, URL, resource, or network authority. Mixed line, multiline, polygon-with-holes,
+and multipolygon features paint and hit through ordinary portrayed bindings. MapView preflight now
+recurses through composites, polygon outlines, and line endpoint markers before a binding is
+installed. Module tests and the rendering-regression lane supply tolerant color/topology evidence.

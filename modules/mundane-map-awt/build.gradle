@@ -29,6 +29,7 @@ configurations {
 }
 
 dependencies {
+    renderRegressionTestImplementation project(':modules:mundane-map-io-se')
     renderRegressionTestImplementation project(':modules:mundane-map-io-svg')
     renderRegressionTestImplementation project(':modules:mundane-map-symbology-milstd2525')
 }

@@ -6768,6 +6768,32 @@ public final class MapView extends JComponent implements AutoCloseable {
                 validateSourceSymbol(child, role);
             }
         }
+        if (symbol instanceof SolidFillSymbol fill) {
+            fill.outline()
+                    .ifPresent(
+                            outline ->
+                                    validateSourceSymbol(
+                                            outline, io.github.mundanej.map.api.SymbolRole.LINE));
+        }
+        if (symbol instanceof HatchFillSymbol hatch) {
+            hatch.outline()
+                    .ifPresent(
+                            outline ->
+                                    validateSourceSymbol(
+                                            outline, io.github.mundanej.map.api.SymbolRole.LINE));
+        }
+        if (symbol instanceof SolidLineSymbol line) {
+            line.startMarker()
+                    .ifPresent(
+                            marker ->
+                                    validateSourceSymbol(
+                                            marker, io.github.mundanej.map.api.SymbolRole.MARKER));
+            line.endMarker()
+                    .ifPresent(
+                            marker ->
+                                    validateSourceSymbol(
+                                            marker, io.github.mundanej.map.api.SymbolRole.MARKER));
+        }
     }
 
     private static Set<MapLayerBinding> identitySet(List<MapLayerBinding> values) {

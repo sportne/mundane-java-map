@@ -1,6 +1,6 @@
 # G13-004 — SE line, polygon, and catalog graphics
 
-Status: Proposed
+Status: Complete
 Depends on: G13-003
 Gate: G13
 Type: AFK

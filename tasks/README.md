@@ -342,7 +342,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G13-001 — SE profile and portrayal-bridge decision](closed/G13-001-se-profile-and-portrayal-bridge-decision.md) | Complete | HITL | G12-006, G11-024 | Approved the exact SE 1.1 subset and one shared closed rule/filter/scale bridge. |
 | [G13-002 — Secure SE point-symbolizer slice](closed/G13-002-secure-se-point-symbolizer-slice.md) | Complete | AFK | G13-001 | Created the secure JDK-only adapter and rendered a literal well-known point marker. |
 | [G13-003 — SE rules, filters, and scale](closed/G13-003-se-rules-filters-and-scale.md) | Complete | AFK | G13-002 | Applied ordered bounded rules by attributes and explicit scale context. |
-| [G13-004 — SE line, polygon, and catalog graphics](G13-004-se-line-polygon-and-catalog-graphics.md) | Proposed | AFK | G13-003 | Complete vector symbolizers and explicit catalog-only external graphics. |
+| [G13-004 — SE line, polygon, and catalog graphics](closed/G13-004-se-line-polygon-and-catalog-graphics.md) | Complete | AFK | G13-003 | Completed vector symbolizers and explicit catalog-only external graphics. |
 | [G13-005 — SE fixtures, gallery, and hardening](G13-005-se-fixtures-gallery-and-hardening.md) | Proposed | HITL | G13-004 | Close hostile/interoperability evidence and approve the SE gallery. |
 | [G13-006 — SE native and publication closeout](G13-006-se-native-publication-closeout.md) | Proposed | HITL | G13-005 | Close staged consumer, Linux Native Image, subset wording, and bridge evidence. |
 

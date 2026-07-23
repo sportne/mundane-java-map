@@ -10,8 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CompositeSymbol;
+import io.github.mundanej.map.api.NamedSymbol;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.SolidFillSymbol;
+import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolRotationMode;
@@ -185,7 +188,7 @@ class SeStylesTest {
                                 "")
                         .replace("</se:Graphic>", "</se:Graphic>"));
         assertCode("SE_FILTER_UNSUPPORTED", style("", "<ogc:Filter/>", "<se:Mark/>", ""));
-        assertCode("SE_SYMBOLIZER_UNSUPPORTED", style("", "", "<se:ExternalGraphic/>", ""));
+        assertCode("SE_RESOURCE_UNRESOLVED", style("", "", "<se:ExternalGraphic/>", ""));
         assertCode("SE_ELEMENT_UNSUPPORTED", style("", "", "<se:Mark/>", "<se:VendorOption/>"));
 
         SeFeatureStyle commented = read(style("<!-- A & B -->", "", "<se:Mark/>", ""));
@@ -383,6 +386,201 @@ class SeStylesTest {
     }
 
     @Test
+    void parsesOrderedLineAndAtomicPolygonSymbolsWithExactPaint() {
+        String xml =
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se">
+                  <se:Rule>
+                    <se:LineSymbolizer><se:Stroke>
+                      <se:SvgParameter name="stroke">#112233</se:SvgParameter>
+                      <se:SvgParameter name="stroke-opacity">0.5</se:SvgParameter>
+                      <se:SvgParameter name="stroke-width">2.5</se:SvgParameter>
+                    </se:Stroke></se:LineSymbolizer>
+                    <se:LineSymbolizer><se:Stroke>
+                      <se:SvgParameter name="stroke">#445566</se:SvgParameter>
+                    </se:Stroke></se:LineSymbolizer>
+                    <se:PolygonSymbolizer>
+                      <se:Fill><se:SvgParameter name="fill">#778899</se:SvgParameter></se:Fill>
+                      <se:Stroke><se:SvgParameter name="stroke">#aabbcc</se:SvgParameter>
+                        <se:SvgParameter name="stroke-width">3</se:SvgParameter>
+                      </se:Stroke>
+                    </se:PolygonSymbolizer>
+                    <se:PolygonSymbolizer><se:Stroke/></se:PolygonSymbolizer>
+                  </se:Rule>
+                </se:FeatureTypeStyle>
+                """;
+        FeaturePortrayalResolver resolver = FeaturePortrayalResolver.compile(read(xml).portrayal());
+
+        CompositeSymbol lines =
+                assertInstanceOf(
+                        CompositeSymbol.class,
+                        resolver.resolveAll(java.util.Map.of(), PortrayalEvaluationContext.UNSCALED)
+                                .line()
+                                .orElseThrow());
+        SolidLineSymbol firstLine =
+                assertInstanceOf(SolidLineSymbol.class, lines.children().getFirst());
+        SolidLineSymbol secondLine =
+                assertInstanceOf(SolidLineSymbol.class, lines.children().get(1));
+        assertEquals(0x11, firstLine.stroke().color().red());
+        assertEquals(128, firstLine.stroke().color().alpha());
+        assertEquals(2.5, firstLine.stroke().width().value());
+        assertEquals(0x44, secondLine.stroke().color().red());
+        assertEquals(1.0, secondLine.stroke().width().value());
+
+        CompositeSymbol fills =
+                assertInstanceOf(
+                        CompositeSymbol.class,
+                        resolver.resolveAll(java.util.Map.of(), PortrayalEvaluationContext.UNSCALED)
+                                .fill()
+                                .orElseThrow());
+        SolidFillSymbol firstFill =
+                assertInstanceOf(SolidFillSymbol.class, fills.children().getFirst());
+        SolidFillSymbol outlineOnly =
+                assertInstanceOf(SolidFillSymbol.class, fills.children().get(1));
+        assertEquals(0x77, firstFill.fill().red());
+        SolidLineSymbol outline =
+                assertInstanceOf(SolidLineSymbol.class, firstFill.outline().orElseThrow());
+        assertEquals(0xaa, outline.stroke().color().red());
+        assertEquals(3.0, outline.stroke().width().value());
+        assertEquals(0, outlineOnly.fill().alpha());
+        assertEquals(
+                0,
+                assertInstanceOf(SolidLineSymbol.class, outlineOnly.outline().orElseThrow())
+                        .stroke()
+                        .color()
+                        .red());
+
+        assertCode(
+                "SE_SYMBOLIZER_UNSUPPORTED",
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"><se:Rule>
+                  <se:LineSymbolizer><se:Stroke/></se:LineSymbolizer>
+                </se:Rule></se:FeatureTypeStyle>
+                """);
+        assertCode(
+                "SE_SYMBOLIZER_UNSUPPORTED",
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"><se:Rule>
+                  <se:LineSymbolizer><se:Stroke>
+                    <se:SvgParameter name="stroke">#000000</se:SvgParameter>
+                    <se:SvgParameter name="stroke-dasharray">2 2</se:SvgParameter>
+                  </se:Stroke></se:LineSymbolizer>
+                </se:Rule></se:FeatureTypeStyle>
+                """);
+
+        SeReadLimits defaults = SeReadLimits.defaults();
+        assertCode(
+                "SE_LIMIT_EXCEEDED",
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"><se:Rule>
+                  <se:PolygonSymbolizer><se:Fill/><se:Stroke/></se:PolygonSymbolizer>
+                </se:Rule></se:FeatureTypeStyle>
+                """
+                        .getBytes(StandardCharsets.UTF_8),
+                new SeReadOptions(withOutputs(defaults, 1, 1), CancellationToken.none()));
+    }
+
+    @Test
+    void resolvesExternalGraphicOnlyThroughExactMarkerCatalog() {
+        VectorMarkerSymbol marker =
+                BuiltInMarkers.filledScreen(
+                        BuiltInMarker.DIAMOND,
+                        io.github.mundanej.map.api.Rgba.rgb(20, 40, 60),
+                        12,
+                        1);
+        NamedSymbolCatalog catalog =
+                NamedSymbolCatalog.of(List.of(new NamedSymbol("airport.primary", marker)));
+        String graphic =
+                """
+                <se:ExternalGraphic>
+                  <se:OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink"
+                      xlink:type="simple" xlink:href="airport.primary"/>
+                  <se:Format>application/vnd.mundane-map.symbol</se:Format>
+                </se:ExternalGraphic>
+                """;
+        SeFeatureStyle exact =
+                SeStyles.read(
+                        "catalog",
+                        style("", "", graphic, "").getBytes(StandardCharsets.UTF_8),
+                        catalog,
+                        SeReadOptions.defaults());
+        assertEquals(marker, resolvedMarker(exact));
+
+        SeFeatureStyle faded =
+                SeStyles.read(
+                        "catalog",
+                        style("", "", graphic, "<se:Opacity>0.25</se:Opacity>")
+                                .getBytes(StandardCharsets.UTF_8),
+                        catalog,
+                        SeReadOptions.defaults());
+        CompositeSymbol opacity = assertInstanceOf(CompositeSymbol.class, resolvedMarker(faded));
+        assertEquals(List.of(marker), opacity.children());
+        assertEquals(0.25, opacity.opacity());
+
+        assertCatalogCode(
+                "SE_RESOURCE_UNRESOLVED", graphic.replace("airport.primary", "missing"), catalog);
+        NamedSymbolCatalog wrongRole =
+                NamedSymbolCatalog.of(
+                        List.of(
+                                new NamedSymbol(
+                                        "airport.primary",
+                                        SolidLineSymbol.of(
+                                                new io.github.mundanej.map.api.SymbolStroke(
+                                                        io.github.mundanej.map.api.Rgba.rgb(
+                                                                0, 0, 0),
+                                                        new io.github.mundanej.map.api.SymbolLength(
+                                                                1,
+                                                                io.github.mundanej.map.api
+                                                                        .SymbolUnit.SCREEN_PIXEL)),
+                                                1))));
+        assertCatalogCode("SE_RESOURCE_UNRESOLVED", graphic, wrongRole);
+        assertCatalogCode(
+                "SE_SYMBOLIZER_UNSUPPORTED",
+                graphic.replace("application/vnd.mundane-map.symbol", "image/svg+xml"),
+                catalog);
+        assertCatalogCode(
+                "SE_RESOURCE_UNRESOLVED",
+                graphic.replace("airport.primary", "../airport"),
+                catalog);
+        assertCatalogCode("SE_SYMBOLIZER_UNSUPPORTED", graphic + "<se:Size>12</se:Size>", catalog);
+
+        SeReadLimits defaults = SeReadLimits.defaults();
+        String twoReferences =
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"
+                    xmlns:xlink="http://www.w3.org/1999/xlink"><se:Rule>
+                  <se:PointSymbolizer><se:Graphic>
+                """
+                        + graphic
+                        + """
+                  </se:Graphic></se:PointSymbolizer>
+                  <se:PointSymbolizer><se:Graphic>
+                """
+                        + graphic
+                        + """
+                  </se:Graphic></se:PointSymbolizer>
+                </se:Rule></se:FeatureTypeStyle>
+                """;
+        assertEquals(
+                "SE_LIMIT_EXCEEDED",
+                assertThrows(
+                                SeReadException.class,
+                                () ->
+                                        SeStyles.read(
+                                                "catalog-limit",
+                                                twoReferences.getBytes(StandardCharsets.UTF_8),
+                                                catalog,
+                                                new SeReadOptions(
+                                                        withOutputs(
+                                                                defaults,
+                                                                1,
+                                                                defaults.maximumOutputSymbols()),
+                                                        CancellationToken.none())))
+                        .problem()
+                        .code());
+    }
+
+    @Test
     void predicateNodeAndDepthLimitsFailBeforePlanPublication() {
         String xml =
                 """
@@ -431,6 +629,31 @@ class SeStylesTest {
                                 io.github.mundanej.map.api.PortrayalEvaluationContext.UNSCALED)
                         .marker()
                         .orElseThrow());
+    }
+
+    private static Symbol resolvedMarker(SeFeatureStyle style) {
+        return FeaturePortrayalResolver.compile(style.portrayal())
+                .resolveAll(
+                        java.util.Map.of(),
+                        io.github.mundanej.map.api.PortrayalEvaluationContext.UNSCALED)
+                .marker()
+                .orElseThrow();
+    }
+
+    private static void assertCatalogCode(String code, String graphic, NamedSymbolCatalog catalog) {
+        assertEquals(
+                code,
+                assertThrows(
+                                SeReadException.class,
+                                () ->
+                                        SeStyles.read(
+                                                "catalog-failure",
+                                                style("", "", graphic, "")
+                                                        .getBytes(StandardCharsets.UTF_8),
+                                                catalog,
+                                                SeReadOptions.defaults()))
+                        .problem()
+                        .code());
     }
 
     private static byte[] validBytes() {
@@ -545,6 +768,24 @@ class SeStylesTest {
                 source.maximumSymbolizers(),
                 source.maximumCatalogReferences(),
                 source.maximumOutputSymbols(),
+                source.maximumOwnedBytes());
+    }
+
+    private static SeReadLimits withOutputs(
+            SeReadLimits source, int catalogReferences, int outputSymbols) {
+        return new SeReadLimits(
+                source.maximumInputBytes(),
+                source.maximumElementDepth(),
+                source.maximumElements(),
+                source.maximumAttributes(),
+                source.maximumAggregateTextCharacters(),
+                source.maximumValueCharacters(),
+                source.maximumRules(),
+                source.maximumPredicates(),
+                source.maximumPredicateDepth(),
+                source.maximumSymbolizers(),
+                catalogReferences,
+                outputSymbols,
                 source.maximumOwnedBytes());
     }
 

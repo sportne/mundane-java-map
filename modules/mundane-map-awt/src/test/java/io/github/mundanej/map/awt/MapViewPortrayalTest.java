@@ -27,6 +27,9 @@ import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.FixedSymbolSelector;
+import io.github.mundanej.map.api.HatchFillSymbol;
+import io.github.mundanej.map.api.HatchPattern;
+import io.github.mundanej.map.api.LineSymbol;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PortrayalOperand;
@@ -35,10 +38,15 @@ import io.github.mundanej.map.api.PortrayalRule;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.RulePortrayalPlan;
 import io.github.mundanej.map.api.ScaleInterval;
+import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolException;
+import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.api.SymbolRotationMode;
+import io.github.mundanej.map.api.SymbolStroke;
+import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
@@ -405,6 +413,66 @@ class MapViewPortrayalTest {
                                                             unregisteredChild))));
                     assertEquals("fixed", view.layerBindings().getFirst().id());
 
+                    FeaturePortrayal nestedUnregisteredOutline =
+                            new FeaturePortrayal(
+                                    Optional.empty(),
+                                    Optional.empty(),
+                                    Optional.of(
+                                            new FixedSymbolSelector(
+                                                    SolidFillSymbol.of(
+                                                            Rgba.rgb(20, 30, 40),
+                                                            Optional.of(new UnregisteredLine()),
+                                                            1))));
+                    SymbolException nestedFailure =
+                            assertThrows(
+                                    SymbolException.class,
+                                    () ->
+                                            view.setLayerBindings(
+                                                    List.of(
+                                                            MapLayerBinding.portrayedSnapshot(
+                                                                    new InMemoryLayer(
+                                                                            "nested",
+                                                                            "nested",
+                                                                            List.of(omitted)),
+                                                                    nestedUnregisteredOutline))));
+                    assertEquals(SymbolException.RENDERER_NOT_REGISTERED, nestedFailure.code());
+                    assertEquals("fixed", view.layerBindings().getFirst().id());
+
+                    FeaturePortrayal nestedHatchOutline =
+                            new FeaturePortrayal(
+                                    Optional.empty(),
+                                    Optional.empty(),
+                                    Optional.of(
+                                            new FixedSymbolSelector(
+                                                    HatchFillSymbol.of(
+                                                            HatchPattern.FORWARD_DIAGONAL,
+                                                            new SymbolStroke(
+                                                                    Rgba.rgb(20, 30, 40),
+                                                                    new SymbolLength(
+                                                                            1,
+                                                                            SymbolUnit
+                                                                                    .SCREEN_PIXEL)),
+                                                            new SymbolLength(
+                                                                    8, SymbolUnit.SCREEN_PIXEL),
+                                                            SymbolRotationMode.SCREEN_RELATIVE,
+                                                            Optional.of(new UnregisteredLine()),
+                                                            1,
+                                                            128))));
+                    SymbolException hatchFailure =
+                            assertThrows(
+                                    SymbolException.class,
+                                    () ->
+                                            view.setLayerBindings(
+                                                    List.of(
+                                                            MapLayerBinding.portrayedSnapshot(
+                                                                    new InMemoryLayer(
+                                                                            "nested-hatch",
+                                                                            "nested-hatch",
+                                                                            List.of(omitted)),
+                                                                    nestedHatchOutline))));
+                    assertEquals(SymbolException.RENDERER_NOT_REGISTERED, hatchFailure.code());
+                    assertEquals("fixed", view.layerBindings().getFirst().id());
+
                     FeaturePortrayal rejectedValue =
                             FeaturePortrayal.markers(
                                     new FixedSymbolSelector(new RendererRejectedMarker()));
@@ -498,6 +566,18 @@ class MapViewPortrayalTest {
         @Override
         public SymbolRendererKey rendererKey() {
             return VectorMarkerSymbol.RENDERER_KEY;
+        }
+
+        @Override
+        public double opacity() {
+            return 1;
+        }
+    }
+
+    private record UnregisteredLine() implements LineSymbol {
+        @Override
+        public SymbolRendererKey rendererKey() {
+            return new SymbolRendererKey("test.unregistered-line");
         }
 
         @Override
