@@ -65,6 +65,8 @@ import io.github.mundanej.map.io.geojson.GeoJsonOpenOptions;
 import io.github.mundanej.map.io.geojson.GeoJsonWriteLimits;
 import io.github.mundanej.map.io.geotiff.GeoTiffFiles;
 import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
+import io.github.mundanej.map.io.gpx.GpxFiles;
+import io.github.mundanej.map.io.gpx.GpxOpenOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
@@ -125,6 +127,7 @@ public final class MundaneMapConsumerSmoke {
         try {
             testSvg(directory);
             testGeoJson(directory, registry);
+            testGpx(directory);
             testShapefile(directory);
             testMalformedShapefile(directory);
             testImages(directory, decoders);
@@ -329,6 +332,46 @@ public final class MundaneMapConsumerSmoke {
                         view.close();
                     }
                 });
+    }
+
+    private static void testGpx(Path directory) throws IOException {
+        Path path = directory.resolve("consumer.gpx");
+        Files.writeString(
+                path,
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <gpx xmlns="http://www.topografix.com/GPX/1/1"
+                     version="1.1" creator="consumer-smoke">
+                  <wpt lat="38.8977" lon="-77.0365">
+                    <ele>18.5</ele>
+                    <time>2024-01-02T03:04:05Z</time>
+                    <name>White House</name>
+                  </wpt>
+                </gpx>
+                """,
+                java.nio.charset.StandardCharsets.UTF_8);
+        FeatureSource source =
+                GpxFiles.open(
+                        path,
+                        new SourceIdentity("consumer-gpx", "Consumer GPX"),
+                        GpxOpenOptions.defaults(),
+                        CancellationToken.none());
+        try (source;
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            require(cursor.advance(), "GPX source was empty");
+            FeatureRecord record = cursor.current();
+            require(record.id().equals("gpx:wpt:1"), "unexpected GPX id");
+            require(record.name().equals("White House"), "unexpected GPX name");
+            require(
+                    record.geometry()
+                            .equals(new PointGeometry(new Coordinate(-77.0365, 38.8977))),
+                    "unexpected GPX point");
+            require(
+                    record.attributes().get("elevationMetres").equals(18.5),
+                    "unexpected GPX elevation");
+            require(!cursor.advance(), "GPX source had an extra record");
+        }
     }
 
     private static void renderVector(CrsRegistry registry, SymbolRendererRegistry renderers)

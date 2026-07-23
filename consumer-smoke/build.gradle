@@ -29,6 +29,7 @@ dependencies {
     implementation "io.github.mundanej:mundane-map-io-svg:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-se:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-geojson-jackson:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-gpx:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-workspace:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-symbology-milstd2525:${mapVersion}"
 }
@@ -68,6 +69,7 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
             ,"io.github.mundanej:mundane-map-io-svg:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-se:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-geojson-jackson:${mapVersion}"
+            ,"io.github.mundanej:mundane-map-io-gpx:${mapVersion}"
             ,"io.github.mundanej:mundane-map-workspace:${mapVersion}"
             ,"io.github.mundanej:mundane-map-symbology-milstd2525:${mapVersion}"
             ,"tools.jackson.core:jackson-core:3.1.5"

@@ -178,6 +178,7 @@ def publicationContract = [
     'mundane-map-io-geotiff|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/geotiff/',
     'mundane-map-io-svg|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/svg/',
     'mundane-map-io-se|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/se/',
+    'mundane-map-io-gpx|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/gpx/',
     "mundane-map-symbology-milstd2525|mundane-map-api|||io/github/mundanej/map/symbology/milstd2525/|${milStd2525BinaryEntries}",
     'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'

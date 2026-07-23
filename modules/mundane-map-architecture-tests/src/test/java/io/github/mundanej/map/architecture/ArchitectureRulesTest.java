@@ -1410,6 +1410,78 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void gpxModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndStreamingOnly() {
+        ModuleDescriptor gpx = moduleEndingWith("mundane-map-io-gpx");
+        JavaClasses classes = classesByModule.get(gpx);
+        List<String> prohibitedToolkitNetworkOrXmlModels =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("java.net.")
+                                                || target.startsWith("org.w3c.dom.")
+                                                || target.startsWith("org.xml.sax.")
+                                                || target.startsWith("java.lang.reflect.")
+                                                || target.startsWith("java.util.ServiceLoader")
+                                                || (target.startsWith("javax.xml.")
+                                                        && !target.equals("javax.xml.XMLConstants")
+                                                        && !target.startsWith("javax.xml.stream.")
+                                                        && !target.startsWith(
+                                                                "javax.xml.namespace.")))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                classes.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.gpx"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+        List<String> publicStaxLeaks =
+                classes.stream()
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(target -> target.startsWith("javax.xml.stream."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+
+        assertEquals("JDK_RUNTIME", gpx.category());
+        assertEquals(2, gpx.releaseLevel());
+        assertFalse(gpx.nativeTarget(), "G10-053 owns GPX Native Image evidence");
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                gpx.allowedRuntimeProjects());
+        assertFalse(classes.isEmpty(), "Expected the working GPX format module");
+        assertTrue(
+                prohibitedToolkitNetworkOrXmlModels.isEmpty(),
+                () -> String.join("\n", prohibitedToolkitNetworkOrXmlModels));
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        assertEquals(Set.of("GpxFiles", "GpxLimits", "GpxOpenOptions"), publicTypes);
+        assertTrue(
+                apiClasses.stream().noneMatch(type -> type.getSimpleName().startsWith("Gpx")),
+                "GPX-specific types must not leak into mundane-map-api");
+        assertTrue(
+                publicStaxLeaks.isEmpty(),
+                () -> "public GPX API leaked StAX types: " + publicStaxLeaks);
+    }
+
+    @Test
     void militarySymbologyModuleIsJdkOnlyAwtFreeExplicitAndWorking() {
         ModuleDescriptor military = moduleEndingWith("mundane-map-symbology-milstd2525");
         JavaClasses classes = classesByModule.get(military);

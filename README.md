@@ -27,6 +27,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
 | `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
 | `mundane-map-io-se` | Secure Level 2 OGC SE 1.1 feature-style subset import. |
+| `mundane-map-io-gpx` | Bounded Level 2 GPX 1.1 waypoint feature sources. |
 | `mundane-map-symbology-milstd2525` | Bounded Level 2 MIL-STD-2525E Change 1 icon-based point symbology. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
 | `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |

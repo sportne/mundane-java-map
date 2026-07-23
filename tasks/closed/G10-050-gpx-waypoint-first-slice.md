@@ -1,6 +1,6 @@
 # G10-050 — GPX waypoint first slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-005
 Gate: G10
 Type: AFK
@@ -59,3 +59,10 @@ git diff --check
 The module must deliver the working waypoint slice in the same change that registers it. Keep the
 private state machine format-specific; G10-054 independently implements the same security posture for
 KML rather than introducing a common XML module.
+
+Completed with a published, AWT-free GPX adapter that snapshots one local regular file, enforces the
+approved secure StAX and UTF-8 boundaries, and materializes bounded waypoint records with the fixed
+schema and recognized EPSG:4326 metadata. Focused parser, source lifecycle, cancellation, tolerant
+rendering, architecture, publication, offline repository, and staged Java 21 consumer evidence cover
+the working slice. Tracks, the runnable viewer, exhaustive hostile-input fixtures, and Native Image
+evidence remain owned by G10-051 through G10-053.

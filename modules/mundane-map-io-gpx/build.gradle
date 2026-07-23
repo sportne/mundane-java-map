@@ -1,0 +1,12 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    testImplementation project(':modules:mundane-map-awt')
+}
+
+description = 'JDK-only secure bounded GPX 1.1 feature-source support.'
