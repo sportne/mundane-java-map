@@ -657,8 +657,13 @@ separately decomposed.
   measurement keeps its existing shortest antimeridian distance and private display references keep
   the path beneath the pointer across multi-world views. The measurement and point-edit examples
   expose explicit wrapped modes without changing planar defaults.
-- G16-006 repeats only compatible explicitly global raster sources and establishes bounded canonical
-  tile-column math for later G10 HTTP/MBTiles consumers; it creates no empty format or network module.
+- G16-006 is complete: explicitly opted-in global rasters validate matching CRS, full-period extent,
+  and axis-aligned affine behavior before attachment. Canonical seam windows are read and accounted
+  once, tolerated source edges normalize to exact display seams, detached pixels are reused across
+  checked visual copies, cancellation publishes atomically, and local or rotated/sheared rasters
+  remain bounded. The raster viewer exposes an explicit global
+  mode, and bounded tile-column math is ready for later G10 HTTP/MBTiles consumers without an empty
+  format or network module.
 - G16-007 closes malformed/precision/copy limits, tolerant rendering, performance evidence, Linux
   Native Image, staged consumer, Javadocs, examples, and maintainer visual approval. Performance
   remains evidence rather than a wall-clock quality threshold.

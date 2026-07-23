@@ -97,7 +97,12 @@ class HorizontalWrapTest {
     void canonicalTileColumnsUseFloorModulo() {
         assertEquals(3L, WRAP.canonicalTileColumn(-1L, 4L));
         assertEquals(0L, WRAP.canonicalTileColumn(4L, 4L));
+        assertEquals(0L, WRAP.canonicalTileColumn(Long.MIN_VALUE, 1L));
+        assertEquals(0L, WRAP.canonicalTileColumn(Long.MAX_VALUE, 1L));
+        assertEquals(Long.MAX_VALUE - 1, WRAP.canonicalTileColumn(Long.MIN_VALUE, Long.MAX_VALUE));
+        assertEquals(0L, WRAP.canonicalTileColumn(Long.MAX_VALUE, Long.MAX_VALUE));
         assertThrows(IllegalArgumentException.class, () -> WRAP.canonicalTileColumn(0L, 0L));
+        assertThrows(IllegalArgumentException.class, () -> WRAP.canonicalTileColumn(0L, -1L));
     }
 
     @Test

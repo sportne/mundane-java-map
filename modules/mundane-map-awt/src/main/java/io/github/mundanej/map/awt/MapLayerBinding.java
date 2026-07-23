@@ -587,13 +587,13 @@ public final class MapLayerBinding implements AutoCloseable {
     /**
      * Changes horizontal repetition while this binding is open and unattached.
      *
-     * <p>Only feature-source and editable-feature bindings may repeat in the current vector slice.
+     * <p>Feature-source, editable-feature, and compatible global-raster bindings may repeat.
      * Attaching any repeating binding also requires a compatible {@link MapView#horizontalWrap()}
      * profile.
      *
      * @param mode explicit non-null mode
      * @throws NullPointerException if {@code mode} is {@code null}
-     * @throws IllegalArgumentException if raster or elevation repetition is requested
+     * @throws IllegalArgumentException if snapshot or elevation repetition is requested
      * @throws IllegalStateException if this binding is closed or attached
      */
     public synchronized void setHorizontalWrapMode(HorizontalWrapMode mode) {
@@ -606,9 +606,10 @@ public final class MapLayerBinding implements AutoCloseable {
         }
         if (kind != Kind.FEATURE
                 && kind != Kind.EDITABLE
+                && kind != Kind.RASTER
                 && requested == HorizontalWrapMode.REPEAT_X) {
             throw new IllegalArgumentException(
-                    "Only feature-source and editable bindings may repeat in the vector slice");
+                    "Only feature-source, editable, and raster bindings may repeat");
         }
         horizontalWrapMode = requested;
     }

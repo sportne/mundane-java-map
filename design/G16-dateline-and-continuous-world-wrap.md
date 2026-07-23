@@ -366,3 +366,22 @@ beneath the pointer even when multiple copies are visible. Out-of-limit transien
 yields no map coordinate so cancellation and close remain deterministic after a layer has already
 reported a wrap limit failure. The measurement viewer enables geographic repetition explicitly; the
 point-edit viewer keeps its planar default and adds a `--wrapped` mode.
+
+G16-006 completion record (2026-07-22): raster repetition remains a pre-attachment binding opt-in
+and accepts only the exact display CRS, a full canonical horizontal period within the approved
+edge tolerance, and axis-aligned or affine placement with zero rotation and shear. Local/default
+rasters remain unchanged; incompatible explicit requests report `WORLD_WRAP_RASTER_INCOMPATIBLE`
+with `crs`, `extent`, `rotation`, or `shear`. Each unique canonical visible interval produces one
+bounded request and detached image, while all intersecting checked visual copies share that image
+and translate only immutable placement/clip values. Accepted inward or outward edge-tolerance
+differences are linearly normalized to the exact canonical display edges after source-window
+selection, and canonical visible clips are inversely mapped to actual source coordinates before
+that selection. This prevents even a viewport wholly inside the tolerated display-edge strip from
+disappearing, while avoiding a high-zoom seam gap or overlap without changing source grid addressing.
+Request pixels and owned/intermediate bytes are charged cumulatively before publication, and
+cancellation or failure discards every staged part, including a completed first split interval.
+PNG/JPEG decoding, caches, corruption diagnostics, and ownership stay in their existing source/AWT
+boundaries. The raster viewer retains local behavior by default and adds `--repeat-global`; core
+floor-modulo tile-column math covers signed boundaries without creating a tile or network module.
+Tolerant rendering regression covers a multi-copy seam with nonuniform colors, bilinear requests,
+and opacity composition.

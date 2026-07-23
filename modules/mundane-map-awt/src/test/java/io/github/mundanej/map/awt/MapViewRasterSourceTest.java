@@ -35,9 +35,11 @@ import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.SyntheticRasterSource;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.event.MouseEvent;
@@ -346,6 +348,198 @@ class MapViewRasterSourceTest {
                             () -> view.setSelection(new FeatureSelection("raster", "pixel")));
                     assertEquals(0, source.readCount);
                     view.close();
+                });
+    }
+
+    @Test
+    void explicitGlobalRasterRepeatsAcrossASeamWithOneReadPerCanonicalWindow() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    double limit = WebMercatorProjection.WORLD_LIMIT;
+                    TestRasterSource source =
+                            projectedSource(
+                                    "wrapped-seam",
+                                    4,
+                                    2,
+                                    new Envelope(-limit, -limit / 2, limit, limit / 2));
+                    source.solidRgba = 0xff00_00ff;
+                    MapView view = wrappedRasterView(100, 50, limit, 0.5);
+                    MapLayerBinding binding =
+                            MapLayerBinding.borrowedRaster(
+                                    "wrapped-seam",
+                                    "wrapped-seam",
+                                    source,
+                                    new RasterRenderOptions(RasterInterpolation.BILINEAR, 0.5));
+                    binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    view.setLayerBindings(List.of(binding));
+
+                    BufferedImage image = paint(view, 100, 50);
+
+                    assertEquals(2, source.readCount);
+                    assertEquals(RasterInterpolation.BILINEAR, source.lastRequest.interpolation());
+                    assertColorNear(new Color(255, 127, 127), new Color(image.getRGB(1, 25)), 2);
+                    assertColorNear(new Color(255, 127, 127), new Color(image.getRGB(50, 25)), 2);
+                    assertColorNear(new Color(255, 127, 127), new Color(image.getRGB(98, 25)), 2);
+                    view.close();
+                });
+    }
+
+    @Test
+    void multiWorldRasterCopiesReuseOneDetachedCanonicalRead() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    double limit = WebMercatorProjection.WORLD_LIMIT;
+                    TestRasterSource source =
+                            projectedSource(
+                                    "wrapped-multi",
+                                    4,
+                                    2,
+                                    new Envelope(-limit, -limit / 2, limit, limit / 2));
+                    source.solidRgba = 0x0000_ffff;
+                    MapView view = wrappedRasterView(300, 50, 0.0, 3.0);
+                    MapLayerBinding binding =
+                            MapLayerBinding.borrowedRaster(
+                                    "wrapped-multi", "wrapped-multi", source);
+                    binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    view.setLayerBindings(List.of(binding));
+
+                    BufferedImage image = paint(view, 300, 50);
+
+                    assertEquals(1, source.readCount);
+                    assertEquals(new RasterWindow(0, 0, 4, 2), source.lastRequest.sourceWindow());
+                    assertColorNear(Color.BLUE, new Color(image.getRGB(25, 25)), 1);
+                    assertColorNear(Color.BLUE, new Color(image.getRGB(125, 25)), 1);
+                    assertColorNear(Color.BLUE, new Color(image.getRGB(225, 25)), 1);
+                    view.close();
+                });
+    }
+
+    @Test
+    void wrappedRasterCopyLimitAndCancellationFailAtomically() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    double limit = WebMercatorProjection.WORLD_LIMIT;
+                    Envelope global = new Envelope(-limit, -limit / 2, limit, limit / 2);
+                    TestRasterSource limited = projectedSource("wrapped-limit", 4, 2, global);
+                    limited.solidRgba = 0xff00_00ff;
+                    MapView limitedView = TestMapViews.identity();
+                    limitedView.setSize(100, 50);
+                    limitedView.setViewport(new MapViewport(100, 50, 0, 0, 2 * limit / 200));
+                    limitedView.setHorizontalWrap(
+                            new HorizontalWrap(
+                                    -limit, limit, 1, HorizontalWrap.COPY_INDEX_HARD_MAXIMUM));
+                    limitedView.setViewport(new MapViewport(100, 50, limit, 0, 2 * limit / 100));
+                    MapLayerBinding limitedBinding =
+                            MapLayerBinding.borrowedRaster(
+                                    "wrapped-limit", "wrapped-limit", limited);
+                    limitedBinding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    limitedView.setLayerBindings(List.of(limitedBinding));
+
+                    BufferedImage limitedImage = paint(limitedView, 100, 50);
+
+                    assertEquals(0, limited.readCount);
+                    assertEquals(Color.WHITE, new Color(limitedImage.getRGB(50, 25)));
+                    assertEquals(
+                            "WORLD_WRAP_COPY_LIMIT_EXCEEDED",
+                            limitedView
+                                    .sourceReports()
+                                    .get("wrapped-limit")
+                                    .entries()
+                                    .getLast()
+                                    .code());
+                    limitedView.close();
+
+                    TestRasterSource cancelled = projectedSource("wrapped-cancel", 4, 2, global);
+                    cancelled.solidRgba = 0xff00_00ff;
+                    MapView cancelledView = wrappedRasterView(100, 50, limit, 0.5);
+                    MapLayerBinding cancelledBinding =
+                            MapLayerBinding.borrowedRaster(
+                                    "wrapped-cancel", "wrapped-cancel", cancelled);
+                    cancelledBinding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    cancelled.afterRead = cancelledBinding::cancelCurrentOperation;
+                    cancelledView.setLayerBindings(List.of(cancelledBinding));
+
+                    BufferedImage cancelledImage = paint(cancelledView, 100, 50);
+
+                    assertEquals(1, cancelled.readCount);
+                    assertEquals(Color.WHITE, new Color(cancelledImage.getRGB(50, 25)));
+                    assertEquals(
+                            "SOURCE_CANCELLED",
+                            cancelledView
+                                    .sourceReports()
+                                    .get("wrapped-cancel")
+                                    .entries()
+                                    .getLast()
+                                    .code());
+                    cancelledView.close();
+
+                    TestRasterSource failed = projectedSource("wrapped-fail", 4, 2, global);
+                    failed.solidRgba = 0xff00_00ff;
+                    failed.failureCode = "TEST_RASTER_FAILED";
+                    failed.failOnRead = 2;
+                    MapView failedView = wrappedRasterView(100, 50, limit, 0.5);
+                    MapLayerBinding failedBinding =
+                            MapLayerBinding.borrowedRaster("wrapped-fail", "wrapped-fail", failed);
+                    failedBinding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    failedView.setLayerBindings(List.of(failedBinding));
+
+                    BufferedImage failedImage = paint(failedView, 100, 50);
+
+                    assertEquals(2, failed.readCount);
+                    assertEquals(Color.WHITE, new Color(failedImage.getRGB(50, 25)));
+                    assertEquals(
+                            "TEST_RASTER_FAILED",
+                            failedView
+                                    .sourceReports()
+                                    .get("wrapped-fail")
+                                    .entries()
+                                    .getLast()
+                                    .code());
+                    failedView.close();
+                });
+    }
+
+    @Test
+    void repeatingRasterRequiresMatchingCrsGlobalExtentAndUnrotatedPlacement() throws Exception {
+        double limit = WebMercatorProjection.WORLD_LIMIT;
+        double period = 2 * limit;
+        MapView view = TestMapViews.identity();
+        view.setHorizontalWrap(HorizontalWrap.webMercator());
+
+        assertRepeatingRasterRejected(
+                view,
+                source(
+                        "wrap-crs",
+                        2,
+                        2,
+                        Optional.of(new Envelope(-180, -90, 180, 90)),
+                        recognized(CrsDefinitions.EPSG_4326),
+                        RasterSourceLimits.LEVEL_1),
+                "crs");
+        assertRepeatingRasterRejected(
+                view,
+                projectedSource("wrap-local", 2, 2, new Envelope(-limit + 1, -1, limit, 1)),
+                "extent");
+
+        RasterSource rotated =
+                affineSource(
+                        "wrap-rotated",
+                        RasterAffineTransform.of(period / 2, 1, 0, -1, -limit + period / 4, 0));
+        assertRepeatingRasterRejected(view, rotated, "rotation");
+        RasterSource sheared =
+                affineSource(
+                        "wrap-sheared",
+                        RasterAffineTransform.of(period / 2, 0, 1, -1, -limit + period / 4, 0));
+        assertRepeatingRasterRejected(view, sheared, "shear");
+
+        double tolerance = period * 1.0e-12;
+        view.close();
+
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    assertToleratedRasterHasNoSeam("wrap-inward", tolerance / 2, limit, tolerance);
+                    assertToleratedRasterHasNoSeam(
+                            "wrap-outward", -tolerance / 2, limit, tolerance);
                 });
     }
 
@@ -700,6 +894,72 @@ class MapViewRasterSourceTest {
         return view;
     }
 
+    private static MapView wrappedRasterView(
+            int width, int height, double centerX, double periodsAcross) {
+        double period = 2 * WebMercatorProjection.WORLD_LIMIT;
+        MapView view = TestMapViews.identity();
+        view.setSize(width, height);
+        view.setHorizontalWrap(HorizontalWrap.webMercator());
+        view.setViewport(
+                new MapViewport(width, height, centerX, 0, period * periodsAcross / width));
+        return view;
+    }
+
+    private static TestRasterSource affineSource(String id, RasterAffineTransform transform) {
+        return new TestRasterSource(
+                RasterSourceMetadata.withPlacement(
+                        new SourceIdentity(id, id),
+                        2,
+                        2,
+                        RasterGridPlacement.affine(transform),
+                        recognized(CrsDefinitions.EPSG_3857)),
+                RasterSourceLimits.LEVEL_1);
+    }
+
+    private static void assertToleratedRasterHasNoSeam(
+            String id, double inwardOffset, double limit, double tolerance) {
+        TestRasterSource source =
+                projectedSource(
+                        id, 2, 2, new Envelope(-limit + inwardOffset, -1, limit - inwardOffset, 1));
+        source.solidRgba = 0xff00_00ff;
+        MapView view = TestMapViews.identity();
+        view.setSize(100, 40);
+        view.setViewport(new MapViewport(100, 40, limit, 0, tolerance / 10));
+        view.setHorizontalWrap(HorizontalWrap.webMercator());
+        MapLayerBinding binding = MapLayerBinding.borrowedRaster(id, id, source);
+        binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+        view.setLayerBindings(List.of(binding));
+
+        BufferedImage image = paint(view, 100, 40);
+
+        for (int column = 0; column < image.getWidth(); column++) {
+            assertColorNear(Color.RED, new Color(image.getRGB(column, 20)), 1);
+        }
+        if (inwardOffset > 0) {
+            view.setViewport(new MapViewport(100, 40, limit - tolerance / 8, 0, tolerance / 800));
+            BufferedImage normalizedEdge = paint(view, 100, 40);
+            for (int column = 0; column < normalizedEdge.getWidth(); column++) {
+                assertColorNear(Color.RED, new Color(normalizedEdge.getRGB(column, 20)), 1);
+            }
+        }
+        view.close();
+    }
+
+    private static void assertRepeatingRasterRejected(
+            MapView view, RasterSource source, String reason) {
+        MapLayerBinding binding =
+                MapLayerBinding.borrowedRaster(
+                        source.metadata().identity().id(),
+                        source.metadata().identity().displayName(),
+                        source);
+        binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+        SourceException failure =
+                assertThrows(SourceException.class, () -> view.setLayerBindings(List.of(binding)));
+        assertEquals("WORLD_WRAP_RASTER_INCOMPATIBLE", failure.terminal().code());
+        assertEquals(reason, failure.terminal().context().get("reason"));
+        assertTrue(view.layerBindings().isEmpty());
+    }
+
     @SuppressWarnings("deprecation")
     private static InMemoryLayer pointLayer() {
         Feature point =
@@ -801,10 +1061,12 @@ class MapViewRasterSourceTest {
         private RasterRequest lastRequest;
         private boolean warning;
         private String failureCode;
+        private int failOnRead;
         private Integer solidRgba;
         private boolean splitOutput;
         private boolean closed;
         private List<String> closeOrder;
+        private Runnable afterRead;
 
         private TestRasterSource(RasterSourceMetadata metadata, RasterSourceLimits limits) {
             this.metadata = metadata;
@@ -833,7 +1095,7 @@ class MapViewRasterSourceTest {
             }
             readCount++;
             lastRequest = request;
-            if (failureCode != null) {
+            if (failureCode != null && (failOnRead == 0 || readCount == failOnRead)) {
                 throw failure(metadata.identity().id(), failureCode, false);
             }
             RgbaPixelBuffer.Builder pixels =
@@ -854,10 +1116,17 @@ class MapViewRasterSourceTest {
                                             : testPixel(absoluteColumn, absoluteRow));
                 }
             }
-            return new RasterRead(
-                    request.sourceWindow(),
-                    pixels.build(),
-                    warning ? warning(metadata.identity().id()) : DiagnosticReport.empty());
+            RasterRead read =
+                    new RasterRead(
+                            request.sourceWindow(),
+                            pixels.build(),
+                            warning ? warning(metadata.identity().id()) : DiagnosticReport.empty());
+            if (afterRead != null) {
+                Runnable callback = afterRead;
+                afterRead = null;
+                callback.run();
+            }
+            return read;
         }
 
         @Override

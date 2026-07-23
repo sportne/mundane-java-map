@@ -60,6 +60,7 @@ import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Projection;
+import io.github.mundanej.map.api.RasterAffineTransform;
 import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.RasterInterpolation;
@@ -2887,11 +2888,21 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private static void renderRasterLayer(
             Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
-        if (raster.placement().isPresent()
-                && raster.placement().orElseThrow().kind() == RasterGridPlacement.Kind.AFFINE) {
-            renderAffineRasterLayer(graphics, raster, viewportSnapshot);
-            return;
+        for (RasterPart part : raster.parts()) {
+            if (part.placement().isPresent()
+                    && part.placement().orElseThrow().kind() == RasterGridPlacement.Kind.AFFINE) {
+                renderAffineRasterLayer(graphics, part, raster.options(), viewportSnapshot);
+            } else {
+                renderAxisAlignedRasterLayer(graphics, part, raster.options(), viewportSnapshot);
+            }
         }
+    }
+
+    private static void renderAxisAlignedRasterLayer(
+            Graphics2D graphics,
+            RasterPart raster,
+            RasterRenderOptions options,
+            MapViewport viewportSnapshot) {
         Envelope bounds = raster.mapBounds();
         Coordinate topLeft =
                 viewportSnapshot.worldToScreen(new Coordinate(bounds.minX(), bounds.maxY()));
@@ -2911,8 +2922,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         try {
             applyRasterClip(child, raster, viewportSnapshot);
             child.setComposite(
-                    AlphaComposite.getInstance(
-                            AlphaComposite.SRC_OVER, (float) raster.options().opacity()));
+                    AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) options.opacity()));
             child.setRenderingHint(
                     RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -2926,7 +2936,10 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private static void renderAffineRasterLayer(
-            Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
+            Graphics2D graphics,
+            RasterPart raster,
+            RasterRenderOptions options,
+            MapViewport viewportSnapshot) {
         var transform = raster.placement().orElseThrow().affineTransform().orElseThrow();
         RasterWindow window = raster.window();
         double left = window.column() - 0.5;
@@ -2954,8 +2967,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         try {
             applyRasterClip(child, raster, viewportSnapshot);
             child.setComposite(
-                    AlphaComposite.getInstance(
-                            AlphaComposite.SRC_OVER, (float) raster.options().opacity()));
+                    AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) options.opacity()));
             child.setRenderingHint(
                     RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
@@ -2969,7 +2981,7 @@ public final class MapView extends JComponent implements AutoCloseable {
     }
 
     private static void applyRasterClip(
-            Graphics2D graphics, RasterSnapshot raster, MapViewport viewportSnapshot) {
+            Graphics2D graphics, RasterPart raster, MapViewport viewportSnapshot) {
         if (raster.clipMapBounds().equals(raster.mapBounds())) {
             return;
         }
@@ -5627,6 +5639,9 @@ public final class MapView extends JComponent implements AutoCloseable {
         if (options.opacity() == 0.0) {
             return emptyRasterSnapshot(binding.id());
         }
+        if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+            return captureWrappedRasterSource(binding, viewportSnapshot, options);
+        }
         RasterSource source = binding.rasterSource();
         RasterSourceMetadata metadata = source.metadata();
         MapLayerBinding.Operation operation = binding.beginOperation();
@@ -5713,6 +5728,238 @@ public final class MapView extends JComponent implements AutoCloseable {
         } finally {
             binding.endOperation(operation);
         }
+    }
+
+    private LayerSnapshot captureWrappedRasterSource(
+            MapLayerBinding binding, MapViewport viewportSnapshot, RasterRenderOptions options) {
+        RasterSource source = binding.rasterSource();
+        RasterSourceMetadata metadata = source.metadata();
+        HorizontalWrap profile = Objects.requireNonNull(horizontalWrap, "horizontalWrap");
+        MapLayerBinding.Operation operation = binding.beginOperation();
+        DiagnosticReport encountered = DiagnosticReport.empty();
+        try {
+            Envelope visibleBounds = viewportSnapshot.visibleWorldEnvelope();
+            HorizontalWrapPlan wrapPlan =
+                    profile.plan(
+                            visibleBounds.minX(),
+                            visibleBounds.maxX(),
+                            viewportSnapshot.worldUnitsPerPixel());
+            Envelope sourceBounds = metadata.mapBounds().orElseThrow();
+            double visibleMinimumY = Math.max(visibleBounds.minY(), sourceBounds.minY());
+            double visibleMaximumY = Math.min(visibleBounds.maxY(), sourceBounds.maxY());
+            if (visibleMinimumY >= visibleMaximumY) {
+                MapLayerBinding.Phase phase = operation.finish(true);
+                if (phase == MapLayerBinding.Phase.CANCELLED) {
+                    updateSourceResult(binding.id(), rasterCancellationReport(source), false);
+                    return emptyRasterSnapshot(binding.id());
+                }
+                updateSourceResult(binding.id(), DiagnosticReport.empty(), true);
+                return emptyRasterSnapshot(binding.id());
+            }
+
+            RasterRequestAccounting accounting =
+                    new RasterRequestAccounting(
+                            metadata.identity().id(),
+                            source.limits().requestLimits(),
+                            operation.token());
+            List<RasterPart> parts = new ArrayList<>();
+            RasterGridPlacement canonicalPlacement =
+                    canonicalRasterPlacement(metadata, sourceBounds, profile);
+            for (HorizontalInterval interval : wrapPlan.canonicalIntervals()) {
+                accounting.checkpoint();
+                Envelope canonicalClip =
+                        new Envelope(
+                                interval.minimumX(),
+                                visibleMinimumY,
+                                interval.maximumX(),
+                                visibleMaximumY);
+                Optional<RasterWindow> visible =
+                        RasterGridWindows.visibleWindow(
+                                metadata,
+                                actualRasterEnvelope(canonicalClip, sourceBounds, profile));
+                if (visible.isEmpty()) {
+                    continue;
+                }
+                RasterWindow window = visible.orElseThrow();
+                RasterGridWindows.OutputSize output =
+                        RasterGridWindows.outputSize(metadata, window, viewportSnapshot);
+                RasterRequest request =
+                        new RasterRequest(
+                                window,
+                                output.width(),
+                                output.height(),
+                                options.interpolation(),
+                                Optional.empty());
+                accounting.validateWindow(metadata, window);
+                accounting.chargeSourcePixels(
+                        Math.multiplyExact((long) window.width(), window.height()));
+                long outputPixels =
+                        accounting.validateOutput(request.outputWidth(), request.outputHeight());
+                accounting.chargeIntermediateBytes(Math.multiplyExact(outputPixels, 8L));
+                accounting.chargePublishedBytes(Math.multiplyExact(outputPixels, 4L));
+                RasterRead read = source.read(request, operation.token());
+                encountered = mergeReports(encountered, read.diagnostics(), source);
+                requireRasterReadShape(request, read);
+                BufferedImage image =
+                        AwtRgbaPixels.toBufferedImage(read.pixels(), accounting::checkpoint);
+                Envelope canonicalMapBounds =
+                        canonicalRasterEnvelope(
+                                RasterGridWindows.mapBounds(metadata, window),
+                                sourceBounds,
+                                profile);
+                for (long copyIndex = wrapPlan.minimumVisibleCopyIndex();
+                        copyIndex <= wrapPlan.maximumVisibleCopyIndex();
+                        copyIndex++) {
+                    double offset = rasterCopyOffset(profile, copyIndex);
+                    Envelope translatedClip = translateRasterEnvelope(canonicalClip, offset);
+                    if (!intersects(translatedClip, visibleBounds)) {
+                        continue;
+                    }
+                    parts.add(
+                            new RasterPart(
+                                    image,
+                                    translateRasterEnvelope(canonicalMapBounds, offset),
+                                    translatedRasterPlacement(canonicalPlacement, offset),
+                                    window,
+                                    translatedClip));
+                }
+            }
+            MapLayerBinding.Phase phase = operation.finish(true);
+            if (phase == MapLayerBinding.Phase.CANCELLED) {
+                DiagnosticReport cancelled =
+                        mergeReports(encountered, rasterCancellationReport(source), source);
+                updateSourceResult(binding.id(), cancelled, false);
+                return emptyRasterSnapshot(binding.id());
+            }
+            updateSourceResult(binding.id(), encountered, true);
+            if (parts.isEmpty()) {
+                return emptyRasterSnapshot(binding.id());
+            }
+            return new LayerSnapshot(
+                    binding.id(),
+                    List.of(),
+                    Optional.of(new RasterSnapshot(parts, options)),
+                    false,
+                    true);
+        } catch (HorizontalWrapException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                            ? mergeReports(encountered, rasterCancellationReport(source), source)
+                            : mergeReports(
+                                    encountered,
+                                    horizontalWrapRasterFailure(source, failure),
+                                    source);
+            updateSourceResult(binding.id(), report, false);
+            return emptyRasterSnapshot(binding.id());
+        } catch (SourceException failure) {
+            MapLayerBinding.Phase phase = operation.finish(false);
+            DiagnosticReport warnings = withoutTerminal(failure.report());
+            DiagnosticReport observed =
+                    warnings.entries().isEmpty() && warnings.omittedWarningCount() == 0
+                            ? encountered
+                            : mergeReports(encountered, warnings, source);
+            DiagnosticReport report =
+                    phase == MapLayerBinding.Phase.CANCELLED
+                                    || failure.terminal().code().equals("SOURCE_CANCELLED")
+                            ? mergeReports(observed, rasterCancellationReport(source), source)
+                            : mergeReports(observed, terminalOnly(failure.report()), source);
+            updateSourceResult(binding.id(), report, false);
+            return emptyRasterSnapshot(binding.id());
+        } catch (RuntimeException | Error failure) {
+            operation.finish(false);
+            throw failure;
+        } finally {
+            binding.endOperation(operation);
+        }
+    }
+
+    private static double rasterCopyOffset(HorizontalWrap profile, long copyIndex) {
+        return profile.translate(profile.canonicalMinimumX(), copyIndex)
+                - profile.canonicalMinimumX();
+    }
+
+    private static Envelope translateRasterEnvelope(Envelope bounds, double offset) {
+        double minimumX = bounds.minX() + offset;
+        double maximumX = bounds.maxX() + offset;
+        if (!Double.isFinite(minimumX) || !Double.isFinite(maximumX)) {
+            throw new ArithmeticException("Wrapped raster bounds must remain finite");
+        }
+        return new Envelope(minimumX, bounds.minY(), maximumX, bounds.maxY());
+    }
+
+    private static Optional<RasterGridPlacement> translatedRasterPlacement(
+            RasterGridPlacement placement, double offset) {
+        if (placement.kind() != RasterGridPlacement.Kind.AFFINE) {
+            return Optional.of(placement);
+        }
+        RasterAffineTransform transform = placement.affineTransform().orElseThrow();
+        return Optional.of(
+                RasterGridPlacement.affine(
+                        RasterAffineTransform.of(
+                                transform.a(),
+                                transform.d(),
+                                transform.b(),
+                                transform.e(),
+                                transform.c() + offset,
+                                transform.f())));
+    }
+
+    private static RasterGridPlacement canonicalRasterPlacement(
+            RasterSourceMetadata metadata, Envelope sourceBounds, HorizontalWrap profile) {
+        RasterGridPlacement placement = metadata.gridPlacement().orElseThrow();
+        if (placement.kind() == RasterGridPlacement.Kind.AXIS_ALIGNED) {
+            return RasterGridPlacement.axisAligned(
+                    new Envelope(
+                            profile.canonicalMinimumX(),
+                            sourceBounds.minY(),
+                            profile.canonicalMaximumX(),
+                            sourceBounds.maxY()));
+        }
+        RasterAffineTransform transform = placement.affineTransform().orElseThrow();
+        double factor = profile.period() / sourceBounds.width();
+        double canonicalA = transform.a() * factor;
+        double canonicalC =
+                profile.canonicalMinimumX() + (transform.c() - sourceBounds.minX()) * factor;
+        if (!Double.isFinite(canonicalA) || !Double.isFinite(canonicalC)) {
+            throw new ArithmeticException("Canonical raster placement must remain finite");
+        }
+        return RasterGridPlacement.affine(
+                RasterAffineTransform.of(
+                        canonicalA,
+                        transform.d(),
+                        transform.b(),
+                        transform.e(),
+                        canonicalC,
+                        transform.f()));
+    }
+
+    private static Envelope canonicalRasterEnvelope(
+            Envelope actualBounds, Envelope sourceBounds, HorizontalWrap profile) {
+        double factor = profile.period() / sourceBounds.width();
+        double minimumX =
+                profile.canonicalMinimumX() + (actualBounds.minX() - sourceBounds.minX()) * factor;
+        double maximumX =
+                profile.canonicalMinimumX() + (actualBounds.maxX() - sourceBounds.minX()) * factor;
+        if (!Double.isFinite(minimumX) || !Double.isFinite(maximumX)) {
+            throw new ArithmeticException("Canonical raster bounds must remain finite");
+        }
+        return new Envelope(minimumX, actualBounds.minY(), maximumX, actualBounds.maxY());
+    }
+
+    private static Envelope actualRasterEnvelope(
+            Envelope canonicalBounds, Envelope sourceBounds, HorizontalWrap profile) {
+        double factor = sourceBounds.width() / profile.period();
+        double minimumX =
+                sourceBounds.minX()
+                        + (canonicalBounds.minX() - profile.canonicalMinimumX()) * factor;
+        double maximumX =
+                sourceBounds.minX()
+                        + (canonicalBounds.maxX() - profile.canonicalMinimumX()) * factor;
+        if (!Double.isFinite(minimumX) || !Double.isFinite(maximumX)) {
+            throw new ArithmeticException("Actual raster request bounds must remain finite");
+        }
+        return new Envelope(minimumX, canonicalBounds.minY(), maximumX, canonicalBounds.maxY());
     }
 
     private LayerSnapshot captureElevationSource(
@@ -6293,14 +6540,63 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    private static void validateRepeatingBinding(MapLayerBinding binding, HorizontalWrap profile) {
+    private void validateRepeatingBinding(MapLayerBinding binding, HorizontalWrap profile) {
         Objects.requireNonNull(profile, "profile");
+        if (binding.kind() == MapLayerBinding.Kind.RASTER) {
+            validateRepeatingRaster(binding.rasterSource(), profile);
+            return;
+        }
         if (binding.kind() != MapLayerBinding.Kind.FEATURE
                 && binding.kind() != MapLayerBinding.Kind.EDITABLE) {
             throw new IllegalStateException(
-                    "Only feature-source and editable bindings may repeat in this vector slice: "
+                    "Only feature-source, editable, and raster bindings may repeat: "
                             + binding.id());
         }
+    }
+
+    private void validateRepeatingRaster(RasterSource source, HorizontalWrap profile) {
+        RasterSourceMetadata metadata = source.metadata();
+        CrsDefinition sourceCrs = metadata.crs().flatMap(crs -> crs.definition()).orElse(null);
+        if (!displayCrs.equals(sourceCrs)) {
+            throw repeatingRasterIncompatible(source, "crs");
+        }
+        RasterGridPlacement placement = metadata.gridPlacement().orElse(null);
+        if (placement == null) {
+            throw repeatingRasterIncompatible(source, "extent");
+        }
+        if (placement.kind() == RasterGridPlacement.Kind.AFFINE) {
+            RasterAffineTransform transform = placement.affineTransform().orElseThrow();
+            if (transform.d() != 0.0) {
+                throw repeatingRasterIncompatible(source, "rotation");
+            }
+            if (transform.b() != 0.0) {
+                throw repeatingRasterIncompatible(source, "shear");
+            }
+        }
+        Envelope bounds = metadata.mapBounds().orElse(null);
+        if (bounds == null
+                || !rasterEdgeMatches(bounds.minX(), profile.canonicalMinimumX(), profile.period())
+                || !rasterEdgeMatches(
+                        bounds.maxX(), profile.canonicalMaximumX(), profile.period())) {
+            throw repeatingRasterIncompatible(source, "extent");
+        }
+    }
+
+    private static boolean rasterEdgeMatches(double actual, double expected, double period) {
+        double tolerance = Math.max(8.0 * Math.ulp(expected), period * 1.0e-12);
+        return Math.abs(actual - expected) <= tolerance;
+    }
+
+    private static SourceException repeatingRasterIncompatible(RasterSource source, String reason) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        "WORLD_WRAP_RASTER_INCOMPATIBLE",
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        "Raster is incompatible with horizontal world repetition",
+                        Map.of("reason", reason));
+        return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal);
     }
 
     private void cancelSourceOperations() {
@@ -6340,7 +6636,17 @@ public final class MapView extends JComponent implements AutoCloseable {
                                     "sourceCrs", rasterCrs.canonicalIdentifier(),
                                     "displayCrs", displayCrs.canonicalIdentifier())));
         }
-        identity.transformEnvelopeStrict(bounds);
+        if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+            HorizontalWrap profile = Objects.requireNonNull(horizontalWrap, "horizontalWrap");
+            identity.transformEnvelopeStrict(
+                    new Envelope(
+                            profile.canonicalMinimumX(),
+                            bounds.minY(),
+                            profile.canonicalMaximumX(),
+                            bounds.maxY()));
+        } else {
+            identity.transformEnvelopeStrict(bounds);
+        }
     }
 
     private void validateElevationAttachment(MapLayerBinding binding) {
@@ -6776,6 +7082,19 @@ public final class MapView extends JComponent implements AutoCloseable {
                         source.metadata().identity().id(),
                         Optional.of(DiagnosticLocation.empty()),
                         "Horizontal world-wrap planning failed",
+                        failure.problem().context());
+        return new DiagnosticReport(List.of(terminal), 0);
+    }
+
+    private static DiagnosticReport horizontalWrapRasterFailure(
+            RasterSource source, HorizontalWrapException failure) {
+        SourceDiagnostic terminal =
+                new SourceDiagnostic(
+                        failure.problem().code(),
+                        DiagnosticSeverity.ERROR,
+                        source.metadata().identity().id(),
+                        Optional.of(DiagnosticLocation.empty()),
+                        "Horizontal raster world-wrap planning failed",
                         failure.problem().context());
         return new DiagnosticReport(List.of(terminal), 0);
     }
@@ -7406,13 +7725,34 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    private record RasterSnapshot(
+    private record RasterPart(
             BufferedImage image,
             Envelope mapBounds,
             Optional<RasterGridPlacement> placement,
             RasterWindow window,
-            Envelope clipMapBounds,
-            RasterRenderOptions options) {}
+            Envelope clipMapBounds) {}
+
+    private record RasterSnapshot(List<RasterPart> parts, RasterRenderOptions options) {
+        private RasterSnapshot(
+                BufferedImage image,
+                Envelope mapBounds,
+                Optional<RasterGridPlacement> placement,
+                RasterWindow window,
+                Envelope clipMapBounds,
+                RasterRenderOptions options) {
+            this(
+                    List.of(new RasterPart(image, mapBounds, placement, window, clipMapBounds)),
+                    options);
+        }
+
+        private RasterSnapshot {
+            parts = List.copyOf(parts);
+            if (parts.isEmpty()) {
+                throw new IllegalArgumentException("Raster snapshot must contain a part");
+            }
+            Objects.requireNonNull(options, "options");
+        }
+    }
 
     private record ViewContentSnapshot(List<LayerSnapshot> layers) {
         private boolean allSourcesAvailable() {

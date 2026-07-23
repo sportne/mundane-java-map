@@ -9,10 +9,13 @@ import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterSource;
+import io.github.mundanej.map.awt.HorizontalWrapMode;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.EventQueue;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -48,6 +51,13 @@ class RasterViewerTest {
                                 new String[] {image.toString(), "--world-file", "EPSG:4326"})
                         .worldFileCrs()
                         .isPresent());
+        RasterViewer.Arguments repeating =
+                RasterViewer.parseArguments(
+                        new String[] {
+                            image.toString(), "--repeat-global", "--world-file", "EPSG:3857"
+                        });
+        assertTrue(repeating.repeatGlobal());
+        assertTrue(repeating.worldFileCrs().isPresent());
         assertThrows(
                 IllegalArgumentException.class, () -> RasterViewer.parseArguments(new String[0]));
         assertThrows(
@@ -58,6 +68,66 @@ class RasterViewerTest {
                 () ->
                         RasterViewer.parseArguments(
                                 new String[] {image.toString(), "--world-file", "EPSG:9999"}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        RasterViewer.parseArguments(
+                                new String[] {
+                                    image.toString(), "--repeat-global", "--repeat-global"
+                                }));
+    }
+
+    @Test
+    void explicitGlobalRepeatLaunchesOnlyForACompatibleWorldFile() throws Exception {
+        Path image = temporaryDirectory.resolve("global.png");
+        Path world = temporaryDirectory.resolve("global.pgw");
+        BufferedImage fixture = new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB);
+        fixture.setRGB(0, 0, 0xffff_0000);
+        fixture.setRGB(1, 0, 0xffff_0000);
+        fixture.setRGB(0, 1, 0xffff_0000);
+        fixture.setRGB(1, 1, 0xffff_0000);
+        assertTrue(ImageIO.write(fixture, "png", image.toFile()));
+        double limit = WebMercatorProjection.WORLD_LIMIT;
+        Files.writeString(
+                world,
+                String.join(
+                                "\n",
+                                Double.toString(limit),
+                                "0",
+                                "0",
+                                Double.toString(-limit),
+                                Double.toString(-limit / 2),
+                                Double.toString(limit / 2))
+                        + "\n");
+        RasterViewer.Arguments arguments =
+                RasterViewer.parseArguments(
+                        new String[] {
+                            image.toString(), "--world-file", "EPSG:3857", "--repeat-global"
+                        });
+        RasterSource source = RasterViewer.load(arguments);
+        AtomicReference<MapView> view = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView created = RasterViewer.createView(source, true);
+                    BufferedImage rendered =
+                            new BufferedImage(800, 600, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = rendered.createGraphics();
+                    try {
+                        created.paint(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    assertEquals(0xffff_0000, rendered.getRGB(400, 300));
+                    view.set(created);
+                });
+
+        assertTrue(view.get().horizontalWrap().isPresent());
+        assertEquals(
+                HorizontalWrapMode.REPEAT_X,
+                view.get().layerBindings().getFirst().horizontalWrapMode());
+        assertEquals("Global repeat", view.get().getClientProperty("raster-wrap-label"));
+        SwingUtilities.invokeAndWait(view.get()::close);
+        assertTrue(source.isClosed());
     }
 
     @Test

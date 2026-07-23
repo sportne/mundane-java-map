@@ -1,6 +1,6 @@
 # G16-006 — Explicit global raster wrap
 
-Status: Proposed
+Status: Complete
 Depends on: G16-003, G6-004
 Gate: G16
 Type: AFK
@@ -60,3 +60,16 @@ git diff --check
 
 The layer opt-in is authoritative. Do not infer global repetition from EPSG:3857 alone or add an
 empty HTTP, MBTiles, or GeoPackage module.
+
+Completed 2026-07-22. Raster bindings may opt into horizontal repetition before attachment. The
+view accepts only a matching display CRS, the approved full-period horizontal extent tolerance,
+and an axis-aligned or zero-rotation/zero-shear affine placement; incompatible requests fail with
+`WORLD_WRAP_RASTER_INCOMPATIBLE` and a stable reason. Visible seam intervals are read once each in
+canonical coordinates with cumulative request accounting, then their detached images are reused
+across checked translated parts without multiplying source ownership. Accepted edge-tolerance
+offsets are normalized to the exact canonical display edges so they cannot leave a high-zoom gap or
+overlap; canonical request clips are mapped back to actual source coordinates before window
+selection. Cancellation and failures discard the complete staged layer, including an already detached
+first seam interval. The raster viewer adds `--repeat-global` while retaining its
+local default, and bounded floor-modulo tile-column behavior remains dependency neutral for later
+tile consumers.

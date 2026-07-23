@@ -50,9 +50,11 @@ import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.PackedElevationGrid;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -696,7 +698,65 @@ class RenderRegressionTest {
                                     requireBetween(id, "blue", blue, 300, 3_000);
                                     requireBetween(id, "background", white, 100, 4_000);
                                 }));
-        return Stream.of(opacity, affine);
+        double period = 2 * WebMercatorProjection.WORLD_LIMIT;
+        RenderScenario wrapped =
+                new RenderScenario(
+                        "raster-layer-wrapped-seam-and-copies",
+                        240,
+                        80,
+                        () -> {
+                            MapView view = view(List.of());
+                            view.setHorizontalWrap(HorizontalWrap.webMercator());
+                            MapLayerBinding binding =
+                                    MapLayerBinding.borrowedRaster(
+                                            "wrapped-raster",
+                                            "wrapped-raster",
+                                            new WrappedRegressionRasterSource(),
+                                            new RasterRenderOptions(
+                                                    RasterInterpolation.BILINEAR, 0.5));
+                            binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                            view.setLayerBindings(List.of(binding));
+                            return view;
+                        },
+                        view ->
+                                view.setViewport(
+                                        new MapViewport(
+                                                240,
+                                                80,
+                                                WebMercatorProjection.WORLD_LIMIT,
+                                                0,
+                                                period * 1.5 / 240)),
+                        Optional.empty(),
+                        List.of(
+                                (id, image) -> {
+                                    int painted = 0;
+                                    for (int column = 0; column < image.getWidth(); column++) {
+                                        int rgb = image.getRGB(column, image.getHeight() / 2);
+                                        if (rgb != Color.WHITE.getRGB()) {
+                                            painted++;
+                                        }
+                                    }
+                                    requireBetween(id, "continuous-center-row", painted, 238, 240);
+                                    requireMatching(
+                                            id,
+                                            "first-green-copy",
+                                            image,
+                                            new Region(10, 20, 20, 40),
+                                            Rgba.rgb(127, 255, 127));
+                                    requireMatching(
+                                            id,
+                                            "repeated-green-copy",
+                                            image,
+                                            new Region(170, 20, 20, 40),
+                                            Rgba.rgb(127, 255, 127));
+                                    requireMatching(
+                                            id,
+                                            "seam-west-copy",
+                                            image,
+                                            new Region(125, 20, 20, 40),
+                                            Rgba.rgb(255, 127, 127));
+                                }));
+        return Stream.of(opacity, affine, wrapped);
     }
 
     private static Stream<RenderScenario> lineScenarios() {
@@ -1212,6 +1272,74 @@ class RenderRegressionTest {
             for (int row = 0; row < request.outputHeight(); row++) {
                 for (int column = 0; column < request.outputWidth(); column++) {
                     pixels.setRgba(column, row, 0xff0000ff);
+                }
+            }
+            return new RasterRead(request.sourceWindow(), pixels.build(), DiagnosticReport.empty());
+        }
+
+        @Override
+        public boolean isClosed() {
+            return false;
+        }
+
+        @Override
+        public void close() {}
+    }
+
+    private static final class WrappedRegressionRasterSource implements RasterSource {
+        private static final int[] COLORS = {0xff00_00ff, 0x00ff_00ff, 0x0000_ffff, 0xffff_00ff};
+        private final RasterSourceMetadata metadata =
+                new RasterSourceMetadata(
+                        new SourceIdentity("render-wrapped-raster", "render-wrapped-raster"),
+                        4,
+                        2,
+                        Optional.of(
+                                new Envelope(
+                                        -WebMercatorProjection.WORLD_LIMIT,
+                                        -WebMercatorProjection.WORLD_LIMIT / 2,
+                                        WebMercatorProjection.WORLD_LIMIT,
+                                        WebMercatorProjection.WORLD_LIMIT / 2)),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.of("EPSG:3857"),
+                                        Optional.empty())));
+
+        @Override
+        public RasterSourceMetadata metadata() {
+            return metadata;
+        }
+
+        @Override
+        public RasterSourceLimits limits() {
+            return RasterSourceLimits.LEVEL_1;
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return DiagnosticReport.empty();
+        }
+
+        @Override
+        public RasterRead read(RasterRequest request, CancellationToken cancellation) {
+            if (request.interpolation() != RasterInterpolation.BILINEAR) {
+                throw new AssertionError("wrapped raster regression expected bilinear request");
+            }
+            if (cancellation.isCancellationRequested()) {
+                throw new AssertionError("wrapped raster regression was unexpectedly cancelled");
+            }
+            RgbaPixelBuffer.Builder pixels =
+                    RgbaPixelBuffer.builder(request.outputWidth(), request.outputHeight());
+            for (int row = 0; row < request.outputHeight(); row++) {
+                for (int column = 0; column < request.outputWidth(); column++) {
+                    int sourceColumn =
+                            request.sourceWindow().column()
+                                    + Math.min(
+                                            request.sourceWindow().width() - 1,
+                                            column
+                                                    * request.sourceWindow().width()
+                                                    / request.outputWidth());
+                    pixels.setRgba(column, row, COLORS[sourceColumn]);
                 }
             }
             return new RasterRead(request.sourceWindow(), pixels.build(), DiagnosticReport.empty());

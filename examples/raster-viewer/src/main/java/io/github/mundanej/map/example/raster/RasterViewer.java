@@ -8,11 +8,13 @@ import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
+import io.github.mundanej.map.awt.HorizontalWrapMode;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.awt.RasterRenderOptions;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.ImagePlacement;
 import io.github.mundanej.map.io.image.RasterImages;
@@ -25,6 +27,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
@@ -50,17 +53,27 @@ public final class RasterViewer {
     }
 
     static boolean runMain(String[] arguments, Consumer<String> failureSink) {
-        return runMain(arguments, failureSink, RasterViewer::launch);
+        return runMainWithMode(arguments, failureSink, RasterViewer::launch);
     }
 
     static boolean runMain(
             String[] arguments, Consumer<String> failureSink, Consumer<RasterSource> launcher) {
+        Objects.requireNonNull(launcher, "launcher");
+        return runMainWithMode(
+                arguments, failureSink, (source, ignored) -> launcher.accept(source));
+    }
+
+    private static boolean runMainWithMode(
+            String[] arguments,
+            Consumer<String> failureSink,
+            BiConsumer<RasterSource, Boolean> launcher) {
         Objects.requireNonNull(failureSink, "failureSink");
         Objects.requireNonNull(launcher, "launcher");
         try {
-            RasterSource source = load(parseArguments(arguments));
+            Arguments parsed = parseArguments(arguments);
+            RasterSource source = load(parsed);
             try {
-                launcher.accept(source);
+                launcher.accept(source, parsed.repeatGlobal());
             } catch (RuntimeException | Error failure) {
                 closeSuppressing(source, failure);
                 throw failure;
@@ -74,33 +87,49 @@ public final class RasterViewer {
 
     static Arguments parseArguments(String[] arguments) {
         Objects.requireNonNull(arguments, "arguments");
-        if (arguments.length == 1) {
-            return new Arguments(
-                    Path.of(Objects.requireNonNull(arguments[0], "arguments[0]")),
-                    Optional.empty());
+        if (arguments.length == 0) {
+            throw usage();
         }
-        if (arguments.length == 3 && arguments[1].equals("--world-file")) {
-            String identifier = Objects.requireNonNull(arguments[2], "arguments[2]");
-            var definition =
-                    switch (identifier) {
-                        case "EPSG:4326" -> CrsDefinitions.EPSG_4326;
-                        case "EPSG:3857" -> CrsDefinitions.EPSG_3857;
-                        default ->
-                                throw new IllegalArgumentException(
-                                        "World-file CRS must be EPSG:4326 or EPSG:3857");
-                    };
-            return new Arguments(
-                    Path.of(Objects.requireNonNull(arguments[0], "arguments[0]")),
-                    Optional.of(
-                            CrsMetadata.recognized(
-                                    definition, Optional.of(identifier), Optional.empty())));
+        Path path = Path.of(Objects.requireNonNull(arguments[0], "arguments[0]"));
+        Optional<CrsMetadata> worldFileCrs = Optional.empty();
+        boolean repeatGlobal = false;
+        for (int index = 1; index < arguments.length; index++) {
+            String option = Objects.requireNonNull(arguments[index], "arguments[" + index + "]");
+            if (option.equals("--repeat-global") && !repeatGlobal) {
+                repeatGlobal = true;
+                continue;
+            }
+            if (option.equals("--world-file")
+                    && worldFileCrs.isEmpty()
+                    && index + 1 < arguments.length) {
+                String identifier =
+                        Objects.requireNonNull(arguments[++index], "arguments[" + index + "]");
+                var definition =
+                        switch (identifier) {
+                            case "EPSG:4326" -> CrsDefinitions.EPSG_4326;
+                            case "EPSG:3857" -> CrsDefinitions.EPSG_3857;
+                            default ->
+                                    throw new IllegalArgumentException(
+                                            "World-file CRS must be EPSG:4326 or EPSG:3857");
+                        };
+                worldFileCrs =
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        definition, Optional.of(identifier), Optional.empty()));
+                continue;
+            }
+            throw usage();
         }
-        throw new IllegalArgumentException(
-                "Usage: raster-viewer <image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857]");
+        return new Arguments(path, worldFileCrs, repeatGlobal);
+    }
+
+    private static IllegalArgumentException usage() {
+        return new IllegalArgumentException(
+                "Usage: raster-viewer <image.png-or-jpeg> [--world-file EPSG:4326|EPSG:3857] [--repeat-global]");
     }
 
     static RasterSource load(Path path) {
-        return load(new Arguments(path, Optional.empty()));
+        return load(new Arguments(path, Optional.empty(), false));
     }
 
     static RasterSource load(Arguments arguments) {
@@ -126,6 +155,10 @@ public final class RasterViewer {
     }
 
     static MapView createView(RasterSource source) {
+        return createView(source, false);
+    }
+
+    static MapView createView(RasterSource source, boolean repeatGlobal) {
         Objects.requireNonNull(source, "source");
         if (!EventQueue.isDispatchThread()) {
             throw new IllegalStateException(
@@ -146,7 +179,15 @@ public final class RasterViewer {
                                     == io.github.mundanej.map.api.RasterGridPlacement.Kind.AFFINE
                             ? WORLD_FILE_LABEL
                             : PLACEMENT_LABEL);
+            view.putClientProperty(
+                    "raster-wrap-label", repeatGlobal ? "Global repeat" : "Local extent");
+            if (repeatGlobal) {
+                view.setHorizontalWrap(horizontalWrap(rasterCrs));
+            }
             binding = MapLayerBinding.ownedRaster("image", "Raster image", source);
+            if (repeatGlobal) {
+                binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+            }
             view.setLayerBindings(List.of(binding));
             binding = null;
             view.fitToData(16);
@@ -164,16 +205,29 @@ public final class RasterViewer {
         }
     }
 
-    private static void launch(RasterSource source) {
-        EventQueue.invokeLater(() -> show(source));
+    private static HorizontalWrap horizontalWrap(io.github.mundanej.map.api.CrsDefinition crs) {
+        if (crs.equals(CrsDefinitions.EPSG_3857)) {
+            return HorizontalWrap.webMercator();
+        }
+        Envelope domain = crs.coordinateDomain();
+        return new HorizontalWrap(
+                domain.minX(), domain.maxX(), 8, HorizontalWrap.COPY_INDEX_HARD_MAXIMUM);
     }
 
-    private static void show(RasterSource source) {
-        show(source, RasterViewer::showWindow);
+    private static void launch(RasterSource source, boolean repeatGlobal) {
+        EventQueue.invokeLater(() -> show(source, repeatGlobal));
+    }
+
+    private static void show(RasterSource source, boolean repeatGlobal) {
+        MapView view = createView(source, repeatGlobal);
+        show(view, RasterViewer::showWindow);
     }
 
     static void show(RasterSource source, Consumer<MapView> presenter) {
-        MapView view = createView(source);
+        show(createView(source), presenter);
+    }
+
+    private static void show(MapView view, Consumer<MapView> presenter) {
         try {
             presenter.accept(view);
         } catch (RuntimeException | Error failure) {
@@ -223,6 +277,8 @@ public final class RasterViewer {
                     view.setRasterRenderOptions("image", options);
                     status.setText(
                             view.getClientProperty("raster-placement-label")
+                                    + " — "
+                                    + view.getClientProperty("raster-wrap-label")
                                     + " — "
                                     + selected
                                     + " — opacity "
@@ -297,7 +353,7 @@ public final class RasterViewer {
         }
     }
 
-    record Arguments(Path path, Optional<CrsMetadata> worldFileCrs) {
+    record Arguments(Path path, Optional<CrsMetadata> worldFileCrs, boolean repeatGlobal) {
         Arguments {
             Objects.requireNonNull(path, "path");
             Objects.requireNonNull(worldFileCrs, "worldFileCrs");
