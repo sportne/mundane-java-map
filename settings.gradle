@@ -75,6 +75,11 @@ def projectInventory = [
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [
             ':modules:mundane-map-api', ':modules:mundane-map-core']],
+    [path: ':modules:mundane-map-io-http-tiles', category: 'JDK_RUNTIME', releaseLevel: 2,
+        published: true, nativeTarget: false,
+        allowedRuntimeProjects: [
+            ':modules:mundane-map-api', ':modules:mundane-map-core',
+            ':modules:mundane-map-io-image']],
     [path: ':modules:mundane-map-io-dted', category: 'JDK_RUNTIME', releaseLevel: 2,
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [

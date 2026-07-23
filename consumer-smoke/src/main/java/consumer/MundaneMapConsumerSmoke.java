@@ -51,6 +51,11 @@ import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.RasterImages;
+import io.github.mundanej.map.io.http.tiles.HttpXyzClientOptions;
+import io.github.mundanej.map.io.http.tiles.HttpXyzTemplate;
+import io.github.mundanej.map.io.http.tiles.HttpXyzTileClient;
+import io.github.mundanej.map.io.http.tiles.HttpXyzTiles;
+import io.github.mundanej.map.io.http.tiles.XyzTileRegion;
 import io.github.mundanej.map.io.dted.DtedFiles;
 import io.github.mundanej.map.io.dted.DtedOpenOptions;
 import io.github.mundanej.map.io.geojson.GeoJsonFiles;
@@ -80,6 +85,8 @@ import io.github.mundanej.map.workspace.WorkspaceViewState;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
@@ -110,6 +117,7 @@ public final class MundaneMapConsumerSmoke {
             testShapefile(directory);
             testMalformedShapefile(directory);
             testImages(directory, decoders);
+            testHttpTile(directory, decoders);
             testDted(directory);
             testGeoTiff();
             testWorkspace(directory);
@@ -617,6 +625,71 @@ public final class MundaneMapConsumerSmoke {
                             && Math.abs(blue - 0x80) <= 16,
                     "JPEG sample outside tolerance");
         }
+    }
+
+    private static void testHttpTile(
+            Path directory,
+            io.github.mundanej.map.api.EncodedRasterDecoderRegistry decoders)
+            throws Exception {
+        BufferedImage image = new BufferedImage(256, 256, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < 256; y++) {
+            for (int x = 0; x < 256; x++) {
+                image.setRGB(x, y, 0xff2468ac);
+            }
+        }
+        Path fixture = directory.resolve("consumer-http-tile.png");
+        require(ImageIO.write(image, "png", fixture.toFile()), "HTTP tile PNG writer unavailable");
+        byte[] bytes = Files.readAllBytes(fixture);
+        var server =
+                com.sun.net.httpserver.HttpServer.create(
+                        new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext(
+                "/",
+                exchange -> {
+                    exchange.getResponseHeaders().set("Content-Type", "image/png");
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (exchange; var output = exchange.getResponseBody()) {
+                        output.write(bytes);
+                    }
+                });
+        server.start();
+        RasterSource source;
+        try {
+            HttpXyzTemplate template =
+                    HttpXyzTemplate.parse(
+                            "http://127.0.0.1:"
+                                    + server.getAddress().getPort()
+                                    + "/{z}/{x}/{y}.png");
+            try (HttpXyzTileClient client =
+                    HttpXyzTiles.open(
+                            new SourceIdentity("consumer-http-tile", "Consumer HTTP tile"),
+                            template,
+                            HttpXyzClientOptions.defaults().allowingHttp(),
+                            decoders)) {
+                source =
+                        client.fetch(
+                                XyzTileRegion.single(0, 0, 0), CancellationToken.none());
+            }
+        } finally {
+            server.stop(0);
+        }
+        var read =
+                source.read(
+                        new RasterRequest(
+                                new RasterWindow(0, 0, 256, 256),
+                                1,
+                                1,
+                                Optional.empty()),
+                        CancellationToken.none());
+        require(read.pixels().rgbaAt(0, 0) == 0x2468acff, "detached HTTP tile changed");
+        require(
+                source.metadata()
+                        .crs()
+                        .orElseThrow()
+                        .canonicalIdentifier()
+                        .equals(Optional.of("EPSG:3857")),
+                "HTTP tile CRS changed");
+        source.close();
     }
 
     private static void testDted(Path directory) throws IOException {

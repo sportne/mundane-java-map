@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.UnexpectedBuildFailure;
@@ -172,6 +173,27 @@ class BuildConfigurationTest {
         assertTrue(publicApiRules.contains("<module name=\"JavadocPackage\"/>"));
         assertTrue(publicApiRules.contains("<module name=\"MissingJavadocType\">"));
         assertTrue(publicApiRules.contains("<module name=\"MissingJavadocMethod\">"));
+    }
+
+    @Test
+    void offlineRepositoryMarksMetadataOnlyComponentsAsPomPackaging() throws Exception {
+        Path metadataOnly = Files.createDirectory(temporaryDirectory.resolve("metadata-only"));
+        AssembleOfflineRepository.writePom(
+                metadataOnly,
+                "example",
+                "metadata-only",
+                "1",
+                Set.of("example:runtime:1"));
+        String metadataPom = Files.readString(metadataOnly.resolve("metadata-only-1.pom"));
+        assertTrue(metadataPom.contains("<packaging>pom</packaging>"));
+        assertTrue(metadataPom.contains("<artifactId>runtime</artifactId>"));
+
+        Path ordinaryJar = Files.createDirectory(temporaryDirectory.resolve("ordinary-jar"));
+        Files.write(ordinaryJar.resolve("ordinary-jar-1.jar"), new byte[] {0});
+        AssembleOfflineRepository.writePom(
+                ordinaryJar, "example", "ordinary-jar", "1", Set.of());
+        String jarPom = Files.readString(ordinaryJar.resolve("ordinary-jar-1.pom"));
+        assertTrue(!jarPom.contains("<packaging>pom</packaging>"));
     }
 
     private Path createRepositoryFixture() throws IOException {

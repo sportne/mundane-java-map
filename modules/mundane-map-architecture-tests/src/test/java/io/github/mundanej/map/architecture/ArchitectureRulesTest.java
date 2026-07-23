@@ -1057,6 +1057,42 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void httpTileModuleIsAwtFreeAndExposesNoJdkHttpTypes() {
+        ModuleDescriptor tiles = moduleEndingWith("mundane-map-io-http-tiles");
+        JavaClasses tileClasses = classesByModule.get(tiles);
+        List<String> toolkitDependencies =
+                tileClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        List<String> leakedHttpTypes =
+                tileClasses.stream()
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(target -> target.startsWith("java.net.http."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+
+        assertFalse(tileClasses.isEmpty(), "Expected the HTTP tile production slice");
+        assertTrue(toolkitDependencies.isEmpty(), () -> String.join("\n", toolkitDependencies));
+        assertTrue(leakedHttpTypes.isEmpty(), () -> String.join("\n", leakedHttpTypes));
+    }
+
+    @Test
     void shapefileModuleIsJdkOnlyAwtFreeNativeSafeAndItsViewerIsSupportOnly() {
         ModuleDescriptor shapefile = moduleEndingWith("mundane-map-io-shapefile");
         JavaClasses formatClasses = classesByModule.get(shapefile);

@@ -292,7 +292,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-055 — KML polygon and MultiGeometry slice](G10-055-kml-polygon-multigeometry-slice.md) | Proposed | AFK | G10-054 | Render bounded polygons and homogeneous MultiGeometry values. |
 | [G10-056 — KML hardening and fixtures](G10-056-kml-hardening-and-fixtures.md) | Proposed | HITL | G10-055 | Close KML warning/rejection/security behavior and approve fixture provenance. |
 | [G10-057 — Native Image KML closeout](G10-057-native-image-kml-closeout.md) | Proposed | HITL | G10-053, G10-056 | Prove bounded KML native paths and close shared XML security evidence. |
-| [G10-060 — HTTP tile one-tile slice](G10-060-http-tile-one-tile-slice.md) | Proposed | AFK | G10-039 | Acquire one bounded PNG/JPEG tile into a detached source through loopback HTTP. |
+| [G10-060 — HTTP tile one-tile slice](closed/G10-060-http-tile-one-tile-slice.md) | Complete | AFK | G10-039 | Acquire one bounded PNG/JPEG tile into a detached source through loopback HTTP. |
 | [G10-061 — HTTP tile regions, cache, and rendering](G10-061-http-tile-region-cache-rendering.md) | Proposed | AFK | G10-060 | Add exact region math, deterministic batches, missing tiles, LRU, and rendering. |
 | [G10-062 — HTTP tile hardening and JVM closeout](G10-062-http-tile-hardening-jvm-closeout.md) | Proposed | AFK | G10-061 | Close HTTP limits/lifecycle failures and document the JVM-only boundary. |
 

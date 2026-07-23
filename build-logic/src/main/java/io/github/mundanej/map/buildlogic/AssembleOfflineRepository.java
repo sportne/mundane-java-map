@@ -149,7 +149,7 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
         }
     }
 
-    private static void writePom(
+    static void writePom(
             Path directory,
             String group,
             String module,
@@ -159,22 +159,28 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
         Files.createDirectories(directory);
         Path pom = directory.resolve(module + "-" + version + ".pom");
         boolean hasModule = Files.isRegularFile(directory.resolve(module + "-" + version + ".module"));
+        boolean hasJar = Files.isRegularFile(directory.resolve(module + "-" + version + ".jar"));
         StringBuilder additional = new StringBuilder();
         if (hasModule) {
             additional.append("<!-- do_not_remove: published-with-gradle-metadata -->");
-        } else if (!dependencies.isEmpty()) {
-            additional.append("<dependencies>");
-            for (String dependency : dependencies) {
-                String[] fields = dependency.split(":", -1);
-                additional.append("<dependency><groupId>")
-                        .append(fields[0])
-                        .append("</groupId><artifactId>")
-                        .append(fields[1])
-                        .append("</artifactId><version>")
-                        .append(fields[2])
-                        .append("</version></dependency>");
+        } else {
+            if (!hasJar) {
+                additional.append("<packaging>pom</packaging>");
             }
-            additional.append("</dependencies>");
+            if (!dependencies.isEmpty()) {
+                additional.append("<dependencies>");
+                for (String dependency : dependencies) {
+                    String[] fields = dependency.split(":", -1);
+                    additional.append("<dependency><groupId>")
+                            .append(fields[0])
+                            .append("</groupId><artifactId>")
+                            .append(fields[1])
+                            .append("</artifactId><version>")
+                            .append(fields[2])
+                            .append("</version></dependency>");
+                }
+                additional.append("</dependencies>");
+            }
         }
         Files.writeString(
                 pom, pom(group, module, version, additional.toString()), StandardCharsets.UTF_8);

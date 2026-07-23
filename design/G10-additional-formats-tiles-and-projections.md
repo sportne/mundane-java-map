@@ -2714,6 +2714,16 @@ Completion record (2026-07-17): G10-006 adopts this explicit acquisition design 
 G10-060 through G10-062 as its later implementation sequence. The design task creates no module,
 network request, public service default, dependency, or Native Image claim.
 
+Implementation record (2026-07-22): G10-060 adds the JDK-only, AWT-free
+`mundane-map-io-http-tiles` module and the approved one-tile vertical slice. Explicit construction,
+strict fixed-host templates, HTTPS-by-default with cleartext opt-in, direct proxy policy, fixed
+headers, bounded backpressured response bodies, PNG/JPEG validation, exact 256-by-256 decode, Web
+Mercator placement, cancellation/deadlines, stable redacting diagnostics, and detached raster
+ownership are now implemented. Loopback PNG/JPEG tests and the staged offline consumer prove that the
+returned source remains readable after both client and server close. Region batches, missing-tile
+recovery, cache retention, viewer/render integration, exhaustive race hardening, and Native Image
+claims remain exclusively in G10-061/G10-062.
+
 ## Additional-projection evidence decision (G10-007)
 
 ### Current decision: DEFER

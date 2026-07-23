@@ -1,0 +1,13 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    api project(':modules:mundane-map-io-image')
+    testImplementation project(':modules:mundane-map-awt')
+}
+
+description = 'Bounded JDK HTTP XYZ tile acquisition.'

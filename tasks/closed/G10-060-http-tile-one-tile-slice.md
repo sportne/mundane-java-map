@@ -1,6 +1,6 @@
 # G10-060 — HTTP tile one-tile slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-039
 Gate: G10
 Type: AFK

@@ -23,6 +23,7 @@ dependencies {
     implementation "io.github.mundanej:mundane-map-awt:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-shapefile:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-image:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-http-tiles:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-dted:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-geotiff:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-io-svg:${mapVersion}"
@@ -59,6 +60,7 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
             "io.github.mundanej:mundane-map-awt:${mapVersion}",
             "io.github.mundanej:mundane-map-io-shapefile:${mapVersion}",
             "io.github.mundanej:mundane-map-io-image:${mapVersion}"
+            ,"io.github.mundanej:mundane-map-io-http-tiles:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-dted:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-geotiff:${mapVersion}"
             ,"io.github.mundanej:mundane-map-io-svg:${mapVersion}"

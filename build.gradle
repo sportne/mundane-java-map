@@ -154,6 +154,7 @@ def publicationContract = [
     'mundane-map-awt|mundane-map-api,mundane-map-core|||io/github/mundanej/map/awt/',
     'mundane-map-io-shapefile|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/shapefile/',
     'mundane-map-io-image|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/image/',
+    'mundane-map-io-http-tiles|mundane-map-api,mundane-map-io-image|mundane-map-core||io/github/mundanej/map/io/http/tiles/',
     'mundane-map-io-dted|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/dted/',
     'mundane-map-io-geotiff|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/geotiff/',
     'mundane-map-io-svg|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/svg/',
