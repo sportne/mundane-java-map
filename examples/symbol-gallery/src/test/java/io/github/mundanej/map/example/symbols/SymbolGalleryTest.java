@@ -34,6 +34,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
@@ -250,22 +251,47 @@ class SymbolGalleryTest {
     }
 
     @Test
-    void panelConstructsAndPaintsHeadlesslyOnTheEdtWithFourExplicitViews() throws Exception {
+    void panelConstructsAndPaintsHeadlesslyOnTheEdtWithAllExplicitViews() throws Exception {
         assertThrows(IllegalStateException.class, SymbolGallery::createGalleryPanel);
         AtomicReference<JPanel> result = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> result.set(SymbolGallery.createGalleryPanel()));
         JPanel panel = result.get();
         JTabbedPane tabs = descendants(panel, JTabbedPane.class).getFirst();
-        assertEquals(List.of("Markers", "Placement", "Lines", "Fills"), tabTitles(tabs));
+        assertEquals(
+                List.of(
+                        "Markers",
+                        "Placement",
+                        "Lines",
+                        "Fills",
+                        "2525 entities",
+                        "2525 identity/status",
+                        "2525 modifiers/fallbacks",
+                        "2525 dark palette"),
+                tabTitles(tabs));
         List<MapView> views = descendants(panel, MapView.class);
-        assertEquals(4, views.size());
+        assertEquals(8, views.size());
         assertEquals(
                 List.of(
                         "gallery-map-markers",
                         "gallery-map-placement",
                         "gallery-map-lines",
-                        "gallery-map-fills"),
+                        "gallery-map-fills",
+                        "gallery-map-mil-entities",
+                        "gallery-map-mil-identities",
+                        "gallery-map-mil-variations",
+                        "gallery-map-mil-dark-palette"),
                 views.stream().map(Component::getName).toList());
+        MapView darkView = views.getLast();
+        assertTrue(darkView.isOpaque());
+        assertEquals(new Color(28, 32, 38), darkView.getBackground());
+        assertTrue(
+                descendants(panel, JLabel.class).stream()
+                        .map(JLabel::getText)
+                        .anyMatch(
+                                text ->
+                                        text.contains(
+                                                "finite MundaneJ MIL-STD-2525E Change 1"
+                                                        + " icon-based point-symbol profile")));
         SwingUtilities.invokeAndWait(
                 () -> {
                     for (int index = 0; index < tabs.getTabCount(); index++) {
@@ -285,6 +311,60 @@ class SymbolGalleryTest {
                         }
                     }
                 });
+    }
+
+    @Test
+    void militaryReferenceMatrixNamesAndCoversEveryApprovedFamily() {
+        MilitaryGalleryDocument document = MilitaryGalleryDocument.create();
+        assertEquals(
+                List.of("mil-entities", "mil-identities", "mil-variations", "mil-dark-palette"),
+                ids(document.sections()));
+        assertEquals(15, document.sections().get(0).cases().size());
+        assertEquals(14, document.sections().get(1).cases().size());
+        assertEquals(11, document.sections().get(2).cases().size());
+        assertEquals(1, document.sections().get(3).cases().size());
+        assertEquals(
+                Set.of("10", "15", "40"),
+                document.sections().get(0).cases().stream()
+                        .map(
+                                galleryCase ->
+                                        galleryCase
+                                                .id()
+                                                .substring(
+                                                        "mil-entity-".length(),
+                                                        "mil-entity-".length() + 2))
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertEquals(
+                Set.of("mil-palette-light", "mil-palette-dark"),
+                document.sections().stream()
+                        .flatMap(section -> section.cases().stream())
+                        .map(GalleryCase::id)
+                        .filter(id -> id.startsWith("mil-palette"))
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertEquals(
+                Set.of("mil-degraded-entity", "mil-degraded-modifier", "mil-unsupported"),
+                document.sections().get(2).cases().stream()
+                        .map(GalleryCase::id)
+                        .filter(id -> id.startsWith("mil-degraded") || id.equals("mil-unsupported"))
+                        .collect(java.util.stream.Collectors.toSet()));
+        Feature unsupported =
+                document.sections().get(2).cases().stream()
+                        .filter(galleryCase -> galleryCase.id().equals("mil-unsupported"))
+                        .findFirst()
+                        .orElseThrow()
+                        .features()
+                        .getFirst();
+        assertEquals(true, unsupported.attributes().get("militarySymbolOmitted"));
+        assertEquals("MIL2525_CONTEXT_UNSUPPORTED", unsupported.attributes().get("diagnostic"));
+        document.sections().stream()
+                .flatMap(section -> section.cases().stream())
+                .flatMap(galleryCase -> galleryCase.features().stream())
+                .forEach(
+                        feature -> {
+                            assertTrue(feature.attributes().get("sidc") instanceof String);
+                            assertTrue(feature.attributes().get("reference") instanceof String);
+                            assertFalse(feature.symbol() == null);
+                        });
     }
 
     private static List<String> tabTitles(JTabbedPane tabs) {

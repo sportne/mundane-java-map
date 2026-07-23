@@ -6,6 +6,7 @@ dependencies {
     implementation project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
     implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-symbology-milstd2525')
 }
 
 application {

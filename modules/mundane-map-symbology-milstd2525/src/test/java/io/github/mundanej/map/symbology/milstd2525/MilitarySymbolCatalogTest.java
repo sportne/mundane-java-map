@@ -223,7 +223,9 @@ class MilitarySymbolCatalogTest {
                         "path.modifier.15.2.06",
                         "path.modifier.40.1.17",
                         "path.modifier.40.2.04",
-                        "fixture.FRIEND_INFANTRY_PRESENT");
+                        "fixture.FRIEND_INFANTRY_PRESENT",
+                        "fixture.referenceMatrix",
+                        "fixture.referenceMatrixSha256");
         assertEquals(expectedKeys, properties.stringPropertyNames());
         assertEquals("1", properties.getProperty("format"));
         assertEquals("114934", properties.getProperty("assistRecord"));

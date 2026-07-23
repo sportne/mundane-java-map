@@ -6,6 +6,7 @@ import io.github.mundanej.map.awt.SymbolRendererRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.util.List;
 import javax.swing.BorderFactory;
@@ -41,7 +42,16 @@ public final class SymbolGallery {
         for (GallerySection section : document.sections()) {
             tabs.addTab(section.title(), sectionPanel(section));
         }
+        for (GallerySection section : MilitaryGalleryDocument.create().sections()) {
+            tabs.addTab(section.title(), sectionPanel(section));
+        }
         JPanel panel = new JPanel(new BorderLayout());
+        panel.add(
+                new JLabel(
+                        "Level 1 symbols and the finite MundaneJ MIL-STD-2525E Change 1"
+                                + " icon-based point-symbol profile",
+                        JLabel.CENTER),
+                BorderLayout.NORTH);
         panel.add(tabs, BorderLayout.CENTER);
         return panel;
     }
@@ -54,6 +64,10 @@ public final class SymbolGallery {
                         new WebMercatorProjection(),
                         SymbolRendererRegistry.builderWithBuiltIns().build());
         map.setName("gallery-map-" + section.id());
+        if (section.id().equals("mil-dark-palette")) {
+            map.setOpaque(true);
+            map.setBackground(new Color(28, 32, 38));
+        }
         map.setLayers(
                 List.of(new InMemoryLayer("gallery-" + section.id(), section.title(), features)));
         map.setPreferredSize(new Dimension(MAP_WIDTH, MAP_HEIGHT));

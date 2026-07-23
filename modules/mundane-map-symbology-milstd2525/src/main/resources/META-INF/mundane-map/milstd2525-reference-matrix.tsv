@@ -1,0 +1,24 @@
+# Project-authored MIL-STD-2525E Change 1 bounded-profile reference matrix.
+# kind	name	sidc	authoritative-table
+entity	Land Unit Infantry	150310000012110000000030000000	Appendix A Table A-XXIII
+entity	Land Unit Armor/Mechanized	150310000012050000000030000000	Appendix A Table A-XXIII
+entity	Land Unit Field Artillery	150310000013030000000030000000	Appendix A Table A-XXIII
+entity	Land Unit Engineer	150310000014070000000030000000	Appendix A Table A-XXIII
+entity	Land Unit Medical	150310000016130000000030000000	Appendix A Table A-XXIII
+entity	Land Equipment Rifle	150315000011010000000040000000	Appendix A Table A-XXIX
+entity	Land Equipment Machine Gun	150315000011020000000040000000	Appendix A Table A-XXIX
+entity	Land Equipment Tank	150315000012020000000040000000	Appendix A Table A-XXIX
+entity	Land Equipment Medical	150315000014020000000040000000	Appendix A Table A-XXIX
+entity	Land Equipment Cross Country Truck	150315000014080000000040000000	Appendix A Table A-XXIX
+entity	Activities Civil Disturbance	150340000012000000000080000000	Appendix A Table A-XLVIII
+entity	Activities Law Enforcement Operation	150340000013150000000080000000	Appendix A Table A-XLVIII
+entity	Activities Fire Event	150340000014000000000080000000	Appendix A Table A-XLVIII
+entity	Activities Earthquake Epicenter	150340000017010300000080000000	Appendix A Table A-XLVIII
+entity	Activities Flood	150340000017020200000080000000	Appendix A Table A-XLVIII
+modifier	Land Unit sector one 25	150310000012110025000030000000	Appendix A Table A-XXIV
+modifier	Land Unit sector one 77	150310000012110077000030000000	Appendix A Table A-XXIV
+modifier	Land Unit sector two 02	150310000012110000020030000000	Appendix A Table A-XXV
+modifier	Land Equipment sector one 13	150315000012020013000040000000	Appendix A Table A-XXX
+modifier	Land Equipment sector two 06	150315000012020000060040000000	Appendix A Table A-XXXI
+modifier	Activities sector one 17	150340000014000017000080000000	Appendix A Table A-XLIX
+modifier	Activities sector two 04	150340000014000000040080000000	Appendix A Table A-L

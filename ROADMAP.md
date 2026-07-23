@@ -529,8 +529,11 @@ separately decomposed.
   SIDC translation, APP-6 mapping, text-amplifier engine, or multipoint tactical-graphics claim.
 - G12-001 approved the exact profile/legal/conformance wording and authoritative-source record on
   2026-07-23. G12-002 through G12-004 deliver parsing, the first real rendering slice, and the
-  complete finite catalog with portrayal integration; G12-005 and G12-006 retain reference/gallery
-  hardening and publication/consumer/Linux Native Image closeout.
+  complete finite catalog with portrayal integration. G12-005 adds a checksummed project-authored
+  22-row entity/modifier reference matrix, exact provenance inventory, bounded single-position
+  mutation and hostile-input evidence, four runnable MIL-STD-2525 gallery tabs, and tolerant
+  regression across every entity icon, identity, status, palette, and graphical-modifier family.
+  G12-006 retains publication/consumer/Linux Native Image closeout.
 - G12-002 supplies the published JDK-only, AWT-free module with packed canonical SIDC parsing,
   complete field access, stable structured syntax/support problems, and deterministic strict versus
   degradable support classification. G12-003 adds all supported identity and status frames, both

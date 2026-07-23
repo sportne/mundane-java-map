@@ -358,3 +358,29 @@ compliant,” “full 2525E,” and equivalent broad claims are prohibited.
 6. G12-006 closes publication, consumer, and Linux Native Image evidence.
 
 G13 may not begin until G12-006 closes, making the requested standards order explicit.
+
+## G12-005 completion record
+
+The approved reference evidence is project-authored and deliberately smaller than the 980-entry
+runtime combination table. A checksummed 22-row TSV independently names every approved entity and
+graphical-modifier row, records its cited Appendix-A family, and contains only factual identifiers
+and generated SIDCs. The artifact provenance manifest names that file, its SHA-256 digest, every
+filled and segmented frame path, every entity path, every modifier path, and the shared literal
+fixture. No standard artwork or third-party symbol asset is committed.
+
+The existing runnable symbol gallery now contains four additional tabs: all fifteen entities,
+fourteen identity/status combinations, all seven modifier families plus light-background and
+explicit degraded/unsupported diagnostic examples, and a dedicated dark-background palette view.
+The unsupported case displays an explicitly labeled gallery diagnostic marker rather than a
+military symbol. The window names the bounded MIL-STD-2525E Change 1 point-symbol profile and does
+not imply broader conformance. Gallery construction remains on the EDT and routes every resolved
+case through the ordinary toolkit-neutral symbol tree and AWT renderer.
+
+Hardening mutates each of the thirty SIDC positions deterministically and pins diagnostic
+precedence, strict-resolution failure, bounded problem values, oversized input rejection, and
+non-ASCII rejection. Structural inventory/path fingerprints remain independent of production table
+iteration. The rendering lane subtracts a separately resolved frame-only baseline to prove every
+entity icon contributes bounded center-region ink, then uses bounds, visible-ink, palette-region,
+and center-crossing tolerances across the complete identity/status/palette matrix; it does not
+compare platform-specific pixels. The G12 reference-matrix/gallery checkpoint was approved under
+the maintainer's explicit execution approval on 2026-07-23 with these bounded claims.

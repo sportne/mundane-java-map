@@ -1,6 +1,6 @@
 # G12-005 — Reference matrix, gallery, and hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G12-004
 Gate: G12
 Type: HITL
@@ -53,3 +53,7 @@ git diff --check
 
 HITL checkpoint: **G12 MIL-STD-2525 reference matrix and gallery approval**. Review uses the named
 authoritative revision and records deviations or rejected cases before closeout.
+
+The maintainer approved this named checkpoint through the 2026-07-23 execution authorization. The
+accepted result is the bounded project-authored reference matrix and tolerant gallery evidence; it
+does not claim pixel identity or complete MIL-STD-2525 conformance.
