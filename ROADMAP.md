@@ -533,15 +533,20 @@ separately decomposed.
   22-row entity/modifier reference matrix, exact provenance inventory, bounded single-position
   mutation and hostile-input evidence, four runnable MIL-STD-2525 gallery tabs, and tolerant
   regression across every entity icon, identity, status, palette, and graphical-modifier family.
-  G12-006 retains publication/consumer/Linux Native Image closeout.
+  G12-006 completes the capability. The staged artifact contains only the twelve approved package
+  classes, the license/manifest, and the two declared provenance/reference resources; its POM has
+  only the API dependency. A clean Java 21 staged-artifact consumer parses, resolves, portrays, and
+  renders a supported SIDC and checks an unsupported diagnostic. The shared Linux x86-64 GraalVM CE
+  Java 21.0.2 executable proves the supported, degraded, malformed, and unsupported paths. Test
+  fixtures remain internal and are excluded from Maven publication.
 - G12-002 supplies the published JDK-only, AWT-free module with packed canonical SIDC parsing,
   complete field access, stable structured syntax/support problems, and deterministic strict versus
   degradable support classification. G12-003 adds all supported identity and status frames, both
   approved palettes, the Infantry entity, degraded-frame behavior, and ordinary AWT paint/hit
   testing. G12-004 completes all 15 approved entity paths, seven graphical sector modifiers, 980
   finite portrayal categories, exact attribute projection, and snapshot/source/editable interaction
-  agreement. Native Image targeting remains unclaimed until G12-006 adds executable evidence.
-- G13 is deliberately dependent on G12-006 so the requested MIL-STD-2525-first order is explicit.
+  agreement. G12-006 supplies the required bounded Linux Native Image evidence.
+- G13 may now begin because complete G12-006 satisfies the requested MIL-STD-2525-first ordering.
 - See the [G12 detailed design](design/G12-milstd2525-symbology.md) and the
   [G12 task set](tasks/README.md#g12--mil-std-2525-symbology).
 

@@ -384,3 +384,29 @@ entity icon contributes bounded center-region ink, then uses bounds, visible-ink
 and center-crossing tolerances across the complete identity/status/palette matrix; it does not
 compare platform-specific pixels. The G12 reference-matrix/gallery checkpoint was approved under
 the maintainer's explicit execution approval on 2026-07-23 with these bounded claims.
+
+## G12-006 completion record
+
+The module remains one JDK-only, AWT-free production artifact with one compile dependency on
+`mundane-map-api`. Gradle's shared test-fixtures variants remain available to project tests but are
+explicitly excluded from Maven publication. The staged binary inventory contains the twelve
+approved package classes, `META-INF/LICENSE`, the manifest, and exactly the declared provenance and
+reference-matrix resources. Publication verification also checks the POM, sources, Javadocs,
+license bytes, SHA-256 sidecars, and absence of unexpected primary artifacts.
+
+The clean Java 21 consumer resolves only staged Maven coordinates. It parses a literal supported
+SIDC, resolves it directly and through the finite portrayal, paints the ordinary symbol through
+`MapView`, and pins the unsupported-context diagnostic. The shared native executable uses the same
+literal success and failure paths, includes the degraded-entity result, and needs no reflection,
+service loading, runtime table discovery, or military-specific Native Image resource metadata.
+
+On 2026-07-23, `publicationDryRun consumerSmoke` passed and printed
+`mundane-map consumer smoke: OK`. The actual `nativeSmoke` build and executable passed on Ubuntu
+24.04.1 WSL2 Linux x86-64 using GraalVM Community Java 21.0.2; the executable printed
+`mundane-map native smoke: OK`. This evidence supports only that Linux configuration. It does not
+support Windows, macOS, other architectures, or a complete-standard claim.
+
+The holistic G12 review retains the simplest boundary that meets the profile: one packed parser,
+one explicit finite catalog, independently authored toolkit-neutral paths, and the existing generic
+portrayal and AWT renderers. No adapter SPI, military renderer, reflection configuration, generated
+table framework, or runtime asset discovery is introduced.

@@ -1363,7 +1363,7 @@ class ArchitectureRulesTest {
 
         assertEquals("JDK_RUNTIME", military.category());
         assertEquals(2, military.releaseLevel());
-        assertFalse(military.nativeTarget(), "G12-006 must supply executable native evidence");
+        assertTrue(military.nativeTarget(), "G12-006 supplies executable native evidence");
         assertEquals(Set.of(":modules:mundane-map-api"), military.allowedRuntimeProjects());
         assertFalse(classes.isEmpty(), "Expected the working military symbology module");
         assertTrue(
@@ -1473,7 +1473,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactTenExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactElevenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1485,7 +1485,8 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-svg",
                         ":modules:mundane-map-io-geojson-jackson",
                         ":modules:mundane-map-io-geotiff",
-                        ":modules:mundane-map-workspace");
+                        ":modules:mundane-map-workspace",
+                        ":modules:mundane-map-symbology-milstd2525");
         Set<String> actual =
                 Files.readAllLines(nativeSupportBuild).stream()
                         .map(String::trim)

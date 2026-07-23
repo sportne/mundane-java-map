@@ -1,6 +1,6 @@
 # G12-006 — MIL-STD-2525 native and publication closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G12-005
 Gate: G12
 Type: HITL
@@ -53,3 +53,8 @@ git diff --check
 
 HITL checkpoint: **G12 Linux Native Image and support-statement closeout**. G13 remains dependent on
 this task so MIL-STD-2525 is completed first.
+
+The maintainer approved this named checkpoint through the 2026-07-23 execution authorization.
+`publicationDryRun consumerSmoke` passed with the isolated Java 21 consumer, and `nativeSmoke`
+passed using GraalVM Community Java 21.0.2 on Ubuntu 24.04.1 WSL2 Linux x86-64. No Windows or macOS
+Native Image claim is made.

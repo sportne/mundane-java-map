@@ -26,6 +26,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-image` | Bounded PNG/JPEG metadata, world-file placement, requests, lifecycle, and caches through an explicit decoder boundary. |
 | `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
 | `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
+| `mundane-map-symbology-milstd2525` | Bounded Level 2 MIL-STD-2525E Change 1 icon-based point symbology. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
 | `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |
 
@@ -147,6 +148,30 @@ Unknown definitions are retained when available but are not guessed or transform
 GeoPackage, MBTiles, GPX/KML, remote tiles, additional projections, editing/persistence, and optional
 JTS/PROJ/SQLite/GDAL adapters remain Level 2 work. DTED, the static SVG subset, and the optional
 Jackson Core GeoJSON profile are implemented Level 2 capabilities and do not broaden Level 1.
+
+## MIL-STD-2525 point-symbol profile
+
+`mundane-map-symbology-milstd2525` implements the MundaneJ supported MIL-STD-2525E Change 1
+icon-based point-symbol profile for a finite Land Unit, Land Equipment, and Activities inventory.
+It is not a complete MIL-STD-2525 implementation or conformance claim.
+
+The module accepts canonical 30-position SIDCs for identities 0–6, present/planned status, fifteen
+project-authored entity paths, and seven graphical sector modifiers from the approved Appendix-A
+tables. It exposes explicit strict and degraded resolution into ordinary toolkit-neutral symbols,
+two fixed palettes, and an exact finite SIDC-attribute portrayal. It does not implement tactical
+graphics, text amplifiers, dynamic catalogs, legacy SIDCs, APP-6 translation, arbitrary symbol
+sets, classpath discovery, or a military-specific AWT renderer.
+
+The runnable gallery includes the full bounded entity, identity/status, modifier/fallback, and
+light/dark palette matrix:
+
+```bash
+./gradlew :examples:symbol-gallery:run
+```
+
+The staged Java 21 consumer and the shared Linux x86-64 GraalVM Java 21 executable verify parse,
+resolve, portray, render, degraded, malformed, and unsupported paths. No Windows or macOS Native
+Image claim is made.
 
 ## Local workspace profile
 

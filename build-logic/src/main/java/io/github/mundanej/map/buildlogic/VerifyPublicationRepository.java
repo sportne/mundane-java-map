@@ -124,9 +124,15 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 "Unexpected primary publication payload for " + module + ": " + payloads);
 
         verifyPom(pom, module, version, contract);
-        verifyArchive(binary, contract.packageRoot(), license, true);
-        verifyArchive(sources, contract.packageRoot(), license, true);
-        verifyArchive(javadoc, contract.packageRoot(), license, false);
+        verifyMetadata(metadata, contract);
+        verifyArchive(
+                binary,
+                contract.packageRoot(),
+                license,
+                true,
+                contract.exactBinaryEntries());
+        verifyArchive(sources, contract.packageRoot(), license, true, Set.of());
+        verifyArchive(javadoc, contract.packageRoot(), license, false, Set.of());
         for (Path payload : payloads) {
             verifySha256(payload);
             manifest.add(
@@ -184,7 +190,11 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
     }
 
     private static void verifyArchive(
-            Path archive, String packageRoot, Path license, boolean requirePackageRoot)
+            Path archive,
+            String packageRoot,
+            Path license,
+            boolean requirePackageRoot,
+            Set<String> exactEntries)
             throws IOException {
         byte[] expectedLicense = Files.readAllBytes(license);
         try (var zip = new ZipFile(archive.toFile())) {
@@ -204,7 +214,33 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                                                         && entry.getName().startsWith(packageRoot));
                 require(found, "Missing package root " + packageRoot + " in " + archive);
             }
+            if (!exactEntries.isEmpty()) {
+                Set<String> actualEntries =
+                        zip.stream()
+                                .filter(entry -> !entry.isDirectory())
+                                .map(java.util.zip.ZipEntry::getName)
+                                .collect(
+                                        java.util.stream.Collectors.toCollection(TreeSet::new));
+                require(
+                        actualEntries.equals(exactEntries),
+                        "Binary entry mismatch in "
+                                + archive
+                                + ": expected "
+                                + exactEntries
+                                + ", found "
+                                + actualEntries);
+            }
         }
+    }
+
+    private static void verifyMetadata(Path metadata, Contract contract) throws IOException {
+        if (contract.exactBinaryEntries().isEmpty()) {
+            return;
+        }
+        String content = Files.readString(metadata, StandardCharsets.UTF_8);
+        require(
+                !content.contains("testFixtures") && !content.contains("-test-fixtures"),
+                "Test-fixture variant leaked into " + metadata);
     }
 
     private static void verifySha256(Path payload) throws IOException {
@@ -264,11 +300,18 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         Map<String, Contract> result = new LinkedHashMap<>();
         for (String row : rows) {
             String[] fields = row.split("\\|", -1);
-            require(fields.length == 5, "Invalid publication contract row: " + row);
+            require(
+                    fields.length == 5 || fields.length == 6,
+                    "Invalid publication contract row: " + row);
             Contract previous =
                     result.put(
                             fields[0],
-                            new Contract(set(fields[1]), set(fields[2]), set(fields[3]), fields[4]));
+                            new Contract(
+                                    set(fields[1]),
+                                    set(fields[2]),
+                                    set(fields[3]),
+                                    fields[4],
+                                    fields.length == 6 ? set(fields[5]) : Set.of()));
             require(previous == null, "Duplicate publication contract: " + fields[0]);
         }
         return result;
@@ -303,5 +346,6 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
             Set<String> compileDependencies,
             Set<String> runtimeDependencies,
             Set<String> externalRuntimeDependencies,
-            String packageRoot) {}
+            String packageRoot,
+            Set<String> exactBinaryEntries) {}
 }

@@ -93,7 +93,7 @@ def projectInventory = [
         allowedRuntimeProjects: [
             ':modules:mundane-map-api', ':modules:mundane-map-core']],
     [path: ':modules:mundane-map-symbology-milstd2525', category: 'JDK_RUNTIME',
-        releaseLevel: 2, published: true, nativeTarget: false,
+        releaseLevel: 2, published: true, nativeTarget: true,
         allowedRuntimeProjects: [':modules:mundane-map-api']],
     [path: ':modules:mundane-map-io-geojson-jackson', category: 'OPTIONAL_ADAPTER', releaseLevel: 2,
         published: true, nativeTarget: true,

@@ -19,6 +19,7 @@ import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.LabelTextStyle;
 import io.github.mundanej.map.api.LabelWeight;
+import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.NamedSymbol;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PointLabelPosition;
@@ -82,6 +83,11 @@ import io.github.mundanej.map.workspace.WorkspaceSourceRegistry;
 import io.github.mundanej.map.workspace.WorkspaceSymbolCatalogRegistry;
 import io.github.mundanej.map.workspace.WorkspaceSymbolReferences;
 import io.github.mundanej.map.workspace.WorkspaceViewState;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolCatalog;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolException;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolId;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolPalette;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbols;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -109,6 +115,7 @@ public final class MundaneMapConsumerSmoke {
         SymbolRendererRegistry renderers = SymbolRendererRegistry.builderWithBuiltIns().build();
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
+        renderMilitarySymbol(registry, renderers);
         renderExplicitWorldWrap(registry, renderers);
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
@@ -417,6 +424,81 @@ public final class MundaneMapConsumerSmoke {
                         view.close();
                     }
                 });
+    }
+
+    private static void renderMilitarySymbol(
+            CrsRegistry registry, SymbolRendererRegistry renderers) throws Exception {
+        String sidc = "150310000012110025020030000000";
+        MarkerPlacement placement = MarkerPlacement.centeredScreen(54);
+        MilitarySymbolId id = MilitarySymbolId.parse(sidc);
+        Symbol symbol =
+                MilitarySymbols.resolveStrict(
+                        id, placement, MilitarySymbolPalette.lightBackground());
+        FeaturePortrayal portrayal =
+                MilitarySymbolCatalog.portrayal(
+                        "sidc", placement, MilitarySymbolPalette.lightBackground(), 1);
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view =
+                            new MapView(
+                                    registry,
+                                    CrsDefinitions.EPSG_3857,
+                                    CrsDefinitions.EPSG_3857,
+                                    renderers);
+                    try {
+                        view.setSize(120, 120);
+                        view.setViewport(new MapViewport(120, 120, 0, 0, 1));
+                        view.setLayerBindings(
+                                List.of(
+                                        MapLayerBinding.portrayedSnapshot(
+                                                new InMemoryLayer(
+                                                        "consumer-military",
+                                                        "Consumer military",
+                                                        List.of(
+                                                                new Feature(
+                                                                        "consumer-military",
+                                                                        "",
+                                                                        new PointGeometry(
+                                                                                new Coordinate(
+                                                                                        0, 0)),
+                                                                        Map.of("sidc", sidc),
+                                                                        symbol))),
+                                                portrayal)));
+                        BufferedImage image =
+                                new BufferedImage(120, 120, BufferedImage.TYPE_INT_ARGB);
+                        Graphics2D graphics = image.createGraphics();
+                        try {
+                            graphics.setColor(java.awt.Color.WHITE);
+                            graphics.fillRect(0, 0, 120, 120);
+                            view.paint(graphics);
+                        } finally {
+                            graphics.dispose();
+                        }
+                        int colored = 0;
+                        for (int y = 20; y < 100; y++) {
+                            for (int x = 20; x < 100; x++) {
+                                if ((image.getRGB(x, y) & 0x00ffffff) != 0x00ffffff) {
+                                    colored++;
+                                }
+                            }
+                        }
+                        require(colored > 700, "MIL-STD-2525 portrayal did not render");
+                    } finally {
+                        view.close();
+                    }
+                });
+        require(id.canonical().equals(sidc), "MIL-STD-2525 SIDC canonicalization changed");
+        try {
+            MilitarySymbols.resolveStrict(
+                    MilitarySymbolId.parse("15F310000012110000000030000000"),
+                    placement,
+                    MilitarySymbolPalette.lightBackground());
+            throw new IllegalStateException("consumer accepted unsupported military context");
+        } catch (MilitarySymbolException expected) {
+            require(
+                    expected.problem().code().equals("MIL2525_CONTEXT_UNSUPPORTED"),
+                    "MIL-STD-2525 diagnostic changed");
+        }
     }
 
     private static void renderExplicitWorldWrap(

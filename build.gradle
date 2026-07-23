@@ -149,6 +149,24 @@ tasks.register('primeDtedCorpusDependencies') {
     dependsOn ':modules:mundane-map-io-dted:primeDtedCorpusDependenciesInternal'
 }
 
+def milStd2525BinaryEntries = [
+    'META-INF/LICENSE',
+    'META-INF/MANIFEST.MF',
+    'META-INF/mundane-map/milstd2525-provenance.properties',
+    'META-INF/mundane-map/milstd2525-reference-matrix.tsv',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolAssessment.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolCatalog.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolCatalogEntry.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolException.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolId.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolPalette.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolPaths.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolProblem.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolProfile.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolResolution.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbolSupport.class',
+    'io/github/mundanej/map/symbology/milstd2525/MilitarySymbols.class'
+].join(',')
 def publicationContract = [
     'mundane-map-api||||io/github/mundanej/map/api/',
     'mundane-map-core|mundane-map-api|||io/github/mundanej/map/core/',
@@ -159,7 +177,7 @@ def publicationContract = [
     'mundane-map-io-dted|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/dted/',
     'mundane-map-io-geotiff|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/geotiff/',
     'mundane-map-io-svg|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/svg/',
-    'mundane-map-symbology-milstd2525|mundane-map-api|||io/github/mundanej/map/symbology/milstd2525/',
+    "mundane-map-symbology-milstd2525|mundane-map-api|||io/github/mundanej/map/symbology/milstd2525/|${milStd2525BinaryEntries}",
     'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'
 ].asImmutable()

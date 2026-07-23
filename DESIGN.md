@@ -60,7 +60,7 @@ design task; there are no empty speculative design files.
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001, G10-003, and G10-005 through G10-007 approved; G10-002 and G10-004 reviewed proposals; holistic closeout approved with those exclusions |
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
-| G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 through G12-005 approved; G12-006 proposed |
+| G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
@@ -258,7 +258,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G12-003 | Existing-vector standard-identity frames, palette/status behavior, first entity, paint, and hit testing | Approved |
 | G12-004 | Finite land/activity entity and graphical-modifier tables plus SIDC-attribute portrayal | Approved |
 | G12-005 | Checksummed project-authored reference matrix, bounded mutation/diagnostic hardening, eight-tab gallery, and tolerant full-family/icon-specific regression | Approved |
-| G12-006 | Publication/consumer/native evidence, exact support statement, and G12 simplicity closeout | Draft |
+| G12-006 | Exact staged artifact, clean Java 21 consumer, Linux GraalVM CE 21 executable evidence, bounded support statement, and G12 simplicity closeout | Approved |
 | G13-001 | Exact SE 1.1 feature-style profile and shared closed rule/filter/scale portrayal bridge | Draft |
 | G13-002 | Secure bounded StAX reader, literal point symbolizer, first rendering slice, and module creation | Draft |
 | G13-003 | Ordered rules, bounded Filter predicates, ElseFilter, scale context, and query projection | Draft |
