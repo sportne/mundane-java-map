@@ -1,6 +1,6 @@
 # G13-001 — SE profile and portrayal-bridge decision
 
-Status: Proposed
+Status: Complete
 Depends on: G12-006, G11-024
 Gate: G13
 Type: HITL
@@ -53,3 +53,8 @@ git diff --check
 
 HITL checkpoint: **G13 OGC SE profile and shared portrayal-bridge approval**. Material changes to the
 closed G11 portrayal model require maintainer approval here before implementation.
+
+Approved on 2026-07-23. The accepted design freezes the XML/namespace matrix, standard ElseFilter
+behavior, scale denominator derivation, scalar comparison semantics, literal pixel-unit symbolizer
+profile, exact catalog resource convention, bridge surface, limits, diagnostic precedence, and
+project-authored fixture policy.

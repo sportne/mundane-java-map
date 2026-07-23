@@ -552,12 +552,15 @@ separately decomposed.
 
 ### G13 — OGC Symbology Encoding
 
-- After G12, G13 proposes a bounded read-only OGC SE 1.1 `FeatureTypeStyle` adapter in
+- After G12, G13 develops a bounded read-only OGC SE 1.1 `FeatureTypeStyle` adapter in
   `mundane-map-io-se`, using secure directly constructed JDK StAX and no schema/network resolution.
 - The supported profile covers ordered rules, bounded attribute filters and explicit scale context,
   point/line/polygon symbolizers, and caller-catalog graphics. Coverage, SLD/WMS, text/raster
   symbolizers, arbitrary functions, and remote resources remain excluded.
-- G13-001 approves the profile and the smallest closed standards-neutral rule-portrayal bridge.
+- Complete G13-001 approves the exact XML/root grammar, six well-known marks, literal pixel-unit
+  vector symbolizers, bounded Filter 1.1 algebra, standard `ElseFilter` and 0.28 mm scale semantics,
+  explicit catalog-only graphics, hard limits/diagnostics, and the smallest closed
+  standards-neutral rule-portrayal bridge. It is a named subset, not an SE conformance-class claim.
   G13-002 through G13-006 deliver the first point slice, rules/scale, complete vector roles,
   hostile/interoperability/gallery evidence, and publication/consumer/Linux Native Image closeout.
 - See the [G13 detailed design](design/G13-ogc-symbology-encoding.md) and the

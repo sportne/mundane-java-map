@@ -17,15 +17,15 @@ catalogs, SVG-imported markers, and renderer preflight provide the target behavi
 
 ## Scope
 
-Implement approved solid stroke/fill/outline properties, representable offsets/caps/joins, geometry-
-role validation, point `ExternalGraphic` exact-key resolution through a caller catalog, recursive
-renderer preflight, and mixed point/line/polygon rule rendering.
+Implement approved solid stroke/fill/outline properties, atomic polygon fill-plus-outline ordering,
+geometry-role validation, point `ExternalGraphic` exact-key resolution through a caller catalog,
+recursive renderer preflight, and mixed point/line/polygon rule rendering.
 
 ## Out of scope
 
 Network/file dereferencing, automatic SVG/image import, graphic strokes/fills, unrepresentable dash
-patterns, gradients, text/raster symbolizers, arbitrary geometry properties, or hidden catalog
-fallbacks.
+patterns, joins, caps, offsets, gradients, text/raster symbolizers, arbitrary geometry properties,
+alternative-graphic fallback, or hidden catalog fallback.
 
 ## Acceptance criteria
 

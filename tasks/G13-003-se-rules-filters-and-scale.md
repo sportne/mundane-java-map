@@ -17,9 +17,10 @@ explicit scale-context policy.
 
 ## Scope
 
-Implement immutable ordered rule plans, approved Filter 1.1 existence/comparison/between/boolean
+Implement immutable ordered rule plans, approved Filter 1.1 explicit-null/comparison/between/boolean
 predicates, ElseFilter, min/max scale denominators, canonical scalar conversion, required-attribute
-projection, role composition, linear-CRS MapView scale context, and public evaluation tests.
+projection, one all-role evaluation result, geometry-compatible role composition, linear-CRS MapView
+scale context, and public evaluation tests.
 
 ## Out of scope
 
@@ -32,7 +33,8 @@ implicit geographic scale, label rules, line/polygon symbolizers, or expression 
 - Filters have exact missing/null/type/numeric semantics and bounded depth/node counts.
 - ElseFilter and lower-inclusive/upper-exclusive scale ranges follow the approved profile.
 - Source queries request exactly the stable deduplicated attributes needed by the style.
-- Unsupported CRS/unit scale context fails at attachment; paint/hit/selection resolve identically.
+- Unsupported CRS/unit scale context fails with a neutral portrayal problem at attachment;
+  paint/hit/selection resolve through the same all-role operation.
 
 ## Required tests
 

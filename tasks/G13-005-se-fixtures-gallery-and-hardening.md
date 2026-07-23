@@ -17,9 +17,10 @@ features deliberately excluded from this profile, which must be diagnosed rather
 
 ## Scope
 
-Add provenance/checksum manifests, selected legally reusable OGC examples, hostile XML and
-deterministic mutation, complete limit/diagnostic precedence tests, a runnable SE gallery, and
-tolerant render-regression scenarios covering rules, scales, filters, catalogs, and all three roles.
+Add provenance/checksum manifests for project-authored fixtures cross-referenced to reviewed OGC
+examples and clauses, hostile XML and deterministic mutation, complete limit/diagnostic precedence
+tests, a runnable SE gallery, and tolerant render-regression scenarios covering rules, scales,
+filters, catalogs, and all three roles.
 
 ## Out of scope
 
@@ -28,7 +29,8 @@ pixel-perfect images, Text/RasterSymbolizer, or new performance machinery.
 
 ## Acceptance criteria
 
-- Independent fixtures have recorded license/provenance and exact supported or diagnostic outcomes.
+- Project-authored fixtures have recorded license/provenance, OGC clause cross-references, and exact
+  supported or diagnostic outcomes; OGC example XML is not copied.
 - Every parser/evaluator limit and unsupported-profile branch has stable bounded evidence.
 - Deterministic mutation cannot escape as raw XML/runtime exceptions or partial style output.
 - The gallery visibly demonstrates order, filters, scales, external catalog markers, lines, and fills.
