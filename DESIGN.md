@@ -61,7 +61,7 @@ design task; there are no empty speculative design files.
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001, G10-003, and G10-005 through G10-007 approved; G10-002 and G10-004 reviewed proposals; holistic closeout approved with those exclusions |
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
-| G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-005 complete; G13-006 proposed |
+| G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | Complete |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 through G16-004 complete; G16-005 through G16-007 draft |
@@ -265,7 +265,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G13-003 | Ordered rules, bounded Filter predicates, ElseFilter, scale context, and query projection | Approved |
 | G13-004 | Solid line/polygon symbolizers and explicit catalog-only external graphics | Approved |
 | G13-005 | Licensed examples, hostile XML/mutation hardening, gallery, and tolerant regression | Approved |
-| G13-006 | Publication/consumer/native evidence, subset wording, and reusable-bridge closeout | Draft |
+| G13-006 | Publication/consumer/native evidence, subset wording, and reusable-bridge closeout | Approved |
 | G14-001 | Exact MapLibre v8 root/source/layer/property/expression matrix and Jackson boundary | Draft |
 | G14-002 | Direct bounded JSON reader, literal circle/line/fill layers, rendering, and module creation | Draft |
 | G14-003 | Explicit transactional source registry, filters, zoom context, ordering, and ownership | Draft |

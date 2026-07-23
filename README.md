@@ -107,6 +107,33 @@ Linux Java 21 Native Image and staged Java 21 consumer verification exercise thi
 The paired `world-wrap-plan-disabled` and `world-wrap-plan-wrapped` performance rows are descriptive
 evidence only; they establish no portable wall-clock threshold.
 
+## OGC Symbology Encoding support profile
+
+`mundane-map-io-se` reads a named, bounded subset of OGC Symbology Encoding 1.1
+`FeatureTypeStyle`; it does not claim an SE conformance class. Input is one local regular UTF-8 file
+or caller-owned byte snapshot. The adapter directly constructs hardened JDK StAX, resolves no
+schemas, DTDs, entities, XInclude, URLs, files, or classpath resources, and publishes no XML parser
+type through its public API.
+
+The supported portrayal surface is:
+
+- declaration-ordered ordinary and `ElseFilter` rules with inclusive minimum and exclusive maximum
+  scale denominators;
+- exact-property comparison, between, explicit-null, `And`, `Or`, and `Not` filters over bounded
+  literals and canonical feature attributes;
+- solid point marks named `square`, `circle`, `triangle`, `star`, `cross`, or `x`, with literal
+  pixel size, rotation, displacement, anchor, color, and opacity values from the approved profile;
+- solid line stroke and polygon fill/outline symbolizers in literal screen-pixel units; and
+- one marker-role `ExternalGraphic` resolved only as an exact key in a caller-supplied immutable
+  symbol catalog with media type `application/vnd.mundane-map.symbol`.
+
+SLD/WMS documents, coverage symbolizers, text, raster, graphic strokes/fills, dash/cap/join effects,
+CSS, functions and arithmetic expressions, geometry expressions, dynamic parameters, remote or
+embedded resources, schema validation, and arbitrary SE/XML extensions are excluded. Public read
+limits bound bytes, XML structure and text, rules, predicates, symbolizers, catalog references, and
+owned output allocation. Unsupported or hostile input fails atomically with a stable structured
+`SeReadProblem`.
+
 ## Small example
 
 ```java

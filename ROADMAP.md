@@ -570,8 +570,12 @@ separately decomposed.
   polygon portrayal, explicit catalog-only marker graphics, mixed-geometry paint/hit evidence, and
   recursive nested renderer preflight. Complete G13-005 supplies checksummed project-authored
   interoperability fixtures, deterministic hostile/mutation evidence, a reviewable all-role
-  gallery, and tolerant rule/scale/catalog regression. G13-006 delivers
-  publication/consumer/Linux Native Image closeout.
+  gallery, and tolerant rule/scale/catalog regression. Complete G13-006 stages and consumes the
+  adapter from Maven artifacts only, proves secure parse/evaluate/catalog/render behavior in the
+  required Linux Native Image lane, records the exact subset wording, and closes the shared bridge
+  without adding SE concepts to API, core, or AWT.
+- G13 is complete. G14 may reuse the closed standards-neutral portrayal plan, predicates, scale
+  context, and resolver while keeping its Jackson adapter and MapLibre vocabulary isolated.
 - See the [G13 detailed design](design/G13-ogc-symbology-encoding.md) and the
   [G13 task set](tasks/README.md#g13--ogc-symbology-encoding).
 

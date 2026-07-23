@@ -344,7 +344,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G13-003 — SE rules, filters, and scale](closed/G13-003-se-rules-filters-and-scale.md) | Complete | AFK | G13-002 | Applied ordered bounded rules by attributes and explicit scale context. |
 | [G13-004 — SE line, polygon, and catalog graphics](closed/G13-004-se-line-polygon-and-catalog-graphics.md) | Complete | AFK | G13-003 | Completed vector symbolizers and explicit catalog-only external graphics. |
 | [G13-005 — SE fixtures, gallery, and hardening](closed/G13-005-se-fixtures-gallery-and-hardening.md) | Complete | HITL | G13-004 | Closed hostile/interoperability evidence and approved the SE gallery. |
-| [G13-006 — SE native and publication closeout](G13-006-se-native-publication-closeout.md) | Proposed | HITL | G13-005 | Close staged consumer, Linux Native Image, subset wording, and bridge evidence. |
+| [G13-006 — SE native and publication closeout](closed/G13-006-se-native-publication-closeout.md) | Complete | HITL | G13-005 | Closed staged consumer, Linux Native Image, subset wording, and bridge evidence. |
 
 ### G14 — MapLibre Style
 

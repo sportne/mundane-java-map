@@ -46,6 +46,7 @@ import io.github.mundanej.map.awt.SymbolRendererRegistry;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.FeaturePortrayalResolver;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.HorizontalWrap;
@@ -67,6 +68,8 @@ import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
+import io.github.mundanej.map.io.se.SeReadOptions;
+import io.github.mundanej.map.io.se.SeStyles;
 import io.github.mundanej.map.workspace.OpenedWorkspaceFeatureLayer;
 import io.github.mundanej.map.workspace.WorkspaceDocument;
 import io.github.mundanej.map.workspace.WorkspaceFeatureLayer;
@@ -116,6 +119,7 @@ public final class MundaneMapConsumerSmoke {
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
         renderMilitarySymbol(registry, renderers);
+        renderSeStyle(registry, renderers);
         renderExplicitWorldWrap(registry, renderers);
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
@@ -577,6 +581,107 @@ public final class MundaneMapConsumerSmoke {
                     } finally {
                         view.close();
                     }
+                });
+    }
+
+    private static void renderSeStyle(
+            CrsRegistry registry, SymbolRendererRegistry renderers) throws Exception {
+        NamedSymbolCatalog catalog =
+                NamedSymbolCatalog.of(
+                        List.of(
+                                new NamedSymbol(
+                                        "consumer.primary",
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.DIAMOND,
+                                                Rgba.rgb(35, 105, 215),
+                                                28,
+                                                1))));
+        byte[] document =
+                """
+                <se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"
+                    xmlns:ogc="http://www.opengis.net/ogc" version="1.1.0">
+                  <se:Rule>
+                    <ogc:Filter><ogc:PropertyIsEqualTo>
+                      <ogc:PropertyName>kind</ogc:PropertyName>
+                      <ogc:Literal>primary</ogc:Literal>
+                    </ogc:PropertyIsEqualTo></ogc:Filter>
+                    <se:PointSymbolizer><se:Graphic><se:ExternalGraphic>
+                      <se:OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink"
+                          xlink:type="simple" xlink:href="consumer.primary"/>
+                      <se:Format>application/vnd.mundane-map.symbol</se:Format>
+                    </se:ExternalGraphic></se:Graphic></se:PointSymbolizer>
+                  </se:Rule>
+                </se:FeatureTypeStyle>
+                """
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var style = SeStyles.read("consumer-se", document, catalog, SeReadOptions.defaults());
+        var resolver = FeaturePortrayalResolver.compile(style.portrayal());
+        require(
+                resolver.requiredSymbolAttributes().equals(List.of("kind")),
+                "SE required attributes changed");
+        require(
+                resolver.resolve(
+                                io.github.mundanej.map.api.SymbolRole.MARKER,
+                                Map.of("kind", "primary"))
+                        .isPresent(),
+                "SE rule did not resolve");
+
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    Feature feature =
+                            new Feature(
+                                    "consumer-se",
+                                    "",
+                                    new PointGeometry(new Coordinate(0, 0)),
+                                    Map.of("kind", "primary"),
+                                    BuiltInMarkers.filledScreen(
+                                            BuiltInMarker.SQUARE,
+                                            Rgba.rgb(120, 120, 120),
+                                            8,
+                                            1));
+                    MapView view =
+                            new MapView(
+                                    registry,
+                                    CrsDefinitions.EPSG_3857,
+                                    CrsDefinitions.EPSG_3857,
+                                    renderers);
+                    BufferedImage image =
+                            new BufferedImage(120, 120, BufferedImage.TYPE_INT_ARGB);
+                    try {
+                        view.setSize(image.getWidth(), image.getHeight());
+                        view.setViewport(new MapViewport(120, 120, 0, 0, 1));
+                        view.setLayerBindings(
+                                List.of(
+                                        MapLayerBinding.portrayedSnapshot(
+                                                new InMemoryLayer(
+                                                        "consumer-se",
+                                                        "Consumer SE",
+                                                        List.of(feature)),
+                                                style.portrayal())));
+                        Graphics2D graphics = image.createGraphics();
+                        try {
+                            graphics.setColor(java.awt.Color.WHITE);
+                            graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                            view.paint(graphics);
+                        } finally {
+                            graphics.dispose();
+                        }
+                    } finally {
+                        view.close();
+                    }
+                    int bluePixels = 0;
+                    for (int y = 30; y < 90; y++) {
+                        for (int x = 30; x < 90; x++) {
+                            int packed = image.getRGB(x, y);
+                            int red = packed >>> 16 & 0xff;
+                            int green = packed >>> 8 & 0xff;
+                            int blue = packed & 0xff;
+                            if (blue > red + 60 && blue > green + 40) {
+                                bluePixels++;
+                            }
+                        }
+                    }
+                    require(bluePixels >= 80, "SE catalog marker did not render");
                 });
     }
 

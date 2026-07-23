@@ -60,6 +60,7 @@ public final class NativeSmokeMain {
         NativeGeoJsonSmokeScenario.run();
         NativePortrayalSmokeScenario.run();
         runOnEdt(NativeMilitarySymbolSmokeScenario::run);
+        NativeSeSmokeScenario.run();
         NativeWorldWrapSmokeScenario.run();
         runOnEdt(NativePointEditSmokeScenario::run);
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGeoTiff()) {

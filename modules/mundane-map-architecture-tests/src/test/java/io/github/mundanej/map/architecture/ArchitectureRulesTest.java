@@ -54,6 +54,8 @@ class ArchitectureRulesTest {
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-gray-tile-deflate-3857.tif",
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-int16-strip-packbits-4326.tif",
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-float32-tile-deflate-3857.tif");
+    private static final Set<String> NATIVE_SE_RESOURCES =
+            Set.of(NATIVE_RESOURCE_DIRECTORY + "se/native-style.xml");
 
     private static List<ModuleDescriptor> modules;
     private static Map<ModuleDescriptor, JavaClasses> classesByModule;
@@ -1365,10 +1367,21 @@ class ArchitectureRulesTest {
                         .map(JavaClass::getSimpleName)
                         .collect(Collectors.toUnmodifiableSet());
         JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+        JavaClasses coreClasses = classesByModule.get(moduleEndingWith("mundane-map-core"));
+        List<String> publicBridgeStaxLeaks =
+                java.util.stream.Stream.of(apiClasses, coreClasses, classes)
+                        .flatMap(JavaClasses::stream)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(target -> target.startsWith("javax.xml.stream."))
+                        .distinct()
+                        .sorted()
+                        .toList();
 
         assertEquals("JDK_RUNTIME", se.category());
         assertEquals(2, se.releaseLevel());
-        assertFalse(se.nativeTarget(), "G13-006 owns executable Native Image evidence");
+        assertTrue(se.nativeTarget());
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 se.allowedRuntimeProjects());
@@ -1391,6 +1404,9 @@ class ArchitectureRulesTest {
         assertTrue(
                 apiClasses.stream().noneMatch(type -> type.getSimpleName().startsWith("Se")),
                 "SE-specific types must not leak into mundane-map-api");
+        assertTrue(
+                publicBridgeStaxLeaks.isEmpty(),
+                () -> "public SE bridge leaked StAX types: " + publicBridgeStaxLeaks);
     }
 
     @Test
@@ -1543,7 +1559,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactElevenExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactTwelveExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1553,6 +1569,7 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-shapefile",
                         ":modules:mundane-map-io-dted",
                         ":modules:mundane-map-io-svg",
+                        ":modules:mundane-map-io-se",
                         ":modules:mundane-map-io-geojson-jackson",
                         ":modules:mundane-map-io-geotiff",
                         ":modules:mundane-map-workspace",
@@ -1657,7 +1674,8 @@ class ArchitectureRulesTest {
                                         NATIVE_RESOURCE_DIRECTORY
                                                 + "shapefile/malformed-record.shp"),
                                 NATIVE_RASTER_RESOURCES,
-                                NATIVE_DTED_RESOURCES)
+                                NATIVE_DTED_RESOURCES,
+                                NATIVE_SE_RESOURCES)
                         .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
         Set<String> processed =
@@ -1689,7 +1707,9 @@ class ArchitectureRulesTest {
                                                 NATIVE_RASTER_RESOURCES.stream(),
                                                 java.util.stream.Stream.concat(
                                                         NATIVE_DTED_RESOURCES.stream(),
-                                                        NATIVE_GEOTIFF_RESOURCES.stream()))))
+                                                        java.util.stream.Stream.concat(
+                                                                NATIVE_GEOTIFF_RESOURCES.stream(),
+                                                                NATIVE_SE_RESOURCES.stream())))))
                         .collect(Collectors.toUnmodifiableSet());
         List<String> violations =
                 ArchitecturePolicy.explicitResourceConfigViolations(

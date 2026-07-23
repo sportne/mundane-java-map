@@ -11,6 +11,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-shapefile')
     implementation project(':modules:mundane-map-io-dted')
     implementation project(':modules:mundane-map-io-svg')
+    implementation project(':modules:mundane-map-io-se')
     implementation project(':modules:mundane-map-io-geojson-jackson')
     implementation project(':modules:mundane-map-io-geotiff')
     implementation project(':modules:mundane-map-workspace')

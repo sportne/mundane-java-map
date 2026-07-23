@@ -178,6 +178,12 @@ class NativeSmokeMainTest {
                         },
                         "pattern": "\\\\Qio/github/mundanej/map/nativeimage/geotiff/gdal-float32-tile-\
                 deflate-3857.tif\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/se/native-style.xml\\\\E"
                       }
                     ]
                   }

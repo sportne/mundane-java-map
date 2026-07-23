@@ -335,3 +335,30 @@ real paint/hit behavior are automated. The rendering lane uses tolerant color-fa
 checks for the same rule, scale, catalog, and role behaviors rather than pixel identity. The
 maintainer's advance approval of all HITL tasks in this execution sequence records the
 interoperability-profile and gallery disposition as approved.
+
+## G13-006 implementation evidence
+
+The release dry run now stages `mundane-map-io-se` with API, core, sources, Javadocs, license, and
+dependency metadata under the ordinary public-module inventory. The isolated Java 21 consumer
+resolves only staged Maven components, supplies its own immutable symbol catalog, parses a bounded
+rule document, verifies required-attribute evaluation, and renders the selected marker through
+ordinary `MapView` portrayal. No StAX type crosses the adapter's public boundary.
+
+The shared native scenario loads one exactly declared project-authored SE resource, resolves an
+exact caller-catalog marker, proves matching and nonmatching rule evaluation, renders the selected
+marker offscreen, and rejects a literal entity-bearing document with `SE_XML_SECURITY`. The SE
+module is therefore part of the Linux Native Image inventory. This evidence makes no Windows,
+macOS, schema-validation, certification, arbitrary-SE, or remote-resource claim.
+
+The closeout run used GraalVM CE Java 21.0.2+13.1 on Linux x86_64. `native-image` produced the
+51.40 MiB aggregate executable, and `nativeRun` completed with
+`mundane-map native smoke: OK`. This is development evidence for the task; a release claim still
+requires the exact release-candidate CI evidence governed by G8.
+
+The G13 holistic review retains one standards-neutral bridge: immutable portrayal rules,
+predicates, scale intervals, evaluation context, and all-role results live in API; their JDK-only
+evaluator lives in core; `MapView` consumes only that bridge. SE XML names, StAX, diagnostics, and
+limits remain confined to `mundane-map-io-se`. G14 can express its bounded JSON rule vocabulary
+through the same bridge without depending on `mundane-map-io-se` or importing SE concepts. No
+second style tree, callback expression system, provider discovery, or adapter-owned renderer is
+needed.

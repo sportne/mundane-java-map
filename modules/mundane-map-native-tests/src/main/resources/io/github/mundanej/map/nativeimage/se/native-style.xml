@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: BSD-3-Clause; project-authored Native Image fixture. -->
+<se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"
+    xmlns:ogc="http://www.opengis.net/ogc" version="1.1.0">
+  <se:Name>native-catalog-filter</se:Name>
+  <se:Rule>
+    <ogc:Filter>
+      <ogc:PropertyIsEqualTo>
+        <ogc:PropertyName>kind</ogc:PropertyName>
+        <ogc:Literal>primary</ogc:Literal>
+      </ogc:PropertyIsEqualTo>
+    </ogc:Filter>
+    <se:PointSymbolizer>
+      <se:Graphic>
+        <se:ExternalGraphic>
+          <se:OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink"
+              xlink:type="simple" xlink:href="native.primary"/>
+          <se:Format>application/vnd.mundane-map.symbol</se:Format>
+        </se:ExternalGraphic>
+      </se:Graphic>
+    </se:PointSymbolizer>
+  </se:Rule>
+</se:FeatureTypeStyle>

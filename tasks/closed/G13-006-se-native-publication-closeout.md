@@ -1,6 +1,6 @@
 # G13-006 — SE native and publication closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G13-005
 Gate: G13
 Type: HITL
