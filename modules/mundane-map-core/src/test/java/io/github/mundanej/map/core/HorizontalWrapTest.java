@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.SplittableRandom;
 import org.junit.jupiter.api.Test;
 
 class HorizontalWrapTest {
@@ -126,5 +127,27 @@ class HorizontalWrapTest {
                 () ->
                         new HorizontalWrapPlan(
                                 List.of(new HorizontalInterval(-180.0, 180.0)), 0L, 64L, true));
+    }
+
+    @Test
+    void deterministicBoundarySweepPreservesCanonicalIdentityAndNearestCopy() {
+        SplittableRandom random = new SplittableRandom(0x475f31365f303037L);
+        for (int sample = 0; sample < 10_000; sample++) {
+            double canonical = random.nextDouble(-180.0, 180.0);
+            long copy = random.nextLong(-15L, 16L);
+            double display = WRAP.translate(canonical, copy);
+            WrappedX roundTrip = WRAP.canonicalize(display);
+            assertEquals(copy, roundTrip.copyIndex());
+            assertEquals(canonical, roundTrip.canonicalX(), 1.0e-10);
+
+            double reference = WRAP.translate(random.nextDouble(-180.0, 180.0), copy);
+            double nearest = WRAP.nearestEquivalent(display, reference);
+            assertTrue(Math.abs(nearest - reference) <= WRAP.period() / 2.0);
+
+            long column = random.nextLong();
+            long width = random.nextLong(1L, Long.MAX_VALUE);
+            long canonicalColumn = WRAP.canonicalTileColumn(column, width);
+            assertTrue(canonicalColumn >= 0L && canonicalColumn < width);
+        }
     }
 }

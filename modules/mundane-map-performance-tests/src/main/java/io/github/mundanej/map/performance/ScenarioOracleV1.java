@@ -44,6 +44,8 @@ final class ScenarioOracleV1 {
                     entry("BASELINE", "dted-position-query", "c75f108ddc6e5639"),
                     entry("BASELINE", "geotiff-raster-window-read", "b84b9cf3c4a6d03c"),
                     entry("BASELINE", "geotiff-eager-elevation-open", "88d23b44189c4782"),
+                    entry("BASELINE", "world-wrap-plan-disabled", "933e50c3a2d17bec"),
+                    entry("BASELINE", "world-wrap-plan-wrapped", "a45f0d043d94339a"),
                     entry("SMOKE", "memory-query-full", "ac5d092e34ba63eb"),
                     entry("SMOKE", "memory-query-window", "93b262ceb74391da"),
                     entry("SMOKE", "dense-vector-render", "c0516beaa147bdf3"),
@@ -81,7 +83,9 @@ final class ScenarioOracleV1 {
                     entry("SMOKE", "dted-sequential-scan", "a264206af4fda390"),
                     entry("SMOKE", "dted-position-query", "011cf6747c7a03d9"),
                     entry("SMOKE", "geotiff-raster-window-read", "682d35ff80a068af"),
-                    entry("SMOKE", "geotiff-eager-elevation-open", "842bd41dec68d17c"));
+                    entry("SMOKE", "geotiff-eager-elevation-open", "842bd41dec68d17c"),
+                    entry("SMOKE", "world-wrap-plan-disabled", "cae74d2920099839"),
+                    entry("SMOKE", "world-wrap-plan-wrapped", "071d9d9c1dfe3232"));
 
     private ScenarioOracleV1() {}
 

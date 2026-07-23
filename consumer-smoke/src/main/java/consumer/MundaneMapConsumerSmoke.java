@@ -14,6 +14,7 @@ import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
+import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.LabelTextStyle;
@@ -39,12 +40,15 @@ import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.awt.AwtRasterDecoders;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.awt.HorizontalWrapMode;
 import io.github.mundanej.map.awt.SymbolRendererRegistry;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.io.image.ImageOpenOptions;
 import io.github.mundanej.map.io.image.RasterImages;
 import io.github.mundanej.map.io.dted.DtedFiles;
@@ -98,6 +102,7 @@ public final class MundaneMapConsumerSmoke {
         SymbolRendererRegistry renderers = SymbolRendererRegistry.builderWithBuiltIns().build();
         var decoders = AwtRasterDecoders.level1();
         renderVector(registry, renderers);
+        renderExplicitWorldWrap(registry, renderers);
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
             testSvg(directory);
@@ -400,6 +405,85 @@ public final class MundaneMapConsumerSmoke {
                         require(colored > 20, "vector symbol did not render in the expected region");
                         require(winnerLabel > 10, "priority-winning consumer label did not render");
                         require(loserLabel == 0, "lower-priority consumer label was not omitted");
+                    } finally {
+                        view.close();
+                    }
+                });
+    }
+
+    private static void renderExplicitWorldWrap(
+            CrsRegistry registry, SymbolRendererRegistry renderers) throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view =
+                            new MapView(
+                                    registry,
+                                    CrsDefinitions.EPSG_3857,
+                                    CrsDefinitions.EPSG_3857,
+                                    renderers);
+                    try {
+                        var marker =
+                                BuiltInMarkers.filledScreen(
+                                        BuiltInMarker.CIRCLE, Rgba.rgb(20, 120, 220), 12, 1);
+                        InMemoryFeatureSource source =
+                                InMemoryFeatureSource.open(
+                                        new SourceIdentity(
+                                                "wrapped-consumer", "Wrapped consumer"),
+                                        List.of(
+                                                new FeatureRecord(
+                                        "wrapped-consumer-point",
+                                        "Wrapped consumer point",
+                                        new PointGeometry(new Coordinate(0.0, 0.0)),
+                                                        Map.of())),
+                                        Optional.empty(),
+                                        Optional.of(
+                                                CrsMetadata.recognized(
+                                                        CrsDefinitions.EPSG_3857,
+                                                        Optional.of("EPSG:3857"),
+                                                        Optional.empty())),
+                                        FeatureSourceLimits.LEVEL_1);
+                        MapLayerBinding binding =
+                                MapLayerBinding.ownedFeature(
+                                        "wrapped-consumer",
+                                        "Wrapped consumer",
+                                        source,
+                                        FeaturePortrayal.markers(
+                                                new FixedSymbolSelector(marker)));
+                        binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                        view.setSize(180, 100);
+                        view.setViewport(new MapViewport(180, 100, 0.0, 0.0, 500_000.0));
+                        view.setHorizontalWrap(HorizontalWrap.webMercator());
+                        view.setLayerBindings(List.of(binding));
+
+                        BufferedImage image =
+                                new BufferedImage(180, 100, BufferedImage.TYPE_INT_ARGB);
+                        Graphics2D graphics = image.createGraphics();
+                        try {
+                            graphics.setColor(java.awt.Color.WHITE);
+                            graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                            view.paint(graphics);
+                        } finally {
+                            graphics.dispose();
+                        }
+                        int occupiedBands = 0;
+                        for (int start : List.of(0, 60, 120)) {
+                            boolean occupied = false;
+                            for (int y = 35; y < 65 && !occupied; y++) {
+                                for (int x = start; x < start + 60; x++) {
+                                    int rgb = image.getRGB(x, y);
+                                    int red = rgb >>> 16 & 0xff;
+                                    int blue = rgb & 0xff;
+                                    if (blue > red + 40) {
+                                        occupied = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (occupied) occupiedBands++;
+                        }
+                        require(
+                                occupiedBands == 3,
+                                "explicit world-wrap consumer did not render repeated copies");
                     } finally {
                         view.close();
                     }

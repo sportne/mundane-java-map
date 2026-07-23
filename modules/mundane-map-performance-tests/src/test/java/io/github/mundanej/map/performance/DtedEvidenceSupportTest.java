@@ -113,7 +113,7 @@ class DtedEvidenceSupportTest {
     @Test
     void smokeRegistryAppendsDtedScenariosWithoutCorpusProperties() throws Exception {
         ListIds ids = new ListIds(ScenarioRegistry.ids());
-        assertEquals(49, ids.values().size());
+        assertEquals(51, ids.values().size());
         assertEquals(
                 java.util.List.of(
                         "dted-corpus-open",
@@ -124,6 +124,9 @@ class DtedEvidenceSupportTest {
         assertEquals(
                 java.util.List.of("geotiff-raster-window-read", "geotiff-eager-elevation-open"),
                 ids.values().subList(47, 49));
+        assertEquals(
+                java.util.List.of("world-wrap-plan-disabled", "world-wrap-plan-wrapped"),
+                ids.values().subList(49, 51));
         assertFalse(System.getProperties().containsKey("performanceDtedCorpus.l0"));
     }
 

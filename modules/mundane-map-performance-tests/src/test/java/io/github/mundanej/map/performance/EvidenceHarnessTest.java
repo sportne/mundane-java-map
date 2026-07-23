@@ -62,7 +62,7 @@ class EvidenceHarnessTest {
             EvidenceReport report = new EvidenceRunner().run(configuration, scenarios);
             String json = new String(report.json(), StandardCharsets.UTF_8);
             String markdown = new String(report.markdown(), StandardCharsets.UTF_8);
-            assertEquals(57, count(json, "\"id\": \""));
+            assertEquals(59, count(json, "\"id\": \""));
             assertTrue(json.startsWith("{\n  \"schemaVersion\""));
             assertTrue(json.endsWith("\n"));
             assertTrue(markdown.contains("Durations are environment-specific evidence"));
@@ -89,7 +89,10 @@ class EvidenceHarnessTest {
                 assertTrue(markdown.contains("`" + id + "`"));
             }
             assertEquals(4, count(json, "\"vectorPathState\": \"LEVEL1_OPERATION_LOCAL\""));
-            assertEquals(45, count(json, "\"vectorPathState\": \"DISABLED\""));
+            assertEquals(47, count(json, "\"vectorPathState\": \"DISABLED\""));
+            assertTrue(markdown.contains("`world-wrap-plan-disabled`"));
+            assertTrue(markdown.contains("`world-wrap-plan-wrapped`"));
+            assertTrue(markdown.contains("`wallClockGate=0`"));
             assertEquals(
                     List.of(
                             "small-vector-render-unoptimized",
@@ -340,7 +343,7 @@ class EvidenceHarnessTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new EvidenceObservation(1, Map.of("bad", -1L)));
-        assertEquals(100, ScenarioOracleV1.frozenDigests().size());
+        assertEquals(104, ScenarioOracleV1.frozenDigests().size());
         assertEquals(
                 "56d246ef2d1394ce",
                 ScenarioOracleV1.frozenDigests().get("SMOKE/vector-zoom-sequence"));

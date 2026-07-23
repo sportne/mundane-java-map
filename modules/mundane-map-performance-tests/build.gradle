@@ -85,7 +85,9 @@ def evidenceScenarioIds = [
     'dted-sequential-scan',
     'dted-position-query',
     'geotiff-raster-window-read',
-    'geotiff-eager-elevation-open'
+    'geotiff-eager-elevation-open',
+    'world-wrap-plan-disabled',
+    'world-wrap-plan-wrapped'
 ].asImmutable()
 
 tasks.withType(Test).configureEach {

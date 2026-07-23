@@ -224,6 +224,7 @@ final class ScenarioRegistry {
         try {
             DtedEvidenceScenarios.append(result, profile, selected, workspace);
             GeoTiffEvidenceScenarios.append(result, profile, selected, workspace);
+            WorldWrapEvidenceScenarios.append(result, profile, selected);
         } catch (Exception failure) {
             throw new IllegalStateException("Cannot create format evidence scenarios", failure);
         }
@@ -473,6 +474,8 @@ final class ScenarioRegistry {
         result.add("dted-position-query");
         result.add("geotiff-raster-window-read");
         result.add("geotiff-eager-elevation-open");
+        result.add("world-wrap-plan-disabled");
+        result.add("world-wrap-plan-wrapped");
         return List.copyOf(result);
     }
 

@@ -664,9 +664,10 @@ separately decomposed.
   remain bounded. The raster viewer exposes an explicit global
   mode, and bounded tile-column math is ready for later G10 HTTP/MBTiles consumers without an empty
   format or network module.
-- G16-007 closes malformed/precision/copy limits, tolerant rendering, performance evidence, Linux
-  Native Image, staged consumer, Javadocs, examples, and maintainer visual approval. Performance
-  remains evidence rather than a wall-clock quality threshold.
+- G16-007 is complete: deterministic hostile/boundary sweeps, tolerant rendering, paired
+  disabled/wrapped performance rows, Linux Native Image success/failure paths, an explicitly
+  configured staged consumer, Javadocs, examples, and approved support wording close the gate.
+  Performance remains evidence rather than a wall-clock quality threshold.
 - G16 excludes automatic wrap discovery, vertical/polar wrapping, globe rendering, topology repair,
   projected seam guessing, external dependencies, native acceleration, and implementation of open
   tile/container tasks.
@@ -674,3 +675,7 @@ separately decomposed.
   owner. G16-005 follows vector completion, and G16-007 is the convergence owner.
 - See the [G16 detailed design](design/G16-dateline-and-continuous-world-wrap.md) and the
   [G16 task set](tasks/README.md#g16--dateline-and-continuous-world-wrap).
+
+G16 is complete. The gate-level review retained one core planner plus explicit AWT view/binding
+configuration; source identity, strict CRS domains, local layers, and non-wrapped defaults remain
+unchanged.

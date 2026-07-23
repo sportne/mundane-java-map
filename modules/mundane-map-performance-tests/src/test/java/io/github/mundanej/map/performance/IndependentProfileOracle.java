@@ -112,8 +112,25 @@ final class IndependentProfileOracle {
             result.put("portrayed-label-render-colliding", labelRender(profile, true));
             result.putAll(IndependentDtedOracle.derive(profile));
             result.putAll(independentGeoTiff(profile, workspace.resolve("geotiff")));
+            result.put("world-wrap-plan-disabled", worldWrapPlan(profile, false));
+            result.put("world-wrap-plan-wrapped", worldWrapPlan(profile, true));
             return Map.copyOf(result);
         }
+    }
+
+    private static String worldWrapPlan(EvidenceConfiguration.Profile profile, boolean enabled) {
+        int operations = profile == EvidenceConfiguration.Profile.BASELINE ? 65_536 : 2_048;
+        String id = "world-wrap-plan-" + (enabled ? "wrapped" : "disabled");
+        Map<String, Long> counters =
+                counters(
+                        "viewIntervals",
+                        operations,
+                        "wrapEnabled",
+                        enabled ? 1 : 0,
+                        "wallClockGate",
+                        0);
+        long checksum = enabled ? operations / 4L * 10L : operations;
+        return digest(profile, id, counters, value -> value.longInteger(checksum));
     }
 
     private static Map<String, String> independentGeoTiff(

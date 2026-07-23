@@ -80,6 +80,31 @@ recorded scenarios and environment and is not a portable latency or throughput g
 CRS transformation, raster reprojection, editing, export, arbitrary SVG, and the additional formats
 and adapters listed under Level 2 are outside the Level 1 support statement.
 
+## Optional horizontal world-wrap profile
+
+Web Mercator views can opt into bounded continuous east/west display repetition. Repetition is off
+by default and must be enabled both on the view and on each compatible global feature, editable, or
+raster binding. Canonical source coordinates and logical feature identifiers do not acquire a copy
+index; local and non-wrapped layers retain their ordinary behavior.
+
+The profile supports repeated projected points, geographic dateline-split lines and polygons,
+wrapped interaction/editing/measurement, detached vector export, and full-period PNG/JPEG rasters
+whose CRS and axis-aligned affine placement satisfy the documented compatibility checks. It does
+not infer global layers, repair arbitrary topology, wrap vertically, widen CRS domains, or promise
+globe/polar behavior. Copy, precision, query, geometry, raster, and allocation work remains bounded
+and produces stable diagnostics.
+
+```java
+var binding = MapLayerBinding.ownedFeature("world", "World", source, portrayal);
+binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X); // before attachment
+map.setHorizontalWrap(HorizontalWrap.webMercator());
+map.setLayerBindings(List.of(binding));
+```
+
+Linux Java 21 Native Image and staged Java 21 consumer verification exercise this explicit profile.
+The paired `world-wrap-plan-disabled` and `world-wrap-plan-wrapped` performance rows are descriptive
+evidence only; they establish no portable wall-clock threshold.
+
 ## Small example
 
 ```java

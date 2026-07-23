@@ -385,3 +385,21 @@ boundaries. The raster viewer retains local behavior by default and adds `--repe
 floor-modulo tile-column math covers signed boundaries without creating a tile or network module.
 Tolerant rendering regression covers a multi-copy seam with nonuniform colors, bilinear requests,
 and opacity composition.
+
+G16-007 completion record (2026-07-22): deterministic boundary sweeps now cover canonical
+round-trips, nearest-copy selection, signed tile columns, checked copy/precision failures, seam
+geometry, wrapped interaction/editing, and raster publication without adding a second planner.
+Performance evidence exposes paired disabled and enabled planning workloads with frozen independent
+semantic oracles and no timing gate. The Linux Native Image aggregate exercises both a seam success
+and stable copy-limit failure, while the staged Java 21 consumer explicitly configures a repeating
+published feature binding and observes multiple copies. Existing tolerant vector and raster render
+regressions remain the visual seam oracle; the 10k and 1m G15 presentation probes exercise the same
+shared planner at interactive scale.
+
+The gate-level simplicity review retains the approved architecture: one immutable core profile and
+planner, one AWT view opt-in, and one pre-attachment binding mode. Geometry splitting remains a
+bounded core algorithm and raster compatibility remains an AWT/source-boundary concern. No copy
+identity enters source records, selection, edit history, or public format contracts; no new module,
+dependency, cache framework, automatic discovery, or format-specific wrap implementation was
+introduced. This is the smallest coherent boundary that supports ordinary maps, dense presentation,
+interaction, export, and compatible rasters without weakening strict CRS behavior.

@@ -1,6 +1,6 @@
 # G16-007 — World-wrap hardening and closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G16-002, G16-004, G16-005, G16-006
 Gate: G16
 Type: HITL
