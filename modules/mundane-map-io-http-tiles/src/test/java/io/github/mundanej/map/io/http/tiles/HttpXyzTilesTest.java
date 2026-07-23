@@ -118,7 +118,6 @@ class HttpXyzTilesTest {
     @Test
     void rejectsInvalidResponseProfilesAndOversizedBodies() throws IOException {
         byte[] image = image("png", Color.BLUE);
-        assertFailure(404, "image/png", image, defaults(), "HTTP_TILE_RESPONSE_INVALID");
         assertFailure(200, "text/plain", image, defaults(), "HTTP_TILE_RESPONSE_INVALID");
         assertFailure(
                 200, "image/png; charset=binary", image, defaults(), "HTTP_TILE_RESPONSE_INVALID");
@@ -257,11 +256,11 @@ class HttpXyzTilesTest {
         try (HttpXyzTileClient client = client(server, defaults())) {
             CompletableFuture<RasterSource> running =
                     CompletableFuture.supplyAsync(
-                            () -> client.fetch(XyzTileRegion.single(0, 0, 0), cancel::get));
+                            () -> client.fetch(new XyzTileRegion(1, 0, 0, 1, 0), cancel::get));
             assertTrue(firstStarted.await(5, TimeUnit.SECONDS));
             assertThrows(
                     IllegalStateException.class,
-                    () -> client.fetch(XyzTileRegion.single(0, 0, 0), CancellationToken.none()));
+                    () -> client.fetch(new XyzTileRegion(1, 0, 0, 1, 0), CancellationToken.none()));
             cancel.set(true);
             releaseFirst.countDown();
             CompletionException failed = assertThrows(CompletionException.class, running::join);
@@ -308,7 +307,8 @@ class HttpXyzTilesTest {
                 CompletableFuture.supplyAsync(
                         () ->
                                 client.fetch(
-                                        XyzTileRegion.single(0, 0, 0), CancellationToken.none()));
+                                        new XyzTileRegion(1, 0, 0, 1, 0),
+                                        CancellationToken.none()));
         assertTrue(started.await(5, TimeUnit.SECONDS));
         CompletableFuture<Void> closing = CompletableFuture.runAsync(client::close);
         release.countDown();
@@ -475,6 +475,28 @@ class HttpXyzTilesTest {
     }
 
     @Test
+    void missingBodySubscriberCancelsImmediatelyWithoutDemandOrRetention() {
+        CancellingBodySubscriber subscriber = new CancellingBodySubscriber();
+        AtomicBoolean cancelled = new AtomicBoolean();
+        AtomicInteger requests = new AtomicInteger();
+        subscriber.onSubscribe(
+                new java.util.concurrent.Flow.Subscription() {
+                    @Override
+                    public void request(long count) {
+                        requests.incrementAndGet();
+                    }
+
+                    @Override
+                    public void cancel() {
+                        cancelled.set(true);
+                    }
+                });
+        assertTrue(cancelled.get());
+        assertEquals(0, requests.get());
+        assertEquals(0, subscriber.getBody().toCompletableFuture().join().length);
+    }
+
+    @Test
     void rejectsConcurrencyAboveTheTileCeiling() {
         HttpXyzLimits limits = defaults().limits();
         assertThrows(
@@ -513,6 +535,195 @@ class HttpXyzTilesTest {
             if (!client.isClosed()) {
                 client.close();
             }
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void coversExactWorldBoundariesAndRendersOutOfOrderRegionDeterministically() throws Exception {
+        double world = WebMercatorProjection.WORLD_LIMIT;
+        assertEquals(
+                new XyzTileRegion(1, 0, 0, 1, 1),
+                XyzTileRegion.covering(new Envelope(-world, -world, world, world), 1));
+        assertEquals(
+                XyzTileRegion.single(1, 1, 0),
+                XyzTileRegion.covering(new Envelope(0, 0, world, world), 1));
+        assertEquals(
+                new XyzTileRegion(1, 0, 0, 1, 0),
+                XyzTileRegion.covering(
+                        new Envelope(Math.nextDown(0.0), 1.0, Math.nextUp(0.0), 2.0), 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> XyzTileRegion.covering(new Envelope(1, 1, 1, 2), 4));
+
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maximumActive = new AtomicInteger();
+        CountDownLatch allSubmitted = new CountDownLatch(4);
+        HttpServer server =
+                server(
+                        exchange -> {
+                            int[] coordinate = coordinate(exchange);
+                            int current = active.incrementAndGet();
+                            maximumActive.accumulateAndGet(current, Math::max);
+                            try {
+                                allSubmitted.countDown();
+                                if (!allSubmitted.await(5, TimeUnit.SECONDS)) {
+                                    throw new IOException("configured concurrency was not reached");
+                                }
+                                Thread.sleep((3L - (coordinate[1] * 2L + coordinate[0])) * 30L);
+                                Color color =
+                                        List.of(Color.RED, Color.GREEN, Color.BLUE, Color.YELLOW)
+                                                .get(coordinate[1] * 2 + coordinate[0]);
+                                respond(exchange, 200, "image/png", image("png", color));
+                            } catch (InterruptedException failure) {
+                                Thread.currentThread().interrupt();
+                                exchange.close();
+                            } finally {
+                                active.decrementAndGet();
+                            }
+                        });
+        try (HttpXyzTileClient client = client(server, defaults());
+                RasterSource source =
+                        client.fetch(new XyzTileRegion(1, 0, 0, 1, 1), CancellationToken.none())) {
+            assertEquals(512, source.metadata().width());
+            assertEquals(512, source.metadata().height());
+            assertEquals(0xff0000ff, pixel(source, 32, 32));
+            assertEquals(0x00ff00ff, pixel(source, 288, 32));
+            assertEquals(0x0000ffff, pixel(source, 32, 288));
+            assertEquals(0xffff00ff, pixel(source, 288, 288));
+            assertEquals(4, maximumActive.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void missingTilesAreTransparentWarningsAndMemoryCacheUsesCommittedLru() throws IOException {
+        AtomicInteger requests = new AtomicInteger();
+        AtomicBoolean failLast = new AtomicBoolean();
+        HttpServer server =
+                server(
+                        exchange -> {
+                            int[] coordinate = coordinate(exchange);
+                            requests.incrementAndGet();
+                            if (coordinate[0] == 1 && coordinate[1] == 0) {
+                                respond(exchange, 404, "text/plain", new byte[0]);
+                            } else if (coordinate[0] == 3 && failLast.get()) {
+                                respond(exchange, 500, "text/plain", new byte[0]);
+                            } else {
+                                respond(exchange, 200, "image/png", image("png", Color.MAGENTA));
+                            }
+                        });
+        try (HttpXyzTileClient client = client(server, memoryOptions(2))) {
+            try (RasterSource source =
+                    client.fetch(new XyzTileRegion(2, 0, 0, 1, 0), CancellationToken.none())) {
+                assertEquals(0xff00ffff, pixel(source, 10, 10));
+                assertEquals(0x00000000, pixel(source, 300, 10));
+                assertEquals(1, source.openingDiagnostics().entries().size());
+                assertEquals(
+                        "HTTP_TILE_MISSING",
+                        source.openingDiagnostics().entries().getFirst().code());
+                assertEquals(
+                        "404",
+                        source.openingDiagnostics().entries().getFirst().context().get("status"));
+            }
+            int afterFirst = requests.get();
+            try (RasterSource cached =
+                    client.fetch(XyzTileRegion.single(2, 0, 0), CancellationToken.none())) {
+                assertEquals(256, cached.metadata().width());
+                assertEquals(afterFirst, requests.get());
+            }
+            try (RasterSource admitted =
+                    client.fetch(XyzTileRegion.single(2, 2, 0), CancellationToken.none())) {
+                assertEquals(256, admitted.metadata().width());
+                assertEquals(afterFirst + 1, requests.get());
+            }
+            try (RasterSource promoted =
+                    client.fetch(XyzTileRegion.single(2, 0, 0), CancellationToken.none())) {
+                assertEquals(0xff00ffff, pixel(promoted, 10, 10));
+                assertEquals(afterFirst + 1, requests.get());
+            }
+            failLast.set(true);
+            SourceException rolledBack =
+                    assertThrows(
+                            SourceException.class,
+                            () ->
+                                    client.fetch(
+                                            new XyzTileRegion(2, 0, 0, 3, 0),
+                                            CancellationToken.none()));
+            assertEquals("HTTP_TILE_RESPONSE_INVALID", rolledBack.terminal().code());
+            assertEquals(afterFirst + 3, requests.get());
+            failLast.set(false);
+            try (RasterSource admitted =
+                    client.fetch(XyzTileRegion.single(2, 3, 0), CancellationToken.none())) {
+                assertEquals(256, admitted.metadata().height());
+                assertEquals(afterFirst + 4, requests.get());
+            }
+            try (RasterSource evicted =
+                    client.fetch(XyzTileRegion.single(2, 2, 0), CancellationToken.none())) {
+                assertEquals(256, evicted.metadata().height());
+                assertEquals(afterFirst + 5, requests.get());
+            }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void cancelledRegionLeavesCacheMembershipAndOrderUnchanged() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        AtomicBoolean blockLast = new AtomicBoolean();
+        CountDownLatch lastStarted = new CountDownLatch(1);
+        CountDownLatch releaseLast = new CountDownLatch(1);
+        HttpServer server =
+                server(
+                        exchange -> {
+                            int[] coordinate = coordinate(exchange);
+                            requests.incrementAndGet();
+                            if (coordinate[0] == 3 && blockLast.get()) {
+                                lastStarted.countDown();
+                                await(releaseLast);
+                            }
+                            try {
+                                respond(exchange, 200, "image/png", image("png", Color.CYAN));
+                            } catch (IOException ignored) {
+                                exchange.close();
+                            }
+                        });
+        AtomicBoolean cancel = new AtomicBoolean();
+        try (HttpXyzTileClient client = client(server, memoryOptions(2))) {
+            try (RasterSource first =
+                            client.fetch(XyzTileRegion.single(2, 0, 0), CancellationToken.none());
+                    RasterSource second =
+                            client.fetch(XyzTileRegion.single(2, 2, 0), CancellationToken.none());
+                    RasterSource promoted =
+                            client.fetch(XyzTileRegion.single(2, 0, 0), CancellationToken.none())) {
+                assertEquals(256, first.metadata().width());
+                assertEquals(256, second.metadata().width());
+                assertEquals(256, promoted.metadata().width());
+            }
+            blockLast.set(true);
+            CompletableFuture<RasterSource> running =
+                    CompletableFuture.supplyAsync(
+                            () -> client.fetch(new XyzTileRegion(2, 0, 0, 3, 0), cancel::get));
+            assertTrue(lastStarted.await(5, TimeUnit.SECONDS));
+            cancel.set(true);
+            releaseLast.countDown();
+            CompletionException cancelled = assertThrows(CompletionException.class, running::join);
+            assertEquals(
+                    "SOURCE_CANCELLED", ((SourceException) cancelled.getCause()).terminal().code());
+            blockLast.set(false);
+            int afterCancelled = requests.get();
+            try (RasterSource admitted =
+                            client.fetch(XyzTileRegion.single(2, 3, 0), CancellationToken.none());
+                    RasterSource evicted =
+                            client.fetch(XyzTileRegion.single(2, 2, 0), CancellationToken.none())) {
+                assertEquals(256, admitted.metadata().width());
+                assertEquals(256, evicted.metadata().width());
+            }
+            assertEquals(afterCancelled + 2, requests.get());
+        } finally {
+            releaseLast.countDown();
             server.stop(0);
         }
     }
@@ -668,13 +879,63 @@ class HttpXyzTilesTest {
                 defaults.closeTimeout());
     }
 
+    private static HttpXyzClientOptions memoryOptions(int entries) {
+        HttpXyzClientOptions defaults = defaults();
+        HttpXyzLimits limits = defaults.limits();
+        return new HttpXyzClientOptions(
+                defaults.schemePolicy(),
+                new HttpXyzLimits(
+                        limits.templateCharacters(),
+                        limits.zoom(),
+                        limits.tilesPerRequest(),
+                        limits.regionAxisTiles(),
+                        limits.concurrency(),
+                        limits.responseHeaders(),
+                        limits.headerNameOrValueCharacters(),
+                        limits.aggregateHeaderCharacters(),
+                        limits.responseBodyBytes(),
+                        limits.cumulativeResponseBytes(),
+                        limits.ownedBytes(),
+                        limits.warnings(),
+                        entries,
+                        entries * 256L * 256L * 4L),
+                defaults.snapshotLimits(),
+                defaults.decodeOptions(),
+                HttpTileCachePolicy.MEMORY,
+                defaults.connectTimeout(),
+                defaults.requestTimeout(),
+                defaults.operationTimeout(),
+                defaults.closeTimeout());
+    }
+
     private static HttpServer server(com.sun.net.httpserver.HttpHandler handler)
             throws IOException {
         HttpServer server =
                 HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", handler);
+        server.setExecutor(command -> Thread.ofVirtual().start(command));
         server.start();
         return server;
+    }
+
+    private static int[] coordinate(HttpExchange exchange) {
+        String path = exchange.getRequestURI().getPath();
+        int zoomEnd = path.indexOf('/', 1);
+        int xEnd = path.indexOf('/', zoomEnd + 1);
+        int suffix = path.indexOf('.', xEnd + 1);
+        return new int[] {
+            Integer.parseInt(path.substring(zoomEnd + 1, xEnd)),
+            Integer.parseInt(path.substring(xEnd + 1, suffix))
+        };
+    }
+
+    private static int pixel(RasterSource source, int column, int row) {
+        return source.read(
+                        new RasterRequest(
+                                new RasterWindow(column, row, 1, 1), 1, 1, Optional.empty()),
+                        CancellationToken.none())
+                .pixels()
+                .rgbaAt(0, 0);
     }
 
     private static void respond(HttpExchange exchange, int status, String media, byte[] body)

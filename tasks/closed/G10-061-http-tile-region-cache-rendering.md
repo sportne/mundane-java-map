@@ -1,6 +1,6 @@
 # G10-061 — HTTP tile regions, cache, and rendering
 
-Status: Proposed
+Status: Complete
 Depends on: G10-060
 Gate: G10
 Type: AFK

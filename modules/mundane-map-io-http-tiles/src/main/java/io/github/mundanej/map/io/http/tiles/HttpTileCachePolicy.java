@@ -4,6 +4,6 @@ package io.github.mundanej.map.io.http.tiles;
 public enum HttpTileCachePolicy {
     /** Retain no client-side tile cache. */
     DISABLED,
-    /** Retain a bounded in-memory cache; implemented by the later region slice. */
+    /** Retain successful decoded tiles in a bounded in-memory cache. */
     MEMORY
 }

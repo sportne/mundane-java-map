@@ -5,9 +5,9 @@ package io.github.mundanej.map.io.http.tiles;
  *
  * @param templateCharacters maximum template or resolved-URI characters
  * @param zoom maximum XYZ zoom
- * @param tilesPerRequest maximum tiles in one future region request
- * @param regionAxisTiles maximum future region width or height in tiles
- * @param concurrency maximum future concurrent request count
+ * @param tilesPerRequest maximum tiles in one region request
+ * @param regionAxisTiles maximum region width or height in tiles
+ * @param concurrency maximum concurrent request count
  * @param responseHeaders maximum response-header values
  * @param headerNameOrValueCharacters maximum characters in one header name or value
  * @param aggregateHeaderCharacters maximum aggregate response-header characters
@@ -15,8 +15,8 @@ package io.github.mundanej.map.io.http.tiles;
  * @param cumulativeResponseBytes maximum encoded bytes for one operation
  * @param ownedBytes maximum conservatively owned operation bytes
  * @param warnings maximum retained warnings
- * @param cacheEntries maximum future cache entries
- * @param cacheBytes maximum future cache bytes
+ * @param cacheEntries maximum decoded cache entries
+ * @param cacheBytes maximum decoded cache bytes
  */
 public record HttpXyzLimits(
         int templateCharacters,
@@ -44,8 +44,8 @@ public record HttpXyzLimits(
                     4_096,
                     16_384,
                     2 * 1_024 * 1_024,
-                    67L * 1_024 * 1_024,
-                    268L * 1_024 * 1_024,
+                    64L * 1_024 * 1_024,
+                    256L * 1_024 * 1_024,
                     256,
                     64,
                     16L * 1_024 * 1_024);

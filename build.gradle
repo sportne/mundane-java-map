@@ -94,6 +94,7 @@ tasks.register('renderRegression') {
     dependsOn ':modules:mundane-map-awt:renderRegressionTest'
     dependsOn ':examples:vector-export:test'
     dependsOn ':examples:live-track-stress:naturalEarthRenderRegression'
+    dependsOn ':examples:http-tile-viewer:test'
 }
 
 tasks.register('performanceEvidence') {

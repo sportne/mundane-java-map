@@ -1,10 +1,12 @@
 package io.github.mundanej.map.io.http.tiles;
 
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.EncodedRasterDecoderRegistry;
 import io.github.mundanej.map.api.EncodedRasterFormat;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RgbaPixelBuffer;
+import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.io.image.EncodedRasterDecodeOptions;
@@ -24,6 +26,8 @@ import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -37,7 +41,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
@@ -63,6 +66,7 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
     private final ExecutorService executor;
     private final HttpClient client;
     private final Object lifecycle = new Object();
+    private Map<TileKey, RgbaPixelBuffer> cache = Map.of();
     private boolean closed;
     private FetchOperation activeOperation;
 
@@ -88,7 +92,7 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
             EncodedRasterDecoderRegistry decoders) {
         ExecutorService executor =
                 Executors.newFixedThreadPool(
-                        2,
+                        options.limits().concurrency(),
                         runnable -> {
                             Thread thread = new Thread(runnable, "mundane-map-http-tile");
                             thread.setDaemon(true);
@@ -129,37 +133,108 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
             throw new NullPointerException("region and cancellation are required");
         }
         validateRegion(region);
+        if (cancellation.isCancellationRequested()) {
+            throw cancelled();
+        }
         FetchOperation operation = beginFetch();
         boolean published = false;
         try {
-            checkpoint(cancellation, operation, "fetch");
-            URI uri = template.resolve(region, options.limits().templateCharacters());
-            HttpRequest request =
-                    HttpRequest.newBuilder(uri)
-                            .timeout(options.requestTimeout())
-                            .header("Accept", "image/png, image/jpeg")
-                            .header("Accept-Encoding", "identity")
-                            .header("User-Agent", "mundane-java-map")
-                            .GET()
-                            .build();
-            checkpoint(cancellation, operation, "fetch");
-            ResponseProfile profile = new ResponseProfile();
-            CompletableFuture<HttpResponse<byte[]>> future =
-                    client.sendAsync(request, info -> subscriber(info, profile, operation));
-            operation.registerFuture(future);
-            HttpResponse<byte[]> response = await(future, profile, cancellation, operation);
-            checkpoint(cancellation, operation, "decode");
-            RgbaPixelBuffer pixels =
-                    decode(response.body(), profile.format, cancellation, operation);
+            long deadline = System.nanoTime() + options.operationTimeout().toNanos();
+            List<Tile> tiles = tiles(region);
+            RgbaPixelBuffer[] resolved = new RgbaPixelBuffer[tiles.size()];
+            boolean[] hits = new boolean[tiles.size()];
+            boolean[] missing = new boolean[tiles.size()];
+            Map<TileKey, RgbaPixelBuffer> snapshot = snapshotCache();
+            List<Tile> misses = new ArrayList<>();
+            for (Tile tile : tiles) {
+                RgbaPixelBuffer cached = snapshot.get(tile.key());
+                if (cached == null) {
+                    misses.add(tile);
+                } else {
+                    resolved[tile.index()] = cached;
+                    hits[tile.index()] = true;
+                }
+            }
+            List<SourceDiagnostic> warnings = new ArrayList<>();
+            long omittedWarnings = 0;
+            long cumulativeBodyBytes = 0;
+            int warningLimit =
+                    Math.min(
+                            options.limits().warnings(),
+                            options.snapshotLimits().requestLimits().retainedWarnings());
+            int decodedMisses = 0;
+            for (int start = 0; start < misses.size(); ) {
+                checkpoint(cancellation, operation, "fetch");
+                int batchSize =
+                        batchSize(
+                                region,
+                                decodedMisses,
+                                cumulativeBodyBytes,
+                                misses.get(start).ordinal());
+                int end = Math.min(misses.size(), start + batchSize);
+                List<PendingTile> pending = new ArrayList<>(end - start);
+                for (int index = start; index < end; index++) {
+                    pending.add(submit(misses.get(index), operation, deadline));
+                }
+                for (PendingTile request : pending) {
+                    try {
+                        HttpResponse<byte[]> response =
+                                await(
+                                        request.future(),
+                                        request.profile(),
+                                        cancellation,
+                                        operation,
+                                        deadline);
+                        Tile tile = request.profile().tile;
+                        if (request.profile().missingStatus != 0) {
+                            missing[tile.index()] = true;
+                            if (warnings.size() < warningLimit) {
+                                warnings.add(missingWarning(tile, request.profile().missingStatus));
+                            } else {
+                                omittedWarnings++;
+                            }
+                        } else {
+                            cumulativeBodyBytes =
+                                    Math.addExact(cumulativeBodyBytes, response.body().length);
+                            if (cumulativeBodyBytes > options.limits().cumulativeResponseBytes()) {
+                                throw limit(
+                                        tile.ordinal(),
+                                        "bodyBytes",
+                                        cumulativeBodyBytes,
+                                        options.limits().cumulativeResponseBytes());
+                            }
+                            checkpoint(cancellation, operation, "decode");
+                            resolved[tile.index()] =
+                                    decode(
+                                            response.body(),
+                                            request.profile(),
+                                            cancellation,
+                                            operation);
+                            decodedMisses++;
+                        }
+                    } finally {
+                        operation.release(request.future(), request.profile().subscriber);
+                    }
+                }
+                start = end;
+            }
             checkpoint(cancellation, operation, "publish");
+            RgbaPixelBuffer pixels =
+                    mosaic(region, tiles, resolved, missing, cancellation, operation);
+            DiagnosticReport report = new DiagnosticReport(warnings, omittedWarnings);
             RasterSource source =
                     new DetachedHttpTileRasterSource(
-                            identity, region.singleTileBounds(), options.snapshotLimits(), pixels);
+                            identity, region.bounds(), options.snapshotLimits(), pixels, report);
+            checkpoint(cancellation, operation, "publish");
             synchronized (lifecycle) {
-                if (closed || operation.isCloseRequested()) {
+                if (closed || operation.isCloseRequested() || System.nanoTime() >= deadline) {
                     source.close();
-                    throw clientClosed("publish");
+                    if (closed || operation.isCloseRequested()) {
+                        throw clientClosed("publish");
+                    }
+                    throw requestFailed("wait", "timeout");
                 }
+                commitCache(tiles, resolved, hits, missing);
                 activeOperation = null;
                 published = true;
             }
@@ -169,6 +244,132 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                 settleFailure(operation);
             }
         }
+    }
+
+    private int batchSize(
+            XyzTileRegion region, int decodedMisses, long cumulativeBodyBytes, long nextOrdinal) {
+        long body = options.limits().responseBodyBytes();
+        long segmentSlots = Math.multiplyExact(8L, (body + 65_535L) / 65_536L);
+        long reservation =
+                Math.addExact(
+                        Math.addExact(Math.multiplyExact(4L, body), 16L * 256L * 256L),
+                        segmentSlots);
+        long mosaicAndSlots = Math.multiplyExact(region.tileCount(), 4L * 256L * 256L + 16L);
+        long retained = Math.multiplyExact(decodedMisses, 4L * 256L * 256L);
+        long base = Math.addExact(mosaicAndSlots, retained);
+        long ownedCapacity = (options.limits().ownedBytes() - base) / reservation;
+        long bodyCapacity =
+                (options.limits().cumulativeResponseBytes() - cumulativeBodyBytes) / body;
+        if (ownedCapacity < 1) {
+            throw limit(
+                    nextOrdinal,
+                    "ownedBytes",
+                    Math.addExact(base, reservation),
+                    options.limits().ownedBytes());
+        }
+        if (bodyCapacity < 1) {
+            throw limit(
+                    nextOrdinal,
+                    "bodyBytes",
+                    Math.addExact(cumulativeBodyBytes, body),
+                    options.limits().cumulativeResponseBytes());
+        }
+        return Math.toIntExact(
+                Math.min(options.limits().concurrency(), Math.min(ownedCapacity, bodyCapacity)));
+    }
+
+    private Map<TileKey, RgbaPixelBuffer> snapshotCache() {
+        synchronized (lifecycle) {
+            return new LinkedHashMap<>(cache);
+        }
+    }
+
+    private List<Tile> tiles(XyzTileRegion region) {
+        List<Tile> result = new ArrayList<>(Math.toIntExact(region.tileCount()));
+        int index = 0;
+        for (int y = region.minimumY(); y <= region.maximumY(); y++) {
+            for (int x = region.minimumX(); x <= region.maximumX(); x++) {
+                result.add(new Tile(index, index + 1L, region.zoom(), x, y));
+                index++;
+            }
+        }
+        return result;
+    }
+
+    private PendingTile submit(Tile tile, FetchOperation operation, long deadline) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw requestFailed(tile.ordinal(), "wait", "timeout");
+        }
+        XyzTileRegion single = XyzTileRegion.single(tile.zoom(), tile.x(), tile.y());
+        URI uri = template.resolve(single, options.limits().templateCharacters());
+        Duration timeout =
+                Duration.ofNanos(Math.min(options.requestTimeout().toNanos(), remaining));
+        HttpRequest request =
+                HttpRequest.newBuilder(uri)
+                        .timeout(timeout)
+                        .header("Accept", "image/png, image/jpeg")
+                        .header("Accept-Encoding", "identity")
+                        .header("User-Agent", "mundane-java-map")
+                        .GET()
+                        .build();
+        ResponseProfile profile = new ResponseProfile(tile);
+        CompletableFuture<HttpResponse<byte[]>> future =
+                client.sendAsync(request, info -> subscriber(info, profile, operation));
+        operation.registerFuture(future);
+        return new PendingTile(profile, future);
+    }
+
+    private RgbaPixelBuffer mosaic(
+            XyzTileRegion region,
+            List<Tile> tiles,
+            RgbaPixelBuffer[] resolved,
+            boolean[] missing,
+            CancellationToken cancellation,
+            FetchOperation operation) {
+        int width = Math.multiplyExact(region.widthInTiles(), 256);
+        int height = Math.multiplyExact(region.heightInTiles(), 256);
+        RgbaPixelBuffer.Builder builder = RgbaPixelBuffer.builder(width, height);
+        long copied = 0;
+        for (Tile tile : tiles) {
+            if (missing[tile.index()]) {
+                continue;
+            }
+            RgbaPixelBuffer pixels = resolved[tile.index()];
+            int offsetX = (tile.x() - region.minimumX()) * 256;
+            int offsetY = (tile.y() - region.minimumY()) * 256;
+            for (int y = 0; y < 256; y++) {
+                for (int x = 0; x < 256; x++) {
+                    if ((copied++ & 4095L) == 0) {
+                        checkpoint(cancellation, operation, "publish");
+                    }
+                    builder.setRgba(offsetX + x, offsetY + y, pixels.rgbaAt(x, y));
+                }
+            }
+        }
+        return builder.build();
+    }
+
+    private void commitCache(
+            List<Tile> tiles, RgbaPixelBuffer[] resolved, boolean[] hits, boolean[] missing) {
+        if (options.cachePolicy() != HttpTileCachePolicy.MEMORY) {
+            return;
+        }
+        LinkedHashMap<TileKey, RgbaPixelBuffer> candidate = new LinkedHashMap<>(cache);
+        for (Tile tile : tiles) {
+            if (missing[tile.index()]) {
+                continue;
+            }
+            if (hits[tile.index()]) {
+                candidate.remove(tile.key());
+            }
+            candidate.put(tile.key(), resolved[tile.index()]);
+            while (candidate.size() > options.limits().cacheEntries()
+                    || (long) candidate.size() * 256L * 256L * 4L > options.limits().cacheBytes()) {
+                candidate.remove(candidate.keySet().iterator().next());
+            }
+        }
+        cache = candidate;
     }
 
     private FetchOperation beginFetch() {
@@ -187,14 +388,23 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
 
     private HttpResponse.BodySubscriber<byte[]> subscriber(
             HttpResponse.ResponseInfo response, ResponseProfile profile, FetchOperation operation) {
-        validateHeaders(response, profile);
+        validateHeaderBounds(response, profile);
+        if (response.statusCode() == 404 || response.statusCode() == 410) {
+            profile.missingStatus = response.statusCode();
+            return new CancellingBodySubscriber();
+        }
+        if (response.statusCode() != 200) {
+            throw invalidStatus(profile.tile.ordinal(), response.statusCode());
+        }
+        validateSuccessHeaders(response, profile);
         BoundedBodySubscriber subscriber =
                 new BoundedBodySubscriber(options.limits().responseBodyBytes(), profile.length);
+        profile.subscriber = subscriber;
         operation.registerSubscriber(subscriber);
         return subscriber;
     }
 
-    private void validateHeaders(HttpResponse.ResponseInfo response, ResponseProfile profile) {
+    private void validateHeaderBounds(HttpResponse.ResponseInfo response, ResponseProfile profile) {
         int headerCount = 0;
         long aggregate = 0;
         for (Map.Entry<String, List<String>> entry : response.headers().map().entrySet()) {
@@ -203,6 +413,7 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                 if (entry.getKey().length() > options.limits().headerNameOrValueCharacters()
                         || value.length() > options.limits().headerNameOrValueCharacters()) {
                     throw limit(
+                            profile.tile.ordinal(),
                             "headerCharacters",
                             Math.max(entry.getKey().length(), value.length()),
                             options.limits().headerNameOrValueCharacters());
@@ -211,21 +422,29 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
             }
         }
         if (headerCount > options.limits().responseHeaders()) {
-            throw limit("headers", headerCount, options.limits().responseHeaders());
+            throw limit(
+                    profile.tile.ordinal(),
+                    "headers",
+                    headerCount,
+                    options.limits().responseHeaders());
         }
         if (aggregate > options.limits().aggregateHeaderCharacters()) {
             throw limit(
-                    "headerCharacters", aggregate, options.limits().aggregateHeaderCharacters());
+                    profile.tile.ordinal(),
+                    "headerCharacters",
+                    aggregate,
+                    options.limits().aggregateHeaderCharacters());
         }
-        if (response.statusCode() != 200) {
-            throw invalidStatus(response.statusCode());
-        }
+    }
+
+    private void validateSuccessHeaders(
+            HttpResponse.ResponseInfo response, ResponseProfile profile) {
         List<String> types = response.headers().allValues("Content-Type");
         if (types.isEmpty()) {
-            throw invalidResponse("contentType", "missing");
+            throw invalidResponse(profile.tile.ordinal(), "contentType", "missing");
         }
         if (types.size() != 1) {
-            throw invalidResponse("contentType", "duplicate");
+            throw invalidResponse(profile.tile.ordinal(), "contentType", "duplicate");
         }
         String media = types.getFirst().strip().toLowerCase(Locale.ROOT);
         if (media.equals("image/png")) {
@@ -233,18 +452,18 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
         } else if (media.equals("image/jpeg")) {
             profile.format = EncodedRasterFormat.JPEG;
         } else {
-            throw invalidResponse("contentType", "unsupported");
+            throw invalidResponse(profile.tile.ordinal(), "contentType", "unsupported");
         }
         List<String> encodings = response.headers().allValues("Content-Encoding");
         if (encodings.size() > 1) {
-            throw invalidResponse("contentEncoding", "duplicate");
+            throw invalidResponse(profile.tile.ordinal(), "contentEncoding", "duplicate");
         }
         if (encodings.size() == 1 && !encodings.getFirst().strip().equalsIgnoreCase("identity")) {
-            throw invalidResponse("contentEncoding", "unsupported");
+            throw invalidResponse(profile.tile.ordinal(), "contentEncoding", "unsupported");
         }
         List<String> lengths = response.headers().allValues("Content-Length");
         if (lengths.size() > 1) {
-            throw invalidResponse("contentLength", "duplicate");
+            throw invalidResponse(profile.tile.ordinal(), "contentLength", "duplicate");
         }
         if (!lengths.isEmpty()) {
             try {
@@ -254,10 +473,14 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                 }
                 profile.length = Long.parseLong(text);
             } catch (NumberFormatException failure) {
-                throw invalidResponse("contentLength", "syntax");
+                throw invalidResponse(profile.tile.ordinal(), "contentLength", "syntax");
             }
             if (profile.length > options.limits().responseBodyBytes()) {
-                throw limit("tileBodyBytes", profile.length, options.limits().responseBodyBytes());
+                throw limit(
+                        profile.tile.ordinal(),
+                        "tileBodyBytes",
+                        profile.length,
+                        options.limits().responseBodyBytes());
             }
         }
     }
@@ -266,13 +489,13 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
             CompletableFuture<HttpResponse<byte[]>> future,
             ResponseProfile profile,
             CancellationToken cancellation,
-            FetchOperation operation) {
-        long deadline = System.nanoTime() + options.operationTimeout().toNanos();
+            FetchOperation operation,
+            long deadline) {
         while (true) {
             checkpoint(cancellation, operation, "fetch");
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0) {
-                throw requestFailed("wait", "timeout");
+                throw requestFailed(profile.tile.ordinal(), "wait", "timeout");
             }
             try {
                 return future.get(
@@ -281,12 +504,12 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                 // Poll cancellation, close, and the operation deadline.
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
-                throw requestFailed("wait", "interrupted");
+                throw requestFailed(profile.tile.ordinal(), "wait", "interrupted");
             } catch (ExecutionException failure) {
                 throw mapFailure(failure.getCause(), profile, cancellation, operation);
             } catch (CancellationException failure) {
                 checkpoint(cancellation, operation, "fetch");
-                throw requestFailed("wait", "other");
+                throw requestFailed(profile.tile.ordinal(), "wait", "other");
             }
         }
     }
@@ -306,42 +529,44 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
         }
         if (cause instanceof BoundedBodySubscriber.BodyLimitException) {
             return limit(
+                    profile.tile.ordinal(),
                     "tileBodyBytes",
                     (long) options.limits().responseBodyBytes() + 1,
                     options.limits().responseBodyBytes());
         }
         if (cause instanceof BoundedBodySubscriber.BodyLengthException) {
-            return invalidResponse("contentLength", "mismatch");
+            return invalidResponse(profile.tile.ordinal(), "contentLength", "mismatch");
         }
         checkpoint(cancellation, operation, "fetch");
         if (cause instanceof java.net.http.HttpTimeoutException) {
-            return requestFailed("wait", "timeout");
+            return requestFailed(profile.tile.ordinal(), "wait", "timeout");
         }
         if (cause instanceof UnknownHostException) {
-            return requestFailed("dns", "io");
+            return requestFailed(profile.tile.ordinal(), "dns", "io");
         }
         if (cause instanceof ConnectException) {
-            return requestFailed("connect", "io");
+            return requestFailed(profile.tile.ordinal(), "connect", "io");
         }
         if (cause instanceof SSLException) {
-            return requestFailed("tls", "protocol");
+            return requestFailed(profile.tile.ordinal(), "tls", "protocol");
         }
         if (cause instanceof IOException && profile.length >= 0) {
-            return invalidResponse("contentLength", "mismatch");
+            return invalidResponse(profile.tile.ordinal(), "contentLength", "mismatch");
         }
         if (cause instanceof ProtocolException) {
-            return requestFailed("body", "protocol");
+            return requestFailed(profile.tile.ordinal(), "body", "protocol");
         }
-        return requestFailed("send", cause instanceof IOException ? "io" : "other");
+        return requestFailed(
+                profile.tile.ordinal(), "send", cause instanceof IOException ? "io" : "other");
     }
 
     private RgbaPixelBuffer decode(
             byte[] bytes,
-            EncodedRasterFormat format,
+            ResponseProfile profile,
             CancellationToken cancellation,
             FetchOperation operation) {
         EncodedRasterDecodeOptions decode =
-                options.decodeOptions().expecting(format).expectingDimensions(256, 256);
+                options.decodeOptions().expecting(profile.format).expectingDimensions(256, 256);
         CancellationToken effective =
                 () -> cancellation.isCancellationRequested() || operation.isCloseRequested();
         try {
@@ -355,11 +580,12 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                 throw cancelled();
             }
             if (code.equals("SOURCE_LIMIT_EXCEEDED")) {
-                return throwLimit(failure);
+                return throwLimit(profile.tile.ordinal(), failure);
             }
             if (code.equals("IMAGE_DIMENSIONS_MISMATCH")) {
                 throw HttpTileDiagnostics.failure(
                         identity.id(),
+                        profile.tile.ordinal(),
                         "HTTP_TILE_IMAGE_INVALID",
                         "HTTP tile image dimensions are invalid",
                         Map.of(
@@ -373,6 +599,7 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
             if (CLOSED_IMAGE_CODES.contains(code)) {
                 throw HttpTileDiagnostics.failure(
                         identity.id(),
+                        profile.tile.ordinal(),
                         "HTTP_TILE_IMAGE_INVALID",
                         "HTTP tile image is invalid",
                         Map.of("reason", "decode", "imageCode", code));
@@ -381,9 +608,10 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
         }
     }
 
-    private RgbaPixelBuffer throwLimit(SourceException failure) {
+    private RgbaPixelBuffer throwLimit(long ordinal, SourceException failure) {
         throw HttpTileDiagnostics.failure(
                 identity.id(),
+                ordinal,
                 "SOURCE_LIMIT_EXCEEDED",
                 "HTTP tile image decode limit exceeded",
                 Map.of(
@@ -398,11 +626,25 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
     }
 
     private void validateRegion(XyzTileRegion region) {
-        if (!region.isSingleTile()) {
-            throw new IllegalArgumentException("This client slice accepts exactly one XYZ tile");
-        }
         if (region.zoom() > options.limits().zoom()) {
             throw new IllegalArgumentException("XYZ zoom exceeds configured limits");
+        }
+        if (region.tileCount() > options.limits().tilesPerRequest()
+                || region.widthInTiles() > options.limits().regionAxisTiles()
+                || region.heightInTiles() > options.limits().regionAxisTiles()) {
+            throw new IllegalArgumentException("XYZ region exceeds configured limits");
+        }
+        long pixels = Math.multiplyExact(region.tileCount(), 256L * 256L);
+        int width = Math.multiplyExact(region.widthInTiles(), 256);
+        int height = Math.multiplyExact(region.heightInTiles(), 256);
+        var limits = options.snapshotLimits().requestLimits();
+        if (width > limits.outputDimension()
+                || height > limits.outputDimension()
+                || pixels > limits.sourceWindowPixels()
+                || pixels > limits.outputPixels()
+                || Math.multiplyExact(4L, pixels) > limits.decodedIntermediateBytes()
+                || Math.multiplyExact(4L, pixels) > limits.ownedPayloadBytes()) {
+            throw new IllegalArgumentException("XYZ mosaic exceeds snapshot limits");
         }
     }
 
@@ -432,9 +674,27 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                 Map.of("phase", phase));
     }
 
-    private SourceException invalidStatus(int status) {
+    private SourceDiagnostic missingWarning(Tile tile, int status) {
+        return HttpTileDiagnostics.warning(
+                identity.id(),
+                tile.ordinal(),
+                "HTTP_TILE_MISSING",
+                "HTTP tile is missing",
+                Map.of(
+                        "zoom",
+                        Integer.toString(tile.zoom()),
+                        "x",
+                        Integer.toString(tile.x()),
+                        "y",
+                        Integer.toString(tile.y()),
+                        "status",
+                        Integer.toString(status)));
+    }
+
+    private SourceException invalidStatus(long ordinal, int status) {
         return HttpTileDiagnostics.failure(
                 identity.id(),
+                ordinal,
                 "HTTP_TILE_RESPONSE_INVALID",
                 "HTTP tile response is outside the supported profile",
                 Map.of(
@@ -446,25 +706,32 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
                         Integer.toString(status)));
     }
 
-    private SourceException invalidResponse(String field, String reason) {
+    private SourceException invalidResponse(long ordinal, String field, String reason) {
         return HttpTileDiagnostics.failure(
                 identity.id(),
+                ordinal,
                 "HTTP_TILE_RESPONSE_INVALID",
                 "HTTP tile response is outside the supported profile",
                 Map.of("field", field, "reason", reason));
     }
 
     private SourceException requestFailed(String phase, String reason) {
+        return requestFailed(1, phase, reason);
+    }
+
+    private SourceException requestFailed(long ordinal, String phase, String reason) {
         return HttpTileDiagnostics.failure(
                 identity.id(),
+                ordinal,
                 "HTTP_TILE_REQUEST_FAILED",
                 "HTTP tile request failed",
                 Map.of("phase", phase, "reason", reason));
     }
 
-    private SourceException limit(String name, long requested, long maximum) {
+    private SourceException limit(long ordinal, String name, long requested, long maximum) {
         return HttpTileDiagnostics.failure(
                 identity.id(),
+                ordinal,
                 "SOURCE_LIMIT_EXCEEDED",
                 "HTTP tile limit exceeded",
                 Map.of(
@@ -479,23 +746,24 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
     }
 
     private void settleFailure(FetchOperation operation) {
-        operation.cancelTransport();
         boolean settled = false;
         boolean interrupted = false;
         try {
-            settled = operation.await(options.closeTimeout());
+            settled = operation.cleanup(options.closeTimeout());
         } catch (InterruptedException failure) {
             interrupted = true;
         }
+        boolean shutdown = false;
         synchronized (lifecycle) {
             if (activeOperation == operation) {
                 activeOperation = null;
             }
-            if (!settled) {
+            if (!settled && !closed) {
                 closed = true;
+                shutdown = true;
             }
         }
-        if (!settled) {
+        if (shutdown) {
             client.shutdownNow();
             executor.shutdownNow();
         }
@@ -520,18 +788,23 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
             }
             closed = true;
             operation = activeOperation;
+            cache = Map.of();
         }
         if (operation != null) {
             operation.requestClose();
         }
         client.shutdownNow();
         executor.shutdownNow();
+        if (operation == null && Thread.interrupted()) {
+            Thread.currentThread().interrupt();
+            throw closeFailure("client", "interrupted");
+        }
         long deadline = System.nanoTime() + options.closeTimeout().toNanos();
         boolean interrupted = false;
         String resource = "body";
         try {
             if (operation != null) {
-                if (!operation.await(remaining(deadline))) {
+                if (!operation.cleanup(remaining(deadline))) {
                     throw closeFailure("body", "timeout");
                 }
             }
@@ -575,59 +848,138 @@ final class DefaultHttpXyzTileClient implements HttpXyzTileClient {
     }
 
     private static final class ResponseProfile {
+        private final Tile tile;
         private EncodedRasterFormat format;
         private long length = -1;
+        private int missingStatus;
+        private volatile BoundedBodySubscriber subscriber;
+
+        ResponseProfile(Tile tile) {
+            this.tile = tile;
+        }
     }
+
+    private record Tile(int index, long ordinal, int zoom, int x, int y) {
+        TileKey key() {
+            return new TileKey(zoom, x, y);
+        }
+    }
+
+    private record TileKey(int zoom, int x, int y) {}
+
+    private record PendingTile(
+            ResponseProfile profile, CompletableFuture<HttpResponse<byte[]>> future) {}
 
     private static final class FetchOperation {
         private final AtomicBoolean closeRequested = new AtomicBoolean();
         private final AtomicBoolean transportCancelled = new AtomicBoolean();
-        private final AtomicReference<CompletableFuture<?>> future = new AtomicReference<>();
-        private final AtomicReference<BoundedBodySubscriber> subscriber = new AtomicReference<>();
+        private final CompletableFuture<Boolean> cleanupResult = new CompletableFuture<>();
+        private final List<CompletableFuture<?>> futures = new ArrayList<>();
+        private final List<BoundedBodySubscriber> subscribers = new ArrayList<>();
+        private boolean cleanupClaimed;
+        private volatile long cleanupDeadline;
 
-        void registerFuture(CompletableFuture<?> value) {
-            future.set(value);
+        synchronized void registerFuture(CompletableFuture<?> value) {
             if (transportCancelled.get()) {
                 value.cancel(true);
+            } else {
+                futures.add(value);
             }
         }
 
-        void registerSubscriber(BoundedBodySubscriber value) {
-            subscriber.set(value);
+        synchronized void registerSubscriber(BoundedBodySubscriber value) {
             if (transportCancelled.get()) {
                 value.cancel();
+            } else {
+                subscribers.add(value);
+            }
+        }
+
+        synchronized void release(CompletableFuture<?> request, BoundedBodySubscriber body) {
+            for (int index = 0; index < futures.size(); index++) {
+                if (futures.get(index) == request) {
+                    futures.remove(index);
+                    break;
+                }
+            }
+            if (body != null) {
+                for (int index = 0; index < subscribers.size(); index++) {
+                    if (subscribers.get(index) == body) {
+                        subscribers.remove(index);
+                        break;
+                    }
+                }
             }
         }
 
         void requestClose() {
             closeRequested.set(true);
-            cancelTransport();
         }
 
         boolean isCloseRequested() {
             return closeRequested.get();
         }
 
-        void cancelTransport() {
+        synchronized void cancelTransport() {
             transportCancelled.set(true);
-            BoundedBodySubscriber body = subscriber.get();
-            if (body != null) {
+            for (BoundedBodySubscriber body : subscribers) {
                 body.cancel();
             }
-            CompletableFuture<?> request = future.get();
-            if (request != null) {
+            for (CompletableFuture<?> request : futures) {
                 request.cancel(true);
             }
         }
 
-        boolean await(Duration timeout) throws InterruptedException {
-            long deadline = System.nanoTime() + timeout.toNanos();
-            CompletableFuture<?> request = future.get();
-            if (request != null && !awaitFuture(request, deadline)) {
+        boolean cleanup(Duration timeout) throws InterruptedException {
+            boolean owner;
+            long deadline;
+            synchronized (this) {
+                owner = !cleanupClaimed;
+                if (owner) {
+                    cleanupDeadline = System.nanoTime() + timeout.toNanos();
+                    cleanupClaimed = true;
+                }
+                deadline = cleanupDeadline;
+            }
+            if (owner) {
+                cancelTransport();
+                try {
+                    boolean settled = awaitUntil(deadline);
+                    cleanupResult.complete(settled);
+                    return settled;
+                } catch (InterruptedException failure) {
+                    cleanupResult.complete(false);
+                    throw failure;
+                }
+            }
+            try {
+                return cleanupResult.get(
+                        Math.max(1L, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (CancellationException | ExecutionException ignored) {
+                return false;
+            } catch (TimeoutException failure) {
                 return false;
             }
-            BoundedBodySubscriber body = subscriber.get();
-            return body == null || body.await(Math.max(1L, deadline - System.nanoTime()));
+        }
+
+        private boolean awaitUntil(long deadline) throws InterruptedException {
+            List<CompletableFuture<?>> requestSnapshot;
+            List<BoundedBodySubscriber> bodySnapshot;
+            synchronized (this) {
+                requestSnapshot = List.copyOf(futures);
+                bodySnapshot = List.copyOf(subscribers);
+            }
+            for (CompletableFuture<?> request : requestSnapshot) {
+                if (!awaitFuture(request, deadline)) {
+                    return false;
+                }
+            }
+            for (BoundedBodySubscriber body : bodySnapshot) {
+                if (!body.await(Math.max(1L, deadline - System.nanoTime()))) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private static boolean awaitFuture(CompletableFuture<?> value, long deadline)

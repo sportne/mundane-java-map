@@ -33,9 +33,6 @@ public final class HttpXyzTiles {
                 && options.schemePolicy() != HttpSchemePolicy.HTTPS_OR_HTTP) {
             throw new IllegalArgumentException("Cleartext HTTP requires explicit opt-in");
         }
-        if (options.cachePolicy() != HttpTileCachePolicy.DISABLED) {
-            throw new IllegalArgumentException("Memory caching is not available in this slice");
-        }
         if (options.decodeOptions().expectedFormat().isPresent()
                 || options.decodeOptions().expectedWidth().isPresent()) {
             throw new IllegalArgumentException(
@@ -47,6 +44,7 @@ public final class HttpXyzTiles {
 
     private static void validateCompatibility(HttpXyzClientOptions options) {
         final long pixels = 256L * 256L;
+        long regionPixels;
         long body = options.limits().responseBodyBytes();
         var image = options.decodeOptions().imageLimits();
         var decode = options.decodeOptions().decodeLimits();
@@ -61,7 +59,13 @@ public final class HttpXyzTiles {
                     Math.addExact(
                             Math.addExact(Math.multiplyExact(4L, body), 16L * pixels),
                             segmentSlots);
-            ownedFloor = Math.addExact(Math.addExact(4L * pixels, 16L), requestReservation);
+            regionPixels = Math.multiplyExact(pixels, options.limits().tilesPerRequest());
+            ownedFloor =
+                    Math.addExact(
+                            Math.addExact(
+                                    Math.multiplyExact(4L, regionPixels),
+                                    Math.multiplyExact(16L, options.limits().tilesPerRequest())),
+                            requestReservation);
         } catch (ArithmeticException failure) {
             throw new IllegalArgumentException(
                     "HTTP tile limits overflow compatibility accounting");
@@ -76,11 +80,14 @@ public final class HttpXyzTiles {
                 || decode.outputPixels() < pixels
                 || decode.decodedIntermediateBytes() < decodeIntermediate
                 || decode.ownedPayloadBytes() < 4L * pixels
-                || snapshot.sourceWindowPixels() < pixels
-                || snapshot.outputDimension() < 256
-                || snapshot.outputPixels() < pixels
-                || snapshot.decodedIntermediateBytes() < 4L * pixels
-                || snapshot.ownedPayloadBytes() < 4L * pixels
+                || snapshot.sourceWindowPixels() < regionPixels
+                || snapshot.outputDimension()
+                        < Math.multiplyExact(256, options.limits().regionAxisTiles())
+                || snapshot.outputPixels() < regionPixels
+                || snapshot.decodedIntermediateBytes() < 4L * regionPixels
+                || snapshot.ownedPayloadBytes() < 4L * regionPixels
+                || (options.cachePolicy() == HttpTileCachePolicy.MEMORY
+                        && options.limits().cacheBytes() < 4L * pixels)
                 || options.limits().ownedBytes() < ownedFloor) {
             throw new IllegalArgumentException(
                     "HTTP tile limits do not admit one complete 256 by 256 acquisition");

@@ -16,6 +16,15 @@ final class HttpTileDiagnostics {
 
     static SourceException failure(
             String sourceId, String code, String message, Map<String, String> context) {
+        return failure(sourceId, 1, code, message, context);
+    }
+
+    static SourceException failure(
+            String sourceId,
+            long recordNumber,
+            String code,
+            String message,
+            Map<String, String> context) {
         SourceDiagnostic terminal =
                 new SourceDiagnostic(
                         code,
@@ -24,7 +33,7 @@ final class HttpTileDiagnostics {
                         Optional.of(
                                 new DiagnosticLocation(
                                         Optional.of("httpTile"),
-                                        OptionalLong.of(1),
+                                        OptionalLong.of(recordNumber),
                                         OptionalInt.empty(),
                                         OptionalInt.empty(),
                                         Optional.empty(),
@@ -32,5 +41,27 @@ final class HttpTileDiagnostics {
                         message,
                         context);
         return new SourceException(new DiagnosticReport(List.of(terminal), 0), terminal);
+    }
+
+    static SourceDiagnostic warning(
+            String sourceId,
+            long recordNumber,
+            String code,
+            String message,
+            Map<String, String> context) {
+        return new SourceDiagnostic(
+                code,
+                DiagnosticSeverity.WARNING,
+                sourceId,
+                Optional.of(
+                        new DiagnosticLocation(
+                                Optional.of("httpTile"),
+                                OptionalLong.of(recordNumber),
+                                OptionalInt.empty(),
+                                OptionalInt.empty(),
+                                Optional.empty(),
+                                OptionalLong.empty())),
+                message,
+                context);
     }
 }

@@ -2724,6 +2724,13 @@ returned source remains readable after both client and server close. Region batc
 recovery, cache retention, viewer/render integration, exhaustive race hardening, and Native Image
 claims remain exclusively in G10-061/G10-062.
 
+Implementation record (2026-07-22): G10-061 extends the client to exact tile-aligned Web Mercator
+regions, bounded concurrent request batches consumed in row-major order, recoverable transparent
+404/410 tiles with bounded warnings, transactional decoded-tile LRU commits, and detached mosaic
+reads. The self-contained HTTP tile viewer performs loopback acquisition and decode on a Swing worker
+before installing the source in `MapView`; tolerant broad-color evidence runs in `renderRegression`.
+The hostile-response and race matrix plus the final JVM-only support audit remain in G10-062.
+
 ## Additional-projection evidence decision (G10-007)
 
 ### Current decision: DEFER

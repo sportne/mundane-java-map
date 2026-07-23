@@ -22,6 +22,7 @@ import java.util.Optional;
 final class DetachedHttpTileRasterSource implements RasterSource {
     private final RasterSourceMetadata metadata;
     private final RasterSourceLimits limits;
+    private final DiagnosticReport openingDiagnostics;
     private RgbaPixelBuffer pixels;
     private boolean closed;
 
@@ -30,6 +31,15 @@ final class DetachedHttpTileRasterSource implements RasterSource {
             Envelope bounds,
             RasterSourceLimits limits,
             RgbaPixelBuffer pixels) {
+        this(identity, bounds, limits, pixels, DiagnosticReport.empty());
+    }
+
+    DetachedHttpTileRasterSource(
+            SourceIdentity identity,
+            Envelope bounds,
+            RasterSourceLimits limits,
+            RgbaPixelBuffer pixels,
+            DiagnosticReport openingDiagnostics) {
         this.metadata =
                 new RasterSourceMetadata(
                         identity,
@@ -43,6 +53,7 @@ final class DetachedHttpTileRasterSource implements RasterSource {
                                         Optional.empty())));
         this.limits = limits;
         this.pixels = pixels;
+        this.openingDiagnostics = openingDiagnostics;
     }
 
     @Override
@@ -57,7 +68,7 @@ final class DetachedHttpTileRasterSource implements RasterSource {
 
     @Override
     public DiagnosticReport openingDiagnostics() {
-        return DiagnosticReport.empty();
+        return openingDiagnostics;
     }
 
     @Override
