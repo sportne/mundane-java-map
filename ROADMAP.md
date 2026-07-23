@@ -520,14 +520,15 @@ separately decomposed.
 
 ### G12 — MIL-STD-2525 symbology
 
-- G12 is the first standards-based symbology track. It proposes a JDK-only, AWT-free
+- G12 is the first standards-based symbology track. Its approved profile uses a JDK-only, AWT-free
   `mundane-map-symbology-milstd2525` module for MIL-STD-2525E with Change 1 incorporated, using
   canonical 30-position SIDCs and a finite icon-based Land Unit, Land Equipment, and Activities
   profile.
 - Resolved frames, icons, and graphical modifiers become ordinary toolkit-neutral marker/composite
   symbols. There is no military-specific AWT renderer, runtime table discovery, remote update, legacy
   SIDC translation, APP-6 mapping, text-amplifier engine, or multipoint tactical-graphics claim.
-- G12-001 is the required profile/legal/conformance-wording decision. G12-002 through G12-006 then
+- G12-001 approved the exact profile/legal/conformance wording and authoritative-source record on
+  2026-07-23. G12-002 through G12-006 then
   deliver parsing, first rendering, the finite catalog and portrayal integration, reference/gallery
   hardening, and publication/consumer/Linux Native Image closeout.
 - G13 is deliberately dependent on G12-006 so the requested MIL-STD-2525-first order is explicit.

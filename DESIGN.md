@@ -60,7 +60,7 @@ design task; there are no empty speculative design files.
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001, G10-003, and G10-005 through G10-007 approved; G10-002 and G10-004 reviewed proposals; holistic closeout approved with those exclusions |
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
-| G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 through G12-006 draft proposal |
+| G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | G12-001 profile approved; G12-002 through G12-006 proposed |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | G13-001 through G13-006 draft proposal |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
@@ -253,7 +253,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G11-003 | AWT-free XML v1 model, portable field exclusions, guarded local paths, application openers/session ownership, atomic writer, and five later slices | Approved |
 | G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Reviewed |
 | G11-005 | Detached vector-export snapshot, AWT capture, canonical static SVG, exact effect/text/limit/failure policy, four later slices, and G11/G0–G11 simplicity closeout | Approved |
-| G12-001 | Exact 2525E Change 1 point profile, code-table inventory, fixture rights, diagnostics, and conformance wording | Draft |
+| G12-001 | Exact 2525E Change 1 point profile, code-table inventory, fixture rights, diagnostics, and conformance wording | Approved |
 | G12-002 | Canonical packed 30-position SIDC parsing, retained fields, support classification, and module boundary | Draft |
 | G12-003 | Existing-vector standard-identity frames, palette/status behavior, first entity, paint, and hit testing | Draft |
 | G12-004 | Finite land/activity entity and graphical-modifier tables plus SIDC-attribute portrayal | Draft |

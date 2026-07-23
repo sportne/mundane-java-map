@@ -27,28 +27,113 @@ The production module is `mundane-map-symbology-milstd2525`, not `mundane-map-io
 symbol identifier and the module resolves it into existing symbol values rather than opening a map
 data format. The module is JDK-only and AWT-free. Its types never enter `mundane-map-api`.
 
-## Supported profile proposal
+## Approved supported profile
 
-The profile checkpoint in G12-001 must approve the exact code tables and redistributable evidence
-before implementation. The proposed baseline is:
+G12-001 approved the following deliberately finite profile on 2026-07-23:
 
-- Revision E Change 1 only; older 15-character identifiers and APP-6 translation are rejected.
-- Exact 30-position hexadecimal SIDCs, normalized to uppercase, retaining all fourteen information
-  elements across Sets A, B, and C.
-- Icon-based point symbols from finite committed inventories for Land Unit, Land Equipment, and
-  Activities symbol sets.
-- The standard-identity frames, present/planned status treatment, amplifying descriptors, entity,
-  entity type/subtype, and graphical sector modifiers required by that finite inventory.
-- One light-background and one dark-background palette whose actual colors remain within the
-  standard's allowed ranges and are pinned by the profile decision.
-- Caller-controlled logical-pixel size and ordinary G2 marker placement.
-- Stable fallback that can retain a recognized frame while reporting an unrecognized entity only
-  when the approved standard rule permits that degraded display.
+- Revision E Change 1 only, represented by SIDC version `15`. Older 15-character identifiers,
+  versions other than `15`, and APP-6 translation are unsupported.
+- Exact 30-position hexadecimal SIDCs. Input accepts ASCII `0-9`, `A-F`, and `a-f`, canonicalizes
+  letters to uppercase, and retains all fourteen information elements across Sets A, B, and C.
+- Reality context (`0`) only. Exercise, simulation, restricted-target, and no-strike contexts parse
+  and remain inspectable but classify as unsupported.
+- Pending (`0`), Unknown (`1`), Assumed Friend (`2`), Friend (`3`), Neutral (`4`), Suspect/Joker
+  (`5`), and Hostile/Faker (`6`) standard identities.
+- Land Unit (`10`), Land Equipment (`15`), and Activities (`40`) symbol sets only.
+- Present (`0`) and Planned/Anticipated/Suspect (`1`) status only. Operational-condition status
+  values `2` through `5` parse but classify as unsupported.
+- No headquarters/task-force/dummy (`0`) and no amplifying descriptor (`00`). Nonzero values parse
+  but classify as unsupported; G12 does not render echelon, mobility, headquarters, task force, or
+  feint/dummy amplifiers.
+- The finite entity and sector-modifier inventory below.
+- No common sector modifiers: Set C positions 21 and 22 must both be `0`.
+- The frame-shape position must agree exactly with the symbol set: Land Unit `3`, Land Equipment
+  `4`, or Activity/Event `8`.
+- Reserved positions 24 through 27 must be `0000`. Positions 28 through 30 are retained, but only
+  `000` is supported because this profile performs no GENC, NATO, or country-name lookup.
+- Caller-controlled logical-pixel size and ordinary G2 anchor, offset, rotation, opacity, and
+  screen-relative/map-relative placement behavior.
+
+The profile intentionally permits a useful distinction between syntax and support. Any 30-position
+hexadecimal value parses. `MilitarySymbolProfile.assess` then reports the first unsupported field in
+SIDC order. Resolution never silently substitutes another entity. A supported frame may be returned
+as a degraded display only when the version, context, identity, symbol set, status, amplifier,
+frame-shape, reserved, and country fields are supported and only the entity or sector modifier is
+unknown. The result carries a stable warning; strict resolution instead fails.
+
+### Approved entity inventory
+
+Codes are the six positions comprising entity, entity type, and entity subtype. A zero suffix retains
+the less-specific approved icon; the resolver does not infer or walk to an unlisted parent.
+
+| Symbol set | Code | Approved name | Normative table |
+| --- | --- | --- | --- |
+| Land Unit `10` | `121100` | Infantry | Appendix A, table A-XXIII |
+| Land Unit `10` | `120500` | Armor/Mechanized | Appendix A, table A-XXIII |
+| Land Unit `10` | `130300` | Field Artillery | Appendix A, table A-XXIII |
+| Land Unit `10` | `140700` | Engineer | Appendix A, table A-XXIII |
+| Land Unit `10` | `161300` | Medical | Appendix A, table A-XXIII |
+| Land Equipment `15` | `110100` | Rifle | Appendix A, table A-XXIX |
+| Land Equipment `15` | `110200` | Machine Gun | Appendix A, table A-XXIX |
+| Land Equipment `15` | `120200` | Tank | Appendix A, table A-XXIX |
+| Land Equipment `15` | `140200` | Medical | Appendix A, table A-XXIX |
+| Land Equipment `15` | `140800` | Cross Country Truck | Appendix A, table A-XXIX |
+| Activities `40` | `120000` | Civil Disturbance | Appendix A, table A-XLVIII |
+| Activities `40` | `131500` | Law Enforcement Operation | Appendix A, table A-XLVIII |
+| Activities `40` | `140000` | Fire Event | Appendix A, table A-XLVIII |
+| Activities `40` | `170103` | Earthquake Epicenter | Appendix A, table A-XLVIII |
+| Activities `40` | `170202` | Flood | Appendix A, table A-XLVIII |
+
+### Approved symbol-set sector modifiers
+
+`00` (Unspecified) is valid in both sectors for every supported set. The following nonzero values are
+the complete additional inventory. Within one symbol set, the approved sector-1 set and approved
+sector-2 set form a Cartesian product, and every pair applies to every approved entity in that symbol
+set. For example, Land Unit permits `{00,25,77} × {00,02}`. Cross-symbol-set values and all values
+outside the listed sets are unsupported.
+
+| Symbol set | Sector | Value | Approved name | Normative table |
+| --- | ---: | --- | --- | --- |
+| Land Unit `10` | 1 | `25` | Fire Direction Center | Appendix A, table A-XXIV |
+| Land Unit `10` | 1 | `77` | Support | Appendix A, table A-XXIV |
+| Land Unit `10` | 2 | `02` | Arctic | Appendix A, table A-XXV |
+| Land Equipment `15` | 1 | `13` | Tank-width Mine Plow | Appendix A, table A-XXX |
+| Land Equipment `15` | 2 | `06` | Tractor Trailer | Appendix A, table A-XXXI |
+| Activities `40` | 1 | `17` | Incident | Appendix A, table A-XLIX |
+| Activities `40` | 2 | `04` | Meeting | Appendix A, table A-L |
+
+Inventory rows are explicit immutable Java constants. Table construction rejects duplicate
+symbol-set/code keys, invalid paths, role mismatches, unreachable entries, or values outside this
+profile before publishing a resolver.
+
+### Approved palettes and frame behavior
+
+Filled symbols use the standard's empirically validated table XV endpoints:
+
+| Identity group | Light-background fill (dark endpoint) | Dark-background fill (light endpoint) |
+| --- | --- | --- |
+| Pending/Unknown | `#E1DC00` | `#FFFF80` |
+| Friend/Assumed Friend | `#006B8C` | `#80E1FF` |
+| Neutral | `#00A000` | `#AAFFAA` |
+| Suspect | `#FFBC01` | `#FFE599` |
+| Hostile | `#C80000` | `#FF8080` |
+
+Light-background frames, icons, and modifiers use opaque `#000000`; dark-background components use
+opaque `#FFFFFF`. Caller opacity multiplies all component alpha. Present frames are solid. Planned
+frames are represented by explicit bounded path segments so the toolkit-neutral model needs no dash
+extension. Pending, Assumed Friend, and Suspect use the approved uncertain-identity segmented frame
+and do not add a second planned-status treatment. Frame geometry is normalized to the standard's
+virtual bounding octagon and anchored at its center. Land Equipment framing follows the standard's
+optional-frame rule: this profile always frames it so identity and supported status remain visible.
+Natural-event activity icons are still placed in the Activity/Event frame because this bounded
+profile prioritizes consistent identity/status display; this is documented as a profile deviation
+and prevents a complete-conformance claim.
 
 Out of profile are control measures and other multipoint tactical graphics; METOC; space, air, sea,
 subsurface, SIGINT, and cyberspace symbol sets; text amplifiers; country-name lookup; echelon/task-
-force/HQ text layout; dynamic extensions or Symbol Set Management Committee updates; legacy
-revisions; APP-6 equivalence; symbol editing; and automatic network/catalog updates.
+force/HQ layout; operational-condition bars; common modifiers; dynamic extensions or Symbol Set
+Management Committee updates; legacy revisions; APP-6 equivalence; symbol editing; and automatic
+network/catalog updates.
 
 ## Public module surface
 
@@ -60,20 +145,40 @@ MilitarySymbolId
   canonical() -> String
   typed accessors for the fourteen retained elements
 
+MilitarySymbolProblem
+  code, field, one-based start/end positions, bounded offending value
+
+MilitarySymbolException
+  problem() -> MilitarySymbolProblem
+
+MilitarySymbolSupport
+  SUPPORTED | DEGRADED_ENTITY | DEGRADED_MODIFIER | UNSUPPORTED
+
+MilitarySymbolAssessment
+  support() -> MilitarySymbolSupport
+  problem() -> Optional<MilitarySymbolProblem>
+
 MilitarySymbolProfile
   standard2525EChange1()
-  supports(MilitarySymbolId) -> boolean
+  assess(MilitarySymbolId) -> MilitarySymbolAssessment
 
 MilitarySymbolPalette
   lightBackground()
   darkBackground()
 
 MilitarySymbols
-  resolve(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette) -> MarkerSymbol
+  resolveStrict(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette) -> MarkerSymbol
+  resolveDegraded(MilitarySymbolId, MarkerPlacement, MilitarySymbolPalette)
+      -> MilitarySymbolResolution
+
+MilitarySymbolResolution
+  symbol() -> MarkerSymbol
+  problem() -> Optional<MilitarySymbolProblem>
 ```
 
-Names may be refined at G12-001, but the ownership and direction may not: parsing and profile data
-stay in the module, and successful resolution returns ordinary immutable API symbols. There is no
+Names are fixed for G12 unless a compatibility review explicitly amends this decision. Parsing and
+profile data stay in the module, and successful resolution returns ordinary immutable API symbols.
+There is no
 global registry, service loader, classpath scan, reflection, mutable catalog, or AWT callback.
 
 `MilitarySymbolId` stores the canonical 30 ASCII hexadecimal positions in packed immutable form and
@@ -104,30 +209,117 @@ SIDCs are fixed-size scalar input, but catalog resolution is still bounded. Cons
 maximum composite children, vector commands, and lookup-table entries, and validates all paths before
 publication. The resolver accepts no file, URL, XML, JSON, font, image, or arbitrary extension data.
 
-Diagnostics use stable codes with canonical SIDC and field position/value details where safe:
+`MilitarySymbolId.parse` throws `MilitarySymbolException` only for null, length, or character
+failures. Null uses `MIL2525_SIDC_NULL`, field `sidc`, positions `0..0`, and an empty offending value.
+Length uses the same field and `0..0` positions with only the decimal length as its offending value;
+character failures identify the one-based position and single character. Profile assessment never
+throws for a syntactically valid SIDC. Strict resolution throws the same exception type with the
+assessment problem; degraded resolution succeeds only for `DEGRADED_ENTITY` or
+`DEGRADED_MODIFIER`. Problems contain no source path or arbitrary input beyond the fixed-width
+offending field.
 
+Support assessment uses this exact precedence after syntax validation:
+
+1. version (positions 1–2);
+2. context (3);
+3. standard identity (4);
+4. symbol set (5–6);
+5. status (7);
+6. headquarters/task-force/dummy (8);
+7. amplifying descriptor (9–10);
+8. entity (11–16);
+9. sector 1 modifier (17–18);
+10. sector 2 modifier (19–20);
+11. common-modifier selectors (21–22);
+12. frame shape and symbol-set agreement (23);
+13. reserved positions (24–27);
+14. country/entity code (28–30).
+
+Pending, Assumed Friend, and Suspect with status `1` are supported but render the same uncertain
+segmented frame as status `0`, because the standard says their status is not displayed. No other
+cross-field combination is special. A syntactically valid unsupported entity assesses as
+`DEGRADED_ENTITY`; an unsupported modifier assesses as `DEGRADED_MODIFIER`; but either becomes
+`UNSUPPORTED` if any later non-degradable field also fails. When both entity and modifier are
+unknown, the entity problem wins. Stable codes and fields are:
+
+- `MIL2525_SIDC_NULL`
 - `MIL2525_SIDC_LENGTH`
 - `MIL2525_SIDC_CHARACTER`
 - `MIL2525_SIDC_VERSION`
+- `MIL2525_CONTEXT_UNSUPPORTED`
+- `MIL2525_IDENTITY_UNSUPPORTED`
 - `MIL2525_SYMBOL_SET_UNSUPPORTED`
+- `MIL2525_STATUS_UNSUPPORTED`
+- `MIL2525_HQ_TASK_FORCE_DUMMY_UNSUPPORTED`
+- `MIL2525_AMPLIFYING_DESCRIPTOR_UNSUPPORTED`
 - `MIL2525_ENTITY_UNSUPPORTED`
 - `MIL2525_MODIFIER_UNSUPPORTED`
+- `MIL2525_COMMON_MODIFIER_UNSUPPORTED`
+- `MIL2525_FRAME_SHAPE_MISMATCH`
+- `MIL2525_RESERVED_NONZERO`
+- `MIL2525_COUNTRY_UNSUPPORTED`
 - `MIL2525_RENDER_LIMIT`
 
 Malformed syntax, unsupported profile content, and internal inventory inconsistency are separate.
 Unsupported values never silently select a semantically different symbol.
 
-## Evidence and conformance wording
+## Evidence, legal posture, and conformance wording
 
-Hand-built unit fixtures pin field boundaries and parsing. Reference fixtures must be transcribed or
-generated with recorded provenance and redistribution permission; standard pages or figures are not
-copied into the repository merely because the document is publicly downloadable. Independent review
-compares a named matrix of SIDCs against the authoritative standard.
+The authoritative source is the active Distribution Statement A document downloaded from the DoD
+ASSIST Quick Search record `114934` on 2026-07-23:
+
+- title: `MIL-STD-2525E Change 1 — Joint Military Symbology`;
+- document date: 2025-03-02;
+- SIDC version value: `15`;
+- pages: 749;
+- ASSIST image token: `5795656`;
+- raw SHA-256 of the reviewed transient PDF:
+  `3ed1d34f9a391ee48a0178d7aa30f196d3789f4398d2ef38114a47127a3ba142`;
+- normalized-text SHA-256:
+  `b3265b621b33247af78f656a22f77e86730379fa06c20b02423ef547b0dfb7ac`;
+- source catalog:
+  <https://quicksearch.dla.mil/qsdocdetails.aspx?ident_number=114934>.
+
+ASSIST stamps each generated PDF page with its retrieval time, so the raw digest identifies the
+reviewed transient file but is not expected to be reproducible. With `LC_ALL=C` and Poppler
+`pdftotext` 24.02.0, the normalized digest is reproduced exactly by:
+
+```bash
+pdftotext -layout mil-std-2525e-change1.pdf - \
+  | sed -E '/Downloaded:/d;/Check the source/d;s/[[:space:]]+$//' \
+  | sha256sum
+```
+
+The POSIX whitespace expression deliberately removes trailing form-feed page breaks as well as
+horizontal whitespace. Two independent downloads on 2026-07-23 produced the recorded normalized
+digest with that pipeline.
+
+The repository does not redistribute that PDF or extracted standard figures. Code tables must be
+hand-transcribed factual identifiers with table citations. Vector paths must be independently
+hand-authored from the standard's geometric construction rules and visually compared during
+G12-005; they may not be embedded or traced copies of standard artwork. Every committed reference
+fixture must be project-authored source text under the repository license and record its generating
+SIDC and cited table. G12-004 and G12-005 must add an artifact-level provenance manifest confirming
+those facts for every path and fixture. No third-party symbol library, font, SVG bundle, or
+screenshot may be imported. Distribution Statement A permits public distribution of the standard;
+it does not by itself license derived artwork under the project license.
+
+Hand-built unit fixtures pin field boundaries and parsing. Independent review compares a named
+matrix of SIDCs against the authoritative standard without committing the source document.
 
 Rendering tests assert frame class, layer order, normalized bounds, anchor, palette regions, and
 modifier presence with tolerances. They do not claim pixel identity or complete 2525E conformance.
 The gallery includes supported and degraded/unsupported examples and names the exact supported
 profile. Native verification uses literal identifiers and code-owned vectors, with no resource scan.
+
+The only approved public wording is:
+
+> Implements the MundaneJ supported MIL-STD-2525E Change 1 icon-based point-symbol profile for a
+> finite Land Unit, Land Equipment, and Activities inventory. It is not a complete
+> MIL-STD-2525 implementation or conformance claim.
+
+Documentation must list the supported tables and exclusions near that statement. “MIL-STD-2525
+compliant,” “full 2525E,” and equivalent broad claims are prohibited.
 
 ## Task sequence
 

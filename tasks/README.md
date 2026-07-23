@@ -328,7 +328,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G12-001 — MIL-STD-2525 profile and legal decision](G12-001-milstd2525-profile-and-legal-decision.md) | Proposed | HITL | G2-007 | Approve the exact 2525E Change 1 point profile, tables, fixture rights, and support wording. |
+| [G12-001 — MIL-STD-2525 profile and legal decision](closed/G12-001-milstd2525-profile-and-legal-decision.md) | Complete | HITL | G2-007 | Approved the exact 2525E Change 1 point profile, tables, fixture rights, and support wording. |
 | [G12-002 — Canonical SIDC model and parser](G12-002-canonical-sidc-model-and-parser.md) | Proposed | AFK | G12-001 | Create the working JDK-only module with canonical 30-position SIDC parsing and classification. |
 | [G12-003 — First frame and entity rendering slice](G12-003-first-frame-and-entity-rendering-slice.md) | Proposed | AFK | G12-002 | Render and hit-test standard-identity frames and a first entity through ordinary symbols. |
 | [G12-004 — Land/activity catalog and portrayal](G12-004-land-activity-catalog-and-portrayal.md) | Proposed | AFK | G12-003, G11-024 | Complete the finite inventory and select symbols from an explicit feature SIDC attribute. |
