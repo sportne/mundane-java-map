@@ -25,6 +25,7 @@ import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.awt.HorizontalWrapMode;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.awt.PointEditController;
@@ -33,8 +34,11 @@ import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.FeatureEditSession;
 import io.github.mundanej.map.core.FeatureSnapper;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
+import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.SnapQuery;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -64,10 +68,11 @@ public final class PointEditViewer {
     /**
      * Launches the viewer on the Swing event-dispatch thread.
      *
-     * @param arguments ignored command-line arguments
+     * @param arguments pass {@code --wrapped} for the dateline-editing profile
      */
     public static void main(String[] arguments) {
-        SwingUtilities.invokeLater(PointEditViewer::show);
+        boolean wrapped = List.of(arguments).contains("--wrapped");
+        SwingUtilities.invokeLater(() -> show(wrapped));
     }
 
     static ViewerState createState() {
@@ -133,12 +138,73 @@ public final class PointEditViewer {
         return new ViewerState(view, session, controller, 0);
     }
 
-    private static void show() {
-        ViewerState state = createState();
+    static ViewerState createWrappedState() {
+        FeatureEditSession session =
+                FeatureEditSession.open(CrsDefinitions.EPSG_4326, List.of(record("alpha", 179, 0)));
+        MapView view =
+                new MapView(
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_3857);
+        view.setPreferredSize(new Dimension(900, 600));
+        view.setHorizontalWrap(HorizontalWrap.webMercator());
+        var marker =
+                BuiltInMarkers.filledScreen(BuiltInMarker.DIAMOND, Rgba.rgb(25, 115, 210), 14, 1);
+        var line =
+                SolidLineSymbol.of(
+                        new SymbolStroke(
+                                Rgba.rgb(25, 115, 210),
+                                new SymbolLength(2, SymbolUnit.SCREEN_PIXEL)),
+                        1);
+        var fill = SolidFillSymbol.of(Rgba.rgb(25, 115, 210), 1);
+        LineStringGeometry guideGeometry =
+                new LineStringGeometry(
+                        io.github.mundanej.map.api.CoordinateSequence.of(178, -5, 178, 5));
+        MapLayerBinding guide =
+                MapLayerBinding.snapshot(
+                        new InMemoryLayer(
+                                "reference",
+                                "Canonical snapping guide",
+                                List.of(
+                                        new Feature(
+                                                "guide",
+                                                "Snap guide",
+                                                guideGeometry,
+                                                Map.of(),
+                                                line))));
+        MapLayerBinding editable =
+                MapLayerBinding.editableFeature(
+                        "editable", "Wrapped editable points", session, marker, line, fill);
+        editable.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+        view.setLayerBindings(List.of(guide, editable));
+        view.setViewport(new MapViewport(900, 600, WebMercatorProjection.WORLD_LIMIT, 0, 50_000));
+        view.setSelection(new FeatureSelection("editable", "alpha"));
+        SnapReferenceSet references =
+                new SnapReferenceSet(
+                        CrsDefinitions.EPSG_4326,
+                        List.of(
+                                new SnapReferenceLayer(
+                                        "reference",
+                                        List.of(new SnapFeature("guide", guideGeometry)))));
+        PointEditController controller =
+                new PointEditController(
+                        view,
+                        editable,
+                        references,
+                        SnapLimits.DEFAULT,
+                        PointEditController.DEFAULT_SNAP_TOLERANCE_PIXELS);
+        view.setActiveTool(controller);
+        return new ViewerState(view, session, controller, 0);
+    }
+
+    private static void show(boolean wrapped) {
+        ViewerState state = wrapped ? createWrappedState() : createState();
         JFrame frame = new JFrame("Mundane Map — Immutable Point Edit Session");
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         frame.add(state.view(), BorderLayout.CENTER);
-        JLabel status = new JLabel("Selected alpha; choose Create, Move, or Navigate");
+        JLabel status =
+                new JLabel(
+                        wrapped
+                                ? "Wrapped dateline mode; selected alpha; choose Create, Move, or Navigate"
+                                : "Planar mode; selected alpha; choose Create, Move, or Navigate");
         frame.add(status, BorderLayout.SOUTH);
         frame.add(createInteractiveControls(state, status), BorderLayout.NORTH);
         frame.addWindowListener(

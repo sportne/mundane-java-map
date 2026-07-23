@@ -347,3 +347,22 @@ repeat literally and non-wrapped sources remain unchanged. Paint, hit
 geometry, labels inherited from the point slice, and detached vector export consume the same
 ordered visible fragments with aggregate accounting. Deterministic SVG and tolerant raster evidence
 cover seam-adjacent line, polygon, and hole portrayal. Interaction remains assigned to G16-005.
+
+G16-005 completion record (2026-07-22): pointer-to-map conversion canonicalizes continuous display
+X before strict inverse projection, while map-to-screen conversion chooses the checked visual copy
+nearest the captured viewport. Reverse-paint hits deduplicate to logical identity; hover and edit
+previews retain only the active visual copy, and persistent selection paints every visible copy.
+The same bounded core equivalence operation lets vertex and segment snapping evaluate the pointer's
+copy and return canonical reference coordinates. Repetition is operation-local per snap layer and
+is derived from the corresponding installed binding, preventing local guides from creating
+invisible repeated targets. Geographic parts follow the painted shortest-path representation;
+projected literal parts retain one fixed visual copy and never synthesize a seam segment. Editable
+bindings may opt into the vector wrap profile, but their immutable records, edit commands, history,
+and public selection values never store a copy index. Prospective visual feature and coordinate work
+uses the session's configured limits, and labels retain their existing request/text ceilings.
+Geographic measurement retains canonical vertices and its existing shortest antimeridian distance
+while private per-vertex and preview display references keep the AWT overlay in one continuous path
+beneath the pointer even when multiple copies are visible. Out-of-limit transient pointer conversion
+yields no map coordinate so cancellation and close remain deterministic after a layer has already
+reported a wrap limit failure. The measurement viewer enables geographic repetition explicitly; the
+point-edit viewer keeps its planar default and adds a `--wrapped` mode.

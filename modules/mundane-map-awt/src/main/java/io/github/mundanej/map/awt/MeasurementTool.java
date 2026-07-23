@@ -18,6 +18,7 @@ import io.github.mundanej.map.core.DistanceStrategies;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
 
 /**
  * Swing measurement tool with packed vertices and an immutable public state snapshot.
@@ -35,9 +36,11 @@ public final class MeasurementTool implements MapTool {
     private double[] vertices;
     private double[] cumulativeMetres;
     private double[] segmentMetres;
+    private double[] displayReferenceXs;
     private int vertexCount;
     private Optional<Coordinate> preview = Optional.empty();
     private Optional<DistanceResult> previewDistance = Optional.empty();
+    private OptionalDouble previewDisplayReferenceX = OptionalDouble.empty();
     private MeasurementPhase phase = MeasurementPhase.EMPTY;
     private MeasurementState state = MeasurementState.empty();
     private MapView owner;
@@ -70,6 +73,8 @@ public final class MeasurementTool implements MapTool {
         vertices = new double[initial * 2];
         cumulativeMetres = new double[initial];
         segmentMetres = new double[initial];
+        displayReferenceXs = new double[initial];
+        Arrays.fill(displayReferenceXs, Double.NaN);
     }
 
     /**
@@ -109,7 +114,7 @@ public final class MeasurementTool implements MapTool {
         Objects.requireNonNull(event, "event");
         Objects.requireNonNull(context, "context");
         return switch (event.type()) {
-            case MOVE -> handleMove(event.mapCoordinate(), context);
+            case MOVE -> handleMove(event, context);
             case CLICK -> handleClick(event, context);
             case PRESS -> {
                 clearPreview(context);
@@ -130,6 +135,7 @@ public final class MeasurementTool implements MapTool {
         vertexCount--;
         preview = Optional.empty();
         previewDistance = Optional.empty();
+        previewDisplayReferenceX = OptionalDouble.empty();
         phase = vertexCount == 0 ? MeasurementPhase.EMPTY : MeasurementPhase.MEASURING;
         publish();
         context.requestRepaint();
@@ -162,11 +168,12 @@ public final class MeasurementTool implements MapTool {
         }
     }
 
-    private MapToolResult handleMove(Optional<Coordinate> coordinate, MapToolContext context) {
+    private MapToolResult handleMove(MapToolEvent event, MapToolContext context) {
         if (phase != MeasurementPhase.MEASURING || vertexCount == 0) {
             return MapToolResult.CONSUME;
         }
-        Optional<Coordinate> requested = Objects.requireNonNull(coordinate, "coordinate");
+        Optional<Coordinate> requested =
+                Objects.requireNonNull(event.mapCoordinate(), "coordinate");
         if (requested.isEmpty()) {
             clearPreview(context);
             return MapToolResult.CONSUME;
@@ -174,9 +181,13 @@ public final class MeasurementTool implements MapTool {
         Coordinate next = requested.orElseThrow();
         DistanceResult nextDistance = strategy.distance(vertex(vertexCount - 1), next);
         new DistanceResult(cumulativeMetres[vertexCount - 1]).plus(nextDistance);
-        if (!preview.equals(requested) || !previewDistance.equals(Optional.of(nextDistance))) {
+        OptionalDouble displayReference = displayReference(event);
+        if (!preview.equals(requested)
+                || !previewDistance.equals(Optional.of(nextDistance))
+                || !same(previewDisplayReferenceX, displayReference)) {
             preview = requested;
             previewDistance = Optional.of(nextDistance);
+            previewDisplayReferenceX = displayReference;
             publish();
             context.requestRepaint();
         }
@@ -196,6 +207,7 @@ public final class MeasurementTool implements MapTool {
                 phase = MeasurementPhase.COMPLETE;
                 preview = Optional.empty();
                 previewDistance = Optional.empty();
+                previewDisplayReferenceX = OptionalDouble.empty();
                 publish();
                 context.requestRepaint();
             }
@@ -207,7 +219,7 @@ public final class MeasurementTool implements MapTool {
             if (phase == MeasurementPhase.COMPLETE) {
                 clearState();
             }
-            append(coordinate);
+            append(coordinate, displayReference(event));
             if (vertexCount == vertexLimit) {
                 phase = MeasurementPhase.COMPLETE;
             }
@@ -229,7 +241,7 @@ public final class MeasurementTool implements MapTool {
         return MapToolResult.PASS;
     }
 
-    private void append(Coordinate coordinate) {
+    private void append(Coordinate coordinate, OptionalDouble displayReference) {
         DistanceResult segment = DistanceResult.ZERO;
         DistanceResult cumulative = DistanceResult.ZERO;
         if (vertexCount > 0) {
@@ -240,10 +252,12 @@ public final class MeasurementTool implements MapTool {
         vertices[vertexCount * 2] = coordinate.x();
         vertices[vertexCount * 2 + 1] = coordinate.y();
         segmentMetres[vertexCount] = segment.metres();
+        displayReferenceXs[vertexCount] = displayReference.orElse(Double.NaN);
         cumulativeMetres[vertexCount] = cumulative.metres();
         vertexCount++;
         preview = Optional.empty();
         previewDistance = Optional.empty();
+        previewDisplayReferenceX = OptionalDouble.empty();
         phase = MeasurementPhase.MEASURING;
     }
 
@@ -255,9 +269,12 @@ public final class MeasurementTool implements MapTool {
             return;
         }
         int next = Math.min(vertexLimit, Math.max(required, cumulativeMetres.length * 2));
+        int previous = displayReferenceXs.length;
         vertices = Arrays.copyOf(vertices, next * 2);
         cumulativeMetres = Arrays.copyOf(cumulativeMetres, next);
         segmentMetres = Arrays.copyOf(segmentMetres, next);
+        displayReferenceXs = Arrays.copyOf(displayReferenceXs, next);
+        Arrays.fill(displayReferenceXs, previous, next, Double.NaN);
     }
 
     private Coordinate vertex(int index) {
@@ -268,6 +285,7 @@ public final class MeasurementTool implements MapTool {
         if (preview.isPresent()) {
             preview = Optional.empty();
             previewDistance = Optional.empty();
+            previewDisplayReferenceX = OptionalDouble.empty();
             publish();
             context.requestRepaint();
         }
@@ -281,6 +299,7 @@ public final class MeasurementTool implements MapTool {
         phase = MeasurementPhase.EMPTY;
         preview = Optional.empty();
         previewDistance = Optional.empty();
+        previewDisplayReferenceX = OptionalDouble.empty();
         state = MeasurementState.empty();
         return true;
     }
@@ -300,5 +319,58 @@ public final class MeasurementTool implements MapTool {
                                 ? Optional.of(new DistanceResult(segmentMetres[vertexCount - 1]))
                                 : Optional.empty(),
                         previewDistance);
+    }
+
+    OverlayState overlayState() {
+        return new OverlayState(
+                state, Arrays.copyOf(displayReferenceXs, vertexCount), previewDisplayReferenceX);
+    }
+
+    private OptionalDouble displayReference(MapToolEvent event) {
+        if (owner == null || owner.horizontalWrap().isEmpty()) {
+            return OptionalDouble.empty();
+        }
+        return OptionalDouble.of(
+                owner.viewport().screenToWorld(event.screenX(), event.screenY()).x());
+    }
+
+    private static boolean same(OptionalDouble first, OptionalDouble second) {
+        return first.isPresent() == second.isPresent()
+                && (first.isEmpty()
+                        || Double.compare(first.orElseThrow(), second.orElseThrow()) == 0);
+    }
+
+    static final class OverlayState {
+        private final MeasurementState state;
+        private final double[] vertexDisplayReferenceXs;
+        private final OptionalDouble previewDisplayReferenceX;
+
+        OverlayState(
+                MeasurementState state,
+                double[] vertexDisplayReferenceXs,
+                OptionalDouble previewDisplayReferenceX) {
+            this.state = Objects.requireNonNull(state, "state");
+            this.vertexDisplayReferenceXs =
+                    Objects.requireNonNull(vertexDisplayReferenceXs, "vertexDisplayReferenceXs")
+                            .clone();
+            this.previewDisplayReferenceX =
+                    Objects.requireNonNull(previewDisplayReferenceX, "previewDisplayReferenceX");
+            if (vertexDisplayReferenceXs.length != state.vertexCount()) {
+                throw new IllegalArgumentException(
+                        "measurement display references must match vertices");
+            }
+        }
+
+        MeasurementState state() {
+            return state;
+        }
+
+        double[] vertexDisplayReferenceXs() {
+            return vertexDisplayReferenceXs.clone();
+        }
+
+        OptionalDouble previewDisplayReferenceX() {
+            return previewDisplayReferenceX;
+        }
     }
 }

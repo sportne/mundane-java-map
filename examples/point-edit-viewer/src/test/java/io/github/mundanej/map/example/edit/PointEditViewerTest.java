@@ -21,6 +21,46 @@ import org.junit.jupiter.api.Test;
 
 class PointEditViewerTest {
     @Test
+    void buildsTheExplicitWrappedDatelineEditingMode() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    PointEditViewer.ViewerState state = PointEditViewer.createWrappedState();
+                    state.view().setSize(900, 600);
+                    assertTrue(state.view().horizontalWrap().isPresent());
+                    assertEquals(
+                            io.github.mundanej.map.awt.HorizontalWrapMode.REPEAT_X,
+                            state.view().layerBindings().getLast().horizontalWrapMode());
+                    io.github.mundanej.map.api.Coordinate point =
+                            state.view()
+                                    .mapToScreen(new io.github.mundanej.map.api.Coordinate(179, 0))
+                                    .orElseThrow();
+                    assertEquals(
+                            "alpha",
+                            state.view()
+                                    .hitTest(point.x(), point.y(), 2)
+                                    .topmost()
+                                    .orElseThrow()
+                                    .featureId());
+                    state.controller()
+                            .create(
+                                    new io.github.mundanej.map.api.PointFeatureDraft(
+                                            "wrapped", "Wrapped", java.util.Map.of()));
+                    click(state.view(), 500, 300);
+                    double longitude =
+                            ((io.github.mundanej.map.api.PointGeometry)
+                                            state.session().snapshot().records().stream()
+                                                    .filter(record -> record.id().equals("wrapped"))
+                                                    .findFirst()
+                                                    .orElseThrow()
+                                                    .geometry())
+                                    .coordinate()
+                                    .x();
+                    assertTrue(longitude >= -180 && longitude <= 180);
+                    state.view().close();
+                });
+    }
+
+    @Test
     void buildsAndPaintsTheProgrammaticEditSequence() throws Exception {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         SwingUtilities.invokeAndWait(

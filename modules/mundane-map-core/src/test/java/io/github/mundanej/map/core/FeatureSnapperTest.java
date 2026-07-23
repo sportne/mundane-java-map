@@ -32,6 +32,7 @@ import io.github.mundanej.map.api.SnapResult;
 import io.github.mundanej.map.api.SnapTargetType;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,8 @@ class FeatureSnapperTest {
     private static final MapViewport VIEWPORT = new MapViewport(100, 100, 0, 0, 1);
     private static final CrsOperation IDENTITY =
             CrsRegistry.level1().operation(CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
+    private static final CrsOperation GEOGRAPHIC_IDENTITY =
+            CrsRegistry.level1().operation(CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_4326);
     private static final CrsDefinition LOCAL_SOURCE = localCrs("LOCAL:SNAP-SOURCE");
     private static final CrsDefinition LOCAL_DISPLAY = localCrs("LOCAL:SNAP-DISPLAY");
 
@@ -145,6 +148,104 @@ class FeatureSnapperTest {
 
         SnapResult elementTie = snapped(query(references(line(0, 0, 1, 0, 0, 0)), 50, 50, 1));
         assertEquals(0, elementTie.elementIndex());
+    }
+
+    @Test
+    void wrappedVertexAndSegmentCopiesResolveCanonicalCoordinates() {
+        HorizontalWrap wrap = new HorizontalWrap(-180.0, 180.0, 8, 16);
+        MapViewport repeated = new MapViewport(100, 100, 360, 0, 1);
+        SnapQuery vertex =
+                new SnapQuery(
+                        50,
+                        50,
+                        1,
+                        IDENTITY,
+                        IDENTITY,
+                        repeated,
+                        Optional.of(wrap),
+                        Set.of("layer"),
+                        references(point(0, 0)),
+                        Set.of(),
+                        SnapLimits.DEFAULT,
+                        CancellationToken.none());
+        assertEquals(new Coordinate(0, 0), snapped(vertex).coordinate());
+
+        SnapQuery seamVertex =
+                new SnapQuery(
+                        50,
+                        50,
+                        1,
+                        IDENTITY,
+                        IDENTITY,
+                        new MapViewport(100, 100, 180, 0, 1),
+                        Optional.of(wrap),
+                        Set.of("layer"),
+                        references(point(180, 0)),
+                        Set.of(),
+                        SnapLimits.DEFAULT,
+                        CancellationToken.none());
+        assertEquals(new Coordinate(-180, 0), snapped(seamVertex).coordinate());
+
+        SnapQuery segment =
+                new SnapQuery(
+                        50,
+                        50,
+                        1,
+                        IDENTITY,
+                        IDENTITY,
+                        new MapViewport(100, 100, 180, 0, 1),
+                        Optional.of(wrap),
+                        Set.of("layer"),
+                        references(line(170, 0, -170, 0)),
+                        Set.of(),
+                        SnapLimits.DEFAULT,
+                        CancellationToken.none());
+        assertEquals(SnapQueryStatus.UNSNAPPED, find(segment).status());
+
+        SnapQuery geographicSegment =
+                new SnapQuery(
+                        50,
+                        50,
+                        1,
+                        GEOGRAPHIC_IDENTITY,
+                        GEOGRAPHIC_IDENTITY,
+                        new MapViewport(100, 100, 180, 0, 1),
+                        Optional.of(wrap),
+                        Set.of("layer"),
+                        geographicReferences(line(170, 0, -170, 0)),
+                        Set.of(),
+                        SnapLimits.DEFAULT,
+                        CancellationToken.none());
+        SnapResult result = snapped(geographicSegment);
+        assertEquals(SnapTargetType.SEGMENT, result.targetType());
+        assertEquals(new Coordinate(-180, 0), result.coordinate());
+
+        SnapReferenceSet mixed =
+                new SnapReferenceSet(
+                        CrsDefinitions.EPSG_3857,
+                        List.of(
+                                new SnapReferenceLayer(
+                                        "wrapped",
+                                        List.of(new SnapFeature("visible", point(0, 0)))),
+                                new SnapReferenceLayer(
+                                        "local",
+                                        List.of(new SnapFeature("offscreen", point(0, 0))))));
+        SnapResult mixedResult =
+                snapped(
+                        new SnapQuery(
+                                50,
+                                50,
+                                1,
+                                IDENTITY,
+                                IDENTITY,
+                                repeated,
+                                Optional.of(wrap),
+                                Set.of("wrapped"),
+                                mixed,
+                                Set.of(),
+                                SnapLimits.DEFAULT,
+                                CancellationToken.none()));
+        assertEquals("wrapped", mixedResult.layerId());
     }
 
     @Test
@@ -492,6 +593,14 @@ class FeatureSnapperTest {
     private static SnapReferenceSet references(Geometry geometry) {
         return new SnapReferenceSet(
                 CrsDefinitions.EPSG_3857,
+                List.of(
+                        new SnapReferenceLayer(
+                                "layer", List.of(new SnapFeature("feature", geometry)))));
+    }
+
+    private static SnapReferenceSet geographicReferences(Geometry geometry) {
+        return new SnapReferenceSet(
+                CrsDefinitions.EPSG_4326,
                 List.of(
                         new SnapReferenceLayer(
                                 "layer", List.of(new SnapFeature("feature", geometry)))));

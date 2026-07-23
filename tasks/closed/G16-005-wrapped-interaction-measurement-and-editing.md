@@ -1,6 +1,6 @@
 # G16-005 — Wrapped interaction, measurement, and editing
 
-Status: Proposed
+Status: Complete
 Depends on: G16-004, G11-013
 Gate: G16
 Type: AFK
@@ -62,3 +62,14 @@ git diff --check
 
 Copy indices are transient internal gesture context. Existing public feature, selection, edit, and
 workspace values must not grow a wrap-copy field.
+
+Completed 2026-07-22. Wrapped source and editable instances share logical hit/selection identity;
+paint-scoped hover and edit previews retain the pointed copy, while persistent selection paints all
+visible copies. Pointer inversion, vertex/segment snapping, and edit transactions canonicalize
+through the configured display profile. Geographic measurement keeps canonical vertices and the
+existing shortest-distance strategy while private display references keep its overlay beneath the
+pointer in multi-world views. Snap repetition follows the corresponding binding's explicit mode,
+so local guides do not acquire invisible targets. Repeated editable output prospectively charges
+the session's feature/coordinate budgets and existing label ceilings before visual allocation. The
+measurement viewer enables geographic wrap explicitly, and the point-edit viewer exposes a
+`--wrapped` mode without changing its planar default.

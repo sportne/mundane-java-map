@@ -649,8 +649,14 @@ separately decomposed.
   geographic query prevents ordinary literal envelopes from hiding seam-crossing records without
   admitting unrelated latitudes; topology requiring repair is rejected atomically. Projected
   sources repeat literally; default non-wrapped sources remain unchanged.
-- G16-005 resolves copied features through hit testing, hover, selection, measurement, snapping,
-  canonical point editing, and undo/redo without persisting presentation copy indices.
+- G16-005 is complete: reverse-paint hit testing and copy-scoped hover retain logical feature
+  identity, persistent selection paints every visible copy, and pointer inversion plus
+  vertex/segment snapping produce canonical edit coordinates. Snap repetition is per binding, and
+  repeated editable visual output is charged against existing session and label limits before
+  allocation. Point create/move/delete and undo/redo remain logical commands, while geographic
+  measurement keeps its existing shortest antimeridian distance and private display references keep
+  the path beneath the pointer across multi-world views. The measurement and point-edit examples
+  expose explicit wrapped modes without changing planar defaults.
 - G16-006 repeats only compatible explicitly global raster sources and establishes bounded canonical
   tile-column math for later G10 HTTP/MBTiles consumers; it creates no empty format or network module.
 - G16-007 closes malformed/precision/copy limits, tolerant rendering, performance evidence, Linux

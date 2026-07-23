@@ -43,6 +43,8 @@ class MeasurementViewerTest {
         assertEquals(2, views.size());
         assertEquals("EPSG:3857", views.get(0).mapCrs().canonicalIdentifier());
         assertEquals("EPSG:4326", views.get(1).mapCrs().canonicalIdentifier());
+        assertTrue(views.get(0).horizontalWrap().isEmpty());
+        assertTrue(views.get(1).horizontalWrap().isPresent());
         views.forEach(
                 view -> {
                     MeasurementTool tool =

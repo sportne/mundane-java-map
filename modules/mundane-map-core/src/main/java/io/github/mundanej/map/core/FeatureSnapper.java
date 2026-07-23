@@ -153,8 +153,18 @@ public final class FeatureSnapper {
                             coordinates,
                             query.limits().maximumCoordinates(),
                             location.context(true));
-            Coordinate screen = toScreen(coordinate, location);
-            considerVertex(layer, feature, location, coordinate, screen.x(), screen.y());
+            boolean repeating = query.repeatsLayer(layer.layerId());
+            double referenceX =
+                    query.viewport().screenToWorld(query.screenX(), query.screenY()).x();
+            Coordinate screen =
+                    toScreen(coordinate, location, repeating, referenceX, null).screen();
+            considerVertex(
+                    layer,
+                    feature,
+                    location,
+                    canonicalReference(coordinate, location, repeating),
+                    screen.x(),
+                    screen.y());
         }
 
         private void visitSequence(
@@ -176,6 +186,15 @@ public final class FeatureSnapper {
                 boolean closed) {
             int size = end - start;
             int vertexCount = closed ? size - 1 : size;
+            boolean repeating = query.repeatsLayer(layer.layerId());
+            boolean geographicShortestPath =
+                    repeating
+                            && query.coordinatesToDisplay()
+                                    .sourceCrs()
+                                    .equals(CrsDefinitions.EPSG_4326);
+            double referenceX =
+                    query.viewport().screenToWorld(query.screenX(), query.screenY()).x();
+            Double fixedOffsetX = null;
             Coordinate previousCoordinate = null;
             Coordinate previousScreen = null;
             for (int element = 0; element < size; element++) {
@@ -201,10 +220,23 @@ public final class FeatureSnapper {
                                     query.limits().maximumSegments(),
                                     segmentLocation.context(true));
                 }
-                Coordinate transformed = toScreen(coordinate, location);
+                ScreenCoordinate transformed =
+                        toScreen(coordinate, location, repeating, referenceX, fixedOffsetX);
+                if (repeating) {
+                    if (geographicShortestPath) {
+                        referenceX = transformed.worldX();
+                    } else if (fixedOffsetX == null) {
+                        fixedOffsetX = transformed.worldX() - transformed.sourceDisplayX();
+                    }
+                }
                 if (element < vertexCount) {
                     considerVertex(
-                            layer, feature, location, coordinate, transformed.x(), transformed.y());
+                            layer,
+                            feature,
+                            location,
+                            canonicalReference(coordinate, location, repeating),
+                            transformed.screen().x(),
+                            transformed.screen().y());
                 }
                 if (hasSegment) {
                     considerSegment(
@@ -213,11 +245,12 @@ public final class FeatureSnapper {
                             segmentLocation,
                             previousScreen.x(),
                             previousScreen.y(),
-                            transformed.x(),
-                            transformed.y());
+                            transformed.screen().x(),
+                            transformed.screen().y(),
+                            repeating);
                 }
                 previousCoordinate = coordinate;
-                previousScreen = transformed;
+                previousScreen = transformed.screen();
             }
         }
 
@@ -264,7 +297,8 @@ public final class FeatureSnapper {
                 double ax,
                 double ay,
                 double bx,
-                double by) {
+                double by,
+                boolean repeating) {
             double pointerX = query.screenX();
             double pointerY = query.screenY();
             double tolerance = query.tolerancePixels();
@@ -332,7 +366,7 @@ public final class FeatureSnapper {
                 return;
             }
             double distance = Math.sqrt(distanceSquared);
-            Coordinate coordinate = toReference(screenX, screenY, location);
+            Coordinate coordinate = toReference(screenX, screenY, location, repeating);
             consider(
                     new Candidate(
                             new SnapResult(
@@ -349,10 +383,28 @@ public final class FeatureSnapper {
                             location.featureIndex()));
         }
 
-        private Coordinate toScreen(Coordinate coordinate, Location location) {
+        private ScreenCoordinate toScreen(
+                Coordinate coordinate,
+                Location location,
+                boolean repeating,
+                double referenceX,
+                Double fixedOffsetX) {
             try {
                 Coordinate display = query.coordinatesToDisplay().transform(coordinate);
-                return query.viewport().worldToScreen(display);
+                double sourceDisplayX = display.x();
+                if (repeating) {
+                    HorizontalWrap wrap = query.horizontalWrap().orElseThrow();
+                    double placedX;
+                    if (fixedOffsetX == null) {
+                        placedX = wrap.nearestEquivalent(display.x(), referenceX);
+                    } else {
+                        placedX = display.x() + fixedOffsetX;
+                        wrap.canonicalize(placedX);
+                    }
+                    display = new Coordinate(placedX, display.y());
+                }
+                return new ScreenCoordinate(
+                        query.viewport().worldToScreen(display), display.x(), sourceDisplayX);
             } catch (CrsException failure) {
                 translateCrs(failure, location);
                 throw failure;
@@ -362,10 +414,46 @@ public final class FeatureSnapper {
             }
         }
 
-        private Coordinate toReference(double screenX, double screenY, Location location) {
+        private Coordinate toReference(
+                double screenX, double screenY, Location location, boolean repeating) {
             try {
                 Coordinate display = query.viewport().screenToWorld(screenX, screenY);
+                if (repeating) {
+                    display =
+                            new Coordinate(
+                                    query.horizontalWrap()
+                                            .orElseThrow()
+                                            .canonicalize(display.x())
+                                            .canonicalX(),
+                                    display.y());
+                }
                 return query.displayToCoordinates().transform(display);
+            } catch (CrsException failure) {
+                translateCrs(failure, location);
+                throw failure;
+            } catch (IllegalArgumentException failure) {
+                rejectCoordinate(location);
+                throw failure;
+            }
+        }
+
+        private Coordinate canonicalReference(
+                Coordinate coordinate, Location location, boolean repeating) {
+            if (!repeating) {
+                return coordinate;
+            }
+            try {
+                Coordinate display = query.coordinatesToDisplay().transform(coordinate);
+                double canonicalX =
+                        query.horizontalWrap().orElseThrow().canonicalize(display.x()).canonicalX();
+                if (Double.compare(canonicalX, display.x()) == 0) {
+                    return coordinate;
+                }
+                display = new Coordinate(canonicalX, display.y());
+                Coordinate canonical = query.displayToCoordinates().transform(display);
+                return query.coordinatesToDisplay().sourceCrs().equals(CrsDefinitions.EPSG_4326)
+                        ? new Coordinate(canonical.x(), coordinate.y())
+                        : canonical;
             } catch (CrsException failure) {
                 translateCrs(failure, location);
                 throw failure;
@@ -446,6 +534,8 @@ public final class FeatureSnapper {
             return result;
         }
     }
+
+    private record ScreenCoordinate(Coordinate screen, double worldX, double sourceDisplayX) {}
 
     private record Candidate(
             SnapResult result, double distanceSquared, int layerIndex, int featureIndex)

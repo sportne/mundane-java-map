@@ -52,7 +52,6 @@ import io.github.mundanej.map.api.MapToolCommand;
 import io.github.mundanej.map.api.MapToolCommandEvent;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
-import io.github.mundanej.map.api.MeasurementState;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
@@ -1340,7 +1339,9 @@ public final class MapView extends JComponent implements AutoCloseable {
             return Optional.empty();
         }
         try {
-            return Optional.of(displayToMap.transform(world));
+            return Optional.of(displayToMap.transform(canonicalDisplayCoordinate(world)));
+        } catch (HorizontalWrapException exception) {
+            return Optional.empty();
         } catch (CrsException exception) {
             if (isExpectedConversionMiss(exception)) {
                 return Optional.empty();
@@ -1369,10 +1370,29 @@ public final class MapView extends JComponent implements AutoCloseable {
             throw exception;
         }
         try {
+            world = displayCoordinateNearest(world, viewport().centerX());
             return Optional.of(viewport().worldToScreen(world));
+        } catch (HorizontalWrapException exception) {
+            return Optional.empty();
         } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
+    }
+
+    private Coordinate canonicalDisplayCoordinate(Coordinate coordinate) {
+        if (horizontalWrap == null) {
+            return coordinate;
+        }
+        return new Coordinate(
+                horizontalWrap.canonicalize(coordinate.x()).canonicalX(), coordinate.y());
+    }
+
+    private Coordinate displayCoordinateNearest(Coordinate coordinate, double referenceX) {
+        if (horizontalWrap == null) {
+            return coordinate;
+        }
+        return new Coordinate(
+                horizontalWrap.nearestEquivalent(coordinate.x(), referenceX), coordinate.y());
     }
 
     /**
@@ -1518,18 +1538,20 @@ public final class MapView extends JComponent implements AutoCloseable {
             MapViewport viewportSnapshot = viewport;
             MapScreenBasis basisSnapshot = screenBasis(viewportSnapshot);
             Optional<MapHit> hoverSnapshot = hover;
+            Optional<HoverProbe> hoverProbeSnapshot = hoverProbe;
             Optional<FeatureSelection> selectionSnapshot = selection;
             MapTool activeToolSnapshot = toolRouter.activeTool().orElse(null);
-            Optional<MeasurementState> measurementSnapshot =
+            Optional<MeasurementTool.OverlayState> measurementSnapshot =
                     activeToolSnapshot instanceof MeasurementTool measurement
-                            ? Optional.of(measurement.state())
+                            ? Optional.of(measurement.overlayState())
                             : Optional.empty();
             Optional<PointEditController.Preview> pointEditPreview =
                     activeToolSnapshot instanceof PointEditController pointEditor
                             ? pointEditor.visiblePreview(viewportSnapshot)
                             : Optional.empty();
             OverlayCandidate hoverCandidate = null;
-            OverlayCandidate selectionCandidate = null;
+            List<OverlayCandidate> selectionCandidates = new ArrayList<>();
+            Rectangle2D interactionClip = new Rectangle2D.Double(0.0, 0.0, getWidth(), getHeight());
             List<PendingPointLabel> pendingLabels = new ArrayList<>();
             if (isOpaque()) {
                 graphics2D.setColor(getBackground());
@@ -1556,11 +1578,23 @@ public final class MapView extends JComponent implements AutoCloseable {
                     }
                     if (hoverSnapshot.isPresent()
                             && matches(hoverSnapshot.orElseThrow(), layer.id(), feature.id())) {
-                        hoverCandidate = new OverlayCandidate(feature, result.paintPresence());
+                        boolean pointedCopy =
+                                hoverProbeSnapshot.isEmpty()
+                                        || hitFeature(
+                                                feature,
+                                                viewportSnapshot,
+                                                interactionClip,
+                                                hoverProbeSnapshot.orElseThrow().screenX(),
+                                                hoverProbeSnapshot.orElseThrow().screenY(),
+                                                DEFAULT_HOVER_TOLERANCE_PIXELS);
+                        if (pointedCopy) {
+                            hoverCandidate = new OverlayCandidate(feature, result.paintPresence());
+                        }
                     }
                     if (selectionSnapshot.isPresent()
                             && matches(selectionSnapshot.orElseThrow(), layer.id(), feature.id())) {
-                        selectionCandidate = new OverlayCandidate(feature, result.paintPresence());
+                        selectionCandidates.add(
+                                new OverlayCandidate(feature, result.paintPresence()));
                     }
                 }
             }
@@ -1603,7 +1637,7 @@ public final class MapView extends JComponent implements AutoCloseable {
             boolean hoverPaintChanged =
                     retainInteractionPaintState(hoverSnapshot, hoverCandidate, true);
             boolean selectionPaintChanged =
-                    retainInteractionPaintState(selectionSnapshot, selectionCandidate, false);
+                    retainInteractionPaintState(selectionSnapshot, selectionCandidates, false);
             paintStateChanged = hoverPaintChanged || selectionPaintChanged;
             for (MeasuredPointLabel label : pointLabels) {
                 LabelTextMetrics.draw(graphics2D, label.measurement(), label.placed());
@@ -1611,22 +1645,29 @@ public final class MapView extends JComponent implements AutoCloseable {
             pointEditPreview.ifPresent(
                     preview ->
                             PointEditOverlayRenderer.render(
-                                    graphics2D, preview, mapToDisplay, viewportSnapshot));
-            renderOverlay(
-                    graphics2D, hoverCandidate, hoverOverlay, viewportSnapshot, basisSnapshot);
-            renderOverlay(
-                    graphics2D,
-                    selectionCandidate,
-                    selectionOverlay,
-                    viewportSnapshot,
-                    basisSnapshot);
-            measurementSnapshot.ifPresent(
-                    state ->
-                            MeasurementOverlayRenderer.render(
                                     graphics2D,
-                                    state,
+                                    preview,
                                     mapToDisplay,
                                     viewportSnapshot,
+                                    horizontalWrap()));
+            renderOverlay(
+                    graphics2D, hoverCandidate, hoverOverlay, viewportSnapshot, basisSnapshot);
+            for (OverlayCandidate selectionCandidate : selectionCandidates) {
+                renderOverlay(
+                        graphics2D,
+                        selectionCandidate,
+                        selectionOverlay,
+                        viewportSnapshot,
+                        basisSnapshot);
+            }
+            measurementSnapshot.ifPresent(
+                    overlay ->
+                            MeasurementOverlayRenderer.render(
+                                    graphics2D,
+                                    overlay,
+                                    mapToDisplay,
+                                    viewportSnapshot,
+                                    horizontalWrap(),
                                     getWidth(),
                                     getHeight()));
         } catch (RuntimeException failure) {
@@ -4997,6 +5038,9 @@ public final class MapView extends JComponent implements AutoCloseable {
             MapViewport viewportSnapshot,
             boolean includeLabels,
             FeatureEditSnapshot snapshot) {
+        if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
+            return captureWrappedEditable(binding, viewportSnapshot, includeLabels, snapshot);
+        }
         List<VisualFeature> visual = new ArrayList<>(snapshot.records().size());
         Set<String> featureIds = new HashSet<>();
         for (int featureIndex = 0; featureIndex < snapshot.records().size(); featureIndex++) {
@@ -5030,6 +5074,132 @@ public final class MapView extends JComponent implements AutoCloseable {
                 Optional.empty(),
                 false,
                 true);
+    }
+
+    private LayerSnapshot captureWrappedEditable(
+            MapLayerBinding binding,
+            MapViewport viewportSnapshot,
+            boolean includeLabels,
+            FeatureEditSnapshot snapshot) {
+        HorizontalWrap profile = Objects.requireNonNull(horizontalWrap, "horizontalWrap");
+        Envelope visible = viewportSnapshot.visibleWorldEnvelope();
+        HorizontalWrapPlan plan =
+                profile.plan(visible.minX(), visible.maxX(), viewportSnapshot.worldUnitsPerPixel());
+        List<VisualFeature> visual = new ArrayList<>();
+        Set<String> featureIds = new HashSet<>();
+        int retainedFeatures = 0;
+        long retainedCoordinateBytes = 0;
+        int retainedLabels = 0;
+        int retainedLabelCodePoints = 0;
+        for (int featureIndex = 0; featureIndex < snapshot.records().size(); featureIndex++) {
+            FeatureRecord record = snapshot.records().get(featureIndex);
+            featureIds.add(record.id());
+            Optional<Symbol> symbol = sourceSymbol(binding, record.geometry(), record.attributes());
+            if (symbol.isEmpty()) {
+                continue;
+            }
+            List<GeographicSeamSplitter.Fragment> fragments =
+                    wrappedEditableGeometryFragments(record.geometry(), mapToDisplay);
+            List<WrappedSymbolFragment> renderFragments =
+                    wrappedEditableSymbolFragments(
+                            record.geometry(), mapToDisplay, fragments, symbol.orElseThrow());
+            for (long copyIndex = plan.minimumVisibleCopyIndex();
+                    copyIndex <= plan.maximumVisibleCopyIndex();
+                    copyIndex++) {
+                for (WrappedSymbolFragment fragment : renderFragments) {
+                    long visualCopy = Math.addExact(copyIndex, fragment.worldOffset());
+                    Envelope geometryEnvelope =
+                            repeatedGeometryEnvelope(
+                                    fragment.geometry(), mapToDisplay, profile, visualCopy);
+                    if (!intersects(geometryEnvelope, visible)) {
+                        continue;
+                    }
+                    int nextFeatures = Math.incrementExact(retainedFeatures);
+                    if (nextFeatures > binding.editSession().limits().maximumFeatures()) {
+                        throw editableWrapLimit(
+                                "EDIT_FEATURE_LIMIT_EXCEEDED",
+                                "Wrapped editable visual feature limit exceeded",
+                                binding.editSession().limits().maximumFeatures(),
+                                nextFeatures);
+                    }
+                    long coordinateBytes;
+                    try {
+                        coordinateBytes =
+                                Math.multiplyExact(coordinateCount(fragment.geometry()), 16L);
+                        coordinateBytes = Math.addExact(retainedCoordinateBytes, coordinateBytes);
+                    } catch (ArithmeticException ignored) {
+                        coordinateBytes = Long.MAX_VALUE;
+                    }
+                    if (coordinateBytes > binding.editSession().limits().maximumSnapshotBytes()) {
+                        throw editableWrapLimit(
+                                "EDIT_SNAPSHOT_LIMIT_EXCEEDED",
+                                "Wrapped editable visual coordinate budget exceeded",
+                                binding.editSession().limits().maximumSnapshotBytes(),
+                                coordinateBytes);
+                    }
+                    Optional<ResolvedPointLabel> label =
+                            resolvePointLabel(
+                                    binding,
+                                    record.name(),
+                                    fragment.geometry(),
+                                    record.attributes(),
+                                    viewportSnapshot,
+                                    includeLabels);
+                    if (label.isPresent()) {
+                        int nextLabels = Math.incrementExact(retainedLabels);
+                        if (nextLabels > GreedyPointLabelPlacement.MAXIMUM_REQUESTS) {
+                            throw labelBatchFailure(
+                                    "LABEL_REQUEST_LIMIT_EXCEEDED",
+                                    "Point-label request limit exceeded",
+                                    GreedyPointLabelPlacement.MAXIMUM_REQUESTS,
+                                    nextLabels);
+                        }
+                        int codePoints =
+                                LabelTextMetrics.validateText(
+                                        label.orElseThrow().text(), 0, featureIndex);
+                        if (codePoints > 262_144 - retainedLabelCodePoints) {
+                            throw labelBatchFailure(
+                                    "LABEL_TEXT_BUDGET_EXCEEDED",
+                                    "Point-label text budget exceeded",
+                                    262_144,
+                                    retainedLabelCodePoints + codePoints);
+                        }
+                        retainedLabels = nextLabels;
+                        retainedLabelCodePoints += codePoints;
+                    }
+                    visual.add(
+                            new VisualFeature(
+                                    record.id(),
+                                    record.name(),
+                                    fragment.geometry(),
+                                    fragment.symbol(),
+                                    mapToDisplay,
+                                    visualCopy * profile.period(),
+                                    label,
+                                    featureIndex));
+                    retainedFeatures = nextFeatures;
+                    retainedCoordinateBytes = coordinateBytes;
+                }
+            }
+        }
+        return new LayerSnapshot(
+                binding.id(),
+                List.copyOf(visual),
+                Set.copyOf(featureIds),
+                Optional.empty(),
+                false,
+                true);
+    }
+
+    private static FeatureEditConfigurationException editableWrapLimit(
+            String code, String message, long maximum, long actual) {
+        return new FeatureEditConfigurationException(
+                new FeatureEditProblem(
+                        code,
+                        message,
+                        Map.of(
+                                "maximum", Long.toString(maximum),
+                                "actual", Long.toString(actual))));
     }
 
     private LayerSnapshot captureFeatureSource(
@@ -5730,6 +5900,63 @@ public final class MapView extends JComponent implements AutoCloseable {
         return List.of(new GeographicSeamSplitter.Fragment(geometry, 0L));
     }
 
+    private static List<GeographicSeamSplitter.Fragment> wrappedEditableGeometryFragments(
+            Geometry geometry, CrsOperation sourceToDisplay) {
+        if (sourceToDisplay.sourceCrs().equals(CrsDefinitions.EPSG_4326)) {
+            try {
+                return GeographicSeamSplitter.split(geometry, CancellationToken.none()).fragments();
+            } catch (GeographicSeamSplitter.GeographicSeamException failure) {
+                throw new HorizontalWrapException(
+                        new io.github.mundanej.map.core.HorizontalWrapProblem(
+                                failure.code(), failure.context()));
+            }
+        }
+        if (sourceToDisplay.sourceCrs().kind() == io.github.mundanej.map.api.CrsKind.GEOGRAPHIC) {
+            throw new HorizontalWrapException(
+                    new io.github.mundanej.map.core.HorizontalWrapProblem(
+                            "WORLD_WRAP_GEOMETRY_UNSUPPORTED", Map.of("reason", "projectedSeam")));
+        }
+        return List.of(new GeographicSeamSplitter.Fragment(geometry, 0L));
+    }
+
+    private static List<WrappedSymbolFragment> wrappedEditableSymbolFragments(
+            Geometry sourceGeometry,
+            CrsOperation sourceToDisplay,
+            List<GeographicSeamSplitter.Fragment> geometryFragments,
+            Symbol symbol) {
+        if (geometryRole(sourceGeometry) != SymbolRole.FILL
+                || !sourceToDisplay.sourceCrs().equals(CrsDefinitions.EPSG_4326)) {
+            return geometryFragments.stream()
+                    .map(
+                            fragment ->
+                                    new WrappedSymbolFragment(
+                                            fragment.geometry(),
+                                            fragment.worldOffset(),
+                                            symbolForWrappedFragment(symbol, fragment)))
+                    .toList();
+        }
+        List<GeographicSeamSplitter.Fragment> boundaries =
+                wrappedEditableGeometryFragments(polygonBoundary(sourceGeometry), sourceToDisplay);
+        List<WrappedSymbolFragment> result = new ArrayList<>();
+        for (PolygonSymbolLayer layer : polygonSymbolLayers(symbol)) {
+            for (GeographicSeamSplitter.Fragment fragment : geometryFragments) {
+                result.add(
+                        new WrappedSymbolFragment(
+                                fragment.geometry(), fragment.worldOffset(), layer.fill()));
+            }
+            if (layer.outline().isPresent()) {
+                for (GeographicSeamSplitter.Fragment boundary : boundaries) {
+                    result.add(
+                            new WrappedSymbolFragment(
+                                    boundary.geometry(),
+                                    boundary.worldOffset(),
+                                    withoutLineEndpointMarkers(layer.outline().orElseThrow())));
+                }
+            }
+        }
+        return List.copyOf(result);
+    }
+
     private static List<WrappedSymbolFragment> wrappedSymbolFragments(
             FeatureSource source,
             Geometry sourceGeometry,
@@ -5878,7 +6105,9 @@ public final class MapView extends JComponent implements AutoCloseable {
             HorizontalWrap profile,
             long copyIndex) {
         Envelope canonical = sourceToDisplay.transformEnvelopeStrict(geometry.envelope());
-        double offset = copyIndex * profile.period();
+        double offset =
+                profile.translate(profile.canonicalMinimumX(), copyIndex)
+                        - profile.canonicalMinimumX();
         double minimumX = canonical.minX() + offset;
         double maximumX = canonical.maxX() + offset;
         if (!Double.isFinite(minimumX) || !Double.isFinite(maximumX)) {
@@ -6066,9 +6295,10 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private static void validateRepeatingBinding(MapLayerBinding binding, HorizontalWrap profile) {
         Objects.requireNonNull(profile, "profile");
-        if (binding.kind() != MapLayerBinding.Kind.FEATURE) {
+        if (binding.kind() != MapLayerBinding.Kind.FEATURE
+                && binding.kind() != MapLayerBinding.Kind.EDITABLE) {
             throw new IllegalStateException(
-                    "Only feature-source bindings may repeat in this vertical slice: "
+                    "Only feature-source and editable bindings may repeat in this vector slice: "
                             + binding.id());
         }
     }
@@ -6861,6 +7091,32 @@ public final class MapView extends JComponent implements AutoCloseable {
         return previous.isPresent() && !previous.equals(next);
     }
 
+    private boolean retainInteractionPaintState(
+            Optional<?> interaction, List<OverlayCandidate> candidates, boolean hoverState) {
+        Optional<AwtLogicalPaintPresence> previous =
+                hoverState ? hoverPaintState : selectionPaintState;
+        Optional<AwtLogicalPaintPresence> next = Optional.empty();
+        if (interaction.isPresent() && !candidates.isEmpty()) {
+            AwtLogicalPaintPresence presence = AwtLogicalPaintPresence.EMPTY;
+            for (OverlayCandidate candidate : candidates) {
+                if (candidate.presence() == AwtLogicalPaintPresence.PRESENT) {
+                    presence = AwtLogicalPaintPresence.PRESENT;
+                    break;
+                }
+                if (candidate.presence() == AwtLogicalPaintPresence.UNKNOWN) {
+                    presence = AwtLogicalPaintPresence.UNKNOWN;
+                }
+            }
+            next = Optional.of(presence);
+        }
+        if (hoverState) {
+            hoverPaintState = next;
+        } else {
+            selectionPaintState = next;
+        }
+        return previous.isPresent() && !previous.equals(next);
+    }
+
     private static boolean sameSelectionIdentity(
             Optional<FeatureSelection> first, Optional<FeatureSelection> second) {
         return first.equals(second);
@@ -7025,7 +7281,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                 throw exception;
             }
             try {
+                world = displayCoordinateNearest(world, snapshotViewport.centerX());
                 return Optional.of(snapshotViewport.worldToScreen(world));
+            } catch (HorizontalWrapException exception) {
+                return Optional.empty();
             } catch (IllegalArgumentException exception) {
                 return Optional.empty();
             }
@@ -7043,7 +7302,9 @@ public final class MapView extends JComponent implements AutoCloseable {
                 return Optional.empty();
             }
             try {
-                return Optional.of(displayToMap.transform(world));
+                return Optional.of(displayToMap.transform(canonicalDisplayCoordinate(world)));
+            } catch (HorizontalWrapException exception) {
+                return Optional.empty();
             } catch (CrsException exception) {
                 if (isExpectedConversionMiss(exception)) {
                     return Optional.empty();

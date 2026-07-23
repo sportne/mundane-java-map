@@ -5,6 +5,7 @@ import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.SnapLimits;
 import io.github.mundanej.map.api.SnapReferenceSet;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /** Immutable operation-local input for one bounded same-CRS snap query. */
@@ -15,6 +16,8 @@ public final class SnapQuery {
     private final CrsOperation coordinatesToDisplay;
     private final CrsOperation displayToCoordinates;
     private final MapViewport viewport;
+    private final Optional<HorizontalWrap> horizontalWrap;
+    private final Set<String> repeatingLayerIds;
     private final SnapReferenceSet references;
     private final Set<FeatureSelection> exclusions;
     private final SnapLimits limits;
@@ -45,6 +48,50 @@ public final class SnapQuery {
             Set<FeatureSelection> exclusions,
             SnapLimits limits,
             CancellationToken cancellation) {
+        this(
+                screenX,
+                screenY,
+                tolerancePixels,
+                coordinatesToDisplay,
+                displayToCoordinates,
+                viewport,
+                Optional.empty(),
+                Set.of(),
+                references,
+                exclusions,
+                limits,
+                cancellation);
+    }
+
+    /**
+     * Creates a structurally valid query with optional horizontal display repetition.
+     *
+     * @param screenX finite logical-screen pointer x
+     * @param screenY finite logical-screen pointer y
+     * @param tolerancePixels inclusive tolerance in {@code (0, 256]}
+     * @param coordinatesToDisplay reference-coordinate to display-world operation
+     * @param displayToCoordinates exact opposite operation
+     * @param viewport captured display-world viewport
+     * @param horizontalWrap explicit display repetition profile, or empty
+     * @param repeatingLayerIds exact reference-layer IDs that repeat through the wrap profile
+     * @param references immutable same-CRS reference snapshot
+     * @param exclusions exact feature keys omitted from traversal
+     * @param limits immutable operation ceilings
+     * @param cancellation read-only cancellation signal
+     */
+    public SnapQuery(
+            double screenX,
+            double screenY,
+            double tolerancePixels,
+            CrsOperation coordinatesToDisplay,
+            CrsOperation displayToCoordinates,
+            MapViewport viewport,
+            Optional<HorizontalWrap> horizontalWrap,
+            Set<String> repeatingLayerIds,
+            SnapReferenceSet references,
+            Set<FeatureSelection> exclusions,
+            SnapLimits limits,
+            CancellationToken cancellation) {
         if (!Double.isFinite(screenX) || !Double.isFinite(screenY)) {
             throw new IllegalArgumentException("snap pointer coordinates must be finite");
         }
@@ -56,12 +103,25 @@ public final class SnapQuery {
         this.displayToCoordinates =
                 Objects.requireNonNull(displayToCoordinates, "displayToCoordinates");
         this.viewport = Objects.requireNonNull(viewport, "viewport");
+        this.horizontalWrap = Objects.requireNonNull(horizontalWrap, "horizontalWrap");
+        this.repeatingLayerIds =
+                Set.copyOf(Objects.requireNonNull(repeatingLayerIds, "repeatingLayerIds"));
         this.references = Objects.requireNonNull(references, "references");
         this.limits = Objects.requireNonNull(limits, "limits");
         this.cancellation = Objects.requireNonNull(cancellation, "cancellation");
         this.exclusions = Set.copyOf(Objects.requireNonNull(exclusions, "exclusions"));
         if (this.exclusions.size() > limits.maximumFeatures()) {
             throw new IllegalArgumentException("snap exclusions exceed the feature limit");
+        }
+        if (this.horizontalWrap.isEmpty() && !this.repeatingLayerIds.isEmpty()) {
+            throw new IllegalArgumentException("repeating snap layers require a wrap profile");
+        }
+        Set<String> referenceIds =
+                this.references.layers().stream()
+                        .map(io.github.mundanej.map.api.SnapReferenceLayer::layerId)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (!referenceIds.containsAll(this.repeatingLayerIds)) {
+            throw new IllegalArgumentException("repeating snap layer is not in the reference set");
         }
         if (!references.crs().equals(coordinatesToDisplay.sourceCrs())
                 || !references.crs().equals(displayToCoordinates.targetCrs())
@@ -126,6 +186,34 @@ public final class SnapQuery {
      */
     public MapViewport viewport() {
         return viewport;
+    }
+
+    /**
+     * Returns the optional horizontal display-repetition profile.
+     *
+     * @return explicit immutable profile, or empty for ordinary coordinates
+     */
+    public Optional<HorizontalWrap> horizontalWrap() {
+        return horizontalWrap;
+    }
+
+    /**
+     * Returns whether one exact reference layer repeats horizontally for this operation.
+     *
+     * @param layerId exact non-null reference-layer identity
+     * @return true only when the layer is explicitly included in the operation-local repeat set
+     */
+    public boolean repeatsLayer(String layerId) {
+        return repeatingLayerIds.contains(Objects.requireNonNull(layerId, "layerId"));
+    }
+
+    /**
+     * Returns the immutable exact reference-layer IDs that repeat horizontally.
+     *
+     * @return defensively copied operation-local repeat set
+     */
+    public Set<String> repeatingLayerIds() {
+        return repeatingLayerIds;
     }
 
     /**

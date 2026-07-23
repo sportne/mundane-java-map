@@ -46,9 +46,12 @@ import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.FeatureEditSession;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.Graphics2D;
 import java.awt.event.FocusEvent;
 import java.awt.event.InputEvent;
@@ -68,6 +71,110 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class PointEditControllerTest {
+    @Test
+    void repeatedCopyEditsStoreCanonicalCoordinatesAndReplayLogicalCommands() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    HorizontalWrap wrap = HorizontalWrap.webMercator();
+                    WebMercatorProjection projection = new WebMercatorProjection();
+                    double startX = projection.project(new Coordinate(179, 0)).x();
+                    MapViewport viewport = new MapViewport(200, 100, startX, 0, 10_000);
+                    FeatureEditSession session =
+                            FeatureEditSession.open(
+                                    CrsDefinitions.EPSG_4326, List.of(record("point", 179, 0)));
+                    FeatureEditSession referenceSession =
+                            FeatureEditSession.open(
+                                    CrsDefinitions.EPSG_4326,
+                                    List.of(record("across-seam", -179, 0)));
+                    MapLayerBinding binding = binding("editable", session);
+                    MapLayerBinding referenceBinding = binding("reference", referenceSession);
+                    binding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    referenceBinding.setHorizontalWrapMode(HorizontalWrapMode.REPEAT_X);
+                    MapView view =
+                            new MapView(
+                                    CrsRegistry.level1(),
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_3857);
+                    view.setSize(200, 100);
+                    view.setViewport(viewport);
+                    view.setHorizontalWrap(wrap);
+                    view.setLayerBindings(List.of(binding, referenceBinding));
+                    SnapReferenceSet references =
+                            new SnapReferenceSet(
+                                    CrsDefinitions.EPSG_4326,
+                                    List.of(
+                                            new SnapReferenceLayer(
+                                                    "reference",
+                                                    List.of(
+                                                            new SnapFeature(
+                                                                    "across-seam",
+                                                                    new PointGeometry(
+                                                                            new Coordinate(
+                                                                                    -179, 0)))))));
+                    PointEditController controller =
+                            new PointEditController(
+                                    view,
+                                    binding,
+                                    references,
+                                    SnapLimits.DEFAULT,
+                                    PointEditController.DEFAULT_SNAP_TOLERANCE_PIXELS);
+                    view.setActiveTool(controller);
+                    view.setSelection(new FeatureSelection("editable", "point"));
+                    controller.moveSelected();
+
+                    int targetX =
+                            (int)
+                                    StrictMath.round(
+                                            viewport.worldToScreen(
+                                                            new Coordinate(
+                                                                    projection
+                                                                                    .project(
+                                                                                            new Coordinate(
+                                                                                                    -179,
+                                                                                                    0))
+                                                                                    .x()
+                                                                            + wrap.period(),
+                                                                    0))
+                                                    .x());
+                    mouse(view, MouseEvent.MOUSE_PRESSED, 100, 50, MouseEvent.BUTTON1, 0, 1);
+                    mouse(
+                            view,
+                            MouseEvent.MOUSE_DRAGGED,
+                            targetX,
+                            50,
+                            MouseEvent.NOBUTTON,
+                            InputEvent.BUTTON1_DOWN_MASK,
+                            0);
+                    mouse(view, MouseEvent.MOUSE_RELEASED, targetX, 50, MouseEvent.BUTTON1, 0, 1);
+                    assertEquals(
+                            new Coordinate(-179, 0),
+                            ((PointGeometry) record(session, "point").geometry()).coordinate());
+                    controller.undo();
+                    assertEquals(
+                            new Coordinate(179, 0),
+                            ((PointGeometry) record(session, "point").geometry()).coordinate());
+                    controller.redo();
+                    assertEquals(
+                            new Coordinate(-179, 0),
+                            ((PointGeometry) record(session, "point").geometry()).coordinate());
+
+                    controller.create(new PointFeatureDraft("created", "Created", Map.of()));
+                    mouse(view, MouseEvent.MOUSE_CLICKED, 110, 50, MouseEvent.BUTTON1, 0, 1);
+                    Coordinate created =
+                            ((PointGeometry) record(session, "created").geometry()).coordinate();
+                    assertTrue(created.x() >= -180 && created.x() <= 180);
+                    controller.deleteSelected();
+                    assertFalse(
+                            session.snapshot().records().stream()
+                                    .anyMatch(record -> record.id().equals("created")));
+                    controller.undo();
+                    assertEquals(
+                            created,
+                            ((PointGeometry) record(session, "created").geometry()).coordinate());
+                    view.close();
+                });
+    }
+
     @Test
     void createsMovesSnapsDeletesAndReplaysThroughRealView() throws Exception {
         SwingUtilities.invokeAndWait(

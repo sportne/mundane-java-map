@@ -5,6 +5,7 @@ import io.github.mundanej.map.awt.MeasurementTool;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.DistanceStrategies;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -48,12 +49,13 @@ public final class MeasurementViewer {
     private static MapView geographicView() {
         MapView view =
                 new MapView(
-                        CrsRegistry.level1(), CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_4326);
+                        CrsRegistry.level1(), CrsDefinitions.EPSG_4326, CrsDefinitions.EPSG_3857);
+        view.setHorizontalWrap(HorizontalWrap.webMercator());
         configure(
                 view,
                 new MeasurementTool(
                         DistanceStrategies.epsg4326GreatCircle(CrsDefinitions.EPSG_4326)));
-        view.setViewport(new MapViewport(800, 520, 0, 0, 0.45));
+        view.setViewport(new MapViewport(800, 520, 0, 0, 50_000));
         return view;
     }
 
@@ -74,7 +76,7 @@ public final class MeasurementViewer {
     }
 
     private static String geographicExplanation() {
-        return "Clicks measure spherical great-circle distance in recognized EPSG:4326.";
+        return "Clicks store EPSG:4326 positions and draw the shortest path continuously across repeated datelines.";
     }
 
     private static void showWindow() {

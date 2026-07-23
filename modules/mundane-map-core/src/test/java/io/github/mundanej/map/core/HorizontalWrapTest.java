@@ -21,6 +21,15 @@ class HorizontalWrapTest {
     }
 
     @Test
+    void choosesNearestVisualEquivalentWithWestwardHalfPeriodTies() {
+        assertEquals(190.0, WRAP.nearestEquivalent(-170.0, 185.0));
+        assertEquals(-170.0, WRAP.nearestEquivalent(-170.0, 10.0));
+        assertEquals(0.0, WRAP.nearestEquivalent(0.0, 180.0));
+        assertEquals(5_590.0, WRAP.nearestEquivalent(-170.0, 5_600.0));
+        assertEquals(-5_590.0, WRAP.nearestEquivalent(170.0, -5_600.0));
+    }
+
+    @Test
     void plansOneSplitAndFullWorldIntervalsWithoutDuplicateSeams() {
         HorizontalWrapPlan one = WRAP.plan(-100.0, 100.0, 1.0);
         assertEquals(List.of(new HorizontalInterval(-100.0, 100.0)), one.canonicalIntervals());

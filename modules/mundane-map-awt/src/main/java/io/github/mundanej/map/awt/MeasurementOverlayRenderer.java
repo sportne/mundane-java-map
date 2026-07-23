@@ -5,6 +5,7 @@ import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.api.DistanceResult;
 import io.github.mundanej.map.api.MeasurementState;
 import io.github.mundanej.map.core.CrsOperation;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -14,9 +15,12 @@ import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
 
 /** Package-private fixed presentation for an active measurement tool. */
 final class MeasurementOverlayRenderer {
@@ -66,10 +70,32 @@ final class MeasurementOverlayRenderer {
             MapViewport viewport,
             int width,
             int height) {
+        double[] references = new double[state.vertexCount()];
+        java.util.Arrays.fill(references, Double.NaN);
+        render(
+                source,
+                new MeasurementTool.OverlayState(state, references, OptionalDouble.empty()),
+                mapToDisplay,
+                viewport,
+                Optional.empty(),
+                width,
+                height);
+    }
+
+    static void render(
+            Graphics2D source,
+            MeasurementTool.OverlayState overlay,
+            CrsOperation mapToDisplay,
+            MapViewport viewport,
+            Optional<HorizontalWrap> horizontalWrap,
+            int width,
+            int height) {
         Objects.requireNonNull(source, "source");
-        Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(overlay, "overlay");
+        MeasurementState state = overlay.state();
         Objects.requireNonNull(mapToDisplay, "mapToDisplay");
         Objects.requireNonNull(viewport, "viewport");
+        Objects.requireNonNull(horizontalWrap, "horizontalWrap");
         if (state.vertexCount() == 0 || width <= 0 || height <= 0) {
             return;
         }
@@ -77,9 +103,29 @@ final class MeasurementOverlayRenderer {
         try {
             graphics.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            Optional<Coordinate> previous = screen(state.vertex(0), mapToDisplay, viewport);
+            List<Optional<DisplayPoint>> vertices = new ArrayList<>(state.vertexCount());
+            double[] displayReferences = overlay.vertexDisplayReferenceXs();
+            double referenceX = viewport.centerX();
+            for (int index = 0; index < state.vertexCount(); index++) {
+                double placementReference =
+                        Double.isFinite(displayReferences[index])
+                                ? displayReferences[index]
+                                : referenceX;
+                Optional<DisplayPoint> vertex =
+                        displayPoint(
+                                state.vertex(index),
+                                mapToDisplay,
+                                viewport,
+                                horizontalWrap,
+                                placementReference);
+                vertices.add(vertex);
+                if (vertex.isPresent()) {
+                    referenceX = vertex.orElseThrow().worldX();
+                }
+            }
+            Optional<Coordinate> previous = screen(vertices.getFirst());
             for (int index = 1; index < state.vertexCount(); index++) {
-                Optional<Coordinate> current = screen(state.vertex(index), mapToDisplay, viewport);
+                Optional<Coordinate> current = screen(vertices.get(index));
                 if (previous.isPresent() && current.isPresent()) {
                     drawSegment(
                             graphics,
@@ -91,10 +137,19 @@ final class MeasurementOverlayRenderer {
                 }
                 previous = current;
             }
+            double previewReferenceX = overlay.previewDisplayReferenceX().orElse(referenceX);
             Optional<Coordinate> previewScreen =
-                    state.preview().flatMap(value -> screen(value, mapToDisplay, viewport));
-            Optional<Coordinate> lastScreen =
-                    screen(state.vertex(state.vertexCount() - 1), mapToDisplay, viewport);
+                    state.preview()
+                            .flatMap(
+                                    value ->
+                                            displayPoint(
+                                                            value,
+                                                            mapToDisplay,
+                                                            viewport,
+                                                            horizontalWrap,
+                                                            previewReferenceX)
+                                                    .map(DisplayPoint::screen));
+            Optional<Coordinate> lastScreen = screen(vertices.getLast());
             if (lastScreen.isPresent() && previewScreen.isPresent()) {
                 drawSegment(
                         graphics,
@@ -105,10 +160,10 @@ final class MeasurementOverlayRenderer {
                         height);
             }
             for (int index = 0; index < state.vertexCount(); index++) {
-                screen(state.vertex(index), mapToDisplay, viewport)
+                screen(vertices.get(index))
                         .ifPresent(point -> drawVertex(graphics, point, width, height));
             }
-            drawCurrentSegmentLabel(graphics, state, mapToDisplay, viewport, width, height);
+            drawCurrentSegmentLabel(graphics, state, vertices, previewScreen, width, height);
             drawBadge(graphics, format(state.displayedDistance()), 8, 8, width, height);
         } finally {
             graphics.dispose();
@@ -128,25 +183,23 @@ final class MeasurementOverlayRenderer {
     private static void drawCurrentSegmentLabel(
             Graphics2D graphics,
             MeasurementState state,
-            CrsOperation operation,
-            MapViewport viewport,
+            List<Optional<DisplayPoint>> vertices,
+            Optional<Coordinate> previewScreen,
             int width,
             int height) {
         Optional<DistanceResult> distance = state.previewSegmentDistance();
-        Coordinate start;
-        Coordinate end;
+        Optional<Coordinate> startScreen;
+        Optional<Coordinate> endScreen;
         if (state.preview().isPresent()) {
-            start = state.vertex(state.vertexCount() - 1);
-            end = state.preview().orElseThrow();
+            startScreen = screen(vertices.getLast());
+            endScreen = previewScreen;
         } else if (state.vertexCount() >= 2) {
             distance = state.lastCommittedSegmentDistance();
-            start = state.vertex(state.vertexCount() - 2);
-            end = state.vertex(state.vertexCount() - 1);
+            startScreen = screen(vertices.get(vertices.size() - 2));
+            endScreen = screen(vertices.getLast());
         } else {
             return;
         }
-        Optional<Coordinate> startScreen = screen(start, operation, viewport);
-        Optional<Coordinate> endScreen = screen(end, operation, viewport);
         if (distance.isEmpty() || startScreen.isEmpty() || endScreen.isEmpty()) {
             return;
         }
@@ -272,12 +325,25 @@ final class MeasurementOverlayRenderer {
                 | row6;
     }
 
-    private static Optional<Coordinate> screen(
-            Coordinate source, CrsOperation operation, MapViewport viewport) {
+    private static Optional<DisplayPoint> displayPoint(
+            Coordinate source,
+            CrsOperation operation,
+            MapViewport viewport,
+            Optional<HorizontalWrap> horizontalWrap,
+            double referenceX) {
         try {
-            Coordinate point = viewport.worldToScreen(operation.transform(source));
+            Coordinate world = operation.transform(source);
+            if (horizontalWrap.isPresent()) {
+                world =
+                        new Coordinate(
+                                horizontalWrap
+                                        .orElseThrow()
+                                        .nearestEquivalent(world.x(), referenceX),
+                                world.y());
+            }
+            Coordinate point = viewport.worldToScreen(world);
             return Double.isFinite(point.x()) && Double.isFinite(point.y())
-                    ? Optional.of(point)
+                    ? Optional.of(new DisplayPoint(point, world.x()))
                     : Optional.empty();
         } catch (CrsException exception) {
             String code = exception.problem().code();
@@ -290,6 +356,12 @@ final class MeasurementOverlayRenderer {
             return Optional.empty();
         }
     }
+
+    private static Optional<Coordinate> screen(Optional<DisplayPoint> point) {
+        return point.map(DisplayPoint::screen);
+    }
+
+    private record DisplayPoint(Coordinate screen, double worldX) {}
 
     static Optional<double[]> clip(Coordinate start, Coordinate end, int width, int height) {
         double minX = -CLIP_ALLOWANCE;

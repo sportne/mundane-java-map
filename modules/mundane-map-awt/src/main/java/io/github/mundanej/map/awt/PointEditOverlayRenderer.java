@@ -3,6 +3,7 @@ package io.github.mundanej.map.awt;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsException;
 import io.github.mundanej.map.core.CrsOperation;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -10,6 +11,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
+import java.util.Optional;
 
 /** Package-private renderer for non-authoritative point-edit previews. */
 final class PointEditOverlayRenderer {
@@ -23,15 +25,27 @@ final class PointEditOverlayRenderer {
             Graphics2D graphics,
             PointEditController.Preview preview,
             CrsOperation mapToDisplay,
-            MapViewport viewport) {
+            MapViewport viewport,
+            Optional<HorizontalWrap> horizontalWrap) {
         Graphics2D copy = (Graphics2D) graphics.create();
         try {
             copy.setRenderingHint(
                     RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            Coordinate candidate = screen(preview.candidate(), mapToDisplay, viewport);
+            Coordinate candidate =
+                    screen(
+                            preview.candidate(),
+                            mapToDisplay,
+                            viewport,
+                            horizontalWrap,
+                            preview.referenceDisplayX());
             if (preview.original().isPresent()) {
                 Coordinate original =
-                        screen(preview.original().orElseThrow(), mapToDisplay, viewport);
+                        screen(
+                                preview.original().orElseThrow(),
+                                mapToDisplay,
+                                viewport,
+                                horizontalWrap,
+                                preview.referenceDisplayX());
                 copy.setColor(MOVE);
                 copy.setStroke(
                         new BasicStroke(
@@ -62,8 +76,20 @@ final class PointEditOverlayRenderer {
     }
 
     private static Coordinate screen(
-            Coordinate coordinate, CrsOperation operation, MapViewport viewport) {
+            Coordinate coordinate,
+            CrsOperation operation,
+            MapViewport viewport,
+            Optional<HorizontalWrap> horizontalWrap,
+            double referenceDisplayX) {
         Coordinate world = operation.transform(coordinate);
+        if (horizontalWrap.isPresent()) {
+            world =
+                    new Coordinate(
+                            horizontalWrap
+                                    .orElseThrow()
+                                    .nearestEquivalent(world.x(), referenceDisplayX),
+                            world.y());
+        }
         return viewport.worldToScreen(world);
     }
 }

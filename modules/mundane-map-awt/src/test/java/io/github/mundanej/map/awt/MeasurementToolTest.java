@@ -32,8 +32,10 @@ import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.DistanceStrategies;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.Color;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -51,6 +53,94 @@ import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 class MeasurementToolTest {
+    @Test
+    void multiworldPreviewRetainsThePointersVisibleCopy() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    HorizontalWrap wrap = HorizontalWrap.webMercator();
+                    MapView view =
+                            new MapView(
+                                    io.github.mundanej.map.core.CrsRegistry.level1(),
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_3857);
+                    view.setSize(600, 100);
+                    view.setViewport(
+                            new MapViewport(600, 100, wrap.period() / 2, 0, wrap.period() / 400));
+                    view.setHorizontalWrap(wrap);
+                    MeasurementTool tool =
+                            new MeasurementTool(
+                                    DistanceStrategies.epsg4326GreatCircle(
+                                            CrsDefinitions.EPSG_4326));
+                    view.setActiveTool(tool);
+                    mouse(view, MouseEvent.MOUSE_CLICKED, 100, 50, MouseEvent.BUTTON1, 0, 1);
+                    mouse(view, MouseEvent.MOUSE_MOVED, 500, 50, MouseEvent.NOBUTTON, 0, 0);
+
+                    assertEquals(0, tool.state().preview().orElseThrow().x(), 1.0e-9);
+                    assertEquals(
+                            wrap.period(),
+                            tool.overlayState().previewDisplayReferenceX().orElseThrow(),
+                            1.0e-9);
+                    BufferedImage image = new BufferedImage(600, 100, BufferedImage.TYPE_INT_ARGB);
+                    java.awt.Graphics2D graphics = image.createGraphics();
+                    try {
+                        view.paint(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    int crimson = 0;
+                    for (int y = 45; y <= 55; y++) {
+                        for (int x = 480; x <= 500; x++) {
+                            Color color = new Color(image.getRGB(x, y), true);
+                            if (color.getRed() > color.getBlue() + 40) {
+                                crimson++;
+                            }
+                        }
+                    }
+                    assertTrue(crimson > 0, "preview crimson pixels: " + crimson);
+                    view.close();
+                });
+    }
+
+    @Test
+    void geographicMeasurementPaintsTheShortContinuousDatelinePath() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    StubContext context = new StubContext(CrsDefinitions.EPSG_4326);
+                    MeasurementTool tool =
+                            new MeasurementTool(
+                                    DistanceStrategies.epsg4326GreatCircle(
+                                            CrsDefinitions.EPSG_4326));
+                    tool.onMapToolEvent(click(1, 179, 0, 1), context);
+                    tool.onMapToolEvent(click(2, -179, 0, 1), context);
+                    MapView view =
+                            new MapView(
+                                    io.github.mundanej.map.core.CrsRegistry.level1(),
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_3857);
+                    view.setSize(100, 100);
+                    view.setViewport(
+                            new MapViewport(
+                                    100, 100, WebMercatorProjection.WORLD_LIMIT, 0, 100_000));
+                    view.setHorizontalWrap(HorizontalWrap.webMercator());
+                    view.setActiveTool(tool);
+
+                    BufferedImage image = paint(view);
+                    int crimson = 0;
+                    for (int y = 45; y <= 55; y++) {
+                        for (int x = 40; x <= 60; x++) {
+                            Color color = new Color(image.getRGB(x, y), true);
+                            if (color.getRed() > color.getBlue() + 40) {
+                                crimson++;
+                            }
+                        }
+                    }
+                    assertTrue(crimson > 0, "crimson pixels: " + crimson);
+                    assertEquals(Color.WHITE.getRGB(), image.getRGB(10, 50));
+                    assertTrue(tool.state().committedDistance().metres() < 300_000);
+                    view.close();
+                });
+    }
+
     @Test
     void addsPreviewsCompletesUndoesAndCancelsWithoutCapture() {
         StubContext context = new StubContext(CrsDefinitions.EPSG_3857);

@@ -102,6 +102,31 @@ public record HorizontalWrap(
     }
 
     /**
+     * Returns the visual equivalent of an ordinate nearest a continuous display reference.
+     *
+     * <p>Both inputs may be in any checked visual copy. Exact half-period ties select the lower
+     * (westward) copy, matching seam splitting and canonical query planning.
+     *
+     * @param displayX finite display ordinate whose canonical value is retained
+     * @param referenceX finite continuous display ordinate used to choose the visual copy
+     * @return checked finite equivalent display ordinate nearest {@code referenceX}
+     */
+    public double nearestEquivalent(double displayX, double referenceX) {
+        WrappedX target = canonicalize(displayX);
+        canonicalize(referenceX);
+        double quotient = StrictMath.floor((referenceX - target.canonicalX()) / period());
+        long rawWesternIndex = (long) quotient;
+        long rawEasternIndex = Math.incrementExact(rawWesternIndex);
+        long westernIndex = clampCopyIndex(rawWesternIndex);
+        long easternIndex = clampCopyIndex(rawEasternIndex);
+        double western = translate(target.canonicalX(), westernIndex);
+        double eastern = translate(target.canonicalX(), easternIndex);
+        double westernDistance = Math.abs(referenceX - western);
+        double easternDistance = Math.abs(eastern - referenceX);
+        return westernDistance <= easternDistance ? western : eastern;
+    }
+
+    /**
      * Plans canonical intervals and visual copies for a finite non-empty display interval.
      *
      * @param displayMinimumX finite inclusive display minimum
@@ -209,6 +234,10 @@ public record HorizontalWrap(
         long decremented = Math.decrementExact(copyIndex);
         requireCopyIndex(decremented);
         return decremented;
+    }
+
+    private long clampCopyIndex(long copyIndex) {
+        return Math.max(-maximumAbsoluteCopyIndex, Math.min(maximumAbsoluteCopyIndex, copyIndex));
     }
 
     private void requireCopyIndex(long copyIndex) {

@@ -392,7 +392,8 @@ public final class PointEditController implements MapTool {
                         view.viewport(),
                         Optional.empty(),
                         resolution.coordinate().orElseThrow(),
-                        resolution.snapped());
+                        resolution.snapped(),
+                        referenceDisplayX(event, view.viewport()));
         if (!next.equals(preview)) {
             preview = next;
             context.requestRepaint();
@@ -446,7 +447,13 @@ public final class PointEditController implements MapTool {
         gesture =
                 new Gesture(snapshot, captureReferences(snapshot), view.viewport(), record, false);
         Coordinate original = ((PointGeometry) record.geometry()).coordinate();
-        preview = new Preview(gesture.viewport(), Optional.of(original), original, false);
+        preview =
+                new Preview(
+                        gesture.viewport(),
+                        Optional.of(original),
+                        original,
+                        false,
+                        referenceDisplayX(event, gesture.viewport()));
         context.requestRepaint();
         return MapToolResult.CAPTURE;
     }
@@ -553,7 +560,8 @@ public final class PointEditController implements MapTool {
                         current.viewport(),
                         Optional.of(original),
                         resolution.coordinate().orElseThrow(),
-                        resolution.snapped());
+                        resolution.snapped(),
+                        referenceDisplayX(event, current.viewport()));
         if (!next.equals(preview)) {
             preview = next;
             context.requestRepaint();
@@ -574,6 +582,8 @@ public final class PointEditController implements MapTool {
                                 view.mapToDisplayOperation(),
                                 view.displayToMapOperation(),
                                 viewport,
+                                view.horizontalWrap(),
+                                repeatingSnapLayerIds(references),
                                 references,
                                 exclusions,
                                 snapLimits,
@@ -587,6 +597,22 @@ public final class PointEditController implements MapTool {
         return event.mapCoordinate()
                 .map(coordinate -> CoordinateResolution.at(coordinate, false))
                 .orElseGet(CoordinateResolution::empty);
+    }
+
+    private Set<String> repeatingSnapLayerIds(SnapReferenceSet references) {
+        Set<String> referenceIds =
+                references.layers().stream()
+                        .map(SnapReferenceLayer::layerId)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return view.layerBindings().stream()
+                .filter(binding -> referenceIds.contains(binding.id()))
+                .filter(binding -> binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X)
+                .map(MapLayerBinding::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static double referenceDisplayX(MapToolEvent event, MapViewport viewport) {
+        return viewport.screenToWorld(event.screenX(), event.screenY()).x();
     }
 
     private SnapReferenceSet captureReferences(FeatureEditSnapshot snapshot) {
@@ -806,11 +832,15 @@ public final class PointEditController implements MapTool {
             MapViewport viewport,
             Optional<Coordinate> original,
             Coordinate candidate,
-            boolean snapped) {
+            boolean snapped,
+            double referenceDisplayX) {
         Preview {
             Objects.requireNonNull(viewport, "viewport");
             Objects.requireNonNull(original, "original");
             Objects.requireNonNull(candidate, "candidate");
+            if (!Double.isFinite(referenceDisplayX)) {
+                throw new IllegalArgumentException("preview display reference must be finite");
+            }
         }
     }
 
