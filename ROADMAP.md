@@ -528,14 +528,16 @@ separately decomposed.
   symbols. There is no military-specific AWT renderer, runtime table discovery, remote update, legacy
   SIDC translation, APP-6 mapping, text-amplifier engine, or multipoint tactical-graphics claim.
 - G12-001 approved the exact profile/legal/conformance wording and authoritative-source record on
-  2026-07-23. G12-002 and G12-003 deliver parsing and the first real rendering slice; G12-004
-  through G12-006 retain the finite catalog and portrayal integration, reference/gallery hardening,
-  and publication/consumer/Linux Native Image closeout.
+  2026-07-23. G12-002 through G12-004 deliver parsing, the first real rendering slice, and the
+  complete finite catalog with portrayal integration; G12-005 and G12-006 retain reference/gallery
+  hardening and publication/consumer/Linux Native Image closeout.
 - G12-002 supplies the published JDK-only, AWT-free module with packed canonical SIDC parsing,
   complete field access, stable structured syntax/support problems, and deterministic strict versus
   degradable support classification. G12-003 adds all supported identity and status frames, both
   approved palettes, the Infantry entity, degraded-frame behavior, and ordinary AWT paint/hit
-  testing. Native Image targeting remains unclaimed until G12-006 adds executable evidence.
+  testing. G12-004 completes all 15 approved entity paths, seven graphical sector modifiers, 980
+  finite portrayal categories, exact attribute projection, and snapshot/source/editable interaction
+  agreement. Native Image targeting remains unclaimed until G12-006 adds executable evidence.
 - G13 is deliberately dependent on G12-006 so the requested MIL-STD-2525-first order is explicit.
 - See the [G12 detailed design](design/G12-milstd2525-symbology.md) and the
   [G12 task set](tasks/README.md#g12--mil-std-2525-symbology).

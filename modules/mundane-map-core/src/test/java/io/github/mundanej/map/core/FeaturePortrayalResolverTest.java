@@ -11,9 +11,11 @@ import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.ThematicValue;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class FeaturePortrayalResolverTest {
@@ -94,6 +96,28 @@ class FeaturePortrayalResolverTest {
         assertEquals(Optional.empty(), resolver.resolve(SymbolRole.MARKER, Map.of("kind", "blue")));
     }
 
+    @Test
+    void largeCategoricalLookupDoesNotRehashRulesPerFeature() {
+        CountingSymbol symbol = new CountingSymbol();
+        ArrayList<CategoricalSymbolRule> rules =
+                new ArrayList<>(CategoricalSymbolSelector.MAXIMUM_RULES);
+        for (int index = 0; index < CategoricalSymbolSelector.MAXIMUM_RULES; index++) {
+            rules.add(rule(ThematicValue.text("value-" + index), symbol));
+        }
+        FeaturePortrayalResolver resolver =
+                FeaturePortrayalResolver.compile(
+                        FeaturePortrayal.markers(
+                                new CategoricalSymbolSelector("kind", rules, Optional.empty())));
+        symbol.resetHashCalls();
+
+        for (int index = 0; index < 100; index++) {
+            assertEquals(
+                    Optional.of(symbol),
+                    resolver.resolve(SymbolRole.MARKER, Map.of("kind", "value-900")));
+        }
+        assertEquals(0, symbol.hashCalls());
+    }
+
     private static CategoricalSymbolRule rule(ThematicValue value, Symbol symbol) {
         return new CategoricalSymbolRule(value, symbol);
     }
@@ -106,6 +130,39 @@ class FeaturePortrayalResolverTest {
         @Override
         public double opacity() {
             return 1;
+        }
+    }
+
+    private static final class CountingSymbol implements Symbol {
+        private final AtomicInteger hashCalls = new AtomicInteger();
+
+        @Override
+        public SymbolRendererKey rendererKey() {
+            return new SymbolRendererKey("test.counting");
+        }
+
+        @Override
+        public double opacity() {
+            return 1;
+        }
+
+        @Override
+        public SymbolRole role() {
+            return SymbolRole.MARKER;
+        }
+
+        @Override
+        public int hashCode() {
+            hashCalls.incrementAndGet();
+            return 1;
+        }
+
+        int hashCalls() {
+            return hashCalls.get();
+        }
+
+        void resetHashCalls() {
+            hashCalls.set(0);
         }
     }
 }

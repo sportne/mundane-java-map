@@ -331,7 +331,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G12-001 — MIL-STD-2525 profile and legal decision](closed/G12-001-milstd2525-profile-and-legal-decision.md) | Complete | HITL | G2-007 | Approved the exact 2525E Change 1 point profile, tables, fixture rights, and support wording. |
 | [G12-002 — Canonical SIDC model and parser](closed/G12-002-canonical-sidc-model-and-parser.md) | Complete | AFK | G12-001 | Created the working JDK-only module with canonical 30-position SIDC parsing and classification. |
 | [G12-003 — First frame and entity rendering slice](closed/G12-003-first-frame-and-entity-rendering-slice.md) | Complete | AFK | G12-002 | Render and hit-test standard-identity frames and a first entity through ordinary symbols. |
-| [G12-004 — Land/activity catalog and portrayal](G12-004-land-activity-catalog-and-portrayal.md) | Proposed | AFK | G12-003, G11-024 | Complete the finite inventory and select symbols from an explicit feature SIDC attribute. |
+| [G12-004 — Land/activity catalog and portrayal](closed/G12-004-land-activity-catalog-and-portrayal.md) | Complete | AFK | G12-003, G11-024 | Complete the finite inventory and select symbols from an explicit feature SIDC attribute. |
 | [G12-005 — Reference matrix, gallery, and hardening](G12-005-reference-matrix-gallery-and-hardening.md) | Proposed | HITL | G12-004 | Harden tables/SIDCs and approve the provenance matrix and runnable gallery. |
 | [G12-006 — MIL-STD-2525 native and publication closeout](G12-006-milstd2525-native-publication-closeout.md) | Proposed | HITL | G12-005 | Close staged consumer, Linux Native Image, documentation, and support evidence. |
 

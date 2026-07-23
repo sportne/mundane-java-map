@@ -1,6 +1,6 @@
 # G12-004 — Land/activity catalog and portrayal
 
-Status: Proposed
+Status: Complete
 Depends on: G12-003, G11-024
 Gate: G12
 Type: AFK

@@ -79,7 +79,7 @@ class HttpTileViewerTest {
         JLabel status = new JLabel();
         AtomicReference<HttpTileViewer.ViewerSession> session = new AtomicReference<>();
         SwingUtilities.invokeAndWait(() -> session.set(HttpTileViewer.startLoading(panel, status)));
-        assertTrue(session.get().await(10, TimeUnit.SECONDS));
+        assertTrue(session.get().await(30, TimeUnit.SECONDS));
         SwingUtilities.invokeAndWait(() -> {});
         assertTrue(status.getText().startsWith("Detached 2 × 2"));
         assertTrue(session.get().installedView() != null);

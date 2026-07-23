@@ -29,8 +29,8 @@ import java.util.Set;
 public final class FeaturePortrayalResolver {
     private final FeaturePortrayal portrayal;
     private final Map<SymbolRole, SymbolSelector> selectors;
-    private final Map<CategoricalSymbolSelector, Map<ThematicValue, Symbol>> categorical;
-    private final Map<GraduatedSymbolSelector, GraduatedTable> graduated;
+    private final Map<SymbolRole, Map<ThematicValue, Symbol>> categorical;
+    private final Map<SymbolRole, GraduatedTable> graduated;
     private final List<String> requiredSymbolAttributes;
     private final List<Symbol> reachableSymbols;
     private final Optional<PointLabelProfile> pointLabel;
@@ -38,8 +38,8 @@ public final class FeaturePortrayalResolver {
     private FeaturePortrayalResolver(FeaturePortrayal portrayal) {
         this.portrayal = Objects.requireNonNull(portrayal, "portrayal");
         EnumMap<SymbolRole, SymbolSelector> byRole = new EnumMap<>(SymbolRole.class);
-        Map<CategoricalSymbolSelector, Map<ThematicValue, Symbol>> compiled = new LinkedHashMap<>();
-        Map<GraduatedSymbolSelector, GraduatedTable> graduatedCompiled = new LinkedHashMap<>();
+        EnumMap<SymbolRole, Map<ThematicValue, Symbol>> compiled = new EnumMap<>(SymbolRole.class);
+        EnumMap<SymbolRole, GraduatedTable> graduatedCompiled = new EnumMap<>(SymbolRole.class);
         Set<String> attributes = new LinkedHashSet<>();
         List<Symbol> symbols = new ArrayList<>();
         for (SymbolSelector selector : portrayal.selectors()) {
@@ -56,7 +56,7 @@ public final class FeaturePortrayalResolver {
                     symbols.add(rule.symbol());
                 }
                 categories.fallback().ifPresent(symbols::add);
-                compiled.put(categories, Collections.unmodifiableMap(lookup));
+                compiled.put(categories.role(), Collections.unmodifiableMap(lookup));
                 continue;
             }
             GraduatedSymbolSelector ranges = (GraduatedSymbolSelector) selector;
@@ -70,7 +70,7 @@ public final class FeaturePortrayalResolver {
                 symbols.add(step.symbol());
             }
             ranges.fallback().ifPresent(symbols::add);
-            graduatedCompiled.put(ranges, new GraduatedTable(thresholds, selected));
+            graduatedCompiled.put(ranges.role(), new GraduatedTable(thresholds, selected));
         }
         this.selectors = Collections.unmodifiableMap(byRole);
         this.categorical = Collections.unmodifiableMap(compiled);
@@ -199,7 +199,7 @@ public final class FeaturePortrayalResolver {
             if (value.isEmpty()) {
                 return categories.fallback();
             }
-            Symbol matched = categorical.get(categories).get(value.orElseThrow());
+            Symbol matched = categorical.get(role).get(value.orElseThrow());
             return matched == null ? categories.fallback() : Optional.of(matched);
         }
         GraduatedSymbolSelector ranges = (GraduatedSymbolSelector) selector;
@@ -212,7 +212,7 @@ public final class FeaturePortrayalResolver {
             return ranges.fallback();
         }
         Symbol matched =
-                graduated.get(ranges).greatestLowerBound((BigDecimal) value.orElseThrow().value());
+                graduated.get(role).greatestLowerBound((BigDecimal) value.orElseThrow().value());
         return matched == null ? ranges.fallback() : Optional.of(matched);
     }
 

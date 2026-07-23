@@ -16,7 +16,7 @@ import java.util.Set;
  */
 public final class CategoricalSymbolSelector implements SymbolSelector {
     /** Maximum number of exact category rules. */
-    public static final int MAXIMUM_RULES = 256;
+    public static final int MAXIMUM_RULES = 1_024;
 
     private final String attribute;
     private final List<CategoricalSymbolRule> rules;
@@ -39,7 +39,7 @@ public final class CategoricalSymbolSelector implements SymbolSelector {
         Objects.requireNonNull(fallback, "fallback");
         this.fallback = fallback.map(Objects::requireNonNull);
         if (this.rules.isEmpty() || this.rules.size() > MAXIMUM_RULES) {
-            throw new IllegalArgumentException("rules must contain between 1 and 256 entries");
+            throw new IllegalArgumentException("rules must contain between 1 and 1024 entries");
         }
         Set<ThematicValue> categories = new HashSet<>();
         SymbolRole inferred = null;

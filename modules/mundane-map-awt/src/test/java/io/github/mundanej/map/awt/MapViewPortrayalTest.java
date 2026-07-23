@@ -33,13 +33,18 @@ import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRendererKey;
+import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.FeatureEditSession;
+import io.github.mundanej.map.core.FeaturePortrayalResolver;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolCatalog;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolFixtures;
+import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolPalette;
 import java.awt.Graphics2D;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
@@ -59,6 +64,108 @@ class MapViewPortrayalTest {
             BuiltInMarkers.filledScreen(BuiltInMarker.TRIANGLE, Rgba.rgb(30, 170, 60), 16, 1);
     private static final MarkerSymbol FEATURE_OWNED =
             BuiltInMarkers.filledScreen(BuiltInMarker.DIAMOND, Rgba.rgb(20, 20, 20), 40, 1);
+
+    @Test
+    void militarySidcPortrayalAgreesAcrossSnapshotSourceAndEditableBindings() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    FeaturePortrayal portrayal =
+                            MilitarySymbolCatalog.portrayal(
+                                    "sidc",
+                                    io.github.mundanej.map.api.MarkerPlacement.centeredScreen(26),
+                                    MilitarySymbolPalette.lightBackground(),
+                                    1);
+                    Feature snapshotFeature =
+                            feature(
+                                    "mil-snapshot",
+                                    -30,
+                                    Map.of("sidc", MilitarySymbolFixtures.FRIEND_INFANTRY_PRESENT));
+                    CapturingSource source =
+                            new CapturingSource(
+                                    "mil-source",
+                                    record(
+                                            "mil-source",
+                                            0,
+                                            Map.of(
+                                                    "sidc",
+                                                    MilitarySymbolFixtures
+                                                            .FRIEND_INFANTRY_PRESENT)),
+                                    Optional.of(schema("sidc")));
+                    FeatureEditSession edits =
+                            FeatureEditSession.open(
+                                    CrsDefinitions.EPSG_3857,
+                                    List.of(
+                                            record(
+                                                    "mil-editable",
+                                                    30,
+                                                    Map.of(
+                                                            "sidc",
+                                                            MilitarySymbolFixtures
+                                                                    .FRIEND_INFANTRY_PRESENT))));
+                    MapView view = TestMapViews.identity();
+                    view.setSize(100, 100);
+                    view.setViewport(new MapViewport(100, 100, 0, 0, 1));
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.portrayedSnapshot(
+                                            new InMemoryLayer(
+                                                    "mil-snapshot-layer",
+                                                    "mil-snapshot-layer",
+                                                    List.of(snapshotFeature)),
+                                            portrayal),
+                                    MapLayerBinding.borrowedFeature(
+                                            "mil-source-layer",
+                                            "mil-source-layer",
+                                            source,
+                                            portrayal),
+                                    MapLayerBinding.editableFeature(
+                                            "mil-edit-layer", "mil-edit-layer", edits, portrayal)));
+
+                    paint(view);
+                    assertEquals(
+                            AttributeSelection.only(List.of("sidc")),
+                            source.lastQuery.attributes());
+                    assertEquals(
+                            "mil-snapshot",
+                            view.hitTest(20, 50, 0).topmost().orElseThrow().featureId());
+                    assertEquals(
+                            "mil-source",
+                            view.hitTest(50, 50, 0).topmost().orElseThrow().featureId());
+                    assertEquals(
+                            "mil-editable",
+                            view.hitTest(80, 50, 0).topmost().orElseThrow().featureId());
+                    move(view, 50, 50);
+                    assertEquals("mil-source", view.hover().orElseThrow().featureId());
+                    click(view, 50, 50);
+                    assertEquals("mil-source", view.selection().orElseThrow().featureId());
+                    view.close();
+                    source.close();
+                });
+    }
+
+    @Test
+    void militaryPortrayalOmitsMalformedUnsupportedMissingAndNonTextAttributes() {
+        FeaturePortrayalResolver resolver =
+                FeaturePortrayalResolver.compile(
+                        MilitarySymbolCatalog.portrayal(
+                                "sidc",
+                                io.github.mundanej.map.api.MarkerPlacement.centeredScreen(26),
+                                MilitarySymbolPalette.lightBackground(),
+                                1));
+
+        assertTrue(resolver.resolve(SymbolRole.MARKER, Map.of("sidc", "not-a-sidc")).isEmpty());
+        assertTrue(
+                resolver.resolve(
+                                SymbolRole.MARKER, Map.of("sidc", "151310000012110000000030000000"))
+                        .isEmpty());
+        assertTrue(resolver.resolve(SymbolRole.MARKER, Map.of()).isEmpty());
+        assertTrue(resolver.resolve(SymbolRole.MARKER, Map.of("sidc", 1503L)).isEmpty());
+        assertTrue(
+                resolver.resolve(
+                                SymbolRole.MARKER,
+                                Map.of("sidc", MilitarySymbolFixtures.FRIEND_INFANTRY_PRESENT))
+                        .isPresent());
+    }
 
     @Test
     void categoricalMarkersAgreeAcrossSnapshotSourceEditableAndInteraction() throws Exception {

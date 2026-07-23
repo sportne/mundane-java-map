@@ -102,37 +102,25 @@ class MilitarySymbolsTest {
     }
 
     @Test
-    void catalogEntriesAndModifiersNotDrawnByThisSliceReportTheRenderLimit() {
+    void laterCatalogEntriesAndModifiersNowResolveWithoutTheTemporaryRenderLimit() {
         MilitarySymbolId armor = id(3, 0, "120500");
-        MilitarySymbolException entityFailure =
-                assertThrows(
-                        MilitarySymbolException.class,
-                        () ->
-                                MilitarySymbols.resolveStrict(
-                                        armor, PLACEMENT, MilitarySymbolPalette.lightBackground()));
-        assertEquals("MIL2525_RENDER_LIMIT", entityFailure.problem().code());
-        assertEquals("entity", entityFailure.problem().field());
-        assertEquals(
-                "MIL2525_RENDER_LIMIT",
-                MilitarySymbols.resolveDegraded(
+        assertTrue(
+                MilitarySymbols.resolveStrict(
                                 armor, PLACEMENT, MilitarySymbolPalette.lightBackground())
-                        .problem()
-                        .orElseThrow()
-                        .code());
+                        instanceof CompositeSymbol);
 
         MilitarySymbolId modified =
                 MilitarySymbolId.parse(
                         replace(MilitarySymbolFixtures.FRIEND_INFANTRY_PRESENT, 17, 18, "25"));
-        MilitarySymbolException modifierFailure =
-                assertThrows(
-                        MilitarySymbolException.class,
-                        () ->
+        assertEquals(
+                3,
+                composite(
                                 MilitarySymbols.resolveStrict(
                                         modified,
                                         PLACEMENT,
-                                        MilitarySymbolPalette.lightBackground()));
-        assertEquals("MIL2525_RENDER_LIMIT", modifierFailure.problem().code());
-        assertEquals("sectorOneModifier", modifierFailure.problem().field());
+                                        MilitarySymbolPalette.lightBackground()))
+                        .children()
+                        .size());
     }
 
     @Test

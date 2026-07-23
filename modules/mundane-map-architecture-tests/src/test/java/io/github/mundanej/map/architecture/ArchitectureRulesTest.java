@@ -1373,6 +1373,8 @@ class ArchitectureRulesTest {
         assertEquals(
                 Set.of(
                         "MilitarySymbolAssessment",
+                        "MilitarySymbolCatalog",
+                        "MilitarySymbolCatalogEntry",
                         "MilitarySymbolException",
                         "MilitarySymbolId",
                         "MilitarySymbolPalette",

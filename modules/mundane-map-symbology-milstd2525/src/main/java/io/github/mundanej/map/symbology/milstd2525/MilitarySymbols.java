@@ -16,7 +16,6 @@ import java.util.Optional;
 /** Explicit resolver for the bounded MIL-STD-2525 point-symbol profile. */
 public final class MilitarySymbols {
     private static final Envelope VIEW_BOX = new Envelope(0, 0, 100, 100);
-    private static final int FIRST_ENTITY = 0x121100;
 
     private MilitarySymbols() {}
 
@@ -52,11 +51,6 @@ public final class MilitarySymbols {
             throw new MilitarySymbolException(
                     "SIDC is outside the strict supported rendering profile",
                     assessment.problem().orElseThrow());
-        }
-        MilitarySymbolProblem renderingProblem = renderingProblem(id);
-        if (renderingProblem != null) {
-            throw new MilitarySymbolException(
-                    "SIDC is supported but outside the first rendering slice", renderingProblem);
         }
         return compose(id, placement, palette, opacity, true);
     }
@@ -94,14 +88,9 @@ public final class MilitarySymbols {
                     "SIDC cannot be rendered by the bounded profile",
                     assessment.problem().orElseThrow());
         }
-        MilitarySymbolProblem renderingProblem =
-                assessment.support() == MilitarySymbolSupport.SUPPORTED
-                        ? renderingProblem(id)
-                        : null;
         boolean includeEntity = assessment.support() != MilitarySymbolSupport.DEGRADED_ENTITY;
         return new MilitarySymbolResolution(
-                compose(id, placement, palette, opacity, includeEntity),
-                renderingProblem == null ? assessment.problem() : Optional.of(renderingProblem));
+                compose(id, placement, palette, opacity, includeEntity), assessment.problem());
     }
 
     private static MilitarySymbolAssessment assess(
@@ -132,7 +121,7 @@ public final class MilitarySymbols {
         Rgba ink = palette.ink();
         SymbolStroke frameStroke =
                 new SymbolStroke(ink, new SymbolLength(2.5, placement.size().unit()));
-        List<Symbol> components = new ArrayList<>(3);
+        List<Symbol> components = new ArrayList<>(5);
         components.add(
                 VectorMarkerSymbol.of(
                         MilitarySymbolPaths.frame(id.standardIdentity()),
@@ -151,10 +140,12 @@ public final class MilitarySymbols {
                             placement,
                             1.0));
         }
-        if (includeEntity && id.entityCode() == FIRST_ENTITY) {
+        io.github.mundanej.map.api.VectorPath entityPath =
+                includeEntity ? MilitarySymbolPaths.entity(id.symbolSet(), id.entityCode()) : null;
+        if (entityPath != null) {
             components.add(
                     VectorMarkerSymbol.of(
-                            MilitarySymbolPaths.INFANTRY,
+                            entityPath,
                             VIEW_BOX,
                             Rgba.TRANSPARENT,
                             Optional.of(
@@ -163,22 +154,35 @@ public final class MilitarySymbols {
                             placement,
                             1.0));
         }
+        addModifier(
+                components,
+                MilitarySymbolPaths.sectorOne(id.symbolSet(), id.sectorOneModifier()),
+                ink,
+                placement);
+        addModifier(
+                components,
+                MilitarySymbolPaths.sectorTwo(id.symbolSet(), id.sectorTwoModifier()),
+                ink,
+                placement);
         return CompositeSymbol.of(components, opacity);
     }
 
-    private static MilitarySymbolProblem renderingProblem(MilitarySymbolId id) {
-        if (id.entityCode() != FIRST_ENTITY) {
-            return new MilitarySymbolProblem(
-                    "MIL2525_RENDER_LIMIT", "entity", 11, 16, id.slice(11, 16));
+    private static void addModifier(
+            List<Symbol> components,
+            io.github.mundanej.map.api.VectorPath path,
+            Rgba ink,
+            MarkerPlacement placement) {
+        if (path != null) {
+            components.add(
+                    VectorMarkerSymbol.of(
+                            path,
+                            VIEW_BOX,
+                            Rgba.TRANSPARENT,
+                            Optional.of(
+                                    new SymbolStroke(
+                                            ink, new SymbolLength(2.25, placement.size().unit()))),
+                            placement,
+                            1.0));
         }
-        if (id.sectorOneModifier() != 0) {
-            return new MilitarySymbolProblem(
-                    "MIL2525_RENDER_LIMIT", "sectorOneModifier", 17, 18, id.slice(17, 18));
-        }
-        if (id.sectorTwoModifier() != 0) {
-            return new MilitarySymbolProblem(
-                    "MIL2525_RENDER_LIMIT", "sectorTwoModifier", 19, 20, id.slice(19, 20));
-        }
-        return null;
     }
 }

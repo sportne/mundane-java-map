@@ -207,10 +207,9 @@ generator may be used only if its deterministic input is committed and its outpu
 production runtime resource discovery is allowed. A missing table entry yields a structured module
 diagnostic rather than a guessed icon.
 
-G12-003 implements graphical resolution only for Infantry `121100` without sector modifiers.
-Strict resolution of another profile-supported entity or a supported nonzero modifier reports
-`MIL2525_RENDER_LIMIT`; degraded resolution returns the recognizable identity/status frame with the
-same warning. G12-004 removes that temporary rendering limit as it adds each finite catalog entry.
+G12-003 initially limited graphical resolution to Infantry `121100` without sector modifiers and
+used `MIL2525_RENDER_LIMIT` for the remaining approved catalog. G12-004 removes that temporary limit:
+all 15 entities and all seven nonzero sector modifiers now have explicit project-authored paths.
 The `java-test-fixtures` artifact publishes project-authored first-slice SIDCs to module, AWT, and
 later example tests without exposing example constants in the production API.
 
@@ -218,6 +217,18 @@ G12-004 integrates resolved markers with the completed G11 portrayal path by sel
 one explicitly named feature attribute. Parsing or resolution happens once per captured record and
 the same result is used for paint and hit testing. Text modifiers remain excluded rather than being
 forced into G11's ordinary point-label contract.
+
+The binding adapter is a generated finite `CategoricalSymbolSelector`: it contains exactly 980
+canonical SIDCs (15 entities across the approved identities, statuses, and per-set modifier
+products), projects only its named text attribute, and omits missing, non-text, malformed, or
+unsupported values. The generic selector bound is 1,024 so this finite table fits without a callback,
+reflection, or military type leaking into the API. Applications that need a structured problem
+parse and resolve the attribute through `MilitarySymbolId` and `MilitarySymbols` before binding.
+Every supported SIDC in this finite profile contains only decimal digits, so lowercase normalization
+is currently an identity operation; a future profile that admits hexadecimal letters must add an
+explicit canonicalizing selector rather than silently relying on exact categorical matching. The
+compiled portrayal keys categorical and graduated tables by `SymbolRole`, not by their potentially
+large selector value, so feature resolution does not re-hash the 980-rule declaration.
 
 ## Limits, diagnostics, and security
 
