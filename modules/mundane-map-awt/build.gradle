@@ -18,6 +18,7 @@ sourceSets {
     renderRegressionTest {
         java.srcDir 'src/renderRegressionTest/java'
         resources.srcDir rootProject.file('modules/mundane-map-io-geotiff/src/test/resources')
+        resources.srcDir rootProject.file('examples/se-viewer/src/main/resources')
         compileClasspath += sourceSets.main.output
         runtimeClasspath += output + compileClasspath
     }

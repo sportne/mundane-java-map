@@ -13,4 +13,4 @@ application {
     mainClass = 'io.github.mundanej.map.example.se.SeViewer'
 }
 
-description = 'Runnable bounded OGC Symbology Encoding point-style example.'
+description = 'Runnable bounded OGC Symbology Encoding vector-profile gallery.'

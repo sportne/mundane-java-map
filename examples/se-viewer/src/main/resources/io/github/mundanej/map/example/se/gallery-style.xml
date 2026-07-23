@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: BSD-3-Clause; project-authored SE subset gallery. -->
+<se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se"
+    xmlns:ogc="http://www.opengis.net/ogc" version="1.1.0">
+  <se:Name>review-gallery</se:Name>
+  <se:Description>
+    <se:Title>Bounded point, line, polygon, rule, scale, and catalog gallery</se:Title>
+  </se:Description>
+  <se:Rule>
+    <se:Name>ordered-point</se:Name>
+    <ogc:Filter><ogc:PropertyIsEqualTo>
+      <ogc:PropertyName>kind</ogc:PropertyName><ogc:Literal>ordered</ogc:Literal>
+    </ogc:PropertyIsEqualTo></ogc:Filter>
+    <se:PointSymbolizer><se:Graphic><se:Mark>
+      <se:WellKnownName>circle</se:WellKnownName>
+      <se:Fill><se:SvgParameter name="fill">#3f78bd</se:SvgParameter></se:Fill>
+    </se:Mark><se:Size>34</se:Size></se:Graphic></se:PointSymbolizer>
+    <se:PointSymbolizer><se:Graphic><se:Mark>
+      <se:WellKnownName>cross</se:WellKnownName>
+      <se:Fill><se:SvgParameter name="fill">#f4f7fb</se:SvgParameter></se:Fill>
+    </se:Mark><se:Size>17</se:Size></se:Graphic></se:PointSymbolizer>
+  </se:Rule>
+  <se:Rule>
+    <se:Name>catalog-marker</se:Name>
+    <ogc:Filter><ogc:PropertyIsEqualTo>
+      <ogc:PropertyName>kind</ogc:PropertyName><ogc:Literal>catalog</ogc:Literal>
+    </ogc:PropertyIsEqualTo></ogc:Filter>
+    <se:PointSymbolizer><se:Graphic>
+      <se:ExternalGraphic>
+        <se:OnlineResource xmlns:xlink="http://www.w3.org/1999/xlink"
+            xlink:type="simple" xlink:href="gallery.airport"/>
+        <se:Format>application/vnd.mundane-map.symbol</se:Format>
+      </se:ExternalGraphic>
+    </se:Graphic></se:PointSymbolizer>
+  </se:Rule>
+  <se:Rule>
+    <se:Name>scale-window</se:Name>
+    <ogc:Filter><ogc:PropertyIsEqualTo>
+      <ogc:PropertyName>kind</ogc:PropertyName><ogc:Literal>scale</ogc:Literal>
+    </ogc:PropertyIsEqualTo></ogc:Filter>
+    <se:MinScaleDenominator>3000</se:MinScaleDenominator>
+    <se:MaxScaleDenominator>4000</se:MaxScaleDenominator>
+    <se:PointSymbolizer><se:Graphic><se:Mark>
+      <se:WellKnownName>star</se:WellKnownName>
+      <se:Fill><se:SvgParameter name="fill">#e8892f</se:SvgParameter></se:Fill>
+      <se:Stroke><se:SvgParameter name="stroke">#753b10</se:SvgParameter></se:Stroke>
+    </se:Mark><se:Size>34</se:Size></se:Graphic></se:PointSymbolizer>
+  </se:Rule>
+  <se:Rule>
+    <se:Name>ordered-line</se:Name>
+    <ogc:Filter><ogc:PropertyIsEqualTo>
+      <ogc:PropertyName>kind</ogc:PropertyName><ogc:Literal>line</ogc:Literal>
+    </ogc:PropertyIsEqualTo></ogc:Filter>
+    <se:LineSymbolizer><se:Stroke>
+      <se:SvgParameter name="stroke">#9fc5e8</se:SvgParameter>
+      <se:SvgParameter name="stroke-width">9</se:SvgParameter>
+    </se:Stroke></se:LineSymbolizer>
+    <se:LineSymbolizer><se:Stroke>
+      <se:SvgParameter name="stroke">#174a7e</se:SvgParameter>
+      <se:SvgParameter name="stroke-width">3</se:SvgParameter>
+    </se:Stroke></se:LineSymbolizer>
+  </se:Rule>
+  <se:Rule>
+    <se:Name>ordered-area</se:Name>
+    <ogc:Filter><ogc:PropertyIsEqualTo>
+      <ogc:PropertyName>kind</ogc:PropertyName><ogc:Literal>area</ogc:Literal>
+    </ogc:PropertyIsEqualTo></ogc:Filter>
+    <se:PolygonSymbolizer>
+      <se:Fill><se:SvgParameter name="fill">#b8d9a0</se:SvgParameter></se:Fill>
+      <se:Stroke><se:SvgParameter name="stroke">#416b35</se:SvgParameter>
+        <se:SvgParameter name="stroke-width">5</se:SvgParameter>
+      </se:Stroke>
+    </se:PolygonSymbolizer>
+    <se:PolygonSymbolizer><se:Stroke>
+      <se:SvgParameter name="stroke">#f4f7fb</se:SvgParameter>
+      <se:SvgParameter name="stroke-width">2</se:SvgParameter>
+    </se:Stroke></se:PolygonSymbolizer>
+  </se:Rule>
+</se:FeatureTypeStyle>

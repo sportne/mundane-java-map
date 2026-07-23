@@ -229,6 +229,8 @@ The basic, symbol, measurement, elevation, editing, styling, and workspace examp
 no-argument demonstrations. The format viewers are real file consumers, apply their modules' limits,
 present structured diagnostics under fixed non-path source identities, and transfer or retain source
 ownership according to their documented view/session lifecycle. The
+[SE viewer](examples/se-viewer) is a project-authored vector-profile gallery with scale controls,
+ordered rules, an explicit catalog marker, lines, polygon fills/outlines, and a visible hole. The
 [live-track stress example](examples/live-track-stress/README.md) is a JVM-only packed simulation,
 estimation, rendering, and evidence workload rather than a public tracking API.
 

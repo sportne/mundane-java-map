@@ -318,3 +318,20 @@ never gains path, URL, resource, or network authority. Mixed line, multiline, po
 and multipolygon features paint and hit through ordinary portrayed bindings. MapView preflight now
 recurses through composites, polygon outlines, and line endpoint markers before a binding is
 installed. Module tests and the rendering-regression lane supply tolerant color/topology evidence.
+
+## G13-005 implementation evidence
+
+The project-authored fixture corpus records BSD-3-Clause provenance, exact SHA-256 checksums,
+reviewed OGC clause references, and supported or stable-diagnostic outcomes without copying OGC
+example XML. Deterministic truncation and byte mutation prove that malformed candidates either
+produce a whole immutable style or one structured `SeReadException`; raw parser/runtime failures
+and partial publication do not escape. Focused matrices cover every configured limit across the
+G13-002 through G13-005 tests and representative excluded profile families.
+
+The runnable `se-viewer` is now an all-role gallery. It demonstrates ordered point, line, and
+polygon symbolizers; exact attribute filters; a caller-catalog marker; a polygon hole; and buttons
+that move the scale-filtered star into and out of its denominator interval. EDT construction and
+real paint/hit behavior are automated. The rendering lane uses tolerant color-family and topology
+checks for the same rule, scale, catalog, and role behaviors rather than pixel identity. The
+maintainer's advance approval of all HITL tasks in this execution sequence records the
+interoperability-profile and gallery disposition as approved.

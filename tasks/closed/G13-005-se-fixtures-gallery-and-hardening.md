@@ -1,6 +1,6 @@
 # G13-005 — SE fixtures, gallery, and hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G13-004
 Gate: G13
 Type: HITL

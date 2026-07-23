@@ -1,0 +1,4 @@
+# filename	sha256	expected	ogc-reference	license	provenance
+supported-mixed.xml	f2df3fdf6f9a4ec401c2f370c40031d22ba8e2f980550a557229179ac0e62257	SUPPORTED	05-077r4 clauses 6.4-6.8,6.11	BSD-3-Clause	project-authored
+unsupported-text.xml	a42cbc54b2e4d0d1cf4b075f33bcde3dc172effcaf9fdaef3696c09017c50f1c	SE_SYMBOLIZER_UNSUPPORTED	05-077r4 clause 6.11	BSD-3-Clause	project-authored
+hostile-doctype.xml	634f099655318ff2c468d3ce5e1dc7323da61d0c4053e7efdd2d565840e2dff8	SE_XML_SECURITY	XML security profile	BSD-3-Clause	project-authored

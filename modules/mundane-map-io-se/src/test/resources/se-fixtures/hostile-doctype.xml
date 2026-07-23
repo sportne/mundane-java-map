@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: BSD-3-Clause; project-authored hostile-input fixture. -->
+<!DOCTYPE FeatureTypeStyle [
+  <!ENTITY forbidden SYSTEM "file:///etc/passwd">
+]>
+<se:FeatureTypeStyle xmlns:se="http://www.opengis.net/se" version="1.1.0">
+  <se:Rule>
+    <se:PointSymbolizer>
+      <se:Graphic><se:Mark><se:WellKnownName>&forbidden;</se:WellKnownName></se:Mark></se:Graphic>
+    </se:PointSymbolizer>
+  </se:Rule>
+</se:FeatureTypeStyle>
