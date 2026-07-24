@@ -6802,6 +6802,11 @@ public final class MapView extends JComponent implements AutoCloseable {
                     "Scale-constrained portrayal requires projected metre display axes",
                     Map.of("displayCrs", displayCrs.canonicalIdentifier()));
         }
+        if (binding.portrayalResolver().requiresZoomContext()
+                && !displayCrs.equals(CrsDefinitions.EPSG_3857)) {
+            throw new IllegalArgumentException(
+                    "Zoom-dependent portrayal requires the exact EPSG:3857 display CRS");
+        }
         for (Symbol symbol : binding.portrayalResolver().reachableSymbols()) {
             validateSourceSymbol(symbol, symbol.role());
         }

@@ -19,7 +19,10 @@ public final class GraduatedSymbolSelector implements SymbolSelector {
     private final String attribute;
     private final List<GraduatedSymbolStep> steps;
     private final Optional<Symbol> fallback;
+    private final Optional<Symbol> invalidFallback;
     private final SymbolRole role;
+    private final InterpolationInput input;
+    private final AttributeValueConversion conversion;
 
     /**
      * Creates a bounded selector whose normalized thresholds must be strictly increasing.
@@ -32,10 +35,35 @@ public final class GraduatedSymbolSelector implements SymbolSelector {
             String attribute,
             List<GraduatedSymbolStep> steps,
             Optional<? extends Symbol> fallback) {
-        this.attribute = AttributeValues.requireName(attribute);
+        this(
+                Optional.of(AttributeValues.requireName(attribute)),
+                steps,
+                fallback,
+                fallback,
+                InterpolationInput.ATTRIBUTE,
+                AttributeValueConversion.IDENTITY);
+    }
+
+    private GraduatedSymbolSelector(
+            Optional<String> attribute,
+            List<GraduatedSymbolStep> steps,
+            Optional<? extends Symbol> fallback,
+            Optional<? extends Symbol> invalidFallback,
+            InterpolationInput input,
+            AttributeValueConversion conversion) {
+        Objects.requireNonNull(attribute, "attribute");
+        this.attribute = attribute.orElse("");
         this.steps = List.copyOf(Objects.requireNonNull(steps, "steps"));
         Objects.requireNonNull(fallback, "fallback");
         this.fallback = fallback.map(Objects::requireNonNull);
+        Objects.requireNonNull(invalidFallback, "invalidFallback");
+        this.invalidFallback = invalidFallback.map(Objects::requireNonNull);
+        this.input = Objects.requireNonNull(input, "input");
+        this.conversion = Objects.requireNonNull(conversion, "conversion");
+        if ((input == InterpolationInput.ATTRIBUTE) != attribute.isPresent()) {
+            throw new IllegalArgumentException(
+                    "attribute must be present only for attribute input");
+        }
         if (this.steps.isEmpty() || this.steps.size() > MAXIMUM_STEPS) {
             throw new IllegalArgumentException("steps must contain between 1 and 64 entries");
         }
@@ -54,7 +82,56 @@ public final class GraduatedSymbolSelector implements SymbolSelector {
         if (this.fallback.isPresent()) {
             inferred = requireSameRole(inferred, this.fallback.orElseThrow().role());
         }
+        if (this.invalidFallback.isPresent()) {
+            inferred = requireSameRole(inferred, this.invalidFallback.orElseThrow().role());
+        }
         this.role = inferred;
+    }
+
+    /**
+     * Creates a converted attribute-driven step selector.
+     *
+     * @param attribute exact canonical attribute
+     * @param steps increasing lower-inclusive steps
+     * @param fallback below-range result
+     * @param invalidFallback missing/null/type/conversion-failure result
+     * @param conversion closed input conversion
+     * @return immutable selector
+     */
+    public static GraduatedSymbolSelector expressionInput(
+            String attribute,
+            List<GraduatedSymbolStep> steps,
+            Optional<? extends Symbol> fallback,
+            Optional<? extends Symbol> invalidFallback,
+            AttributeValueConversion conversion) {
+        return new GraduatedSymbolSelector(
+                Optional.of(AttributeValues.requireName(attribute)),
+                steps,
+                fallback,
+                invalidFallback,
+                InterpolationInput.ATTRIBUTE,
+                conversion);
+    }
+
+    /**
+     * Creates a zoom-driven step selector.
+     *
+     * @param steps increasing lower-inclusive steps
+     * @param fallback below-range result
+     * @param invalidFallback absent-zoom result
+     * @return immutable selector
+     */
+    public static GraduatedSymbolSelector zoom(
+            List<GraduatedSymbolStep> steps,
+            Optional<? extends Symbol> fallback,
+            Optional<? extends Symbol> invalidFallback) {
+        return new GraduatedSymbolSelector(
+                Optional.empty(),
+                steps,
+                fallback,
+                invalidFallback,
+                InterpolationInput.ZOOM,
+                AttributeValueConversion.IDENTITY);
     }
 
     /**
@@ -84,6 +161,33 @@ public final class GraduatedSymbolSelector implements SymbolSelector {
         return fallback;
     }
 
+    /**
+     * Returns the invalid-input fallback.
+     *
+     * @return invalid-input fallback
+     */
+    public Optional<Symbol> invalidFallback() {
+        return invalidFallback;
+    }
+
+    /**
+     * Returns the input kind.
+     *
+     * @return input kind
+     */
+    public InterpolationInput input() {
+        return input;
+    }
+
+    /**
+     * Returns the input conversion.
+     *
+     * @return input conversion
+     */
+    public AttributeValueConversion conversion() {
+        return conversion;
+    }
+
     @Override
     public SymbolRole role() {
         return role;
@@ -94,12 +198,15 @@ public final class GraduatedSymbolSelector implements SymbolSelector {
         return other instanceof GraduatedSymbolSelector selector
                 && attribute.equals(selector.attribute)
                 && steps.equals(selector.steps)
-                && fallback.equals(selector.fallback);
+                && fallback.equals(selector.fallback)
+                && invalidFallback.equals(selector.invalidFallback)
+                && input == selector.input
+                && conversion.equals(selector.conversion);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(attribute, steps, fallback);
+        return Objects.hash(attribute, steps, fallback, invalidFallback, input, conversion);
     }
 
     @Override

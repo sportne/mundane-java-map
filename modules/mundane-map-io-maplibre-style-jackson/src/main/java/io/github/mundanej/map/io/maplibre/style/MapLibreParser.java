@@ -25,6 +25,8 @@ final class MapLibreParser {
     private int characters;
     private int metadataEntries;
     private int expressionNodes;
+    private int stops;
+    private int categories;
     private int producedRules;
     private long ownedBytes;
 
@@ -200,12 +202,49 @@ final class MapLibreParser {
                 object.containsKey("paint")
                         ? object(object.get("paint"), location + "/paint")
                         : Map.of();
+        MapLibreExpressionAccounting.Counts propertyExpressions =
+                MapLibreExpressionAccounting.count(
+                        layout, paint, limits, options.cancellation(), location);
+        reserve(propertyExpressions.ownedBytes(), location);
+        expressionNodes =
+                aggregate(
+                        expressionNodes,
+                        propertyExpressions.nodes(),
+                        limits.maximumExpressionNodes(),
+                        location,
+                        "expressionNodes");
+        stops =
+                aggregate(
+                        stops,
+                        propertyExpressions.stops(),
+                        limits.maximumStops(),
+                        location,
+                        "stops");
+        categories =
+                aggregate(
+                        categories,
+                        propertyExpressions.categories(),
+                        limits.maximumCategories(),
+                        location,
+                        "categories");
+        producedRules =
+                aggregate(
+                        producedRules,
+                        propertyExpressions.rules(),
+                        limits.maximumProducedRules(),
+                        location,
+                        "producedRules");
         Optional<FeaturePortrayal> validated =
-                MapLibreSymbols.literal(type, layout, paint, location, visible);
+                MapLibreSymbols.literal(
+                        type, layout, paint, location, visible, limits, options.cancellation());
         if (object.containsKey("filter")) {
             MapLibreFilters.CompiledFilter filter =
-                    MapLibreFilters.compile(
-                            object.get("filter"), limits, expressionNodes, location + "/filter");
+                    MapLibreFilters.compileLayerFilter(
+                            object.get("filter"),
+                            limits,
+                            expressionNodes,
+                            options.cancellation(),
+                            location + "/filter");
             expressionNodes =
                     aggregate(
                             expressionNodes,

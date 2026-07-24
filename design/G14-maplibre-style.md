@@ -255,6 +255,9 @@ The standards-neutral representation remains one portrayal path:
 - `match` uses `CategoricalSymbolSelector` when it has one direct `get` input;
 - `step` uses `GraduatedSymbolSelector` when it has one direct numeric `get` input;
 - other `case`/`match`/`step` forms compile to bounded ordered `PortrayalRule` instances;
+- a layer filter wraps the selected role in one closed `FilteredSymbolSelector` guard. The guard
+  contains only a bounded `PortrayalPredicate`, preserves the delegate role, is not nestable, and
+  is tested before its delegate is evaluated;
 - G14-004 adds one project-owned, Jackson-free `InterpolatedSymbolSelector` only for a direct numeric
   attribute or Web Mercator zoom and numeric/color symbol properties that cannot be represented by
   existing selectors.
@@ -272,9 +275,17 @@ at most one data- or zoom-dependent paint expression. All other
 paint/layout values must be literal. The adapter never forms a cross-product between categorical,
 stepped, conditional, or interpolated properties; a second dynamic property fails read-time
 validation with `MAPLIBRE_EXPRESSION_UNSUPPORTED`. This is the
-only selector extension required by the profile. The predicate, evaluation-context, and point-label
+only value-producing selector extension required by the profile; the closed filter guard supplies
+composition rather than another expression result model. The predicate, evaluation-context, and point-label
 extensions named above are the complete remaining standards-neutral API changes; the adapter adds
 no generic style/expression API.
+
+Literal, `match`, `case`, and `step` results that produce a valid zero-size or fully omitted role use
+an internal omission sentinel which the resolver removes before renderer preflight and resolved
+output. Linear interpolation endpoints must each materialize a structurally compatible, non-omitted
+symbol; an endpoint that would omit the role is rejected at read time with
+`MAPLIBRE_EXPRESSION_TYPE`. This narrow restriction avoids introducing degenerate zero-sized public
+symbol values solely for one adapter.
 
 ### Types and missing values
 
@@ -298,6 +309,13 @@ color/string conversions. `to-number` has one through eight ordered candidate in
 the first successful conversion; exhaustion is an evaluation error. `to-number`
 uses the specification's null/boolean and ECMAScript-string numeric results but rejects a
 non-finite result. There is no adapter-invented conversion fallback operand.
+
+G14-004 admits `to-number` only as the input to numeric `match`, `step`, and `interpolate`
+properties. Such a dynamic property must contain at least one direct `get` candidate; an
+all-literal conversion is written as the equivalent literal property value instead of retaining an
+expression that cannot vary by feature or zoom. `to-string` first has an observable consumer in
+G14-005's simple `text-field` profile and is implemented and verified there; G14-004 does not add
+an otherwise unused general conversion runtime.
 
 Required attributes are discovered exactly at read time and passed to source queries. One immutable
 evaluation result per feature/layer/viewport is captured and reused for paint, hit testing, hover,

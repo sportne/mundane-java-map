@@ -1,6 +1,7 @@
 package io.github.mundanej.map.io.maplibre.style;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Coordinate;
@@ -161,7 +162,9 @@ class MapLibreRenderingTest {
                         {"version":8,"sources":{"places":{"type":"geojson"}},"layers":[
                           {"id":"halo","type":"circle","source":"places",
                            "filter":["==",["get","kind"],"city"],
-                           "paint":{"circle-radius":12,"circle-color":"#0000ff"}},
+                           "paint":{"circle-radius":
+                                      ["step",["get","population"],6,1,12],
+                                    "circle-color":"#0000ff"}},
                           {"id":"center","type":"circle","source":"places",
                            "filter":["==",["get","kind"],"city"],
                            "paint":{"circle-radius":5,"circle-color":"#ff0000"}}
@@ -175,7 +178,7 @@ class MapLibreRenderingTest {
                                         "city",
                                         "City",
                                         new PointGeometry(new Coordinate(0, 0)),
-                                        Map.of("kind", "city"))),
+                                        Map.of("kind", "city", "population", 1L))),
                         Optional.empty(),
                         Optional.of(
                                 CrsMetadata.recognized(
@@ -208,6 +211,42 @@ class MapLibreRenderingTest {
                         assertTrue(source.isClosed());
                     });
         }
+    }
+
+    @Test
+    void zoomExpressionsRequireExactWebMercatorDisplayCrs() throws Exception {
+        MapLibreStyle style =
+                read(
+                        """
+                        {"version":8,"sources":{},"layers":[{
+                          "id":"zoom","type":"circle","source":"memory",
+                          "paint":{"circle-radius":["step",["zoom"],4,8,10]}
+                        }]}
+                        """);
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view =
+                            new MapView(
+                                    CrsRegistry.level1(),
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_4326);
+                    try {
+                        IllegalArgumentException failure =
+                                assertThrows(
+                                        IllegalArgumentException.class,
+                                        () ->
+                                                view.setLayerBindings(
+                                                        List.of(
+                                                                binding(
+                                                                        "zoom",
+                                                                        point("point", 0, 0),
+                                                                        style.layers()
+                                                                                .getFirst()))));
+                        assertTrue(failure.getMessage().contains("EPSG:3857"));
+                    } finally {
+                        view.close();
+                    }
+                });
     }
 
     private static MapLibreStyle read(String json) {

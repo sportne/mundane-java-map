@@ -2,6 +2,7 @@ package io.github.mundanej.map.core;
 
 import io.github.mundanej.map.api.AttributeNull;
 import io.github.mundanej.map.api.CompositeSymbol;
+import io.github.mundanej.map.api.OmittedSymbol;
 import io.github.mundanej.map.api.PortrayalComparison;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
 import io.github.mundanej.map.api.PortrayalOperand;
@@ -45,6 +46,7 @@ final class RulePortrayalEvaluator {
         return plan.rules().stream()
                 .map(rule -> symbols(rule, role))
                 .flatMap(List::stream)
+                .filter(symbol -> !(symbol instanceof OmittedSymbol))
                 .toList();
     }
 
@@ -110,17 +112,19 @@ final class RulePortrayalEvaluator {
     }
 
     private static Optional<Symbol> compose(List<Symbol> symbols, SymbolRole role) {
-        if (symbols.isEmpty()) {
+        List<Symbol> visible =
+                symbols.stream().filter(symbol -> !(symbol instanceof OmittedSymbol)).toList();
+        if (visible.isEmpty()) {
             return Optional.empty();
         }
-        Symbol result = symbols.size() == 1 ? symbols.getFirst() : CompositeSymbol.of(symbols, 1.0);
+        Symbol result = visible.size() == 1 ? visible.getFirst() : CompositeSymbol.of(visible, 1.0);
         if (result.role() != role) {
             throw new IllegalStateException("resolved portrayal role mismatch");
         }
         return Optional.of(result);
     }
 
-    private static boolean test(
+    static boolean test(
             PortrayalPredicate predicate,
             Map<String, Object> attributes,
             PortrayalEvaluationContext context) {
@@ -268,7 +272,7 @@ final class RulePortrayalEvaluator {
                 .orElse(OperandValue.MISSING);
     }
 
-    private static void collect(PortrayalPredicate predicate, Set<String> attributes) {
+    static void collect(PortrayalPredicate predicate, Set<String> attributes) {
         if (predicate instanceof PortrayalPredicate.IsNull isNull) {
             attributes.add(isNull.property().name());
         } else if (predicate instanceof PortrayalPredicate.Exists exists) {

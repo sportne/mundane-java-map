@@ -22,6 +22,8 @@ public final class CategoricalSymbolSelector implements SymbolSelector {
     private final List<CategoricalSymbolRule> rules;
     private final Optional<Symbol> fallback;
     private final SymbolRole role;
+    private final AttributeValueConversion conversion;
+    private final boolean missingAsNull;
 
     /**
      * Creates a bounded selector and rejects normalized duplicates and mixed symbol roles.
@@ -34,9 +36,20 @@ public final class CategoricalSymbolSelector implements SymbolSelector {
             String attribute,
             List<CategoricalSymbolRule> rules,
             Optional<? extends Symbol> fallback) {
+        this(attribute, rules, fallback, AttributeValueConversion.IDENTITY, false);
+    }
+
+    private CategoricalSymbolSelector(
+            String attribute,
+            List<CategoricalSymbolRule> rules,
+            Optional<? extends Symbol> fallback,
+            AttributeValueConversion conversion,
+            boolean missingAsNull) {
         this.attribute = AttributeValues.requireName(attribute);
         this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
         Objects.requireNonNull(fallback, "fallback");
+        this.conversion = Objects.requireNonNull(conversion, "conversion");
+        this.missingAsNull = missingAsNull;
         this.fallback = fallback.map(Objects::requireNonNull);
         if (this.rules.isEmpty() || this.rules.size() > MAXIMUM_RULES) {
             throw new IllegalArgumentException("rules must contain between 1 and 1024 entries");
@@ -54,6 +67,23 @@ public final class CategoricalSymbolSelector implements SymbolSelector {
             inferred = requireSameRole(inferred, this.fallback.orElseThrow().role());
         }
         this.role = inferred;
+    }
+
+    /**
+     * Creates an expression-input selector with explicit conversion and missing-as-null behavior.
+     *
+     * @param attribute exact canonical attribute name
+     * @param rules non-empty category rules
+     * @param fallback optional unmatched or failed-conversion fallback
+     * @param conversion closed input conversion
+     * @return immutable selector
+     */
+    public static CategoricalSymbolSelector expressionInput(
+            String attribute,
+            List<CategoricalSymbolRule> rules,
+            Optional<? extends Symbol> fallback,
+            AttributeValueConversion conversion) {
+        return new CategoricalSymbolSelector(attribute, rules, fallback, conversion, true);
     }
 
     /**
@@ -83,6 +113,24 @@ public final class CategoricalSymbolSelector implements SymbolSelector {
         return fallback;
     }
 
+    /**
+     * Returns the closed input conversion.
+     *
+     * @return input conversion
+     */
+    public AttributeValueConversion conversion() {
+        return conversion;
+    }
+
+    /**
+     * Returns whether a missing attribute is observed as canonical null.
+     *
+     * @return missing-as-null policy
+     */
+    public boolean missingAsNull() {
+        return missingAsNull;
+    }
+
     @Override
     public SymbolRole role() {
         return role;
@@ -93,12 +141,14 @@ public final class CategoricalSymbolSelector implements SymbolSelector {
         return other instanceof CategoricalSymbolSelector selector
                 && attribute.equals(selector.attribute)
                 && rules.equals(selector.rules)
-                && fallback.equals(selector.fallback);
+                && fallback.equals(selector.fallback)
+                && conversion.equals(selector.conversion)
+                && missingAsNull == selector.missingAsNull;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(attribute, rules, fallback);
+        return Objects.hash(attribute, rules, fallback, conversion, missingAsNull);
     }
 
     @Override

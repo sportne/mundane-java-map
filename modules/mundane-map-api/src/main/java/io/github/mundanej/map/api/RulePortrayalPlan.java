@@ -7,9 +7,6 @@ import java.util.Optional;
 
 /** Immutable non-empty ordered portrayal-rule plan shared by role selectors. */
 public final class RulePortrayalPlan {
-    private static final int MAXIMUM_PREDICATE_NODES = 131_072;
-    private static final int MAXIMUM_PREDICATE_DEPTH = 64;
-
     private final List<PortrayalRule> rules;
     private final boolean markerRole;
     private final boolean lineRole;
@@ -29,8 +26,8 @@ public final class RulePortrayalPlan {
         int predicateNodes = 0;
         for (PortrayalRule rule : this.rules) {
             if (rule.predicate().isPresent()) {
-                predicateNodes += validatePredicate(rule.predicate().orElseThrow(), 1);
-                if (predicateNodes > MAXIMUM_PREDICATE_NODES) {
+                predicateNodes += PortrayalPredicateBounds.validate(rule.predicate().orElseThrow());
+                if (predicateNodes > PortrayalPredicateBounds.MAXIMUM_NODES) {
                     throw new IllegalArgumentException("predicate plan exceeds its node limit");
                 }
             }
@@ -96,23 +93,6 @@ public final class RulePortrayalPlan {
         double firstMax = first.maximumExclusive().orElse(Double.POSITIVE_INFINITY);
         double secondMax = second.maximumExclusive().orElse(Double.POSITIVE_INFINITY);
         return Math.max(firstMin, secondMin) < Math.min(firstMax, secondMax);
-    }
-
-    private static int validatePredicate(PortrayalPredicate predicate, int depth) {
-        if (depth > MAXIMUM_PREDICATE_DEPTH) {
-            throw new IllegalArgumentException("predicate depth exceeds its limit");
-        }
-        if (!(predicate instanceof PortrayalPredicate.Logical logical)) {
-            return 1;
-        }
-        int count = 1;
-        for (PortrayalPredicate child : logical.children()) {
-            count += validatePredicate(child, depth + 1);
-            if (count > MAXIMUM_PREDICATE_NODES) {
-                return count;
-            }
-        }
-        return count;
     }
 
     @Override

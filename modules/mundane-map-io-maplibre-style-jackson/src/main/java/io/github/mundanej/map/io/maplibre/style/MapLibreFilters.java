@@ -1,18 +1,14 @@
 package io.github.mundanej.map.io.maplibre.style;
 
 import io.github.mundanej.map.api.AttributeNull;
+import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.FeaturePortrayal;
-import io.github.mundanej.map.api.FixedSymbolSelector;
+import io.github.mundanej.map.api.FilteredSymbolSelector;
 import io.github.mundanej.map.api.PortrayalComparison;
 import io.github.mundanej.map.api.PortrayalGeometryType;
 import io.github.mundanej.map.api.PortrayalLogicalOperator;
 import io.github.mundanej.map.api.PortrayalOperand;
 import io.github.mundanej.map.api.PortrayalPredicate;
-import io.github.mundanej.map.api.PortrayalRule;
-import io.github.mundanej.map.api.RulePortrayalPlan;
-import io.github.mundanej.map.api.ScaleInterval;
-import io.github.mundanej.map.api.Symbol;
-import io.github.mundanej.map.api.SymbolSelector;
 import io.github.mundanej.map.api.ThematicValue;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -25,8 +21,23 @@ final class MapLibreFilters {
     private MapLibreFilters() {}
 
     static CompiledFilter compile(
-            Object expression, MapLibreReadLimits limits, int precedingNodes, String location) {
-        Compiler compiler = new Compiler(limits, precedingNodes);
+            Object expression,
+            MapLibreReadLimits limits,
+            int precedingNodes,
+            CancellationToken cancellation,
+            String location) {
+        Compiler compiler = new Compiler(limits, precedingNodes, cancellation, true);
+        PortrayalPredicate predicate = compiler.predicate(expression, location, 1);
+        return new CompiledFilter(predicate, compiler.nodes);
+    }
+
+    static CompiledFilter compileLayerFilter(
+            Object expression,
+            MapLibreReadLimits limits,
+            int precedingNodes,
+            CancellationToken cancellation,
+            String location) {
+        Compiler compiler = new Compiler(limits, precedingNodes, cancellation, false);
         PortrayalPredicate predicate = compiler.predicate(expression, location, 1);
         return new CompiledFilter(predicate, compiler.nodes);
     }
@@ -37,36 +48,33 @@ final class MapLibreFilters {
             return Optional.empty();
         }
         FeaturePortrayal source = portrayal.orElseThrow();
-        PortrayalRule rule =
-                new PortrayalRule(
-                        Optional.empty(),
-                        ScaleInterval.ALL,
-                        Optional.of(predicate),
-                        false,
-                        symbol(source.marker()),
-                        symbol(source.line()),
-                        symbol(source.fill()));
-        return Optional.of(new RulePortrayalPlan(List.of(rule)).portrayal());
-    }
-
-    private static List<Symbol> symbol(Optional<? extends SymbolSelector> selector) {
-        if (selector.isEmpty()) {
-            return List.of();
-        }
-        if (!(selector.orElseThrow() instanceof FixedSymbolSelector fixed)) {
-            throw new IllegalArgumentException("filter input portrayal must be literal");
-        }
-        return List.of(fixed.symbol());
+        return Optional.of(
+                new FeaturePortrayal(
+                        source.marker()
+                                .map(selector -> new FilteredSymbolSelector(predicate, selector)),
+                        source.line()
+                                .map(selector -> new FilteredSymbolSelector(predicate, selector)),
+                        source.fill()
+                                .map(selector -> new FilteredSymbolSelector(predicate, selector)),
+                        source.pointLabel()));
     }
 
     private static final class Compiler {
         private final MapLibreReadLimits limits;
         private final int precedingNodes;
+        private final CancellationToken cancellation;
+        private final boolean branchingAllowed;
         private int nodes;
 
-        private Compiler(MapLibreReadLimits limits, int precedingNodes) {
+        private Compiler(
+                MapLibreReadLimits limits,
+                int precedingNodes,
+                CancellationToken cancellation,
+                boolean branchingAllowed) {
             this.limits = limits;
             this.precedingNodes = precedingNodes;
+            this.cancellation = cancellation;
+            this.branchingAllowed = branchingAllowed;
         }
 
         private PortrayalPredicate predicate(Object value, String location, int depth) {
@@ -81,10 +89,193 @@ final class MapLibreFilters {
                 case "all" -> logical(expression, PortrayalLogicalOperator.AND, location, depth);
                 case "any" -> logical(expression, PortrayalLogicalOperator.OR, location, depth);
                 case "has" -> exists(expression, location);
+                case "match" -> {
+                    requireBranching(location);
+                    yield match(expression, location, depth);
+                }
+                case "case" -> {
+                    requireBranching(location);
+                    yield conditional(expression, location, depth);
+                }
+                case "step" -> {
+                    requireBranching(location);
+                    yield step(expression, location, depth);
+                }
                 case "==", "!=", "<", "<=", ">", ">=" ->
                         comparison(expression, operation, location, depth);
                 default -> throw unsupported(location);
             };
+        }
+
+        private void requireBranching(String location) {
+            if (!branchingAllowed) {
+                throw unsupported(location);
+            }
+        }
+
+        private PortrayalPredicate match(List<Object> expression, String location, int depth) {
+            if (expression.size() < 5 || (expression.size() & 1) == 0) {
+                throw type(location, "arity");
+            }
+            Operand input = operand(expression.get(1), location + "/1", depth + 1);
+            ArrayList<PortrayalPredicate> matched = new ArrayList<>();
+            ArrayList<PortrayalPredicate> accepted = new ArrayList<>();
+            for (int index = 2; index < expression.size() - 1; index += 2) {
+                PortrayalPredicate category =
+                        equality(
+                                input,
+                                operand(expression.get(index), location + '/' + index, depth + 1),
+                                location + '/' + index);
+                matched.add(category);
+                PortrayalPredicate result =
+                        predicateResult(
+                                expression.get(index + 1), location + '/' + (index + 1), depth + 1);
+                accepted.add(and(List.of(category, result)));
+            }
+            PortrayalPredicate fallback =
+                    predicateResult(
+                            expression.getLast(),
+                            location + '/' + (expression.size() - 1),
+                            depth + 1);
+            accepted.add(and(List.of(not(or(matched)), fallback)));
+            return or(accepted);
+        }
+
+        private PortrayalPredicate conditional(
+                List<Object> expression, String location, int depth) {
+            if (expression.size() < 4 || (expression.size() & 1) != 0) {
+                throw type(location, "arity");
+            }
+            ArrayList<PortrayalPredicate> preceding = new ArrayList<>();
+            ArrayList<PortrayalPredicate> accepted = new ArrayList<>();
+            for (int index = 1; index < expression.size() - 1; index += 2) {
+                PortrayalPredicate condition =
+                        predicate(expression.get(index), location + '/' + index, depth + 1);
+                PortrayalPredicate result =
+                        predicateResult(
+                                expression.get(index + 1), location + '/' + (index + 1), depth + 1);
+                ArrayList<PortrayalPredicate> branch = new ArrayList<>();
+                branch.add(not(or(preceding)));
+                branch.add(condition);
+                branch.add(result);
+                accepted.add(and(branch));
+                preceding.add(condition);
+            }
+            accepted.add(
+                    and(
+                            List.of(
+                                    not(or(preceding)),
+                                    predicateResult(
+                                            expression.getLast(),
+                                            location + '/' + (expression.size() - 1),
+                                            depth + 1))));
+            return or(accepted);
+        }
+
+        private PortrayalPredicate step(List<Object> expression, String location, int depth) {
+            if (expression.size() < 5 || (expression.size() & 1) == 0) {
+                throw type(location, "arity");
+            }
+            Operand input = operand(expression.get(1), location + "/1", depth + 1);
+            if (!(input.operand() instanceof PortrayalOperand.Property)) {
+                throw type(location + "/1", "stepInput");
+            }
+            ArrayList<PortrayalPredicate> branches = new ArrayList<>();
+            PortrayalOperand.TypedLiteral previous = null;
+            for (int index = 3; index < expression.size(); index += 2) {
+                Operand threshold =
+                        operand(expression.get(index), location + '/' + index, depth + 1);
+                if (!(threshold.operand() instanceof PortrayalOperand.TypedLiteral literal)
+                        || literal.value().kind() != ThematicValue.Kind.NUMERIC) {
+                    throw type(location + '/' + index, "stepStop");
+                }
+                if (previous != null
+                        && ((BigDecimal) previous.value().value())
+                                        .compareTo((BigDecimal) literal.value().value())
+                                >= 0) {
+                    throw type(location + '/' + index, "stopOrder");
+                }
+                PortrayalPredicate lower =
+                        new PortrayalPredicate.Comparison(
+                                PortrayalComparison.GREATER_THAN_OR_EQUAL,
+                                input.operand(),
+                                literal);
+                PortrayalPredicate upper = null;
+                if (index + 2 < expression.size()) {
+                    Operand next =
+                            operand(
+                                    expression.get(index + 2),
+                                    location + '/' + (index + 2),
+                                    depth + 1);
+                    if (!(next.operand() instanceof PortrayalOperand.TypedLiteral nextLiteral)
+                            || nextLiteral.value().kind() != ThematicValue.Kind.NUMERIC) {
+                        throw type(location + '/' + (index + 2), "stepStop");
+                    }
+                    upper =
+                            new PortrayalPredicate.Comparison(
+                                    PortrayalComparison.LESS_THAN, input.operand(), nextLiteral);
+                }
+                PortrayalPredicate result =
+                        predicateResult(
+                                expression.get(index + 1), location + '/' + (index + 1), depth + 1);
+                branches.add(
+                        upper == null
+                                ? and(List.of(lower, result))
+                                : and(List.of(lower, upper, result)));
+                previous = literal;
+            }
+            PortrayalPredicate firstStop =
+                    new PortrayalPredicate.Comparison(
+                            PortrayalComparison.LESS_THAN,
+                            input.operand(),
+                            operand(expression.get(3), location + "/3", depth + 1).operand());
+            branches.add(
+                    and(
+                            List.of(
+                                    firstStop,
+                                    predicateResult(
+                                            expression.get(2), location + "/2", depth + 1))));
+            return or(branches);
+        }
+
+        private PortrayalPredicate predicateResult(Object value, String location, int depth) {
+            return value instanceof Boolean constant
+                    ? new PortrayalPredicate.Constant(constant)
+                    : predicate(value, location, depth);
+        }
+
+        private PortrayalPredicate equality(Operand left, Operand right, String location) {
+            if (left.geometry() || right.geometry()) {
+                return geometryComparison(left, right, "==", location);
+            }
+            try {
+                return new PortrayalPredicate.Comparison(
+                        PortrayalComparison.EQUAL, left.operand(), right.operand());
+            } catch (IllegalArgumentException failure) {
+                throw type(location, "comparison");
+            }
+        }
+
+        private static PortrayalPredicate not(PortrayalPredicate predicate) {
+            return new PortrayalPredicate.Logical(PortrayalLogicalOperator.NOT, List.of(predicate));
+        }
+
+        private static PortrayalPredicate and(List<PortrayalPredicate> predicates) {
+            if (predicates.isEmpty()) {
+                return new PortrayalPredicate.Constant(true);
+            }
+            return predicates.size() == 1
+                    ? predicates.getFirst()
+                    : new PortrayalPredicate.Logical(PortrayalLogicalOperator.AND, predicates);
+        }
+
+        private static PortrayalPredicate or(List<PortrayalPredicate> predicates) {
+            if (predicates.isEmpty()) {
+                return new PortrayalPredicate.Constant(false);
+            }
+            return predicates.size() == 1
+                    ? predicates.getFirst()
+                    : new PortrayalPredicate.Logical(PortrayalLogicalOperator.OR, predicates);
         }
 
         private PortrayalPredicate negate(List<Object> expression, String location, int depth) {
@@ -271,6 +462,9 @@ final class MapLibreFilters {
 
         private void node(String location, int depth) {
             nodes++;
+            if ((nodes & 255) == 0 && cancellation.isCancellationRequested()) {
+                throw MapLibreStyles.failure("MAPLIBRE_CANCELLED", location, Map.of());
+            }
             long aggregateNodes = (long) precedingNodes + nodes;
             if (aggregateNodes > limits.maximumExpressionNodes()) {
                 throw limit(
@@ -293,7 +487,7 @@ final class MapLibreFilters {
         if ("!=".equals(operation)) {
             if ((left.kind() == ThematicValue.Kind.NULL)
                     != (right.kind() == ThematicValue.Kind.NULL)) {
-                return false;
+                return true;
             }
             return !left.equals(right);
         }

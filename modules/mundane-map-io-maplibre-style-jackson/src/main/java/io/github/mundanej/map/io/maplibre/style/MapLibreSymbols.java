@@ -1,22 +1,40 @@
 package io.github.mundanej.map.io.maplibre.style;
 
+import io.github.mundanej.map.api.AttributeValueCandidate;
+import io.github.mundanej.map.api.AttributeValueConversion;
+import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CategoricalSymbolRule;
+import io.github.mundanej.map.api.CategoricalSymbolSelector;
 import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FixedSymbolSelector;
+import io.github.mundanej.map.api.GraduatedSymbolSelector;
+import io.github.mundanej.map.api.GraduatedSymbolStep;
+import io.github.mundanej.map.api.InterpolatedSymbolSelector;
+import io.github.mundanej.map.api.InterpolatedSymbolStop;
 import io.github.mundanej.map.api.MarkerPlacement;
+import io.github.mundanej.map.api.OmittedSymbol;
+import io.github.mundanej.map.api.PortrayalLogicalOperator;
+import io.github.mundanej.map.api.PortrayalPredicate;
+import io.github.mundanej.map.api.PortrayalRule;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.RulePortrayalPlan;
+import io.github.mundanej.map.api.ScaleInterval;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolLength;
+import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolRotationMode;
 import io.github.mundanej.map.api.SymbolSize;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.ThematicValue;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
+import io.github.mundanej.map.core.FeaturePortrayalResolver;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +49,45 @@ final class MapLibreSymbols {
     private MapLibreSymbols() {}
 
     static Optional<FeaturePortrayal> literal(
+            MapLibreLayerType type,
+            Map<String, Object> layout,
+            Map<String, Object> paint,
+            String location,
+            boolean renderingRequired,
+            MapLibreReadLimits limits,
+            CancellationToken cancellation) {
+        DynamicProperty dynamic = dynamicProperty(type, layout, paint, location);
+        if (dynamic != null) {
+            try {
+                FeaturePortrayal result =
+                        new ExpressionCompiler(
+                                        type,
+                                        layout,
+                                        paint,
+                                        dynamic,
+                                        location,
+                                        renderingRequired,
+                                        limits,
+                                        cancellation)
+                                .compile();
+                FeaturePortrayalResolver.compile(result);
+                return Optional.of(result);
+            } catch (MapLibreReadException failure) {
+                throw failure;
+            } catch (IllegalArgumentException failure) {
+                throw new MapLibreReadException(
+                        MapLibreStyles.failure(
+                                        "MAPLIBRE_EXPRESSION_TYPE",
+                                        dynamic.location(),
+                                        Map.of("reason", "incompatibleResults"))
+                                .problem(),
+                        failure);
+            }
+        }
+        return staticLiteral(type, layout, paint, location, renderingRequired);
+    }
+
+    private static Optional<FeaturePortrayal> staticLiteral(
             MapLibreLayerType type,
             Map<String, Object> layout,
             Map<String, Object> paint,
@@ -199,6 +256,538 @@ final class MapLibreSymbols {
                         Optional.empty(),
                         Optional.of(new FixedSymbolSelector(symbol))));
     }
+
+    private static DynamicProperty dynamicProperty(
+            MapLibreLayerType type,
+            Map<String, Object> layout,
+            Map<String, Object> paint,
+            String location) {
+        DynamicProperty selected = null;
+        for (Map.Entry<String, Object> entry : layout.entrySet()) {
+            if (isExpression(entry.getValue())) {
+                selected =
+                        selectDynamic(
+                                selected,
+                                new DynamicProperty(
+                                        true,
+                                        entry.getKey(),
+                                        entry.getValue(),
+                                        location + "/layout/" + entry.getKey()));
+            }
+        }
+        for (Map.Entry<String, Object> entry : paint.entrySet()) {
+            if (isExpression(entry.getValue())) {
+                if (!dynamicPaintProperties(type).contains(entry.getKey())) {
+                    throw MapLibreStyles.failure(
+                            "MAPLIBRE_EXPRESSION_UNSUPPORTED",
+                            location + "/paint/" + entry.getKey(),
+                            Map.of("reason", "literalOnlyProperty"));
+                }
+                selected =
+                        selectDynamic(
+                                selected,
+                                new DynamicProperty(
+                                        false,
+                                        entry.getKey(),
+                                        entry.getValue(),
+                                        location + "/paint/" + entry.getKey()));
+            }
+        }
+        return selected;
+    }
+
+    private static Set<String> dynamicPaintProperties(MapLibreLayerType type) {
+        return switch (type) {
+            case CIRCLE ->
+                    Set.of(
+                            "circle-radius",
+                            "circle-color",
+                            "circle-opacity",
+                            "circle-stroke-width",
+                            "circle-stroke-color",
+                            "circle-stroke-opacity");
+            case LINE -> Set.of("line-color", "line-width", "line-opacity");
+            case FILL -> Set.of("fill-color", "fill-opacity", "fill-outline-color");
+        };
+    }
+
+    private static DynamicProperty selectDynamic(
+            DynamicProperty current, DynamicProperty candidate) {
+        if (current != null) {
+            throw MapLibreStyles.failure(
+                    "MAPLIBRE_EXPRESSION_UNSUPPORTED",
+                    candidate.location(),
+                    Map.of("reason", "multipleDynamicProperties"));
+        }
+        return candidate;
+    }
+
+    private static boolean isExpression(Object value) {
+        return value instanceof List<?> list
+                && !list.isEmpty()
+                && list.getFirst() instanceof String;
+    }
+
+    private static FeaturePortrayal portrayal(SymbolSelectorResult selected) {
+        return switch (selected.role()) {
+            case MARKER -> FeaturePortrayal.markers(selected.selector());
+            case LINE ->
+                    new FeaturePortrayal(
+                            Optional.empty(), Optional.of(selected.selector()), Optional.empty());
+            case FILL ->
+                    new FeaturePortrayal(
+                            Optional.empty(), Optional.empty(), Optional.of(selected.selector()));
+            case LEGACY_GEOMETRY -> throw new AssertionError("legacy role");
+        };
+    }
+
+    private static final class ExpressionCompiler {
+        private final MapLibreLayerType type;
+        private final Map<String, Object> layout;
+        private final Map<String, Object> paint;
+        private final DynamicProperty dynamic;
+        private final String location;
+        private final boolean renderingRequired;
+        private final MapLibreReadLimits limits;
+        private final CancellationToken cancellation;
+
+        private ExpressionCompiler(
+                MapLibreLayerType type,
+                Map<String, Object> layout,
+                Map<String, Object> paint,
+                DynamicProperty dynamic,
+                String location,
+                boolean renderingRequired,
+                MapLibreReadLimits limits,
+                CancellationToken cancellation) {
+            this.type = type;
+            this.layout = layout;
+            this.paint = paint;
+            this.dynamic = dynamic;
+            this.location = location;
+            this.renderingRequired = renderingRequired;
+            this.limits = limits;
+            this.cancellation = cancellation;
+        }
+
+        private FeaturePortrayal compile() {
+            if (dynamic.layout()) {
+                throw MapLibreStyles.failure(
+                        "MAPLIBRE_EXPRESSION_UNSUPPORTED",
+                        dynamic.location(),
+                        Map.of("reason", "dynamicLayout"));
+            }
+            List<Object> expression = expression(dynamic.expression(), dynamic.location());
+            String operation = operation(expression, dynamic.location());
+            SymbolSelectorResult selected =
+                    switch (operation) {
+                        case "match" -> match(expression);
+                        case "step" -> step(expression);
+                        case "interpolate" -> interpolate(expression);
+                        case "case" -> conditional(expression);
+                        default ->
+                                throw MapLibreStyles.failure(
+                                        "MAPLIBRE_EXPRESSION_UNSUPPORTED",
+                                        dynamic.location(),
+                                        Map.of("reason", "propertyOperator"));
+                    };
+            return portrayal(selected);
+        }
+
+        private SymbolSelectorResult match(List<Object> expression) {
+            if (expression.size() < 5 || (expression.size() & 1) == 0) {
+                throw expressionType(dynamic.location(), "arity");
+            }
+            ExpressionInput input =
+                    expressionInput(expression.get(1), dynamic.location() + "/1", false);
+            int count = (expression.size() - 3) / 2;
+            int maximum =
+                    Math.min(limits.maximumCategories(), CategoricalSymbolSelector.MAXIMUM_RULES);
+            if (count > maximum) {
+                throw limit(dynamic.location(), "categories", count, maximum);
+            }
+            List<CategoricalSymbolRule> rules = new ArrayList<>(count);
+            SymbolRole role = null;
+            for (int index = 2; index < expression.size() - 1; index += 2) {
+                cancelled(rules.size());
+                ThematicValue value =
+                        category(expression.get(index), dynamic.location() + '/' + index);
+                Symbol symbol =
+                        materialize(
+                                constant(
+                                        expression.get(index + 1),
+                                        dynamic.location() + '/' + (index + 1)));
+                role = sameRole(role, symbol);
+                rules.add(new CategoricalSymbolRule(value, symbol));
+            }
+            Symbol fallback =
+                    materialize(
+                            constant(
+                                    expression.getLast(),
+                                    dynamic.location() + '/' + (expression.size() - 1)));
+            role = sameRole(role, fallback);
+            return new SymbolSelectorResult(
+                    CategoricalSymbolSelector.expressionInput(
+                            input.attribute(), rules, Optional.of(fallback), input.conversion()),
+                    role);
+        }
+
+        private SymbolSelectorResult step(List<Object> expression) {
+            if (expression.size() < 5 || (expression.size() & 1) == 0) {
+                throw expressionType(dynamic.location(), "arity");
+            }
+            ExpressionInput input =
+                    expressionInput(expression.get(1), dynamic.location() + "/1", true);
+            Symbol fallback = materialize(constant(expression.get(2), dynamic.location() + "/2"));
+            Symbol invalidFallback = defaultSymbol();
+            int count = (expression.size() - 3) / 2;
+            int maximum = Math.min(limits.maximumStops(), GraduatedSymbolSelector.MAXIMUM_STEPS);
+            if (count > maximum) {
+                throw limit(dynamic.location(), "stops", count, maximum);
+            }
+            List<GraduatedSymbolStep> steps = new ArrayList<>(count);
+            BigDecimal previous = null;
+            for (int index = 3; index < expression.size(); index += 2) {
+                cancelled(steps.size());
+                BigDecimal threshold =
+                        decimal(expression.get(index), dynamic.location() + '/' + index);
+                if (previous != null && previous.compareTo(threshold) >= 0) {
+                    throw expressionType(dynamic.location() + '/' + index, "stopOrder");
+                }
+                Symbol symbol =
+                        materialize(
+                                constant(
+                                        expression.get(index + 1),
+                                        dynamic.location() + '/' + (index + 1)));
+                sameRole(fallback.role(), symbol);
+                steps.add(new GraduatedSymbolStep(threshold, symbol));
+                previous = threshold;
+            }
+            return new SymbolSelectorResult(
+                    input.zoom()
+                            ? GraduatedSymbolSelector.zoom(
+                                    steps, Optional.of(fallback), Optional.of(invalidFallback))
+                            : GraduatedSymbolSelector.expressionInput(
+                                    input.attribute(),
+                                    steps,
+                                    Optional.of(fallback),
+                                    Optional.of(invalidFallback),
+                                    input.conversion()),
+                    fallback.role());
+        }
+
+        private SymbolSelectorResult interpolate(List<Object> expression) {
+            if (expression.size() < 7 || (expression.size() & 1) == 0) {
+                throw expressionType(dynamic.location(), "arity");
+            }
+            List<Object> curve = expression(expression.get(1), dynamic.location() + "/1");
+            if (curve.size() != 1 || !"linear".equals(curve.getFirst())) {
+                throw expressionType(dynamic.location() + "/1", "linear");
+            }
+            ExpressionInput input =
+                    expressionInput(expression.get(2), dynamic.location() + "/2", true);
+            int count = (expression.size() - 3) / 2;
+            int maximum = Math.min(limits.maximumStops(), InterpolatedSymbolSelector.MAXIMUM_STOPS);
+            if (count > maximum) {
+                throw limit(dynamic.location(), "stops", count, maximum);
+            }
+            List<InterpolatedSymbolStop> stops = new ArrayList<>(count);
+            SymbolRole role = null;
+            BigDecimal previous = null;
+            for (int index = 3; index < expression.size(); index += 2) {
+                cancelled(stops.size());
+                BigDecimal threshold =
+                        decimal(expression.get(index), dynamic.location() + '/' + index);
+                if (previous != null && previous.compareTo(threshold) >= 0) {
+                    throw expressionType(dynamic.location() + '/' + index, "stopOrder");
+                }
+                Symbol symbol =
+                        materialize(
+                                constant(
+                                        expression.get(index + 1),
+                                        dynamic.location() + '/' + (index + 1)));
+                role = sameRole(role, symbol);
+                stops.add(new InterpolatedSymbolStop(threshold, symbol));
+                previous = threshold;
+            }
+            Symbol fallback = defaultSymbol();
+            sameRole(role, fallback);
+            return new SymbolSelectorResult(
+                    input.zoom()
+                            ? InterpolatedSymbolSelector.zoom(stops, fallback)
+                            : InterpolatedSymbolSelector.expressionInput(
+                                    input.attribute(), stops, fallback, input.conversion()),
+                    role);
+        }
+
+        private SymbolSelectorResult conditional(List<Object> expression) {
+            if (expression.size() < 4 || (expression.size() & 1) != 0) {
+                throw expressionType(dynamic.location(), "arity");
+            }
+            List<PortrayalRule> rules = new ArrayList<>();
+            List<PortrayalPredicate> preceding = new ArrayList<>();
+            SymbolRole role = null;
+            int nodes = 0;
+            for (int index = 1; index < expression.size() - 1; index += 2) {
+                cancelled(rules.size());
+                MapLibreFilters.CompiledFilter condition =
+                        MapLibreFilters.compile(
+                                expression.get(index),
+                                limits,
+                                nodes,
+                                cancellation,
+                                dynamic.location() + '/' + index);
+                nodes += condition.nodes();
+                List<PortrayalPredicate> active = new ArrayList<>();
+                for (PortrayalPredicate earlier : preceding) {
+                    cancelled(active.size());
+                    active.add(
+                            new PortrayalPredicate.Logical(
+                                    PortrayalLogicalOperator.NOT, List.of(earlier)));
+                }
+                active.add(condition.predicate());
+                PortrayalPredicate predicate =
+                        active.size() == 1
+                                ? active.getFirst()
+                                : new PortrayalPredicate.Logical(
+                                        PortrayalLogicalOperator.AND, active);
+                Symbol symbol =
+                        materialize(
+                                constant(
+                                        expression.get(index + 1),
+                                        dynamic.location() + '/' + (index + 1)));
+                role = sameRole(role, symbol);
+                rules.add(rule(predicate, false, symbol));
+                preceding.add(condition.predicate());
+            }
+            Symbol fallback =
+                    materialize(
+                            constant(
+                                    expression.getLast(),
+                                    dynamic.location() + '/' + (expression.size() - 1)));
+            role = sameRole(role, fallback);
+            rules.add(rule(null, true, fallback));
+            RulePortrayalPlan plan = new RulePortrayalPlan(rules);
+            FeaturePortrayal portrayal = plan.portrayal();
+            return new SymbolSelectorResult(
+                    switch (role) {
+                        case MARKER -> portrayal.marker().orElseThrow();
+                        case LINE -> portrayal.line().orElseThrow();
+                        case FILL -> portrayal.fill().orElseThrow();
+                        case LEGACY_GEOMETRY -> throw new AssertionError("legacy role");
+                    },
+                    role);
+        }
+
+        private PortrayalRule rule(PortrayalPredicate predicate, boolean otherwise, Symbol symbol) {
+            List<Symbol> markers = symbol.role() == SymbolRole.MARKER ? List.of(symbol) : List.of();
+            List<Symbol> lines = symbol.role() == SymbolRole.LINE ? List.of(symbol) : List.of();
+            List<Symbol> fills = symbol.role() == SymbolRole.FILL ? List.of(symbol) : List.of();
+            return new PortrayalRule(
+                    Optional.empty(),
+                    ScaleInterval.ALL,
+                    Optional.ofNullable(predicate),
+                    otherwise,
+                    markers,
+                    lines,
+                    fills);
+        }
+
+        private Symbol defaultSymbol() {
+            Map<String, Object> values = new java.util.LinkedHashMap<>(paint);
+            values.remove(dynamic.name());
+            return fixed(
+                    staticLiteral(
+                            type, materializationLayout(), Map.copyOf(values), location, true));
+        }
+
+        private Symbol materialize(Object value) {
+            Map<String, Object> values = new java.util.LinkedHashMap<>(paint);
+            values.put(dynamic.name(), value);
+            return fixed(
+                    staticLiteral(
+                            type, materializationLayout(), Map.copyOf(values), location, true));
+        }
+
+        private Map<String, Object> materializationLayout() {
+            if (renderingRequired
+                    || type != MapLibreLayerType.LINE
+                    || (layout.containsKey("line-cap") && layout.containsKey("line-join"))) {
+                return layout;
+            }
+            Map<String, Object> values = new java.util.LinkedHashMap<>(layout);
+            values.putIfAbsent("line-cap", "round");
+            values.putIfAbsent("line-join", "round");
+            return Map.copyOf(values);
+        }
+
+        private Symbol fixed(Optional<FeaturePortrayal> portrayal) {
+            if (portrayal.isEmpty()) {
+                return OmittedSymbol.of(
+                        switch (type) {
+                            case CIRCLE -> SymbolRole.MARKER;
+                            case LINE -> SymbolRole.LINE;
+                            case FILL -> SymbolRole.FILL;
+                        });
+            }
+            if (portrayal.orElseThrow().selectors().size() != 1) {
+                throw expressionType(dynamic.location(), "symbolResult");
+            }
+            var selector = portrayal.orElseThrow().selectors().getFirst();
+            if (!(selector instanceof FixedSymbolSelector fixed)) {
+                throw new AssertionError("materialized selector");
+            }
+            return fixed.symbol();
+        }
+
+        private void cancelled(int index) {
+            if ((index & 255) == 0 && cancellation.isCancellationRequested()) {
+                throw MapLibreStyles.failure("MAPLIBRE_CANCELLED", dynamic.location(), Map.of());
+            }
+        }
+    }
+
+    private static Object constant(Object value, String location) {
+        if (!isExpression(value)) {
+            return value;
+        }
+        List<Object> expression = expression(value, location);
+        String operation = operation(expression, location);
+        if ("literal".equals(operation) && expression.size() == 2) {
+            return expression.get(1);
+        }
+        throw expressionType(location, "constantResult");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> expression(Object value, String location) {
+        if (!(value instanceof List<?> list) || list.isEmpty()) {
+            throw expressionType(location, "expression");
+        }
+        return (List<Object>) list;
+    }
+
+    private static String operation(List<Object> expression, String location) {
+        if (!(expression.getFirst() instanceof String operation)) {
+            throw expressionType(location + "/0", "operator");
+        }
+        return operation;
+    }
+
+    private static String directGet(Object value, String location) {
+        List<Object> input = expression(value, location);
+        if (input.size() != 2
+                || !"get".equals(operation(input, location))
+                || !(input.get(1) instanceof String attribute)) {
+            throw expressionType(location, "directGet");
+        }
+        return attribute;
+    }
+
+    private static ExpressionInput expressionInput(
+            Object value, String location, boolean allowZoom) {
+        List<Object> expression = expression(value, location);
+        String operation = operation(expression, location);
+        if ("get".equals(operation)) {
+            return new ExpressionInput(
+                    directGet(expression, location), AttributeValueConversion.IDENTITY, false);
+        }
+        if ("to-number".equals(operation) && expression.size() == 2) {
+            return numericInput(expression, location);
+        }
+        if ("to-number".equals(operation) && expression.size() > 2 && expression.size() <= 9) {
+            return numericInput(expression, location);
+        }
+        if (allowZoom && "zoom".equals(operation) && expression.size() == 1) {
+            return new ExpressionInput("", AttributeValueConversion.IDENTITY, true);
+        }
+        throw expressionType(location, "expressionInput");
+    }
+
+    private static ExpressionInput numericInput(List<Object> expression, String location) {
+        List<AttributeValueCandidate> candidates = new ArrayList<>(expression.size() - 1);
+        String primaryAttribute = null;
+        for (int index = 1; index < expression.size(); index++) {
+            Object candidate = expression.get(index);
+            if (isExpression(candidate)) {
+                String attribute = directGet(candidate, location + '/' + index);
+                if (primaryAttribute == null) {
+                    primaryAttribute = attribute;
+                }
+                candidates.add(new AttributeValueCandidate.Attribute(attribute));
+            } else {
+                candidates.add(
+                        new AttributeValueCandidate.Literal(
+                                category(candidate, location + '/' + index)));
+            }
+        }
+        if (primaryAttribute == null) {
+            throw expressionType(location, "dynamicInput");
+        }
+        return new ExpressionInput(
+                primaryAttribute, AttributeValueConversion.toNumber(candidates), false);
+    }
+
+    private static ThematicValue category(Object value, String location) {
+        Object literal = constant(value, location);
+        if (literal == io.github.mundanej.map.api.AttributeNull.INSTANCE) {
+            return ThematicValue.nullValue();
+        }
+        if (literal instanceof String text) {
+            return ThematicValue.text(text);
+        }
+        if (literal instanceof Boolean logical) {
+            return ThematicValue.logical(logical);
+        }
+        if (literal instanceof BigDecimal number) {
+            return ThematicValue.numeric(number);
+        }
+        throw expressionType(location, "category");
+    }
+
+    private static BigDecimal decimal(Object value, String location) {
+        Object literal = constant(value, location);
+        if (!(literal instanceof BigDecimal number)) {
+            throw expressionType(location, "number");
+        }
+        return number;
+    }
+
+    private static SymbolRole sameRole(SymbolRole expected, Symbol symbol) {
+        return sameRole(expected, symbol.role());
+    }
+
+    private static SymbolRole sameRole(SymbolRole expected, SymbolRole actual) {
+        if (expected != null && expected != actual) {
+            throw expressionType("", "resultType");
+        }
+        return actual;
+    }
+
+    private static MapLibreReadException expressionType(String location, String reason) {
+        return MapLibreStyles.failure(
+                "MAPLIBRE_EXPRESSION_TYPE", location, Map.of("reason", reason));
+    }
+
+    private static MapLibreReadException limit(
+            String location, String name, long actual, long maximum) {
+        return MapLibreStyles.failure(
+                "MAPLIBRE_LIMIT_EXCEEDED",
+                location,
+                Map.of(
+                        "limit", name,
+                        "actual", Long.toString(actual),
+                        "maximum", Long.toString(maximum)));
+    }
+
+    private record DynamicProperty(
+            boolean layout, String name, Object expression, String location) {}
+
+    private record ExpressionInput(
+            String attribute, AttributeValueConversion conversion, boolean zoom) {}
+
+    private record SymbolSelectorResult(
+            io.github.mundanej.map.api.SymbolSelector selector, SymbolRole role) {}
 
     private static VectorPath disk(double fraction) {
         return circleSubpath(VectorPath.builder(), 0.5 * fraction, false).build();

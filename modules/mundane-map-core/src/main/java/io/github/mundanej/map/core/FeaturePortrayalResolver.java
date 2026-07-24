@@ -1,14 +1,21 @@
 package io.github.mundanej.map.core;
 
+import io.github.mundanej.map.api.AttributeValueCandidate;
 import io.github.mundanej.map.api.CategoricalSymbolRule;
 import io.github.mundanej.map.api.CategoricalSymbolSelector;
 import io.github.mundanej.map.api.FeatureName;
 import io.github.mundanej.map.api.FeaturePortrayal;
+import io.github.mundanej.map.api.FilteredSymbolSelector;
 import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.GraduatedSymbolSelector;
 import io.github.mundanej.map.api.GraduatedSymbolStep;
+import io.github.mundanej.map.api.InterpolatedSymbolSelector;
+import io.github.mundanej.map.api.InterpolatedSymbolStop;
+import io.github.mundanej.map.api.InterpolationInput;
+import io.github.mundanej.map.api.OmittedSymbol;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.PortrayalPredicate;
 import io.github.mundanej.map.api.ResolvedFeaturePortrayal;
 import io.github.mundanej.map.api.RulePortrayalPlan;
 import io.github.mundanej.map.api.RuleSymbolSelector;
@@ -18,6 +25,7 @@ import io.github.mundanej.map.api.SymbolSelector;
 import io.github.mundanej.map.api.TextAttribute;
 import io.github.mundanej.map.api.ThematicValue;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -33,8 +41,10 @@ import java.util.Set;
 public final class FeaturePortrayalResolver {
     private final FeaturePortrayal portrayal;
     private final Map<SymbolRole, SymbolSelector> selectors;
+    private final Map<SymbolRole, PortrayalPredicate> filters;
     private final Map<SymbolRole, Map<ThematicValue, Symbol>> categorical;
     private final Map<SymbolRole, GraduatedTable> graduated;
+    private final Map<SymbolRole, InterpolationTable> interpolated;
     private final List<String> requiredSymbolAttributes;
     private final List<Symbol> reachableSymbols;
     private final Optional<PointLabelProfile> pointLabel;
@@ -43,12 +53,21 @@ public final class FeaturePortrayalResolver {
     private FeaturePortrayalResolver(FeaturePortrayal portrayal) {
         this.portrayal = Objects.requireNonNull(portrayal, "portrayal");
         EnumMap<SymbolRole, SymbolSelector> byRole = new EnumMap<>(SymbolRole.class);
+        EnumMap<SymbolRole, PortrayalPredicate> guards = new EnumMap<>(SymbolRole.class);
         EnumMap<SymbolRole, Map<ThematicValue, Symbol>> compiled = new EnumMap<>(SymbolRole.class);
         EnumMap<SymbolRole, GraduatedTable> graduatedCompiled = new EnumMap<>(SymbolRole.class);
+        EnumMap<SymbolRole, InterpolationTable> interpolationCompiled =
+                new EnumMap<>(SymbolRole.class);
         EnumMap<SymbolRole, List<Symbol>> symbolsByRole = new EnumMap<>(SymbolRole.class);
         Set<String> attributes = new LinkedHashSet<>();
         RulePortrayalPlan sharedRulePlan = null;
-        for (SymbolSelector selector : portrayal.selectors()) {
+        for (SymbolSelector declared : portrayal.selectors()) {
+            SymbolSelector selector = declared;
+            if (selector instanceof FilteredSymbolSelector filtered) {
+                guards.put(selector.role(), filtered.predicate());
+                RulePortrayalEvaluator.collect(filtered.predicate(), attributes);
+                selector = filtered.delegate();
+            }
             byRole.put(selector.role(), selector);
             if (selector instanceof FixedSymbolSelector fixed) {
                 symbolsByRole
@@ -57,7 +76,7 @@ public final class FeaturePortrayalResolver {
                 continue;
             }
             if (selector instanceof CategoricalSymbolSelector categories) {
-                attributes.add(categories.attribute());
+                collectInputAttributes(categories.attribute(), categories.conversion(), attributes);
                 Map<ThematicValue, Symbol> lookup = new LinkedHashMap<>();
                 for (CategoricalSymbolRule rule : categories.rules()) {
                     lookup.put(rule.value(), rule.symbol());
@@ -71,7 +90,7 @@ public final class FeaturePortrayalResolver {
                                 symbol ->
                                         symbolsByRole
                                                 .computeIfAbsent(
-                                                        selector.role(),
+                                                        categories.role(),
                                                         ignored -> new ArrayList<>())
                                                 .add(symbol));
                 compiled.put(categories.role(), Collections.unmodifiableMap(lookup));
@@ -85,8 +104,38 @@ public final class FeaturePortrayalResolver {
                 sharedRulePlan = rules.plan();
                 continue;
             }
+            if (selector instanceof InterpolatedSymbolSelector interpolation) {
+                interpolation
+                        .attribute()
+                        .ifPresent(
+                                attribute ->
+                                        collectInputAttributes(
+                                                attribute, interpolation.conversion(), attributes));
+                BigDecimal[] inputs = new BigDecimal[interpolation.stops().size()];
+                Symbol[] endpoints = new Symbol[interpolation.stops().size()];
+                for (int index = 0; index < interpolation.stops().size(); index++) {
+                    InterpolatedSymbolStop stop = interpolation.stops().get(index);
+                    inputs[index] = stop.input();
+                    endpoints[index] = stop.symbol();
+                    symbolsByRole
+                            .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
+                            .add(stop.symbol());
+                    if (index > 0) {
+                        SymbolInterpolation.interpolate(
+                                endpoints[index - 1], endpoints[index], 0.5);
+                    }
+                }
+                symbolsByRole
+                        .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
+                        .add(interpolation.fallback());
+                interpolationCompiled.put(
+                        interpolation.role(), new InterpolationTable(inputs, endpoints));
+                continue;
+            }
             GraduatedSymbolSelector ranges = (GraduatedSymbolSelector) selector;
-            attributes.add(ranges.attribute());
+            if (ranges.input() == InterpolationInput.ATTRIBUTE) {
+                collectInputAttributes(ranges.attribute(), ranges.conversion(), attributes);
+            }
             BigDecimal[] thresholds = new BigDecimal[ranges.steps().size()];
             Symbol[] selected = new Symbol[ranges.steps().size()];
             for (int index = 0; index < ranges.steps().size(); index++) {
@@ -102,7 +151,7 @@ public final class FeaturePortrayalResolver {
                             symbol ->
                                     symbolsByRole
                                             .computeIfAbsent(
-                                                    selector.role(), ignored -> new ArrayList<>())
+                                                    ranges.role(), ignored -> new ArrayList<>())
                                             .add(symbol));
             graduatedCompiled.put(ranges.role(), new GraduatedTable(thresholds, selected));
         }
@@ -110,7 +159,7 @@ public final class FeaturePortrayalResolver {
                 sharedRulePlan == null ? null : new RulePortrayalEvaluator(sharedRulePlan);
         if (compiledRules != null) {
             attributes.addAll(compiledRules.requiredAttributes());
-            for (SymbolSelector selector : portrayal.selectors()) {
+            for (SymbolSelector selector : byRole.values()) {
                 if (selector instanceof RuleSymbolSelector) {
                     symbolsByRole
                             .computeIfAbsent(selector.role(), ignored -> new ArrayList<>())
@@ -123,10 +172,13 @@ public final class FeaturePortrayalResolver {
         symbols.addAll(symbolsByRole.getOrDefault(SymbolRole.LINE, List.of()));
         symbols.addAll(symbolsByRole.getOrDefault(SymbolRole.FILL, List.of()));
         this.selectors = Collections.unmodifiableMap(byRole);
+        this.filters = Collections.unmodifiableMap(guards);
         this.categorical = Collections.unmodifiableMap(compiled);
         this.graduated = Collections.unmodifiableMap(graduatedCompiled);
+        this.interpolated = Collections.unmodifiableMap(interpolationCompiled);
         this.requiredSymbolAttributes = List.copyOf(attributes);
-        this.reachableSymbols = List.copyOf(symbols);
+        this.reachableSymbols =
+                symbols.stream().filter(symbol -> !(symbol instanceof OmittedSymbol)).toList();
         this.pointLabel = portrayal.pointLabel();
         this.ruleEvaluator = Optional.ofNullable(compiledRules);
     }
@@ -165,7 +217,7 @@ public final class FeaturePortrayalResolver {
      * @return immutable reachable symbol list
      */
     public List<Symbol> reachableSymbols() {
-        return reachableSymbols;
+        return List.copyOf(reachableSymbols);
     }
 
     /**
@@ -184,6 +236,21 @@ public final class FeaturePortrayalResolver {
      */
     public boolean requiresScaleContext() {
         return ruleEvaluator.map(RulePortrayalEvaluator::requiresScaleContext).orElse(false);
+    }
+
+    /**
+     * Returns whether this portrayal selects a symbol from explicit zoom.
+     *
+     * @return true for a zoom-driven interpolation selector
+     */
+    public boolean requiresZoomContext() {
+        return selectors.values().stream()
+                .anyMatch(
+                        selector ->
+                                (selector instanceof InterpolatedSymbolSelector interpolation
+                                                && interpolation.input() == InterpolationInput.ZOOM)
+                                        || (selector instanceof GraduatedSymbolSelector graduated
+                                                && graduated.input() == InterpolationInput.ZOOM));
     }
 
     /**
@@ -247,42 +314,71 @@ public final class FeaturePortrayalResolver {
         if (selector == null) {
             return Optional.empty();
         }
-        if (selector instanceof RuleSymbolSelector) {
+        if (selector instanceof RuleSymbolSelector || filters.containsKey(role)) {
             return resolveAll(attributes, PortrayalEvaluationContext.UNSCALED).forRole(role);
         }
-        return resolveOrdinary(selector, attributes);
+        return resolveOrdinary(selector, attributes, PortrayalEvaluationContext.UNSCALED);
     }
 
     private Optional<Symbol> resolveOrdinary(
-            SymbolSelector selector, Map<String, Object> attributes) {
+            SymbolSelector selector,
+            Map<String, Object> attributes,
+            PortrayalEvaluationContext context) {
         SymbolRole role = selector.role();
         if (selector instanceof FixedSymbolSelector fixed) {
-            return Optional.of(fixed.symbol());
+            return resolved(fixed.symbol());
         }
         if (selector instanceof CategoricalSymbolSelector categories) {
             if (!attributes.containsKey(categories.attribute())) {
-                return categories.fallback();
+                if (!categories.missingAsNull()) {
+                    return categories.fallback().flatMap(FeaturePortrayalResolver::resolved);
+                }
             }
+            Object input =
+                    attributes.containsKey(categories.attribute())
+                            ? attributes.get(categories.attribute())
+                            : io.github.mundanej.map.api.AttributeNull.INSTANCE;
             Optional<ThematicValue> value =
-                    ThematicValue.fromAttribute(attributes.get(categories.attribute()));
+                    AttributeValueConversions.convert(input, categories.conversion(), attributes);
             if (value.isEmpty()) {
-                return categories.fallback();
+                return categories.fallback().flatMap(FeaturePortrayalResolver::resolved);
             }
             Symbol matched = categorical.get(role).get(value.orElseThrow());
-            return matched == null ? categories.fallback() : Optional.of(matched);
+            return matched == null
+                    ? categories.fallback().flatMap(FeaturePortrayalResolver::resolved)
+                    : resolved(matched);
+        }
+        if (selector instanceof InterpolatedSymbolSelector interpolation) {
+            BigDecimal input =
+                    interpolationInput(
+                            interpolation.input(),
+                            interpolation.attribute().orElse(""),
+                            interpolation.conversion(),
+                            attributes,
+                            context);
+            return input == null
+                    ? resolved(interpolation.fallback())
+                    : resolved(interpolated.get(role).select(input));
         }
         GraduatedSymbolSelector ranges = (GraduatedSymbolSelector) selector;
-        if (!attributes.containsKey(ranges.attribute())) {
-            return ranges.fallback();
+        BigDecimal value =
+                interpolationInput(
+                        ranges.input(),
+                        ranges.attribute(),
+                        ranges.conversion(),
+                        attributes,
+                        context);
+        if (value == null) {
+            return ranges.invalidFallback().flatMap(FeaturePortrayalResolver::resolved);
         }
-        Optional<ThematicValue> value =
-                ThematicValue.fromAttribute(attributes.get(ranges.attribute()));
-        if (value.isEmpty() || value.orElseThrow().kind() != ThematicValue.Kind.NUMERIC) {
-            return ranges.fallback();
-        }
-        Symbol matched =
-                graduated.get(role).greatestLowerBound((BigDecimal) value.orElseThrow().value());
-        return matched == null ? ranges.fallback() : Optional.of(matched);
+        Symbol matched = graduated.get(role).greatestLowerBound(value);
+        return matched == null
+                ? ranges.fallback().flatMap(FeaturePortrayalResolver::resolved)
+                : resolved(matched);
+    }
+
+    private static Optional<Symbol> resolved(Symbol symbol) {
+        return symbol instanceof OmittedSymbol ? Optional.empty() : Optional.of(symbol);
     }
 
     /**
@@ -296,25 +392,86 @@ public final class FeaturePortrayalResolver {
             Map<String, Object> attributes, PortrayalEvaluationContext context) {
         Objects.requireNonNull(attributes, "attributes");
         Objects.requireNonNull(context, "context");
+        boolean rulesNeeded =
+                selectors.entrySet().stream()
+                        .filter(entry -> entry.getValue() instanceof RuleSymbolSelector)
+                        .anyMatch(
+                                entry -> {
+                                    PortrayalPredicate filter = filters.get(entry.getKey());
+                                    return filter == null
+                                            || RulePortrayalEvaluator.test(
+                                                    filter, attributes, context);
+                                });
         ResolvedFeaturePortrayal rules =
-                ruleEvaluator
-                        .map(evaluator -> evaluator.resolve(attributes, context))
-                        .orElse(ResolvedFeaturePortrayal.EMPTY);
+                rulesNeeded
+                        ? ruleEvaluator
+                                .map(evaluator -> evaluator.resolve(attributes, context))
+                                .orElse(ResolvedFeaturePortrayal.EMPTY)
+                        : ResolvedFeaturePortrayal.EMPTY;
         return new ResolvedFeaturePortrayal(
-                resolveRole(SymbolRole.MARKER, attributes, rules),
-                resolveRole(SymbolRole.LINE, attributes, rules),
-                resolveRole(SymbolRole.FILL, attributes, rules));
+                resolveRole(SymbolRole.MARKER, attributes, context, rules),
+                resolveRole(SymbolRole.LINE, attributes, context, rules),
+                resolveRole(SymbolRole.FILL, attributes, context, rules));
     }
 
     private Optional<Symbol> resolveRole(
-            SymbolRole role, Map<String, Object> attributes, ResolvedFeaturePortrayal ruleResult) {
+            SymbolRole role,
+            Map<String, Object> attributes,
+            PortrayalEvaluationContext context,
+            ResolvedFeaturePortrayal ruleResult) {
         SymbolSelector selector = selectors.get(role);
         if (selector == null) {
             return Optional.empty();
         }
+        PortrayalPredicate filter = filters.get(role);
+        if (filter != null && !RulePortrayalEvaluator.test(filter, attributes, context)) {
+            return Optional.empty();
+        }
         return selector instanceof RuleSymbolSelector
                 ? ruleResult.forRole(role)
-                : resolveOrdinary(selector, attributes);
+                : resolveOrdinary(selector, attributes, context);
+    }
+
+    private static BigDecimal interpolationInput(
+            InterpolationInput input,
+            String attribute,
+            io.github.mundanej.map.api.AttributeValueConversion conversion,
+            Map<String, Object> attributes,
+            PortrayalEvaluationContext context) {
+        if (input == InterpolationInput.ZOOM) {
+            return context.zoomLevel().isPresent()
+                    ? BigDecimal.valueOf(context.zoomLevel().orElseThrow())
+                    : null;
+        }
+        if (!attributes.containsKey(attribute)) {
+            if (conversion.operation()
+                    == io.github.mundanej.map.api.AttributeValueConversion.Operation.IDENTITY) {
+                return null;
+            }
+        }
+        Object primary =
+                attributes.getOrDefault(
+                        attribute, io.github.mundanej.map.api.AttributeNull.INSTANCE);
+        Optional<ThematicValue> value =
+                AttributeValueConversions.convert(primary, conversion, attributes);
+        return value.isPresent() && value.orElseThrow().kind() == ThematicValue.Kind.NUMERIC
+                ? (BigDecimal) value.orElseThrow().value()
+                : null;
+    }
+
+    private static void collectInputAttributes(
+            String primary,
+            io.github.mundanej.map.api.AttributeValueConversion conversion,
+            Set<String> attributes) {
+        if (conversion.candidates().isEmpty()) {
+            attributes.add(primary);
+            return;
+        }
+        for (AttributeValueCandidate candidate : conversion.candidates()) {
+            if (candidate instanceof AttributeValueCandidate.Attribute attribute) {
+                attributes.add(attribute.name());
+            }
+        }
     }
 
     private List<String> requiredPaintAttributes(boolean includeLabel) {
@@ -354,6 +511,41 @@ public final class FeaturePortrayalResolver {
                 }
             }
             return selected < 0 ? null : symbols[selected];
+        }
+    }
+
+    private static final class InterpolationTable {
+        private final BigDecimal[] inputs;
+        private final Symbol[] symbols;
+
+        private InterpolationTable(BigDecimal[] inputs, Symbol[] symbols) {
+            this.inputs = inputs;
+            this.symbols = symbols;
+        }
+
+        private Symbol select(BigDecimal value) {
+            if (value.compareTo(inputs[0]) <= 0) {
+                return symbols[0];
+            }
+            int last = inputs.length - 1;
+            if (value.compareTo(inputs[last]) >= 0) {
+                return symbols[last];
+            }
+            int low = 0;
+            int high = last;
+            while (low + 1 < high) {
+                int middle = (low + high) >>> 1;
+                if (inputs[middle].compareTo(value) <= 0) {
+                    low = middle;
+                } else {
+                    high = middle;
+                }
+            }
+            double fraction =
+                    value.subtract(inputs[low])
+                            .divide(inputs[high].subtract(inputs[low]), MathContext.DECIMAL64)
+                            .doubleValue();
+            return SymbolInterpolation.interpolate(symbols[low], symbols[high], fraction);
         }
     }
 }

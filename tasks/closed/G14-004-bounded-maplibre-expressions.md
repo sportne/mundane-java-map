@@ -1,6 +1,6 @@
 # G14-004 — Bounded MapLibre expressions
 
-Status: Proposed
+Status: Complete
 Depends on: G14-003
 Gate: G14
 Type: AFK
@@ -54,4 +54,12 @@ git diff --check
 ## Notes
 
 Only operators exercised by supported properties are admitted; “parse all expressions for later” is
-not acceptable scope.
+not acceptable scope. This task implements `to-number` for numeric property inputs. The approved
+`to-number` form contains at least one direct `get`; all-literal conversions use the equivalent
+literal property. The approved `to-string` operator is implemented by G14-005 with its first
+supported consumer, `text-field`.
+
+Completed with bounded categorical, stepped, conditional, and linear-interpolated paint
+expressions; exact ordered numeric conversion, missing/null handling, omission, required-attribute
+projection, zoom/CRS enforcement, filter guards, cancellation/allocation limits, rendering
+agreement, and stable construction diagnostics.
