@@ -14,13 +14,19 @@ import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class GpxViewerTest {
+    private static final String FIXTURE_ROOT = "/io/github/mundanej/map/example/gpx/fixtures/";
+    private static final String GPXPY_DIGEST =
+            "9ba7ee5166f37d2ce817b4eff012c614f86d143829dc5df3719baa34c5b21a86";
+
     @TempDir Path temporary;
 
     @Test
@@ -142,10 +148,43 @@ class GpxViewerTest {
         assertTrue(source.isClosed());
     }
 
+    @Test
+    void independentProducerFixtureAndProvenanceAreStableAndReadable() throws Exception {
+        byte[] fixture = resource("gpxpy-waypoint-track.gpx");
+        assertEquals(
+                GPXPY_DIGEST,
+                HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(fixture)));
+        String provenance = new String(resource("PROVENANCE.md"), StandardCharsets.UTF_8);
+        assertTrue(provenance.contains("gpxpy` 1.6.2"));
+        assertTrue(provenance.contains("Apache-2.0"));
+        assertTrue(provenance.contains("BSD-3-Clause"));
+        assertTrue(provenance.contains(GPXPY_DIGEST));
+
+        Path path = temporary.resolve("gpxpy-waypoint-track.gpx");
+        Files.write(path, fixture);
+        FeatureSource source = GpxViewer.open(path);
+        assertEquals(3, source.metadata().featureCount().orElseThrow());
+        assertTrue(
+                source.openingDiagnostics().entries().stream()
+                        .anyMatch(
+                                diagnostic ->
+                                        diagnostic.code().equals("GPX_TRACK_POINT_DATA_IGNORED")));
+        source.close();
+    }
+
     private Path write(String name, String content) throws Exception {
         Path path = temporary.resolve(name);
         Files.writeString(path, content, StandardCharsets.UTF_8);
         return path;
+    }
+
+    private static byte[] resource(String name) throws Exception {
+        try (var input = GpxViewerTest.class.getResourceAsStream(FIXTURE_ROOT + name)) {
+            if (input == null) {
+                throw new IllegalStateException("Missing GPX fixture: " + name);
+            }
+            return input.readAllBytes();
+        }
     }
 
     private static String validDocument() {

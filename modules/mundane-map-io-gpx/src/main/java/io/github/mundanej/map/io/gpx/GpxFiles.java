@@ -23,6 +23,22 @@ import java.util.Optional;
 
 /** Opens bounded local GPX 1.1 documents as immutable feature sources. */
 public final class GpxFiles {
+    private static final GpxFileAccess SYSTEM_ACCESS =
+            new GpxFileAccess() {
+                @Override
+                public BasicFileAttributes readAttributes(Path path) throws IOException {
+                    return Files.readAttributes(
+                            path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                }
+
+                @Override
+                public SeekableByteChannel open(Path path) throws IOException {
+                    return Files.newByteChannel(
+                            path,
+                            java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
+                }
+            };
+
     private GpxFiles() {}
 
     /**
@@ -44,7 +60,25 @@ public final class GpxFiles {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(cancellation, "cancellation");
         checkCancelled(identity, cancellation);
-        byte[] snapshot = readSnapshot(path, identity, options.formatLimits(), cancellation);
+        byte[] snapshot =
+                readSnapshot(path, identity, options.formatLimits(), cancellation, SYSTEM_ACCESS);
+        return openOwnedSnapshot(snapshot, identity, options, cancellation);
+    }
+
+    static FeatureSource open(
+            Path path,
+            SourceIdentity identity,
+            GpxOpenOptions options,
+            CancellationToken cancellation,
+            GpxFileAccess access) {
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(cancellation, "cancellation");
+        Objects.requireNonNull(access, "access");
+        checkCancelled(identity, cancellation);
+        byte[] snapshot =
+                readSnapshot(path, identity, options.formatLimits(), cancellation, access);
         return openOwnedSnapshot(snapshot, identity, options, cancellation);
     }
 
@@ -92,59 +126,111 @@ public final class GpxFiles {
     }
 
     private static byte[] readSnapshot(
-            Path path, SourceIdentity identity, GpxLimits limits, CancellationToken cancellation) {
+            Path path,
+            SourceIdentity identity,
+            GpxLimits limits,
+            CancellationToken cancellation,
+            GpxFileAccess access) {
         Path normalized = path.toAbsolutePath().normalize();
+        BasicFileAttributes before = initialAttributes(normalized, identity, access);
+        if (!before.isRegularFile() || before.isSymbolicLink() || before.size() == 0) {
+            throw ioFailure(identity, "attributes", "other", null);
+        }
+        if (before.size() > limits.maximumInputBytes()) {
+            throw limit(identity, "inputBytes", before.size(), limits.maximumInputBytes());
+        }
+        if (before.size() > limits.maximumOwnedBytes()) {
+            throw limit(identity, "ownedBytes", before.size(), limits.maximumOwnedBytes());
+        }
+        int expected = Math.toIntExact(before.size());
+        byte[] snapshot = new byte[expected];
+        readChannel(normalized, identity, cancellation, access, snapshot, expected);
+        BasicFileAttributes after = finalAttributes(normalized, identity, access);
+        if (!after.isRegularFile()
+                || after.isSymbolicLink()
+                || before.size() != after.size()
+                || !before.lastModifiedTime().equals(after.lastModifiedTime())
+                || !sameFileKey(before.fileKey(), after.fileKey())) {
+            throw ioFailure(identity, "read", "changed", null);
+        }
+        return snapshot;
+    }
+
+    private static BasicFileAttributes initialAttributes(
+            Path path, SourceIdentity identity, GpxFileAccess access) {
         try {
-            BasicFileAttributes before =
-                    Files.readAttributes(
-                            normalized, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (!before.isRegularFile() || before.isSymbolicLink() || before.size() == 0) {
-                throw ioFailure(identity, "attributes", "other", null);
-            }
-            if (before.size() > limits.maximumInputBytes()) {
-                throw limit(identity, "inputBytes", before.size(), limits.maximumInputBytes());
-            }
-            if (before.size() > limits.maximumOwnedBytes()) {
-                throw limit(identity, "ownedBytes", before.size(), limits.maximumOwnedBytes());
-            }
-            int expected = Math.toIntExact(before.size());
-            byte[] snapshot = new byte[expected];
-            try (SeekableByteChannel input =
-                    Files.newByteChannel(
-                            normalized,
-                            java.util.Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
-                ByteBuffer target = ByteBuffer.wrap(snapshot);
-                while (target.hasRemaining()) {
-                    checkCancelled(identity, cancellation);
-                    int count = input.read(target);
-                    if (count < 0) {
-                        throw ioFailure(identity, "read", "changed", null);
-                    }
-                }
-                checkCancelled(identity, cancellation);
-                if (input.size() != expected) {
-                    throw ioFailure(identity, "read", "changed", null);
-                }
-            }
-            BasicFileAttributes after =
-                    Files.readAttributes(
-                            normalized, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-            if (!after.isRegularFile()
-                    || after.isSymbolicLink()
-                    || before.size() != after.size()
-                    || !before.lastModifiedTime().equals(after.lastModifiedTime())
-                    || !sameFileKey(before.fileKey(), after.fileKey())) {
-                throw ioFailure(identity, "read", "changed", null);
-            }
-            return snapshot;
-        } catch (SourceException failure) {
-            throw failure;
+            return access.readAttributes(path);
         } catch (NoSuchFileException failure) {
             throw ioFailure(identity, "open", "notFound", failure);
         } catch (AccessDeniedException | SecurityException failure) {
             throw ioFailure(identity, "open", "accessDenied", failure);
         } catch (IOException failure) {
             throw ioFailure(identity, "read", "other", failure);
+        }
+    }
+
+    private static BasicFileAttributes finalAttributes(
+            Path path, SourceIdentity identity, GpxFileAccess access) {
+        try {
+            return access.readAttributes(path);
+        } catch (IOException | SecurityException failure) {
+            throw ioFailure(identity, "read", "changed", failure);
+        }
+    }
+
+    private static void readChannel(
+            Path path,
+            SourceIdentity identity,
+            CancellationToken cancellation,
+            GpxFileAccess access,
+            byte[] snapshot,
+            int expected) {
+        SeekableByteChannel input;
+        try {
+            input = access.open(path);
+        } catch (NoSuchFileException failure) {
+            throw ioFailure(identity, "open", "notFound", failure);
+        } catch (AccessDeniedException | SecurityException failure) {
+            throw ioFailure(identity, "open", "accessDenied", failure);
+        } catch (IOException failure) {
+            throw ioFailure(identity, "open", "other", failure);
+        }
+        Throwable primary = null;
+        try {
+            ByteBuffer target = ByteBuffer.wrap(snapshot);
+            while (target.hasRemaining()) {
+                checkCancelled(identity, cancellation);
+                int count = input.read(target);
+                if (count < 0) {
+                    throw ioFailure(identity, "read", "changed", null);
+                }
+            }
+            checkCancelled(identity, cancellation);
+            if (input.size() != expected) {
+                throw ioFailure(identity, "read", "changed", null);
+            }
+        } catch (IOException failure) {
+            primary = ioFailure(identity, "read", "other", failure);
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
+        }
+        SourceException closeFailure = null;
+        try {
+            input.close();
+        } catch (IOException failure) {
+            closeFailure = ioFailure(identity, "close", "other", failure);
+        }
+        if (primary != null) {
+            if (closeFailure != null) {
+                primary.addSuppressed(closeFailure);
+            }
+            if (primary instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw (Error) primary;
+        }
+        if (closeFailure != null) {
+            throw closeFailure;
         }
     }
 

@@ -23,6 +23,10 @@ final class GpxDiagnostics {
         this.retainedLimit = retainedLimit;
     }
 
+    boolean canRetainWarning() {
+        return retained.size() < retainedLimit;
+    }
+
     void warning(String code, Map<String, String> context, long recordNumber) {
         if (retained.size() < retainedLimit) {
             retained.add(

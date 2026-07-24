@@ -30,6 +30,7 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 
 final class GpxParser {
+    private static final long RETAINED_WARNING_BYTES = 256;
     static final AttributeSchema SCHEMA =
             new AttributeSchema(
                     List.of(
@@ -80,6 +81,17 @@ final class GpxParser {
                     Map.entry("extensions", 19));
     private static final Set<String> RETAINED_WAYPOINT_FIELDS =
             Set.of("ele", "time", "name", "cmt", "desc", "src", "sym", "type");
+    private static final Map<String, Integer> METADATA_ORDER =
+            Map.ofEntries(
+                    Map.entry("name", 1),
+                    Map.entry("desc", 2),
+                    Map.entry("author", 3),
+                    Map.entry("copyright", 4),
+                    Map.entry("link", 5),
+                    Map.entry("time", 6),
+                    Map.entry("keywords", 7),
+                    Map.entry("bounds", 8),
+                    Map.entry("extensions", 9));
     private static final Map<String, Integer> TRACK_ORDER =
             Map.ofEntries(
                     Map.entry("name", 1),
@@ -104,6 +116,7 @@ final class GpxParser {
     private int attributes;
     private int namespaces;
     private int textCharacters;
+    private int contiguousTextCharacters;
     private int physicalFeatures;
     private int coordinates;
     private int parts;
@@ -158,7 +171,8 @@ final class GpxParser {
             if (event == XMLStreamConstants.END_DOCUMENT) {
                 throw xmlFailure("syntax", null);
             }
-            if (event == XMLStreamConstants.CHARACTERS && !reader.isWhiteSpace()) {
+            if ((event == XMLStreamConstants.CHARACTERS || event == XMLStreamConstants.SPACE)
+                    && !reader.isWhiteSpace()) {
                 throw xmlFailure("syntax", null);
             }
         }
@@ -221,7 +235,7 @@ final class GpxParser {
                     }
                     extensionsSeen = true;
                     phase = 4;
-                    diagnostics.warning("GPX_EXTENSION_IGNORED", Map.of("scope", "root"), 0);
+                    warning("GPX_EXTENSION_IGNORED", Map.of("scope", "root"), 0);
                     skipSubtree();
                 }
                 default -> throw profileFailure("coreElement");
@@ -231,6 +245,8 @@ final class GpxParser {
 
     private void parseMetadata() throws XMLStreamException {
         requireAttributes(Set.of());
+        Set<String> seen = new java.util.HashSet<>();
+        int phase = 0;
         while (true) {
             int event = nextChildEvent();
             if (event == XMLStreamConstants.END_ELEMENT) {
@@ -239,12 +255,36 @@ final class GpxParser {
             if (!GPX.equals(reader.getNamespaceURI())) {
                 throw profileFailure("foreignElement");
             }
-            if ("extensions".equals(reader.getLocalName())) {
-                diagnostics.warning("GPX_EXTENSION_IGNORED", Map.of("scope", "metadata"), 0);
-            } else {
-                diagnostics.warning("GPX_FIELD_IGNORED", Map.of("scope", "metadata"), 0);
+            String local = reader.getLocalName();
+            Integer rank = METADATA_ORDER.get(local);
+            if (rank == null) {
+                throw profileFailure("coreElement");
             }
-            skipSubtree();
+            if (rank < phase) {
+                throw xmlFailure("order", null);
+            }
+            phase = rank;
+            if (!"link".equals(local) && !seen.add(local)) {
+                throw xmlFailure("cardinality", null);
+            }
+            if ("extensions".equals(local)) {
+                warning("GPX_EXTENSION_IGNORED", Map.of("scope", "metadata"), 0);
+                skipSubtree();
+            } else {
+                warning("GPX_FIELD_IGNORED", Map.of("scope", "metadata"), 0);
+                parseIgnoredMetadataField(local);
+            }
+        }
+    }
+
+    private void parseIgnoredMetadataField(String local) throws XMLStreamException {
+        switch (local) {
+            case "name", "desc", "time", "keywords" -> parseIgnoredScalar();
+            case "author" -> parsePerson();
+            case "copyright" -> parseCopyright();
+            case "link" -> parseLink();
+            case "bounds" -> parseBounds();
+            default -> throw new IllegalStateException("Unexpected GPX metadata field");
         }
     }
 
@@ -262,6 +302,7 @@ final class GpxParser {
         double y = coordinate("latitude", latitude, -90, 90, true);
         double x = coordinate("longitude", longitude, -180, 180, false);
         chargeCoordinate();
+        chargeOwned(16);
 
         String name = "";
         Object elevation = AttributeNull.INSTANCE;
@@ -291,18 +332,20 @@ final class GpxParser {
             }
             phase = rank;
             if (!"link".equals(local) && !seen.add(local)) {
-                throw valueFailure(fieldName(local), "duplicate");
+                throw xmlFailure("cardinality", null);
             }
             if ("extensions".equals(local)) {
-                diagnostics.warning(
-                        "GPX_EXTENSION_IGNORED", Map.of("scope", "waypoint"), currentRecord);
+                warning("GPX_EXTENSION_IGNORED", Map.of("scope", "waypoint"), currentRecord);
                 skipSubtree();
                 continue;
             }
             if (!RETAINED_WAYPOINT_FIELDS.contains(local)) {
-                diagnostics.warning(
-                        "GPX_FIELD_IGNORED", Map.of("scope", "waypoint"), currentRecord);
-                skipSubtree();
+                warning("GPX_FIELD_IGNORED", Map.of("scope", "waypoint"), currentRecord);
+                if ("link".equals(local)) {
+                    parseLink();
+                } else {
+                    parseIgnoredScalar();
+                }
                 continue;
             }
             requireAttributes(Set.of());
@@ -366,7 +409,7 @@ final class GpxParser {
             }
             phase = rank;
             if (!"link".equals(local) && !"trkseg".equals(local) && !seen.add(local)) {
-                throw valueFailure(trackFieldName(local), "duplicate");
+                throw xmlFailure("cardinality", null);
             }
             switch (local) {
                 case "name" -> {
@@ -394,11 +437,11 @@ final class GpxParser {
                     trackNumber = trackNumber(readScalar());
                 }
                 case "link" -> {
-                    diagnostics.warning("GPX_FIELD_IGNORED", Map.of("scope", "track"), 0);
-                    skipSubtree();
+                    warning("GPX_FIELD_IGNORED", Map.of("scope", "track"), 0);
+                    parseLink();
                 }
                 case "extensions" -> {
-                    diagnostics.warning("GPX_EXTENSION_IGNORED", Map.of("scope", "track"), 0);
+                    warning("GPX_EXTENSION_IGNORED", Map.of("scope", "track"), 0);
                     skipSubtree();
                 }
                 case "trkseg" ->
@@ -452,8 +495,7 @@ final class GpxParser {
                         throw xmlFailure("cardinality", null);
                     }
                     extensionsSeen = true;
-                    diagnostics.warning(
-                            "GPX_EXTENSION_IGNORED", Map.of("scope", "segment"), currentRecord);
+                    warning("GPX_EXTENSION_IGNORED", Map.of("scope", "segment"), currentRecord);
                     skipSubtree();
                 }
                 default -> throw profileFailure("coreElement");
@@ -461,10 +503,11 @@ final class GpxParser {
         }
         int pointCount = packed.size();
         if (pointCount < 2) {
-            diagnostics.warning(
+            warning(
                     "GPX_TRACK_SEGMENT_SKIPPED",
                     Map.of("reason", pointCount == 0 ? "empty" : "singlePoint"),
                     currentRecord);
+            packed.release();
             currentRecord = 0;
             return;
         }
@@ -485,7 +528,7 @@ final class GpxParser {
                 new FeatureRecord(
                         "gpx:trk:" + trackOrdinal + ":seg:" + segmentOrdinal,
                         name,
-                        new LineStringGeometry(CoordinateSequence.of(packed.toArray())),
+                        new LineStringGeometry(packed.toSequence()),
                         values));
         currentRecord = 0;
     }
@@ -534,29 +577,180 @@ final class GpxParser {
             }
             phase = rank;
             if (!"link".equals(local) && !seen.add(local)) {
-                throw valueFailure(fieldName(local), "duplicate");
+                throw xmlFailure("cardinality", null);
             }
             if ("extensions".equals(local)) {
-                diagnostics.warning(
-                        "GPX_EXTENSION_IGNORED", Map.of("scope", "trackPoint"), currentRecord);
+                warning("GPX_EXTENSION_IGNORED", Map.of("scope", "trackPoint"), currentRecord);
                 skipSubtree();
             } else if ("ele".equals(local)) {
                 requireAttributes(Set.of());
                 elevation(readScalar());
-                diagnostics.warning(
+                warning(
                         "GPX_TRACK_POINT_DATA_IGNORED",
                         Map.of("field", "elevation"),
                         currentRecord);
             } else if ("time".equals(local)) {
                 requireAttributes(Set.of());
                 time(readScalar());
-                diagnostics.warning(
-                        "GPX_TRACK_POINT_DATA_IGNORED", Map.of("field", "time"), currentRecord);
+                warning("GPX_TRACK_POINT_DATA_IGNORED", Map.of("field", "time"), currentRecord);
             } else {
-                diagnostics.warning(
-                        "GPX_TRACK_POINT_DATA_IGNORED", Map.of("field", "other"), currentRecord);
-                skipSubtree();
+                warning("GPX_TRACK_POINT_DATA_IGNORED", Map.of("field", "other"), currentRecord);
+                if ("link".equals(local)) {
+                    parseLink();
+                } else {
+                    parseIgnoredScalar();
+                }
             }
+        }
+    }
+
+    private void parsePerson() throws XMLStreamException {
+        requireAttributes(Set.of());
+        int phase = 0;
+        boolean nameSeen = false;
+        boolean emailSeen = false;
+        boolean linkSeen = false;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                return;
+            }
+            if (!GPX.equals(reader.getNamespaceURI())) {
+                throw profileFailure("foreignElement");
+            }
+            switch (reader.getLocalName()) {
+                case "name" -> {
+                    if (nameSeen || phase > 1) {
+                        throw xmlFailure(nameSeen ? "cardinality" : "order", null);
+                    }
+                    nameSeen = true;
+                    phase = 1;
+                    parseIgnoredScalar();
+                }
+                case "email" -> {
+                    if (emailSeen || phase > 2) {
+                        throw xmlFailure(emailSeen ? "cardinality" : "order", null);
+                    }
+                    emailSeen = true;
+                    phase = 2;
+                    requireAttributes(Set.of(new QName("", "id"), new QName("", "domain")));
+                    requireAttribute("id");
+                    requireAttribute("domain");
+                    requireEmptyElement();
+                }
+                case "link" -> {
+                    if (linkSeen || phase > 3) {
+                        throw xmlFailure(linkSeen ? "cardinality" : "order", null);
+                    }
+                    linkSeen = true;
+                    phase = 3;
+                    parseLink();
+                }
+                default -> throw profileFailure("coreElement");
+            }
+        }
+    }
+
+    private void parseCopyright() throws XMLStreamException {
+        requireAttributes(Set.of(new QName("", "author")));
+        requireAttribute("author");
+        int phase = 0;
+        boolean yearSeen = false;
+        boolean licenseSeen = false;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                return;
+            }
+            if (!GPX.equals(reader.getNamespaceURI())) {
+                throw profileFailure("foreignElement");
+            }
+            switch (reader.getLocalName()) {
+                case "year" -> {
+                    if (yearSeen || phase > 1) {
+                        throw xmlFailure(yearSeen ? "cardinality" : "order", null);
+                    }
+                    yearSeen = true;
+                    phase = 1;
+                    parseIgnoredScalar();
+                }
+                case "license" -> {
+                    if (licenseSeen || phase > 2) {
+                        throw xmlFailure(licenseSeen ? "cardinality" : "order", null);
+                    }
+                    licenseSeen = true;
+                    phase = 2;
+                    parseIgnoredScalar();
+                }
+                default -> throw profileFailure("coreElement");
+            }
+        }
+    }
+
+    private void parseLink() throws XMLStreamException {
+        requireAttributes(Set.of(new QName("", "href")));
+        requireAttribute("href");
+        int phase = 0;
+        boolean textSeen = false;
+        boolean typeSeen = false;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                return;
+            }
+            if (!GPX.equals(reader.getNamespaceURI())) {
+                throw profileFailure("foreignElement");
+            }
+            switch (reader.getLocalName()) {
+                case "text" -> {
+                    if (textSeen || phase > 1) {
+                        throw xmlFailure(textSeen ? "cardinality" : "order", null);
+                    }
+                    textSeen = true;
+                    phase = 1;
+                    parseIgnoredScalar();
+                }
+                case "type" -> {
+                    if (typeSeen || phase > 2) {
+                        throw xmlFailure(typeSeen ? "cardinality" : "order", null);
+                    }
+                    typeSeen = true;
+                    phase = 2;
+                    parseIgnoredScalar();
+                }
+                default -> throw profileFailure("coreElement");
+            }
+        }
+    }
+
+    private void parseBounds() throws XMLStreamException {
+        requireAttributes(
+                Set.of(
+                        new QName("", "minlat"),
+                        new QName("", "minlon"),
+                        new QName("", "maxlat"),
+                        new QName("", "maxlon")));
+        requireAttribute("minlat");
+        requireAttribute("minlon");
+        requireAttribute("maxlat");
+        requireAttribute("maxlon");
+        requireEmptyElement();
+    }
+
+    private void parseIgnoredScalar() throws XMLStreamException {
+        requireAttributes(Set.of());
+        readScalar();
+    }
+
+    private void requireAttribute(String local) {
+        if (reader.getAttributeValue("", local) == null) {
+            throw xmlFailure("cardinality", null);
+        }
+    }
+
+    private void requireEmptyElement() throws XMLStreamException {
+        if (nextChildEvent() != XMLStreamConstants.END_ELEMENT) {
+            throw xmlFailure("cardinality", null);
         }
     }
 
@@ -581,7 +775,8 @@ final class GpxParser {
             if (event == XMLStreamConstants.END_DOCUMENT) {
                 return;
             }
-            if (event == XMLStreamConstants.CHARACTERS && reader.isWhiteSpace()) {
+            if ((event == XMLStreamConstants.CHARACTERS || event == XMLStreamConstants.SPACE)
+                    && reader.isWhiteSpace()) {
                 continue;
             }
             if (event == XMLStreamConstants.COMMENT
@@ -599,7 +794,8 @@ final class GpxParser {
                     || event == XMLStreamConstants.END_ELEMENT) {
                 return event;
             }
-            if (event == XMLStreamConstants.CHARACTERS && reader.isWhiteSpace()) {
+            if ((event == XMLStreamConstants.CHARACTERS || event == XMLStreamConstants.SPACE)
+                    && reader.isWhiteSpace()) {
                 continue;
             }
             if (event == XMLStreamConstants.COMMENT
@@ -611,23 +807,40 @@ final class GpxParser {
     }
 
     private String readScalar() throws XMLStreamException {
-        StringBuilder value = new StringBuilder();
+        char[] value = new char[0];
+        int length = 0;
         while (true) {
             int event = nextEvent();
             if (event == XMLStreamConstants.END_ELEMENT) {
-                String result = value.toString();
-                chargeOwned(2L * result.length());
+                chargeOwned(2L * length);
+                String result = new String(value, 0, length);
+                releaseOwned(2L * value.length);
                 return result;
             }
-            if (event == XMLStreamConstants.CHARACTERS || event == XMLStreamConstants.CDATA) {
-                if ((long) value.length() + reader.getTextLength()
-                        > limits.maximumScalarCharacters()) {
+            if (event == XMLStreamConstants.CHARACTERS
+                    || event == XMLStreamConstants.CDATA
+                    || event == XMLStreamConstants.SPACE) {
+                int textLength = reader.getTextLength();
+                if ((long) length + textLength > limits.maximumScalarCharacters()) {
                     throw limit(
                             "scalarCharacters",
-                            (long) value.length() + reader.getTextLength(),
+                            (long) length + textLength,
                             limits.maximumScalarCharacters());
                 }
-                value.append(reader.getText());
+                int required = Math.addExact(length, textLength);
+                if (required > value.length) {
+                    chargeOwned(2L * required);
+                    char[] grown = java.util.Arrays.copyOf(value, required);
+                    releaseOwned(2L * value.length);
+                    value = grown;
+                }
+                System.arraycopy(
+                        reader.getTextCharacters(),
+                        reader.getTextStart(),
+                        value,
+                        length,
+                        textLength);
+                length = required;
                 continue;
             }
             if (event == XMLStreamConstants.COMMENT
@@ -659,11 +872,27 @@ final class GpxParser {
     }
 
     private void chargeEvent(int event) {
-        if (++events > limits.maximumXmlEvents()) {
-            throw limit("xmlEvents", events, limits.maximumXmlEvents());
+        if (event == XMLStreamConstants.CHARACTERS
+                || event == XMLStreamConstants.CDATA
+                || event == XMLStreamConstants.SPACE) {
+            contiguousTextCharacters =
+                    Math.addExact(contiguousTextCharacters, reader.getTextLength());
+            requireScalar(contiguousTextCharacters);
+        } else {
+            contiguousTextCharacters = 0;
+        }
+        if (event != XMLStreamConstants.CHARACTERS
+                && event != XMLStreamConstants.CDATA
+                && event != XMLStreamConstants.SPACE) {
+            if (++events > limits.maximumXmlEvents()) {
+                throw limit("xmlEvents", events, limits.maximumXmlEvents());
+            }
         }
         switch (event) {
             case XMLStreamConstants.START_ELEMENT -> {
+                chargeToken(reader.getLocalName());
+                chargeToken(reader.getNamespaceURI());
+                chargeToken(reader.getPrefix());
                 if (++depth > limits.maximumXmlDepth()) {
                     throw limit("xmlDepth", depth, limits.maximumXmlDepth());
                 }
@@ -682,21 +911,25 @@ final class GpxParser {
                             limits.maximumNamespaceDeclarations());
                 }
                 for (int index = 0; index < reader.getAttributeCount(); index++) {
-                    chargeText(reader.getAttributeValue(index).length());
+                    chargeToken(reader.getAttributeLocalName(index));
+                    chargeToken(reader.getAttributeNamespace(index));
+                    chargeToken(reader.getAttributePrefix(index));
+                    chargeToken(reader.getAttributeValue(index));
                 }
                 for (int index = 0; index < reader.getNamespaceCount(); index++) {
-                    String namespace = reader.getNamespaceURI(index);
-                    chargeText(namespace == null ? 0 : namespace.length());
+                    chargeToken(reader.getNamespacePrefix(index));
+                    chargeToken(reader.getNamespaceURI(index));
                 }
             }
             case XMLStreamConstants.END_ELEMENT -> depth--;
             case XMLStreamConstants.CHARACTERS,
                     XMLStreamConstants.CDATA,
-                    XMLStreamConstants.COMMENT ->
+                    XMLStreamConstants.SPACE ->
                     chargeText(reader.getTextLength());
+            case XMLStreamConstants.COMMENT -> chargeToken(reader.getText());
             case XMLStreamConstants.PROCESSING_INSTRUCTION -> {
-                chargeText(length(reader.getPITarget()));
-                chargeText(length(reader.getPIData()));
+                chargeToken(reader.getPITarget());
+                chargeToken(reader.getPIData());
             }
             case XMLStreamConstants.DTD -> throw xmlFailure("doctype", null);
             case XMLStreamConstants.ENTITY_REFERENCE -> throw xmlFailure("entity", null);
@@ -707,9 +940,22 @@ final class GpxParser {
     }
 
     private void chargeText(int count) {
+        chargeOwned(2L * count);
         textCharacters = Math.addExact(textCharacters, count);
         if (textCharacters > limits.maximumTextCharacters()) {
             throw limit("textCharacters", textCharacters, limits.maximumTextCharacters());
+        }
+    }
+
+    private void chargeToken(String value) {
+        int length = length(value);
+        requireScalar(length);
+        chargeText(length);
+    }
+
+    private void requireScalar(long length) {
+        if (length > limits.maximumScalarCharacters()) {
+            throw limit("scalarCharacters", length, limits.maximumScalarCharacters());
         }
     }
 
@@ -725,7 +971,6 @@ final class GpxParser {
         if (++coordinates > limits.maximumTotalCoordinates()) {
             throw limit("coordinates", coordinates, limits.maximumTotalCoordinates());
         }
-        chargeOwned(16);
     }
 
     private void chargePart() {
@@ -742,12 +987,26 @@ final class GpxParser {
         }
     }
 
+    private void releaseOwned(long count) {
+        ownedBytes = Math.subtractExact(ownedBytes, count);
+        if (ownedBytes < 0) {
+            throw new IllegalStateException("GPX owned-byte accounting underflow");
+        }
+    }
+
     private void requireAttributes(Set<QName> allowed) {
         for (int index = 0; index < reader.getAttributeCount(); index++) {
             if (!allowed.contains(reader.getAttributeName(index))) {
                 throw profileFailure("attribute");
             }
         }
+    }
+
+    private void warning(String code, Map<String, String> context, long recordNumber) {
+        if (diagnostics.canRetainWarning()) {
+            chargeOwned(RETAINED_WARNING_BYTES);
+        }
+        diagnostics.warning(code, context, recordNumber);
     }
 
     private double coordinate(
@@ -811,7 +1070,7 @@ final class GpxParser {
                 && (bytes[1] & 0xff) == 0xbb
                 && (bytes[2] & 0xff) == 0xbf) {
             offset = 3;
-            diagnostics.warning("GPX_UTF8_BOM_IGNORED", Map.of(), 0);
+            warning("GPX_UTF8_BOM_IGNORED", Map.of(), 0);
         } else if (hasUnsupportedBom()) {
             throw encodingFailure("bom");
         }
@@ -1033,27 +1292,6 @@ final class GpxParser {
         return Map.copyOf(context);
     }
 
-    private static String fieldName(String local) {
-        return switch (local) {
-            case "ele" -> "elevation";
-            case "cmt" -> "comment";
-            case "desc" -> "description";
-            case "src" -> "source";
-            case "sym" -> "symbol";
-            default -> local;
-        };
-    }
-
-    private static String trackFieldName(String local) {
-        return switch (local) {
-            case "cmt" -> "comment";
-            case "desc" -> "description";
-            case "src" -> "source";
-            case "number" -> "trackNumber";
-            default -> local;
-        };
-    }
-
     private static int length(String value) {
         return value == null ? 0 : value.length();
     }
@@ -1067,16 +1305,25 @@ final class GpxParser {
                 || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
     }
 
-    private static final class PackedCoordinates {
-        private double[] ordinates = new double[16];
+    private final class PackedCoordinates {
+        private double[] ordinates = new double[0];
         private int size;
 
         void add(double x, double y) {
             int required = Math.addExact(size, 2);
             if (required > ordinates.length) {
-                ordinates =
-                        java.util.Arrays.copyOf(
-                                ordinates, Math.max(required, Math.multiplyExact(size, 2)));
+                int capacity = Math.max(4, Math.max(required, Math.multiplyExact(size, 2)));
+                long bytes = Math.multiplyExact(8L, capacity);
+                chargeOwned(bytes);
+                double[] expanded;
+                try {
+                    expanded = java.util.Arrays.copyOf(ordinates, capacity);
+                } catch (RuntimeException | Error failure) {
+                    releaseOwned(bytes);
+                    throw failure;
+                }
+                releaseOwned(Math.multiplyExact(8L, ordinates.length));
+                ordinates = expanded;
             }
             ordinates[size] = x;
             ordinates[size + 1] = y;
@@ -1087,8 +1334,34 @@ final class GpxParser {
             return size / 2;
         }
 
-        double[] toArray() {
-            return java.util.Arrays.copyOf(ordinates, size);
+        CoordinateSequence toSequence() {
+            long exactBytes = Math.multiplyExact(8L, size);
+            double[] exact = ordinates;
+            boolean copied = size != ordinates.length;
+            if (copied) {
+                chargeOwned(exactBytes);
+                try {
+                    exact = java.util.Arrays.copyOf(ordinates, size);
+                } catch (RuntimeException | Error failure) {
+                    releaseOwned(exactBytes);
+                    throw failure;
+                }
+            }
+            chargeOwned(exactBytes);
+            try {
+                return CoordinateSequence.of(exact);
+            } finally {
+                if (copied) {
+                    releaseOwned(exactBytes);
+                }
+                release();
+            }
+        }
+
+        void release() {
+            releaseOwned(Math.multiplyExact(8L, ordinates.length));
+            ordinates = new double[0];
+            size = 0;
         }
     }
 
