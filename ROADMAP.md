@@ -417,8 +417,11 @@ separately decomposed.
   fixtures, and provenance-tracked independent producer fixture are verified. Its literal
   SHA-256-pinned fixture also completes valid query/render, warning, malformed-diagnostic, and
   cleanup paths in the required Linux Native Image lane. No Windows/macOS claim is made.
-  G10-054 through G10-057 remain the Proposed independent KML branch; the two parsers converge only
-  for shared final security/native evidence.
+  G10-054 is complete: the independently implemented published KML adapter securely snapshots local
+  UTF-8 KML 2.2, traverses supported containers, and exposes ordered Point and LineString placemarks
+  through the ordinary EPSG:4326 source/query/render stack. G10-055 through G10-057 remain the
+  proposed geometry-completion, hardening, and Native Image branch; GPX and KML converge only for
+  shared final security/native evidence.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native

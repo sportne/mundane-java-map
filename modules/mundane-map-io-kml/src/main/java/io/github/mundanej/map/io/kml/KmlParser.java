@@ -1,0 +1,918 @@
+package io.github.mundanej.map.io.kml;
+
+import io.github.mundanej.map.api.AttributeField;
+import io.github.mundanej.map.api.AttributeNull;
+import io.github.mundanej.map.api.AttributeSchema;
+import io.github.mundanej.map.api.AttributeType;
+import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.DiagnosticReport;
+import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.SourceException;
+import io.github.mundanej.map.api.SourceIdentity;
+import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.xml.XMLConstants;
+import javax.xml.namespace.QName;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+
+final class KmlParser {
+    static final AttributeSchema SCHEMA =
+            new AttributeSchema(
+                    List.of(
+                            new AttributeField("kmlId", AttributeType.TEXT, true),
+                            new AttributeField("description", AttributeType.TEXT, true),
+                            new AttributeField("geometryKind", AttributeType.TEXT, false)));
+
+    private static final String KML = "http://www.opengis.net/kml/2.2";
+    private static final QName ID = new QName("", "id");
+    private static final Pattern DECIMAL =
+            Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
+    private static final Set<String> PRESENTATION =
+            Set.of(
+                    "open",
+                    "LookAt",
+                    "Camera",
+                    "Snippet",
+                    "address",
+                    "phoneNumber",
+                    "Style",
+                    "StyleMap",
+                    "styleUrl",
+                    "ExtendedData");
+    private static final Set<String> UNSUPPORTED =
+            Set.of(
+                    "NetworkLinkControl",
+                    "NetworkLink",
+                    "GroundOverlay",
+                    "PhotoOverlay",
+                    "ScreenOverlay",
+                    "Model",
+                    "Tour",
+                    "Update",
+                    "Region",
+                    "TimeSpan",
+                    "TimeStamp",
+                    "Schema");
+
+    private final byte[] bytes;
+    private final KmlLimits limits;
+    private final CancellationToken cancellation;
+    private final KmlDiagnostics diagnostics;
+    private final List<FeatureRecord> records = new ArrayList<>();
+    private XMLStreamReader reader;
+    private int depth;
+    private int events;
+    private int elements;
+    private int attributes;
+    private int namespaceDeclarations;
+    private int textCharacters;
+    private int contiguousTextCharacters;
+    private int featureDepth;
+    private int physicalFeatures;
+    private int totalCoordinates;
+    private int parts;
+    private long currentRecord;
+    private long ownedBytes;
+
+    KmlParser(
+            byte[] bytes,
+            SourceIdentity identity,
+            KmlLimits limits,
+            CancellationToken cancellation) {
+        this.bytes = bytes;
+        this.limits = limits;
+        this.cancellation = cancellation;
+        diagnostics = new KmlDiagnostics(identity.id(), limits.retainedWarnings());
+        ownedBytes = bytes.length;
+    }
+
+    Opening parse() {
+        int offset = validateEncoding();
+        XMLInputFactory factory = secureFactory();
+        try {
+            reader =
+                    factory.createXMLStreamReader(
+                            new ByteArrayInputStream(bytes, offset, bytes.length - offset));
+            if (reader.getVersion() != null && !"1.0".equals(reader.getVersion())) {
+                throw encodingFailure("xmlVersion");
+            }
+            if (reader.getCharacterEncodingScheme() != null
+                    && !"UTF-8".equalsIgnoreCase(reader.getCharacterEncodingScheme())) {
+                throw encodingFailure("declaredEncoding");
+            }
+            moveToRoot();
+            parseRoot();
+            finishDocument();
+            checkCancelled();
+            return new Opening(List.copyOf(records), diagnostics.report());
+        } catch (SourceException failure) {
+            throw failure;
+        } catch (XMLStreamException failure) {
+            throw xmlFailure("syntax", failure);
+        } finally {
+            closeReader();
+        }
+    }
+
+    private void moveToRoot() throws XMLStreamException {
+        chargeEvent(reader.getEventType());
+        while (reader.getEventType() != XMLStreamConstants.START_ELEMENT) {
+            int event = nextEvent();
+            if (event == XMLStreamConstants.END_DOCUMENT) {
+                throw xmlFailure("syntax", null);
+            }
+            if (isText(event) && !reader.isWhiteSpace()) {
+                throw xmlFailure("syntax", null);
+            }
+        }
+    }
+
+    private void parseRoot() throws XMLStreamException {
+        requireElement("kml");
+        requireAttributes(Set.of());
+        int event = nextChildEvent();
+        if (event != XMLStreamConstants.START_ELEMENT) {
+            throw xmlFailure("cardinality", null);
+        }
+        requireKmlElement();
+        if (UNSUPPORTED.contains(reader.getLocalName())) {
+            throw profileFailure(unsupportedContext(reader.getLocalName()));
+        }
+        if (!isFeature(reader.getLocalName())) {
+            throw xmlFailure("cardinality", null);
+        }
+        parseFeature();
+        if (nextChildEvent() != XMLStreamConstants.END_ELEMENT) {
+            throw xmlFailure("cardinality", null);
+        }
+    }
+
+    private void parseFeature() throws XMLStreamException {
+        String feature = reader.getLocalName();
+        requireElement(feature);
+        enterFeature();
+        try {
+            if ("Placemark".equals(feature)) {
+                parsePlacemark();
+            } else {
+                parseContainer();
+            }
+        } finally {
+            featureDepth--;
+        }
+    }
+
+    private void parseContainer() throws XMLStreamException {
+        requireAttributes(Set.of());
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                return;
+            }
+            String local = requireKmlElement();
+            if (isFeature(local)) {
+                parseFeature();
+            } else if ("name".equals(local) || "description".equals(local)) {
+                parseScalar(local, Set.of());
+            } else if ("visibility".equals(local)) {
+                parseVisibility();
+            } else if (PRESENTATION.contains(local)) {
+                warning("KML_PRESENTATION_IGNORED", presentationContext(local));
+                skipSubtree();
+            } else if (UNSUPPORTED.contains(local)) {
+                throw profileFailure(unsupportedContext(local));
+            } else {
+                throw profileFailure("foreignElement");
+            }
+        }
+    }
+
+    private void parsePlacemark() throws XMLStreamException {
+        currentRecord = chargePhysicalFeature();
+        requireAttributes(Set.of(ID));
+        String kmlId = reader.getAttributeValue("", "id");
+        if (kmlId != null) {
+            kmlId = validateId(kmlId);
+        }
+        String name = "";
+        Object description = AttributeNull.INSTANCE;
+        Geometry geometry = null;
+        String geometryKind = null;
+        boolean nameSeen = false;
+        boolean descriptionSeen = false;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            String local = requireKmlElement();
+            switch (local) {
+                case "name" -> {
+                    if (nameSeen) {
+                        throw valueFailure("name", "duplicate");
+                    }
+                    nameSeen = true;
+                    name = validateText(parseScalar("name", Set.of()));
+                }
+                case "description" -> {
+                    if (descriptionSeen) {
+                        throw valueFailure("description", "duplicate");
+                    }
+                    descriptionSeen = true;
+                    description = validateText(parseScalar("description", Set.of()));
+                }
+                case "visibility" -> parseVisibility();
+                case "Point", "LineString" -> {
+                    if (geometry != null) {
+                        throw valueFailure("coordinates", "cardinality");
+                    }
+                    geometry = parseSimpleGeometry(local);
+                    geometryKind = "Point".equals(local) ? "point" : "line";
+                }
+                case "Polygon", "MultiGeometry" -> throw profileFailure("geometry");
+                default -> {
+                    if (PRESENTATION.contains(local)) {
+                        warning("KML_PRESENTATION_IGNORED", presentationContext(local));
+                        skipSubtree();
+                    } else if (UNSUPPORTED.contains(local)) {
+                        throw profileFailure(unsupportedContext(local));
+                    } else {
+                        throw profileFailure("foreignElement");
+                    }
+                }
+            }
+        }
+        if (geometry == null) {
+            warning("KML_PLACEMARK_SKIPPED", Map.of("reason", "noGeometry"));
+            currentRecord = 0;
+            return;
+        }
+        LinkedHashMap<String, Object> values = new LinkedHashMap<>();
+        values.put("kmlId", kmlId == null ? AttributeNull.INSTANCE : kmlId);
+        values.put("description", description);
+        values.put("geometryKind", geometryKind);
+        records.add(new FeatureRecord("kml:placemark:" + physicalFeatures, name, geometry, values));
+        currentRecord = 0;
+    }
+
+    private Geometry parseSimpleGeometry(String kind) throws XMLStreamException {
+        requireAttributes(Set.of());
+        String coordinates = null;
+        boolean altitudeModeSeen = false;
+        boolean extrudeSeen = false;
+        boolean tessellateSeen = false;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            String local = requireKmlElement();
+            switch (local) {
+                case "coordinates" -> {
+                    if (coordinates != null) {
+                        throw valueFailure("coordinates", "duplicate");
+                    }
+                    coordinates = parseScalar("coordinates", Set.of());
+                }
+                case "altitudeMode" -> {
+                    if (altitudeModeSeen) {
+                        throw valueFailure("coordinates", "duplicate");
+                    }
+                    altitudeModeSeen = true;
+                    String mode = parseScalar("coordinates", Set.of()).strip();
+                    if (!"clampToGround".equals(mode)) {
+                        throw profileFailure("altitudeMode");
+                    }
+                }
+                case "extrude" -> {
+                    if (extrudeSeen) {
+                        throw valueFailure("coordinates", "duplicate");
+                    }
+                    extrudeSeen = true;
+                    requireFalse(parseScalar("coordinates", Set.of()), "extrude");
+                }
+                case "tessellate" -> {
+                    if (tessellateSeen) {
+                        throw valueFailure("coordinates", "duplicate");
+                    }
+                    tessellateSeen = true;
+                    requireFalse(parseScalar("coordinates", Set.of()), "tessellate");
+                }
+                default -> throw profileFailure("geometry");
+            }
+        }
+        if (coordinates == null) {
+            throw valueFailure("coordinates", "missing");
+        }
+        CoordinateSequence sequence = parseCoordinates(coordinates);
+        if ("Point".equals(kind)) {
+            if (sequence.size() != 1) {
+                throw valueFailure("coordinates", "cardinality");
+            }
+            return new PointGeometry(sequence.coordinate(0));
+        }
+        if (sequence.size() < 2) {
+            throw valueFailure("coordinates", "cardinality");
+        }
+        return new LineStringGeometry(sequence);
+    }
+
+    private CoordinateSequence parseCoordinates(String value) {
+        String stripped = value.strip();
+        if (stripped.isEmpty()) {
+            throw valueFailure("coordinates", "missing");
+        }
+        java.util.StringTokenizer tokenizer = new java.util.StringTokenizer(stripped);
+        int tupleCount = tokenizer.countTokens();
+        if (tupleCount > limits.maximumCoordinatesPerGeometry()) {
+            throw limit("geometryCoordinates", tupleCount, limits.maximumCoordinatesPerGeometry());
+        }
+        chargeGeometry(tupleCount);
+        double[] packed = new double[Math.multiplyExact(tupleCount, 2)];
+        for (int index = 0; index < tupleCount; index++) {
+            checkCancelled();
+            String tuple = tokenizer.nextToken();
+            int firstComma = tuple.indexOf(',');
+            int secondComma = firstComma < 0 ? -1 : tuple.indexOf(',', firstComma + 1);
+            if (firstComma <= 0
+                    || firstComma == tuple.length() - 1
+                    || (secondComma >= 0
+                            && (secondComma == firstComma + 1
+                                    || secondComma == tuple.length() - 1
+                                    || tuple.indexOf(',', secondComma + 1) >= 0))) {
+                throw valueFailure("coordinates", "syntax");
+            }
+            String longitude = tuple.substring(0, firstComma);
+            String latitude =
+                    tuple.substring(firstComma + 1, secondComma < 0 ? tuple.length() : secondComma);
+            double x = coordinate("longitude", longitude, -180, 180);
+            double y = coordinate("latitude", latitude, -90, 90);
+            if (secondComma >= 0) {
+                decimal("altitude", tuple.substring(secondComma + 1));
+                warning("KML_ALTITUDE_IGNORED", Map.of());
+            }
+            packed[index * 2] = x;
+            packed[index * 2 + 1] = y;
+        }
+        return CoordinateSequence.of(packed);
+    }
+
+    private void parseVisibility() throws XMLStreamException {
+        String visibility = parseScalar("coordinates", Set.of()).strip();
+        if (!"1".equals(visibility) && !"true".equals(visibility)) {
+            throw profileFailure("visibility");
+        }
+    }
+
+    private void requireFalse(String value, String construct) {
+        String stripped = value.strip();
+        if (!"0".equals(stripped) && !"false".equals(stripped)) {
+            throw profileFailure(construct);
+        }
+    }
+
+    private String parseScalar(String field, Set<QName> attributesAllowed)
+            throws XMLStreamException {
+        requireAttributes(attributesAllowed);
+        StringBuilder result = new StringBuilder();
+        while (true) {
+            int event = nextEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                return result.toString();
+            }
+            if (isText(event)) {
+                if ((long) result.length() + reader.getTextLength()
+                        > limits.maximumScalarCharacters()) {
+                    throw limit(
+                            "scalarCharacters",
+                            (long) result.length() + reader.getTextLength(),
+                            limits.maximumScalarCharacters());
+                }
+                result.append(
+                        reader.getTextCharacters(), reader.getTextStart(), reader.getTextLength());
+            } else if (event != XMLStreamConstants.COMMENT
+                    && event != XMLStreamConstants.PROCESSING_INSTRUCTION) {
+                throw valueFailure(field, "nestedContent");
+            }
+        }
+    }
+
+    private void skipSubtree() throws XMLStreamException {
+        int nested = 1;
+        while (nested > 0) {
+            int event = nextEvent();
+            if (event == XMLStreamConstants.START_ELEMENT) {
+                nested++;
+            } else if (event == XMLStreamConstants.END_ELEMENT) {
+                nested--;
+            }
+        }
+    }
+
+    private void finishDocument() throws XMLStreamException {
+        while (reader.hasNext()) {
+            int event = nextEvent();
+            if (event == XMLStreamConstants.END_DOCUMENT) {
+                return;
+            }
+            if (isText(event) && reader.isWhiteSpace()) {
+                continue;
+            }
+            if (event != XMLStreamConstants.COMMENT
+                    && event != XMLStreamConstants.PROCESSING_INSTRUCTION) {
+                throw xmlFailure("trailingContent", null);
+            }
+        }
+    }
+
+    private int nextChildEvent() throws XMLStreamException {
+        while (true) {
+            int event = nextEvent();
+            if (event == XMLStreamConstants.START_ELEMENT
+                    || event == XMLStreamConstants.END_ELEMENT) {
+                return event;
+            }
+            if (isText(event) && reader.isWhiteSpace()) {
+                continue;
+            }
+            if (event != XMLStreamConstants.COMMENT
+                    && event != XMLStreamConstants.PROCESSING_INSTRUCTION) {
+                throw xmlFailure("syntax", null);
+            }
+        }
+    }
+
+    private int nextEvent() throws XMLStreamException {
+        checkCancelled();
+        int event = reader.next();
+        chargeEvent(event);
+        checkCancelled();
+        return event;
+    }
+
+    private void chargeEvent(int event) {
+        if (isText(event)) {
+            contiguousTextCharacters =
+                    Math.addExact(contiguousTextCharacters, reader.getTextLength());
+            requireScalar(contiguousTextCharacters);
+        } else {
+            contiguousTextCharacters = 0;
+            if (++events > limits.maximumXmlEvents()) {
+                throw limit("xmlEvents", events, limits.maximumXmlEvents());
+            }
+        }
+        switch (event) {
+            case XMLStreamConstants.START_ELEMENT -> {
+                if (++depth > limits.maximumXmlDepth()) {
+                    throw limit("xmlDepth", depth, limits.maximumXmlDepth());
+                }
+                if (++elements > limits.maximumElements()) {
+                    throw limit("elements", elements, limits.maximumElements());
+                }
+                attributes = Math.addExact(attributes, reader.getAttributeCount());
+                if (attributes > limits.maximumAttributes()) {
+                    throw limit("attributes", attributes, limits.maximumAttributes());
+                }
+                namespaceDeclarations =
+                        Math.addExact(namespaceDeclarations, reader.getNamespaceCount());
+                if (namespaceDeclarations > limits.maximumNamespaceDeclarations()) {
+                    throw limit(
+                            "namespaceDeclarations",
+                            namespaceDeclarations,
+                            limits.maximumNamespaceDeclarations());
+                }
+                chargeToken(reader.getLocalName());
+                chargeToken(reader.getNamespaceURI());
+                chargeToken(reader.getPrefix());
+                for (int index = 0; index < reader.getAttributeCount(); index++) {
+                    chargeToken(reader.getAttributeLocalName(index));
+                    chargeToken(reader.getAttributeNamespace(index));
+                    chargeToken(reader.getAttributeValue(index));
+                }
+                for (int index = 0; index < reader.getNamespaceCount(); index++) {
+                    chargeToken(reader.getNamespacePrefix(index));
+                    chargeToken(reader.getNamespaceURI(index));
+                }
+            }
+            case XMLStreamConstants.END_ELEMENT -> depth--;
+            case XMLStreamConstants.CHARACTERS,
+                    XMLStreamConstants.CDATA,
+                    XMLStreamConstants.SPACE ->
+                    chargeText(reader.getTextLength());
+            case XMLStreamConstants.COMMENT -> chargeToken(reader.getText());
+            case XMLStreamConstants.PROCESSING_INSTRUCTION -> {
+                chargeToken(reader.getPITarget());
+                chargeToken(reader.getPIData());
+            }
+            case XMLStreamConstants.DTD -> throw xmlFailure("doctype", null);
+            case XMLStreamConstants.ENTITY_REFERENCE -> throw xmlFailure("entity", null);
+            default -> {
+                // Other document events need only their event charge.
+            }
+        }
+    }
+
+    private void enterFeature() {
+        if (++featureDepth > limits.maximumFeatureDepth()) {
+            throw limit("featureDepth", featureDepth, limits.maximumFeatureDepth());
+        }
+    }
+
+    private long chargePhysicalFeature() {
+        if (++physicalFeatures > limits.maximumPhysicalFeatures()) {
+            throw limit("features", physicalFeatures, limits.maximumPhysicalFeatures());
+        }
+        chargeOwned(8);
+        return physicalFeatures;
+    }
+
+    private void chargeGeometry(int coordinateCount) {
+        long requestedParts = (long) parts + 1;
+        if (requestedParts > limits.maximumParts()) {
+            throw limit("parts", requestedParts, limits.maximumParts());
+        }
+        long requestedCoordinates = (long) totalCoordinates + coordinateCount;
+        if (requestedCoordinates > limits.maximumTotalCoordinates()) {
+            throw limit("coordinates", requestedCoordinates, limits.maximumTotalCoordinates());
+        }
+        long retainedAndTransientBytes = Math.addExact(4L, 16L * coordinateCount);
+        long requestedOwned = Math.addExact(ownedBytes, retainedAndTransientBytes);
+        if (requestedOwned > limits.maximumOwnedBytes()) {
+            throw limit("ownedBytes", requestedOwned, limits.maximumOwnedBytes());
+        }
+        parts++;
+        totalCoordinates = Math.toIntExact(requestedCoordinates);
+        ownedBytes = requestedOwned;
+    }
+
+    private void chargeToken(String value) {
+        int length = value == null ? 0 : value.length();
+        requireScalar(length);
+        chargeText(length);
+    }
+
+    private void chargeText(int count) {
+        textCharacters = Math.addExact(textCharacters, count);
+        if (textCharacters > limits.maximumTextCharacters()) {
+            throw limit("textCharacters", textCharacters, limits.maximumTextCharacters());
+        }
+        chargeOwned(2L * count);
+    }
+
+    private void requireScalar(long length) {
+        if (length > limits.maximumScalarCharacters()) {
+            throw limit("scalarCharacters", length, limits.maximumScalarCharacters());
+        }
+    }
+
+    private void chargeOwned(long count) {
+        ownedBytes = Math.addExact(ownedBytes, count);
+        if (ownedBytes > limits.maximumOwnedBytes()) {
+            throw limit("ownedBytes", ownedBytes, limits.maximumOwnedBytes());
+        }
+    }
+
+    private void warning(String code, Map<String, String> context) {
+        if (diagnostics.canRetainWarning()) {
+            chargeOwned(256);
+        }
+        diagnostics.warning(code, context, currentRecord);
+    }
+
+    private String validateText(String value) {
+        if (value.length() > limits.maximumScalarCharacters()) {
+            throw limit("scalarCharacters", value.length(), limits.maximumScalarCharacters());
+        }
+        return value;
+    }
+
+    private String validateId(String value) {
+        if (value.isBlank()) {
+            throw valueFailure("id", "syntax");
+        }
+        return validateText(value);
+    }
+
+    private double coordinate(String field, String token, double minimum, double maximum) {
+        double value = decimal(field, token);
+        if (value < minimum || value > maximum) {
+            throw valueFailure(field, "range");
+        }
+        return value == 0 ? 0 : value;
+    }
+
+    private double decimal(String field, String value) {
+        String token = value.strip();
+        if (token.length() > limits.maximumNumberCharacters()) {
+            throw limit("numberCharacters", token.length(), limits.maximumNumberCharacters());
+        }
+        if (!DECIMAL.matcher(token).matches()) {
+            throw valueFailure(field, "syntax");
+        }
+        try {
+            double parsed = Double.parseDouble(token);
+            if (!Double.isFinite(parsed)) {
+                throw valueFailure(field, "nonFinite");
+            }
+            return parsed == 0 ? 0 : parsed;
+        } catch (NumberFormatException failure) {
+            throw valueFailure(field, "nonFinite");
+        }
+    }
+
+    private int validateEncoding() {
+        int offset = 0;
+        if (bytes.length >= 3
+                && (bytes[0] & 0xff) == 0xef
+                && (bytes[1] & 0xff) == 0xbb
+                && (bytes[2] & 0xff) == 0xbf) {
+            diagnostics.warning("KML_UTF8_BOM_IGNORED", Map.of(), 0);
+            offset = 3;
+        } else if (hasUnsupportedBom()) {
+            throw encodingFailure("bom");
+        }
+        int index = offset;
+        while (index < bytes.length) {
+            checkCancelled();
+            int first = bytes[index] & 0xff;
+            int codePoint;
+            int length;
+            if (first < 0x80) {
+                codePoint = first;
+                length = 1;
+            } else if (first >= 0xc2 && first <= 0xdf) {
+                codePoint = first & 0x1f;
+                length = 2;
+            } else if (first >= 0xe0 && first <= 0xef) {
+                codePoint = first & 0x0f;
+                length = 3;
+            } else if (first >= 0xf0 && first <= 0xf4) {
+                codePoint = first & 0x07;
+                length = 4;
+            } else {
+                throw encodingFailure("utf8");
+            }
+            if (index + length > bytes.length) {
+                throw encodingFailure("utf8");
+            }
+            for (int part = 1; part < length; part++) {
+                int continuation = bytes[index + part] & 0xff;
+                if ((continuation & 0xc0) != 0x80) {
+                    throw encodingFailure("utf8");
+                }
+                codePoint = codePoint << 6 | (continuation & 0x3f);
+            }
+            if ((length == 3
+                            && ((first == 0xe0 && (bytes[index + 1] & 0xff) < 0xa0)
+                                    || (first == 0xed && (bytes[index + 1] & 0xff) >= 0xa0)))
+                    || (length == 4
+                            && ((first == 0xf0 && (bytes[index + 1] & 0xff) < 0x90)
+                                    || (first == 0xf4 && (bytes[index + 1] & 0xff) >= 0x90)))
+                    || !validXmlCodePoint(codePoint)) {
+                throw encodingFailure("utf8");
+            }
+            index += length;
+        }
+        validateDeclaration(offset);
+        return offset;
+    }
+
+    private void validateDeclaration(int offset) {
+        if (bytes.length - offset < 5
+                || bytes[offset] != '<'
+                || bytes[offset + 1] != '?'
+                || bytes[offset + 2] != 'x'
+                || bytes[offset + 3] != 'm'
+                || bytes[offset + 4] != 'l') {
+            return;
+        }
+        int end = -1;
+        int maximum = Math.min(bytes.length - 1, offset + 512);
+        for (int index = offset + 5; index < maximum; index++) {
+            if ((bytes[index] & 0xff) > 0x7f) {
+                throw encodingFailure("declaredEncoding");
+            }
+            if (bytes[index] == '?' && bytes[index + 1] == '>') {
+                end = index + 2;
+                break;
+            }
+        }
+        if (end < 0) {
+            return;
+        }
+        String declaration =
+                new String(bytes, offset, end - offset, java.nio.charset.StandardCharsets.US_ASCII);
+        Matcher version =
+                Pattern.compile("version\\s*=\\s*(['\"])([^'\"]+)\\1", Pattern.CASE_INSENSITIVE)
+                        .matcher(declaration);
+        if (version.find() && !"1.0".equals(version.group(2))) {
+            throw encodingFailure("xmlVersion");
+        }
+        Matcher encoding =
+                Pattern.compile("encoding\\s*=\\s*(['\"])([^'\"]+)\\1", Pattern.CASE_INSENSITIVE)
+                        .matcher(declaration);
+        if (encoding.find() && !"utf-8".equalsIgnoreCase(encoding.group(2))) {
+            throw encodingFailure("declaredEncoding");
+        }
+    }
+
+    private boolean hasUnsupportedBom() {
+        return bytes.length >= 2
+                && (((bytes[0] & 0xff) == 0xfe && (bytes[1] & 0xff) == 0xff)
+                        || ((bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xfe)
+                        || (bytes.length >= 4
+                                && bytes[0] == 0
+                                && bytes[1] == 0
+                                && (bytes[2] & 0xff) == 0xfe
+                                && (bytes[3] & 0xff) == 0xff));
+    }
+
+    private XMLInputFactory secureFactory() {
+        XMLInputFactory factory = XMLInputFactory.newDefaultFactory();
+        configure(factory, XMLInputFactory.IS_NAMESPACE_AWARE, true);
+        configure(factory, XMLInputFactory.IS_COALESCING, false);
+        configure(factory, XMLInputFactory.IS_VALIDATING, false);
+        configure(factory, XMLInputFactory.SUPPORT_DTD, false);
+        configure(factory, XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        configure(factory, XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, false);
+        configure(factory, XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        configure(factory, XMLConstants.USE_CATALOG, false);
+        factory.setXMLResolver(
+                (publicId, systemId, baseUri, namespace) -> {
+                    throw new XMLStreamException("External KML resources are disabled");
+                });
+        factory.setXMLReporter(
+                (message, errorType, relatedInformation, location) -> {
+                    throw new XMLStreamException("KML parser report");
+                });
+        return factory;
+    }
+
+    private static void configure(XMLInputFactory factory, String name, Object value) {
+        try {
+            factory.setProperty(name, value);
+            if (!value.equals(factory.getProperty(name))) {
+                throw new IllegalStateException("Required KML parser policy was not retained");
+            }
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalStateException("Required KML parser policy is unavailable", failure);
+        }
+    }
+
+    private void closeReader() {
+        if (reader != null) {
+            try {
+                reader.close();
+            } catch (XMLStreamException ignored) {
+                // No resource survives eager parsing; a terminal parse error remains primary.
+            }
+        }
+    }
+
+    private void requireElement(String local) {
+        if (!local.equals(reader.getLocalName()) || !KML.equals(reader.getNamespaceURI())) {
+            throw xmlFailure("namespace", null);
+        }
+    }
+
+    private String requireKmlElement() {
+        if (!KML.equals(reader.getNamespaceURI())) {
+            throw profileFailure("foreignElement");
+        }
+        return reader.getLocalName();
+    }
+
+    private void requireAttributes(Set<QName> allowed) {
+        for (int index = 0; index < reader.getAttributeCount(); index++) {
+            if (!allowed.contains(reader.getAttributeName(index))) {
+                throw profileFailure("attribute");
+            }
+        }
+    }
+
+    private void checkCancelled() {
+        if (cancellation.isCancellationRequested()) {
+            throw diagnostics.failure(
+                    "SOURCE_CANCELLED",
+                    Map.of("operation", "kml-open"),
+                    currentRecord,
+                    "KML operation was cancelled",
+                    null);
+        }
+    }
+
+    private SourceException limit(String limit, long requested, long maximum) {
+        return diagnostics.failure(
+                "SOURCE_LIMIT_EXCEEDED",
+                Map.of(
+                        "scope",
+                        "kmlOpen",
+                        "limit",
+                        limit,
+                        "requested",
+                        Long.toString(requested),
+                        "maximum",
+                        Long.toString(maximum)),
+                currentRecord,
+                "KML opening limit was exceeded",
+                null);
+    }
+
+    private SourceException encodingFailure(String reason) {
+        return diagnostics.failure(
+                "KML_ENCODING_INVALID",
+                Map.of("reason", reason),
+                currentRecord,
+                "KML encoding is outside the supported profile",
+                null);
+    }
+
+    private SourceException xmlFailure(String reason, Throwable cause) {
+        return diagnostics.failure(
+                "KML_XML_INVALID",
+                Map.of("reason", reason),
+                currentRecord,
+                "KML XML is invalid",
+                cause);
+    }
+
+    private SourceException profileFailure(String construct) {
+        return diagnostics.failure(
+                "KML_PROFILE_UNSUPPORTED",
+                Map.of("construct", construct),
+                currentRecord,
+                "KML construct is outside the supported profile",
+                null);
+    }
+
+    private SourceException valueFailure(String field, String reason) {
+        return diagnostics.failure(
+                "KML_VALUE_INVALID",
+                Map.of("field", field, "reason", reason),
+                currentRecord,
+                "KML value is invalid",
+                null);
+    }
+
+    private static boolean isFeature(String local) {
+        return "Document".equals(local) || "Folder".equals(local) || "Placemark".equals(local);
+    }
+
+    private static boolean isText(int event) {
+        return event == XMLStreamConstants.CHARACTERS
+                || event == XMLStreamConstants.CDATA
+                || event == XMLStreamConstants.SPACE;
+    }
+
+    private static boolean validXmlCodePoint(int codePoint) {
+        return codePoint == 0x9
+                || codePoint == 0xa
+                || codePoint == 0xd
+                || (codePoint >= 0x20 && codePoint <= 0xd7ff)
+                || (codePoint >= 0xe000 && codePoint <= 0xfffd)
+                || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+    }
+
+    private static Map<String, String> presentationContext(String local) {
+        return Map.of(
+                "construct",
+                switch (local) {
+                    case "open" -> "open";
+                    case "LookAt", "Camera" -> "view";
+                    case "Snippet" -> "snippet";
+                    case "Style", "StyleMap" -> "style";
+                    case "styleUrl" -> "styleUrl";
+                    case "ExtendedData" -> "extendedData";
+                    default -> "contact";
+                });
+    }
+
+    private static String unsupportedContext(String local) {
+        return switch (local) {
+            case "NetworkLink", "NetworkLinkControl" -> "network";
+            case "GroundOverlay", "PhotoOverlay", "ScreenOverlay" -> "overlay";
+            case "Model" -> "model";
+            case "Tour" -> "tour";
+            case "Update" -> "update";
+            case "Region" -> "region";
+            case "TimeSpan", "TimeStamp" -> "time";
+            case "Schema" -> "schema";
+            default -> "foreignElement";
+        };
+    }
+
+    record Opening(List<FeatureRecord> records, DiagnosticReport diagnostics) {}
+}

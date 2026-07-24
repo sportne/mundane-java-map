@@ -1484,6 +1484,78 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void kmlModuleIsAwtFreeExplicitJdkOnlyLevelTwoAndLocalOnly() {
+        ModuleDescriptor kml = moduleEndingWith("mundane-map-io-kml");
+        JavaClasses classes = classesByModule.get(kml);
+        List<String> prohibitedToolkitNetworkOrXmlModels =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getBaseComponentType()
+                                                .getName())
+                        .filter(
+                                target ->
+                                        target.startsWith("java.awt.")
+                                                || target.startsWith("javax.swing.")
+                                                || target.startsWith("javax.imageio.")
+                                                || target.startsWith("java.net.")
+                                                || target.startsWith("org.w3c.dom.")
+                                                || target.startsWith("org.xml.sax.")
+                                                || target.startsWith("java.lang.reflect.")
+                                                || target.startsWith("java.util.ServiceLoader")
+                                                || (target.startsWith("javax.xml.")
+                                                        && !target.equals("javax.xml.XMLConstants")
+                                                        && !target.startsWith("javax.xml.stream.")
+                                                        && !target.startsWith(
+                                                                "javax.xml.namespace.")))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        Set<String> publicTypes =
+                classes.stream()
+                        .filter(
+                                type ->
+                                        type.getPackageName()
+                                                .equals("io.github.mundanej.map.io.kml"))
+                        .filter(type -> type.getName().indexOf('$') < 0)
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .map(JavaClass::getSimpleName)
+                        .collect(Collectors.toUnmodifiableSet());
+        JavaClasses apiClasses = classesByModule.get(moduleEndingWith("mundane-map-api"));
+        List<String> publicStaxLeaks =
+                classes.stream()
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(target -> target.startsWith("javax.xml.stream."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+
+        assertEquals("JDK_RUNTIME", kml.category());
+        assertEquals(2, kml.releaseLevel());
+        assertFalse(kml.nativeTarget(), "G10-057 supplies KML Native Image evidence");
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                kml.allowedRuntimeProjects());
+        assertFalse(classes.isEmpty(), "Expected the working KML format module");
+        assertTrue(
+                prohibitedToolkitNetworkOrXmlModels.isEmpty(),
+                () -> String.join("\n", prohibitedToolkitNetworkOrXmlModels));
+        assertTrue(ArchitecturePolicy.prohibitedMechanismViolations(classes).isEmpty());
+        assertEquals(Set.of("KmlFiles", "KmlLimits", "KmlOpenOptions"), publicTypes);
+        assertTrue(
+                apiClasses.stream().noneMatch(type -> type.getSimpleName().startsWith("Kml")),
+                "KML-specific types must not leak into mundane-map-api");
+        assertTrue(
+                publicStaxLeaks.isEmpty(),
+                () -> "public KML API leaked StAX types: " + publicStaxLeaks);
+    }
+
+    @Test
     void militarySymbologyModuleIsJdkOnlyAwtFreeExplicitAndWorking() {
         ModuleDescriptor military = moduleEndingWith("mundane-map-symbology-milstd2525");
         JavaClasses classes = classesByModule.get(military);

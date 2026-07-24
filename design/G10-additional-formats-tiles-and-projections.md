@@ -2321,6 +2321,14 @@ ignored-field warning, malformed-XML diagnostic, and deterministic cleanup in th
 CE 21.0.2 Linux executable. This evidence does not claim Windows/macOS or general XML compatibility.
 One integration owner serializes those shared changes. No module is created by this profile card.
 
+Implementation evidence (2026-07-24): G10-054 creates the independent published JDK-only KML module.
+Its bounded local snapshot and directly configured StAX state machine traverse supported
+Document/Folder containers, materialize Point and LineString placemarks in preorder with the fixed
+schema and EPSG:4326 metadata, and exercise ordinary query, rendering, publication, and clean
+consumer behavior. It shares no parser or public XML abstraction with GPX. Polygon,
+MultiGeometry, exhaustive hostile-input evidence, and Native Image remain assigned to G10-055
+through G10-057.
+
 Decision record (2026-07-17): **G10 GPX/KML source profile approval** is approved through the
 maintainer's advance HITL authorization for dependency-free remaining tasks. Approval accepts both
 independent secure StAX profiles, their explicit warned data loss, and G10-050 through G10-057 exactly

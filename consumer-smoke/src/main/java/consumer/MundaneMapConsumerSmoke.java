@@ -67,6 +67,8 @@ import io.github.mundanej.map.io.geotiff.GeoTiffFiles;
 import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
 import io.github.mundanej.map.io.gpx.GpxFiles;
 import io.github.mundanej.map.io.gpx.GpxOpenOptions;
+import io.github.mundanej.map.io.kml.KmlFiles;
+import io.github.mundanej.map.io.kml.KmlOpenOptions;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
@@ -128,6 +130,7 @@ public final class MundaneMapConsumerSmoke {
             testSvg(directory);
             testGeoJson(directory, registry);
             testGpx(directory);
+            testKml(directory);
             testShapefile(directory);
             testMalformedShapefile(directory);
             testImages(directory, decoders);
@@ -371,6 +374,54 @@ public final class MundaneMapConsumerSmoke {
                     record.attributes().get("elevationMetres").equals(18.5),
                     "unexpected GPX elevation");
             require(!cursor.advance(), "GPX source had an extra record");
+        }
+    }
+
+    private static void testKml(Path directory) throws IOException {
+        Path path = directory.resolve("consumer.kml");
+        Files.writeString(
+                path,
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <kml xmlns="http://www.opengis.net/kml/2.2">
+                  <Document>
+                    <Placemark id="white-house">
+                      <name>White House</name>
+                      <Point><coordinates>-77.0365,38.8977</coordinates></Point>
+                    </Placemark>
+                    <Placemark>
+                      <name>Approach</name>
+                      <LineString>
+                        <coordinates>-77.05,38.89 -77.0365,38.8977</coordinates>
+                      </LineString>
+                    </Placemark>
+                  </Document>
+                </kml>
+                """,
+                java.nio.charset.StandardCharsets.UTF_8);
+        FeatureSource source =
+                KmlFiles.open(
+                        path,
+                        new SourceIdentity("consumer-kml", "Consumer KML"),
+                        KmlOpenOptions.defaults(),
+                        CancellationToken.none());
+        try (source;
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            require(cursor.advance(), "KML source was empty");
+            FeatureRecord point = cursor.current();
+            require(point.id().equals("kml:placemark:1"), "unexpected KML id");
+            require(point.name().equals("White House"), "unexpected KML name");
+            require(
+                    point.geometry()
+                            .equals(new PointGeometry(new Coordinate(-77.0365, 38.8977))),
+                    "unexpected KML point");
+            require(cursor.advance(), "KML line was missing");
+            require(
+                    cursor.current().geometry()
+                            instanceof io.github.mundanej.map.api.LineStringGeometry,
+                    "unexpected KML line");
+            require(!cursor.advance(), "KML source had an extra record");
         }
     }
 
