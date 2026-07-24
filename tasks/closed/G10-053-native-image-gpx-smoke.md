@@ -1,6 +1,6 @@
 # G10-053 — Native Image GPX smoke
 
-Status: Proposed
+Status: Complete
 Depends on: G10-052
 Gate: G10
 Type: HITL
@@ -56,3 +56,9 @@ git diff --check
 
 HITL checkpoint: **G10 GPX Linux Native Image evidence review**. The maintainer must approve the
 recorded executable evidence and bounded platform claim.
+
+Completion evidence (2026-07-23): the maintainer pre-approved this checkpoint. GraalVM CE 21.0.2 on
+Linux built and ran the aggregate native executable successfully. Its literal SHA-256-pinned GPX
+resource produced three queried/rendered features, retained the approved ignored-field warning,
+returned the exact malformed-XML diagnostic, and released its source, cursor, temporary file, and
+fixture workspace. This is a bounded Linux claim only.

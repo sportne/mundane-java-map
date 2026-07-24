@@ -14,6 +14,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-se')
     implementation project(':modules:mundane-map-io-geojson-jackson')
     implementation project(':modules:mundane-map-io-geotiff')
+    implementation project(':modules:mundane-map-io-gpx')
     implementation project(':modules:mundane-map-workspace')
     implementation project(':modules:mundane-map-symbology-milstd2525')
 }
@@ -43,6 +44,8 @@ def geoTiffFixtures = [
     'gdal-int16-strip-packbits-4326.tif',
     'gdal-float32-tile-deflate-3857.tif'
 ].collect { geoTiffCorpusData.file(it) }
+def gpxFixture = project(':examples:gpx-viewer').layout.projectDirectory.file(
+        'src/main/resources/io/github/mundanej/map/example/gpx/fixtures/gpxpy-waypoint-track.gpx')
 
 tasks.named('processResources') {
     shapefileComponents.eachWithIndex { extension, index ->
@@ -59,6 +62,12 @@ tasks.named('processResources') {
         }
     }
     inputs.files(geoTiffFixtures)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    from(gpxFixture) {
+        into 'io/github/mundanej/map/nativeimage/gpx'
+        rename { 'gpxpy-waypoint-track.gpx' }
+    }
+    inputs.file(gpxFixture)
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

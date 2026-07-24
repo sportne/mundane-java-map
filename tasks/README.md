@@ -287,7 +287,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-050 — GPX waypoint first slice](closed/G10-050-gpx-waypoint-first-slice.md) | Complete | AFK | G10-005 | Read, query, render, publish, and consume bounded GPX waypoints. |
 | [G10-051 — GPX track rendering slice](closed/G10-051-gpx-track-rendering-slice.md) | Complete | AFK | G10-050 | Render bounded track segments with fixed attributes and warned omissions. |
 | [G10-052 — GPX hardening and fixtures](closed/G10-052-gpx-hardening-and-fixtures.md) | Complete | HITL | G10-051 | Close grammar and hostile-input behavior and approve fixture provenance. |
-| [G10-053 — Native Image GPX smoke](G10-053-native-image-gpx-smoke.md) | Proposed | HITL | G10-052 | Prove bounded GPX success, warning, and malformed Linux native paths. |
+| [G10-053 — Native Image GPX smoke](closed/G10-053-native-image-gpx-smoke.md) | Complete | HITL | G10-052 | Prove bounded GPX success, warning, and malformed Linux native paths. |
 | [G10-054 — KML point and line first slice](G10-054-kml-point-line-first-slice.md) | Proposed | AFK | G10-005 | Read, query, render, publish, and consume bounded KML points and lines. |
 | [G10-055 — KML polygon and MultiGeometry slice](G10-055-kml-polygon-multigeometry-slice.md) | Proposed | AFK | G10-054 | Render bounded polygons and homogeneous MultiGeometry values. |
 | [G10-056 — KML hardening and fixtures](G10-056-kml-hardening-and-fixtures.md) | Proposed | HITL | G10-055 | Close KML warning/rejection/security behavior and approve fixture provenance. |

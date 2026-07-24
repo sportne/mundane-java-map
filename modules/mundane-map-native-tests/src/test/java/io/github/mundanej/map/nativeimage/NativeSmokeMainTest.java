@@ -184,6 +184,12 @@ class NativeSmokeMainTest {
                           "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
                         },
                         "pattern": "\\\\Qio/github/mundanej/map/nativeimage/se/native-style.xml\\\\E"
+                      },
+                      {
+                        "condition": {
+                          "typeReachable": "io.github.mundanej.map.nativeimage.NativeSmokeMain"
+                        },
+                        "pattern": "\\\\Qio/github/mundanej/map/nativeimage/gpx/gpxpy-waypoint-track.gpx\\\\E"
                       }
                     ]
                   }

@@ -66,6 +66,9 @@ public final class NativeSmokeMain {
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGeoTiff()) {
             NativeGeoTiffSmokeScenario.run(workspace.geoTiffPaths());
         }
+        try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGpx()) {
+            NativeGpxSmokeScenario.run(workspace.gpxPath());
+        }
         NativeWorkspaceSmokeScenario.run();
     }
 

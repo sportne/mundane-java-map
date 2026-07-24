@@ -54,6 +54,8 @@ class ArchitectureRulesTest {
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-gray-tile-deflate-3857.tif",
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-int16-strip-packbits-4326.tif",
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-float32-tile-deflate-3857.tif");
+    private static final Set<String> NATIVE_GPX_RESOURCES =
+            Set.of(NATIVE_RESOURCE_DIRECTORY + "gpx/gpxpy-waypoint-track.gpx");
     private static final Set<String> NATIVE_SE_RESOURCES =
             Set.of(NATIVE_RESOURCE_DIRECTORY + "se/native-style.xml");
 
@@ -1463,7 +1465,7 @@ class ArchitectureRulesTest {
 
         assertEquals("JDK_RUNTIME", gpx.category());
         assertEquals(2, gpx.releaseLevel());
-        assertFalse(gpx.nativeTarget(), "G10-053 owns GPX Native Image evidence");
+        assertTrue(gpx.nativeTarget(), "G10-053 supplies GPX Native Image evidence");
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 gpx.allowedRuntimeProjects());
@@ -1631,7 +1633,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactTwelveExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactThirteenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1644,6 +1646,7 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-se",
                         ":modules:mundane-map-io-geojson-jackson",
                         ":modules:mundane-map-io-geotiff",
+                        ":modules:mundane-map-io-gpx",
                         ":modules:mundane-map-workspace",
                         ":modules:mundane-map-symbology-milstd2525");
         Set<String> actual =
@@ -1752,7 +1755,10 @@ class ArchitectureRulesTest {
                         .collect(Collectors.toUnmodifiableSet());
         Set<String> processed =
                 java.util.stream.Stream.of(
-                                checkedIn, NATIVE_SHAPEFILE_RESOURCES, NATIVE_GEOTIFF_RESOURCES)
+                                checkedIn,
+                                NATIVE_SHAPEFILE_RESOURCES,
+                                NATIVE_GEOTIFF_RESOURCES,
+                                NATIVE_GPX_RESOURCES)
                         .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
 
@@ -1781,7 +1787,11 @@ class ArchitectureRulesTest {
                                                         NATIVE_DTED_RESOURCES.stream(),
                                                         java.util.stream.Stream.concat(
                                                                 NATIVE_GEOTIFF_RESOURCES.stream(),
-                                                                NATIVE_SE_RESOURCES.stream())))))
+                                                                java.util.stream.Stream.concat(
+                                                                        NATIVE_GPX_RESOURCES
+                                                                                .stream(),
+                                                                        NATIVE_SE_RESOURCES
+                                                                                .stream()))))))
                         .collect(Collectors.toUnmodifiableSet());
         List<String> violations =
                 ArchitecturePolicy.explicitResourceConfigViolations(

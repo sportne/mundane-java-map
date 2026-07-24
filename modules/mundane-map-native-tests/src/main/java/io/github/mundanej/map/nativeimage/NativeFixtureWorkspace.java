@@ -61,6 +61,13 @@ final class NativeFixtureWorkspace implements AutoCloseable {
                 new JdkWorkspaceFiles("mundane-map-geotiff-native-"));
     }
 
+    static NativeFixtureWorkspace openGpx() {
+        return open(
+                NativeGpxResources.INVENTORY,
+                NativeSmokeMain.class::getResourceAsStream,
+                new JdkWorkspaceFiles("mundane-map-gpx-native-"));
+    }
+
     static NativeFixtureWorkspace openDted(ResourceReader resources, WorkspaceFiles files) {
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(files, "files");
@@ -153,6 +160,11 @@ final class NativeFixtureWorkspace implements AutoCloseable {
                 required(NativeGeoTiffResources.RASTER_DEFLATE),
                 required(NativeGeoTiffResources.ELEVATION_PACKBITS),
                 required(NativeGeoTiffResources.ELEVATION_DEFLATE));
+    }
+
+    Path gpxPath() {
+        requireOpen();
+        return required(NativeGpxResources.VALID);
     }
 
     @Override

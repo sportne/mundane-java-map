@@ -2310,13 +2310,15 @@ G10-057 additionally waits for G10-053 for the combined closeout. The GPX and KM
 logically parallel after G10-005, but their first cards are not path-safe while both change settings,
 architecture inventories, publication, consumer, native inventory, task index, and roadmap files.
 
-Implementation evidence (2026-07-23): G10-050 through G10-052 implement the JVM GPX profile. The
+Implementation evidence (2026-07-23): G10-050 through G10-053 implement and close the GPX profile. The
 hardening closeout validates all recognized ignored structures without publishing them, rejects
 closed-profile content, accounts structural/text/coordinate/owned-memory budgets prospectively, and
 preserves primary parse/read failures over suppressed cleanup failures. Checked-in security fixtures
 and seeded mutations cover hostile inputs. The independent gpxpy 1.6.2 fixture records its generation
-recipe, tool license, repository redistribution terms, and SHA-256. G10-053 remains responsible for
-the explicitly registered Linux Native Image evidence.
+recipe, tool license, repository redistribution terms, and SHA-256. An explicitly registered copy of
+that fixture runs through the hardened StAX parser, source query, label-free Java2D portrayal,
+ignored-field warning, malformed-XML diagnostic, and deterministic cleanup in the aggregate GraalVM
+CE 21.0.2 Linux executable. This evidence does not claim Windows/macOS or general XML compatibility.
 One integration owner serializes those shared changes. No module is created by this profile card.
 
 Decision record (2026-07-17): **G10 GPX/KML source profile approval** is approved through the
