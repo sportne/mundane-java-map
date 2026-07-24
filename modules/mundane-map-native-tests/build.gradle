@@ -15,6 +15,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-geojson-jackson')
     implementation project(':modules:mundane-map-io-geotiff')
     implementation project(':modules:mundane-map-io-gpx')
+    implementation project(':modules:mundane-map-io-kml')
     implementation project(':modules:mundane-map-workspace')
     implementation project(':modules:mundane-map-symbology-milstd2525')
 }
@@ -46,6 +47,8 @@ def geoTiffFixtures = [
 ].collect { geoTiffCorpusData.file(it) }
 def gpxFixture = project(':examples:gpx-viewer').layout.projectDirectory.file(
         'src/main/resources/io/github/mundanej/map/example/gpx/fixtures/gpxpy-waypoint-track.gpx')
+def kmlFixture = project(':examples:kml-viewer').layout.projectDirectory.file(
+        'src/main/resources/io/github/mundanej/map/example/kml/fixtures/simplekml-static-profile.kml')
 
 tasks.named('processResources') {
     shapefileComponents.eachWithIndex { extension, index ->
@@ -68,6 +71,12 @@ tasks.named('processResources') {
         rename { 'gpxpy-waypoint-track.gpx' }
     }
     inputs.file(gpxFixture)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    from(kmlFixture) {
+        into 'io/github/mundanej/map/nativeimage/kml'
+        rename { 'simplekml-static-profile.kml' }
+    }
+    inputs.file(kmlFixture)
             .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

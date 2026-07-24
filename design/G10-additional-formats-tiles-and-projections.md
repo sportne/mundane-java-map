@@ -2352,6 +2352,16 @@ automatic non-profile object IDs, is distributed as BSD-3-Clause project output,
 at SHA-256 `32fc9de3e4cc1a09254f01a3b922a406b2237f79c3c6dc403ede3b5c7f37e2f2`.
 Native Image remains assigned to G10-057.
 
+Implementation evidence (2026-07-24): G10-057 closes the independent KML Native Image path and the
+shared GPX/KML security review. The native support application copies only the 1,330-byte,
+SHA-256-pinned simplekml fixture through an exact resource-config entry and a verified temporary
+workspace. The Linux GraalVM CE 21.0.2 executable directly constructs the hardened KML StAX parser,
+queries three features, renders point/line/polygon content through the ordinary Java2D portrayal,
+retains an altitude-loss warning, produces the exact malformed-XML diagnostic, and removes all
+temporary files. Architecture evidence keeps both XML modules JDK-only, AWT-free, independently
+configured, and free of reflection, discovery, external resolution, or public StAX types. This is
+bounded Linux evidence only; it is not a Windows/macOS or general XML compatibility claim.
+
 Decision record (2026-07-17): **G10 GPX/KML source profile approval** is approved through the
 maintainer's advance HITL authorization for dependency-free remaining tasks. Approval accepts both
 independent secure StAX profiles, their explicit warned data loss, and G10-050 through G10-057 exactly

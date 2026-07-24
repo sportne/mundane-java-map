@@ -69,6 +69,9 @@ public final class NativeSmokeMain {
         try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openGpx()) {
             NativeGpxSmokeScenario.run(workspace.gpxPath());
         }
+        try (NativeFixtureWorkspace workspace = NativeFixtureWorkspace.openKml()) {
+            NativeKmlSmokeScenario.run(workspace.kmlPath());
+        }
         NativeWorkspaceSmokeScenario.run();
     }
 

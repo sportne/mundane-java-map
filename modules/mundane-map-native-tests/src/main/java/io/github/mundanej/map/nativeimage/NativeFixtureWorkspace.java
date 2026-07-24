@@ -68,6 +68,13 @@ final class NativeFixtureWorkspace implements AutoCloseable {
                 new JdkWorkspaceFiles("mundane-map-gpx-native-"));
     }
 
+    static NativeFixtureWorkspace openKml() {
+        return open(
+                NativeKmlResources.INVENTORY,
+                NativeSmokeMain.class::getResourceAsStream,
+                new JdkWorkspaceFiles("mundane-map-kml-native-"));
+    }
+
     static NativeFixtureWorkspace openDted(ResourceReader resources, WorkspaceFiles files) {
         Objects.requireNonNull(resources, "resources");
         Objects.requireNonNull(files, "files");
@@ -165,6 +172,11 @@ final class NativeFixtureWorkspace implements AutoCloseable {
     Path gpxPath() {
         requireOpen();
         return required(NativeGpxResources.VALID);
+    }
+
+    Path kmlPath() {
+        requireOpen();
+        return required(NativeKmlResources.VALID);
     }
 
     @Override

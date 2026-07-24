@@ -1,6 +1,6 @@
 # G10-057 — Native Image KML closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G10-053, G10-056
 Gate: G10
 Type: HITL
@@ -53,5 +53,13 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: **G10 GPX/KML Linux Native Image and security closeout**. The maintainer must approve
-the executable evidence, external-access canaries, and bounded platform statements.
+HITL checkpoint: **G10 GPX/KML Linux Native Image and security closeout**. The maintainer approved this
+checkpoint through the advance HITL authorization for the selected execution sequence.
+
+Completion evidence (2026-07-24): the exact 1,330-byte simplekml fixture at SHA-256
+`32fc9de3e4cc1a09254f01a3b922a406b2237f79c3c6dc403ede3b5c7f37e2f2` is explicitly copied and
+registered. The GraalVM CE 21.0.2 Linux executable opens, queries, and renders its three features,
+retains `KML_ALTITUDE_IGNORED`, checks the exact `KML_XML_INVALID reason=syntax` malformed outcome,
+and verifies deterministic cleanup. Architecture tests retain independent JDK-only/AWT-free GPX and
+KML modules, literal resource inventories, and prohibited-mechanism checks. The native and ordinary
+quality lanes pass; no Windows/macOS claim is made.

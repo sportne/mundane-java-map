@@ -424,8 +424,11 @@ separately decomposed.
   multipart geometry. G10-056 is also complete: the closed grammar, warned presentation/altitude
   loss, rejected dynamic/network constructs, all parser budgets, mutation/cancellation/cleanup
   precedence, hostile XML fixtures, seeded mutations, and a provenance-pinned simplekml fixture are
-  verified without dereferencing input references. G10-057 remains the proposed Native Image
-  closeout; GPX and KML converge only for shared final security/native evidence.
+  verified without dereferencing input references. G10-057 is complete: the exact checksummed KML
+  fixture now runs through parser construction, query, tolerant Java2D rendering, an altitude-loss
+  warning, malformed-XML diagnostics, and deterministic cleanup in the Linux GraalVM CE 21.0.2
+  executable. GPX and KML remain independent production modules and converge only in the aggregate
+  native/security evidence. No Windows/macOS Native Image claim is made.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native

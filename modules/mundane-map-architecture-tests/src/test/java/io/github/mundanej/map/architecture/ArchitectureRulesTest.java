@@ -56,6 +56,8 @@ class ArchitectureRulesTest {
                     NATIVE_RESOURCE_DIRECTORY + "geotiff/gdal-float32-tile-deflate-3857.tif");
     private static final Set<String> NATIVE_GPX_RESOURCES =
             Set.of(NATIVE_RESOURCE_DIRECTORY + "gpx/gpxpy-waypoint-track.gpx");
+    private static final Set<String> NATIVE_KML_RESOURCES =
+            Set.of(NATIVE_RESOURCE_DIRECTORY + "kml/simplekml-static-profile.kml");
     private static final Set<String> NATIVE_SE_RESOURCES =
             Set.of(NATIVE_RESOURCE_DIRECTORY + "se/native-style.xml");
 
@@ -1537,7 +1539,7 @@ class ArchitectureRulesTest {
 
         assertEquals("JDK_RUNTIME", kml.category());
         assertEquals(2, kml.releaseLevel());
-        assertFalse(kml.nativeTarget(), "G10-057 supplies KML Native Image evidence");
+        assertTrue(kml.nativeTarget(), "G10-057 supplies KML Native Image evidence");
         assertEquals(
                 Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
                 kml.allowedRuntimeProjects());
@@ -1705,7 +1707,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactThirteenExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactFourteenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1719,6 +1721,7 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-geojson-jackson",
                         ":modules:mundane-map-io-geotiff",
                         ":modules:mundane-map-io-gpx",
+                        ":modules:mundane-map-io-kml",
                         ":modules:mundane-map-workspace",
                         ":modules:mundane-map-symbology-milstd2525");
         Set<String> actual =
@@ -1830,7 +1833,8 @@ class ArchitectureRulesTest {
                                 checkedIn,
                                 NATIVE_SHAPEFILE_RESOURCES,
                                 NATIVE_GEOTIFF_RESOURCES,
-                                NATIVE_GPX_RESOURCES)
+                                NATIVE_GPX_RESOURCES,
+                                NATIVE_KML_RESOURCES)
                         .flatMap(Set::stream)
                         .collect(Collectors.toUnmodifiableSet());
 
@@ -1862,8 +1866,12 @@ class ArchitectureRulesTest {
                                                                 java.util.stream.Stream.concat(
                                                                         NATIVE_GPX_RESOURCES
                                                                                 .stream(),
-                                                                        NATIVE_SE_RESOURCES
-                                                                                .stream()))))))
+                                                                        java.util.stream.Stream
+                                                                                .concat(
+                                                                                        NATIVE_KML_RESOURCES
+                                                                                                .stream(),
+                                                                                        NATIVE_SE_RESOURCES
+                                                                                                .stream())))))))
                         .collect(Collectors.toUnmodifiableSet());
         List<String> violations =
                 ArchitecturePolicy.explicitResourceConfigViolations(
