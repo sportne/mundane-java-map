@@ -1,6 +1,6 @@
 # G14-001 — MapLibre Style profile decision
 
-Status: Proposed
+Status: Complete
 Depends on: G13-006, G10-025
 Gate: G14
 Type: HITL
@@ -55,3 +55,7 @@ git diff --check
 
 HITL checkpoint: **G14 MapLibre v8 profile and Jackson boundary approval**. This approves a named
 subset, not full MapLibre or Mapbox style compatibility.
+
+The maintainer approved all selected HITL tasks when authorizing the G14 execution sequence. The
+approved profile is recorded in `design/G14-maplibre-style.md`; it introduces no production module
+or API in this decision task.

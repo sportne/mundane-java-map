@@ -350,7 +350,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G14-001 — MapLibre Style profile decision](G14-001-maplibre-style-profile-decision.md) | Proposed | HITL | G13-006, G10-025 | Approve the v8 root/source/layer/property/expression matrix and Jackson boundary. |
+| [G14-001 — MapLibre Style profile decision](closed/G14-001-maplibre-style-profile-decision.md) | Complete | HITL | G13-006, G10-025 | Approved the v8 root/source/layer/property/expression matrix and Jackson boundary. |
 | [G14-002 — Literal vector-layer slice](G14-002-literal-vector-layer-slice.md) | Proposed | AFK | G14-001 | Create the optional adapter and render literal circle, line, and fill layers. |
 | [G14-003 — Explicit source, filter, and zoom binding](G14-003-explicit-source-filter-and-zoom-binding.md) | Proposed | AFK | G14-002 | Bind caller sources transactionally and apply filters, zoom ranges, and layer order. |
 | [G14-004 — Bounded MapLibre expressions](G14-004-bounded-maplibre-expressions.md) | Proposed | AFK | G14-003 | Evaluate the approved closed typed expression subset with exact limits and types. |

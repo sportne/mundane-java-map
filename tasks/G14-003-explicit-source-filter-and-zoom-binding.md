@@ -17,9 +17,13 @@ metadata; only an explicit application registry grants access to actual `Feature
 
 ## Scope
 
-Implement immutable source registry/bind context, all-or-nothing preflight, approved legacy/filter
-syntax or expression-form filters fixed by G14-001, min/max zoom, Web Mercator zoom derivation,
-required-attribute projection, ordered map-binding construction, and ownership/cleanup tests.
+Implement immutable source registry/bind context, all-or-nothing preflight, the approved
+expression-form filters fixed by G14-001, the closed `Exists`/`GeometryTypeIs`/`Constant`
+predicate additions, typed null/boolean/finite-decimal/string `PortrayalOperand` values, optional
+zoom and normalized singular/multi geometry type in `PortrayalEvaluationContext`, resolver-supplied
+geometry context, exact missing/null/type truth semantics, min/max zoom, Web Mercator zoom derivation
+and invalidation, required-attribute projection, ordered map-binding construction, and
+ownership/cleanup tests.
 
 ## Out of scope
 
@@ -30,6 +34,8 @@ implicit registry lookup, feature-state, non-Web-Mercator zoom inference, or mut
 
 - Every layer source resolves by exact key before any binding is published.
 - Filter missing/null/type behavior and min-inclusive/max-exclusive zoom boundaries are exact.
+- Typed filter literals preserve JSON type, and singular/multi geometries normalize to the exact
+  MapLibre `geometry-type` values before evaluation.
 - Zoom-dependent styles attach only to supported Web Mercator context; literal styles remain usable
   with otherwise compatible CRSs.
 - Layer/source order, feature query projection, ownership, close, and failure rollback are stable.
@@ -52,4 +58,4 @@ git diff --check
 ## Notes
 
 The style adapter borrows sources during preflight; resulting ordinary map bindings retain the
-existing explicit ownership model.
+existing explicit ownership model. Legacy MapLibre filter syntax remains rejected.

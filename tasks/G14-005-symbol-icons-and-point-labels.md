@@ -18,8 +18,10 @@ global collision placement, and render/export/native evidence.
 ## Scope
 
 Implement approved icon-name/size/rotation/opacity/anchor/offset/overlap properties, exact immutable
-catalog resolution, simple text-field property/literal expressions, fixed label style/placement
-mapping, placement priority/order, renderer preflight, and source-backed icon/label examples.
+catalog resolution restricted to reconstructible built-in marker types, simple text-field
+property/literal expressions, the standards-neutral feature-point/center label-anchor extension,
+em-unit offset mapping, fixed label style/placement mapping, placement priority/order, renderer
+preflight, and source-backed icon/label examples.
 
 ## Out of scope
 
@@ -32,7 +34,8 @@ dynamic icon decoding, text shaping, arbitrary fonts, or changing G11 collision 
 - Supported layout properties map exactly to existing marker placement and label values.
 - Label text extraction, missing values, ordering, collision, and visibility follow the approved
   profile and agree with paint/export capture.
-- Missing/wrong-role icons and unsupported font/text properties fail transactionally and stably.
+- Statically missing/wrong-role icons and unsupported font/text properties fail transactionally and
+  stably; a runtime unresolved icon expression uses the no-icon property default.
 
 ## Required tests
 

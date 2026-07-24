@@ -19,7 +19,8 @@ comparison/boolean, match/case/step, linear-interpolate, and minimal conversion 
 
 Add immutable bounded expression nodes and Jackson parsing; static type validation; exact missing/
 null/numeric/color/string semantics; stable required-attribute discovery; deterministic evaluation;
-and expression-backed circle/line/fill properties and filters.
+expression-backed circle/line/fill properties and filters; and the design's narrowly scoped
+Jackson-free `InterpolatedSymbolSelector` with explicit resolver/context/cache integration.
 
 ## Out of scope
 
@@ -31,7 +32,8 @@ reflection, bytecode generation, or silent coercion.
 
 - Every approved operator has construction-time arity/type validation and documented result rules.
 - Node/depth/string/stop/category limits reject before excessive allocation or recursion.
-- Missing, null, non-finite, type mismatch, interpolation, and color failures use stable diagnostics.
+- Construction-time missing/null/type/non-finite/interpolation/color errors use stable diagnostics;
+  runtime feature-value failures use the property's fixed default without per-feature diagnostics.
 - Required attributes are exact and evaluation produces identical paint/hit/selection outcomes.
 - Unsupported operators remain rejected even when their result would be unused.
 

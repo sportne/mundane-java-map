@@ -62,7 +62,7 @@ design task; there are no empty speculative design files.
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | Complete |
-| G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-007 draft proposal |
+| G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 approved; G14-002 through G14-007 proposed |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 through G16-004 complete; G16-005 through G16-007 draft |
 
@@ -75,11 +75,10 @@ G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through G
 Conditional G10-040 through G10-044 cards also record the reviewed SQLite working graph, but remain
 non-executable until Proposed G10-004 and G11-004 complete; authoring those cards approves nothing.
 
-Symbology-planning record (2026-07-19): draft G12-001 through G12-006, G13-001 through G13-006, and
-G14-001 through G14-007 define three sequential standards tracks. MIL-STD-2525E Change 1 closes
-first, OGC SE 1.1 then establishes the shared standards-neutral rule bridge, and MapLibre Style v8
-reuses it through an isolated Jackson adapter. These designs and Proposed cards do not approve their
-HITL profile checkpoints or claim standard conformance.
+Symbology-planning record (2026-07-19, updated 2026-07-24): G12 and G13 are complete. G14-001 now
+approves the bounded MapLibre Style v8 profile and isolated Jackson boundary; G14-002 through
+G14-007 remain proposed until their code and evidence land. The approval is for the named project
+subset and does not claim general MapLibre or Mapbox compatibility.
 
 Live-stress decision record (2026-07-21): G15-001 approves an example-local, dependency-free stress
 profile using an independently implemented forward IOU-Kalman state estimator derived from public
@@ -266,7 +265,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G13-004 | Solid line/polygon symbolizers and explicit catalog-only external graphics | Approved |
 | G13-005 | Licensed examples, hostile XML/mutation hardening, gallery, and tolerant regression | Approved |
 | G13-006 | Publication/consumer/native evidence, subset wording, and reusable-bridge closeout | Approved |
-| G14-001 | Exact MapLibre v8 root/source/layer/property/expression matrix and Jackson boundary | Draft |
+| G14-001 | Exact MapLibre v8 root/source/layer/property/expression matrix and Jackson boundary | Approved |
 | G14-002 | Direct bounded JSON reader, literal circle/line/fill layers, rendering, and module creation | Draft |
 | G14-003 | Explicit transactional source registry, filters, zoom context, ordering, and ownership | Draft |
 | G14-004 | Closed typed expression subset, limits, required attributes, and deterministic evaluation | Draft |
