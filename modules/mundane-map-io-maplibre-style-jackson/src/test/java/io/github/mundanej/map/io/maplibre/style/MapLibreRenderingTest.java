@@ -5,16 +5,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.Feature;
+import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
 import java.awt.Color;
@@ -23,6 +28,7 @@ import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
@@ -115,6 +121,95 @@ class MapLibreRenderingTest {
                 });
     }
 
+    @Test
+    @SuppressWarnings("deprecation")
+    void liveViewportZoomRangeControlsPaintAndHitTogether() throws Exception {
+        MapLibreStyle style =
+                read(
+                        """
+                        {"version":8,"sources":{},"layers":[
+                          {"id":"point","type":"circle","source":"memory",
+                           "paint":{"circle-radius":8,"circle-color":"#ff0000"}}
+                        ]}
+                        """);
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView view = view(100, 100);
+                    MapLayerBinding binding =
+                            binding("point", point("point", 0, 0), style.layers().getFirst());
+                    binding.setPortrayalZoomRange(16, 17);
+                    view.setLayerBindings(List.of(binding));
+
+                    BufferedImage visible = paint(view, 100, 100);
+                    assertColor(visible, 50, 50, 255, 0, 0, 2);
+                    assertEquals(
+                            "point", view.hitTest(50, 50, 0).topmost().orElseThrow().featureId());
+
+                    view.setViewport(new MapViewport(100, 100, 0, 0, 4));
+                    BufferedImage hidden = paint(view, 100, 100);
+                    assertColor(hidden, 50, 50, 255, 255, 255, 0);
+                    assertTrue(view.hitTest(50, 50, 0).topmost().isEmpty());
+                    view.close();
+                });
+    }
+
+    @Test
+    void sharedSourceLayersPreservePaintHitOrderAndSingleOwnership() throws Exception {
+        MapLibreStyle style =
+                read(
+                        """
+                        {"version":8,"sources":{"places":{"type":"geojson"}},"layers":[
+                          {"id":"halo","type":"circle","source":"places",
+                           "filter":["==",["get","kind"],"city"],
+                           "paint":{"circle-radius":12,"circle-color":"#0000ff"}},
+                          {"id":"center","type":"circle","source":"places",
+                           "filter":["==",["get","kind"],"city"],
+                           "paint":{"circle-radius":5,"circle-color":"#ff0000"}}
+                        ]}
+                        """);
+        InMemoryFeatureSource source =
+                InMemoryFeatureSource.open(
+                        new SourceIdentity("places", "Places"),
+                        List.of(
+                                new FeatureRecord(
+                                        "city",
+                                        "City",
+                                        new PointGeometry(new Coordinate(0, 0)),
+                                        Map.of("kind", "city"))),
+                        Optional.empty(),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.empty(),
+                                        Optional.empty())),
+                        FeatureSourceLimits.LEVEL_1);
+        try (MapLibreStyleBinding styleBinding =
+                MapLibreStyleBinder.bind(
+                        style,
+                        MapLibreSourceRegistry.builder().register("places", source).build())) {
+            SwingUtilities.invokeAndWait(
+                    () -> {
+                        MapView view = view(100, 100);
+                        List<MapLibreBoundLayer> layers = styleBinding.layers();
+                        MapLayerBinding owner = sourceBinding(layers.get(0), true);
+                        MapLayerBinding borrowed = sourceBinding(layers.get(1), false);
+                        view.setLayerBindings(List.of(owner, borrowed));
+                        view.setLayerBindings(List.of(borrowed, owner));
+                        view.setLayerBindings(List.of(owner, borrowed));
+
+                        BufferedImage image = paint(view, 100, 100);
+                        assertColor(image, 50, 50, 255, 0, 0, 2);
+                        assertColor(image, 59, 50, 0, 0, 255, 2);
+                        assertEquals(
+                                "center",
+                                view.hitTest(50, 50, 0).topmost().orElseThrow().layerId());
+
+                        view.close();
+                        assertTrue(source.isClosed());
+                    });
+        }
+    }
+
     private static MapLibreStyle read(String json) {
         return MapLibreStyles.read(json.getBytes(StandardCharsets.UTF_8));
     }
@@ -143,6 +238,14 @@ class MapLibreRenderingTest {
     private static MapLayerBinding binding(String id, Feature feature, MapLibreLayer layer) {
         return MapLayerBinding.portrayedSnapshot(
                 new InMemoryLayer(id, id, List.of(feature)), layer.portrayal().orElseThrow());
+    }
+
+    private static MapLayerBinding sourceBinding(MapLibreBoundLayer layer, boolean owned) {
+        return owned
+                ? MapLayerBinding.ownedFeature(
+                        layer.id(), layer.id(), layer.source(), layer.portrayal().orElseThrow())
+                : MapLayerBinding.borrowedFeature(
+                        layer.id(), layer.id(), layer.source(), layer.portrayal().orElseThrow());
     }
 
     @SuppressWarnings("deprecation")

@@ -24,6 +24,8 @@ final class MapLibreParser {
     private int members;
     private int characters;
     private int metadataEntries;
+    private int expressionNodes;
+    private int producedRules;
     private long ownedBytes;
 
     MapLibreParser(JsonParser parser, MapLibreReadOptions options, int inputBytes) {
@@ -155,7 +157,16 @@ final class MapLibreParser {
     private MapLibreLayer layer(Map<String, Object> object, String location) {
         requireMembers(
                 object,
-                Set.of("id", "type", "source", "minzoom", "maxzoom", "layout", "paint", "metadata"),
+                Set.of(
+                        "id",
+                        "type",
+                        "source",
+                        "filter",
+                        "minzoom",
+                        "maxzoom",
+                        "layout",
+                        "paint",
+                        "metadata"),
                 "MAPLIBRE_LAYER_UNSUPPORTED",
                 location);
         String id = text(require(object, "id", location), location + "/id");
@@ -191,6 +202,28 @@ final class MapLibreParser {
                         : Map.of();
         Optional<FeaturePortrayal> validated =
                 MapLibreSymbols.literal(type, layout, paint, location, visible);
+        if (object.containsKey("filter")) {
+            MapLibreFilters.CompiledFilter filter =
+                    MapLibreFilters.compile(
+                            object.get("filter"), limits, expressionNodes, location + "/filter");
+            expressionNodes =
+                    aggregate(
+                            expressionNodes,
+                            filter.nodes(),
+                            limits.maximumExpressionNodes(),
+                            location + "/filter",
+                            "expressionNodes");
+            if (validated.isPresent()) {
+                producedRules =
+                        aggregate(
+                                producedRules,
+                                1,
+                                limits.maximumProducedRules(),
+                                location + "/filter",
+                                "producedRules");
+            }
+            validated = MapLibreFilters.apply(validated, filter.predicate());
+        }
         Optional<FeaturePortrayal> portrayal = visible ? validated : Optional.empty();
         return new MapLibreLayer(
                 id,
@@ -439,6 +472,19 @@ final class MapLibreParser {
         if (ownedBytes > limits.maximumOwnedBytes()) {
             throw limit(location, "ownedBytes", ownedBytes, limits.maximumOwnedBytes());
         }
+    }
+
+    private int aggregate(int current, int increment, int maximum, String location, String name) {
+        int result;
+        try {
+            result = Math.addExact(current, increment);
+        } catch (ArithmeticException failure) {
+            throw limit(location, name, Long.MAX_VALUE, maximum);
+        }
+        if (result > maximum) {
+            throw limit(location, name, result, maximum);
+        }
+        return result;
     }
 
     private MapLibreReadException invalid(String location, String reason) {

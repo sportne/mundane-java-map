@@ -54,6 +54,8 @@ public final class MapLayerBinding implements AutoCloseable {
     private final boolean owned;
     private final AtomicReference<Operation> operation = new AtomicReference<>();
     private HorizontalWrapMode horizontalWrapMode = HorizontalWrapMode.NONE;
+    private double minimumPortrayalZoom = Double.NEGATIVE_INFINITY;
+    private double maximumPortrayalZoom = Double.POSITIVE_INFINITY;
     private Object owner;
     private FeatureEditListener editListener;
     private boolean closed;
@@ -612,6 +614,48 @@ public final class MapLayerBinding implements AutoCloseable {
                     "Only feature-source, editable, and raster bindings may repeat");
         }
         horizontalWrapMode = requested;
+    }
+
+    /**
+     * Constrains vector portrayal to a lower-inclusive, upper-exclusive Web Mercator zoom range.
+     *
+     * <p>The default range is unconstrained. A constrained binding may be attached only to a view
+     * whose display CRS is the exact registered EPSG:3857 definition. The range is evaluated from
+     * the current viewport for paint, hit testing, selection, hover, and export capture.
+     *
+     * @param minimum inclusive finite minimum zoom
+     * @param maximum exclusive finite maximum zoom
+     * @throws IllegalArgumentException if the range is invalid or this is not a vector binding
+     * @throws IllegalStateException if this binding is closed or attached
+     */
+    public synchronized void setPortrayalZoomRange(double minimum, double maximum) {
+        if (closed) {
+            throw new IllegalStateException("binding is closed");
+        }
+        if (owner != null) {
+            throw new IllegalStateException("An attached binding cannot change zoom range");
+        }
+        if (kind != Kind.SNAPSHOT && kind != Kind.FEATURE && kind != Kind.EDITABLE) {
+            throw new IllegalArgumentException(
+                    "Only vector bindings support portrayal zoom ranges");
+        }
+        if (!Double.isFinite(minimum)
+                || !Double.isFinite(maximum)
+                || minimum < 0.0
+                || maximum > 24.0
+                || minimum >= maximum) {
+            throw new IllegalArgumentException("invalid portrayal zoom range");
+        }
+        minimumPortrayalZoom = minimum;
+        maximumPortrayalZoom = maximum;
+    }
+
+    synchronized boolean hasPortrayalZoomRange() {
+        return Double.isFinite(minimumPortrayalZoom) || Double.isFinite(maximumPortrayalZoom);
+    }
+
+    synchronized boolean activeAtZoom(double zoom) {
+        return zoom >= minimumPortrayalZoom && zoom < maximumPortrayalZoom;
     }
 
     /**

@@ -2,10 +2,14 @@ package io.github.mundanej.map.api;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /** Closed immutable predicate algebra without callbacks or executable extensions. */
 public sealed interface PortrayalPredicate
         permits PortrayalPredicate.IsNull,
+                PortrayalPredicate.Exists,
+                PortrayalPredicate.GeometryTypeIs,
+                PortrayalPredicate.Constant,
                 PortrayalPredicate.Comparison,
                 PortrayalPredicate.Between,
                 PortrayalPredicate.Logical {
@@ -20,6 +24,41 @@ public sealed interface PortrayalPredicate
             Objects.requireNonNull(property, "property");
         }
     }
+
+    /**
+     * Tests whether an attribute is present, including explicit null.
+     *
+     * @param property exact property operand
+     */
+    record Exists(PortrayalOperand.Property property) implements PortrayalPredicate {
+        /** Validates the property. */
+        public Exists {
+            Objects.requireNonNull(property, "property");
+        }
+    }
+
+    /**
+     * Tests the normalized current geometry category.
+     *
+     * @param types non-empty immutable accepted categories
+     */
+    record GeometryTypeIs(Set<PortrayalGeometryType> types) implements PortrayalPredicate {
+        /** Validates and defensively copies the categories. */
+        public GeometryTypeIs {
+            types = Set.copyOf(Objects.requireNonNull(types, "types"));
+            if (types.isEmpty()) {
+                throw new IllegalArgumentException("types must not be empty");
+            }
+            types.forEach(type -> Objects.requireNonNull(type, "type"));
+        }
+    }
+
+    /**
+     * Constant-folded predicate.
+     *
+     * @param value result
+     */
+    record Constant(boolean value) implements PortrayalPredicate {}
 
     /**
      * Compares two operands, at least one of which is a property.

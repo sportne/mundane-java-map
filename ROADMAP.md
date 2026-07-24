@@ -605,10 +605,11 @@ separately decomposed.
   symbol layers, filters, zoom ranges, a closed typed expression subset, caller-catalog icons, and
   G11-compatible point labels. It never fetches sources, tiles, sprites, glyphs, or fonts and does
   not claim 3D, terrain, heatmap, vector-tile, Mapbox-extension, or complete MapLibre compatibility.
-- G14-001 and G14-002 are complete: the exact matrix is approved and the locked optional adapter
-  reads and renders literal circle, line, and fill layers. G14-003 through G14-007 deliver transactional
-  source binding, expressions, icons/labels, hostile/interoperability/gallery evidence, and
-  publication/consumer/Linux Native Image closeout.
+- G14-001 through G14-003 are complete: the exact matrix is approved, the locked optional adapter
+  reads and renders literal circle/line/fill layers, and explicit caller registries bind borrowed
+  sources with typed filters, geometry/zoom context, zoom ranges, ordered query projection, and
+  stable bind diagnostics. G14-004 through G14-007 deliver dynamic expressions, icons/labels,
+  hostile/interoperability/gallery evidence, and publication/consumer/Linux Native Image closeout.
 - See the [G14 detailed design](design/G14-maplibre-style.md) and the
   [G14 task set](tasks/README.md#g14--maplibre-style).
 

@@ -60,6 +60,7 @@ import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.PortrayalGeometryType;
 import io.github.mundanej.map.api.Projection;
 import io.github.mundanej.map.api.RasterAffineTransform;
 import io.github.mundanej.map.api.RasterGridPlacement;
@@ -147,6 +148,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -658,8 +660,9 @@ public final class MapView extends JComponent implements AutoCloseable {
      * Replaces the complete ordered layer-binding stack transactionally.
      *
      * <p>The list is defensively copied. New bindings are claimed before the state changes; removed
-     * owned bindings are closed after a successful replacement. Each identity may occur once and
-     * identifiers must be unique.
+     * owned bindings are closed after a successful replacement. Each binding identity and
+     * identifier may occur once. Multiple feature bindings may deliberately share one source when
+     * at most one binding owns it; raster and elevation sources remain single-binding.
      *
      * @param requested ordered non-null bindings
      * @throws NullPointerException if the list or an element is {@code null}
@@ -4901,6 +4904,9 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         List<LayerSnapshot> captured = new ArrayList<>(sourceBindings.size());
         for (MapLayerBinding binding : sourceBindings) {
+            if (!activeAtPortrayalZoom(binding, viewportSnapshot)) {
+                continue;
+            }
             captured.add(
                     switch (binding.kind()) {
                         case SNAPSHOT -> captureSnapshot(binding, viewportSnapshot, readRasters);
@@ -4934,6 +4940,9 @@ public final class MapView extends JComponent implements AutoCloseable {
         List<LayerSnapshot> captured = new ArrayList<>(sourceBindings.size());
         for (MapLayerBinding binding : sourceBindings) {
             checkVectorExportCancellation(cancellation);
+            if (!activeAtPortrayalZoom(binding, viewportSnapshot)) {
+                continue;
+            }
             captured.add(
                     switch (binding.kind()) {
                         case SNAPSHOT -> captureSnapshot(binding, viewportSnapshot, true);
@@ -4958,6 +4967,9 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
         List<LayerSnapshot> captured = new ArrayList<>(bindings.size());
         for (MapLayerBinding binding : bindings) {
+            if (!activeAtPortrayalZoom(binding, viewportSnapshot)) {
+                continue;
+            }
             if (binding == target) {
                 captured.add(captureEditable(binding, viewportSnapshot, false, targetSnapshot));
                 continue;
@@ -5011,7 +5023,10 @@ public final class MapView extends JComponent implements AutoCloseable {
                             ? feature.symbol()
                             : resolver.resolveAll(
                                             feature.attributes(),
-                                            portrayalContext(viewportSnapshot))
+                                            portrayalContext(viewportSnapshot)
+                                                    .withGeometryType(
+                                                            PortrayalGeometryType.fromGeometry(
+                                                                    feature.geometry())))
                                     .forRole(geometryRole(feature.geometry()))
                                     .orElse(null);
             if (symbol != null) {
@@ -6084,7 +6099,7 @@ public final class MapView extends JComponent implements AutoCloseable {
         }
     }
 
-    private static Optional<Symbol> sourceSymbol(
+    private Optional<Symbol> sourceSymbol(
             MapLayerBinding binding,
             Geometry geometry,
             Map<String, Object> attributes,
@@ -6094,11 +6109,14 @@ public final class MapView extends JComponent implements AutoCloseable {
             throw new IllegalArgumentException("Unsupported source geometry");
         }
         return binding.portrayalResolver()
-                .resolveAll(attributes, portrayalContext(viewportSnapshot))
+                .resolveAll(
+                        attributes,
+                        portrayalContext(viewportSnapshot)
+                                .withGeometryType(PortrayalGeometryType.fromGeometry(geometry)))
                 .forRole(role);
     }
 
-    private static PortrayalEvaluationContext portrayalContext(MapViewport viewportSnapshot) {
+    private PortrayalEvaluationContext portrayalContext(MapViewport viewportSnapshot) {
         double denominator = viewportSnapshot.worldUnitsPerPixel() / 0.00028;
         if (!Double.isFinite(denominator) || denominator < 0) {
             throw new SymbolException(
@@ -6106,7 +6124,26 @@ public final class MapView extends JComponent implements AutoCloseable {
                     "Viewport cannot provide a finite scale denominator",
                     Map.of());
         }
+        if (displayCrs.equals(CrsDefinitions.EPSG_3857)) {
+            double zoom =
+                    StrictMath.log(
+                                    displayCrs.coordinateDomain().width()
+                                            / (512.0 * viewportSnapshot.worldUnitsPerPixel()))
+                            / StrictMath.log(2.0);
+            if (Double.isFinite(zoom)) {
+                return PortrayalEvaluationContext.atScaleAndZoom(denominator, zoom);
+            }
+        }
         return PortrayalEvaluationContext.atScale(denominator);
+    }
+
+    private boolean activeAtPortrayalZoom(MapLayerBinding binding, MapViewport viewportSnapshot) {
+        if (!binding.hasPortrayalZoomRange()) {
+            return true;
+        }
+        PortrayalEvaluationContext context = portrayalContext(viewportSnapshot);
+        return context.zoomLevel().isPresent()
+                && binding.activeAtZoom(context.zoomLevel().orElseThrow());
     }
 
     private static AttributeSelection paintAttributes(
@@ -6439,9 +6476,11 @@ public final class MapView extends JComponent implements AutoCloseable {
 
     private CandidateBindings validateBindings(List<MapLayerBinding> candidate) {
         Set<String> ids = new HashSet<>();
+        Set<MapLayerBinding> candidateIdentities = identitySet(candidate);
         Set<MapLayerBinding> identities = identitySet(List.of());
-        Set<Object> sources = Collections.newSetFromMap(new IdentityHashMap<>());
-        Set<String> sourceIds = new HashSet<>();
+        IdentityHashMap<Object, MapLayerBinding> firstBindingBySource = new IdentityHashMap<>();
+        IdentityHashMap<Object, MapLayerBinding> ownerBySource = new IdentityHashMap<>();
+        Map<String, Object> sourceById = new HashMap<>();
         IdentityHashMap<MapLayerBinding, ResolvedFeatureBinding> resolved = new IdentityHashMap<>();
         for (MapLayerBinding binding : candidate) {
             Objects.requireNonNull(binding, "binding");
@@ -6453,6 +6492,10 @@ public final class MapView extends JComponent implements AutoCloseable {
             }
             if (binding.isClosed()) {
                 throw new IllegalStateException("binding is closed: " + binding.id());
+            }
+            if (binding.hasPortrayalZoomRange() && !displayCrs.equals(CrsDefinitions.EPSG_3857)) {
+                throw new IllegalArgumentException(
+                        "A zoom-constrained portrayal requires EPSG:3857 display CRS");
             }
             if (binding.horizontalWrapMode() == HorizontalWrapMode.REPEAT_X) {
                 if (horizontalWrap == null) {
@@ -6483,7 +6526,7 @@ public final class MapView extends JComponent implements AutoCloseable {
                                             "actualCrs",
                                                     editSnapshot.crs().canonicalIdentifier())));
                 }
-                if (!sources.add(binding.editSession())) {
+                if (firstBindingBySource.put(binding.editSession(), binding) != null) {
                     throw new IllegalArgumentException(
                             "An edit session may be bound only once in one MapView");
                 }
@@ -6515,14 +6558,26 @@ public final class MapView extends JComponent implements AutoCloseable {
             if (sourceClosed) {
                 throw new IllegalStateException("source is closed: " + binding.id());
             }
-            if (!sources.add(source)) {
-                throw new IllegalArgumentException("A source instance may be bound only once");
+            MapLayerBinding firstForSource = firstBindingBySource.putIfAbsent(source, binding);
+            if (firstForSource != null
+                    && (binding.kind() != MapLayerBinding.Kind.FEATURE
+                            || firstForSource.kind() != MapLayerBinding.Kind.FEATURE)) {
+                throw new IllegalArgumentException(
+                        "Raster and elevation source instances may be bound only once");
             }
-            if (!sourceIds.add(sourceId)) {
+            if (binding.owned() && ownerBySource.putIfAbsent(source, binding) != null) {
+                throw new IllegalArgumentException(
+                        "A shared feature source may have only one owning binding");
+            }
+            Object firstForId = sourceById.putIfAbsent(sourceId, source);
+            if (firstForId != null && firstForId != source) {
                 throw new IllegalArgumentException("source identity must be unique: " + sourceId);
             }
             for (MapLayerBinding installed : bindings) {
-                if (installed != binding && installed.owned() && sameSource(installed, source)) {
+                if (installed != binding
+                        && installed.owned()
+                        && sameSource(installed, source)
+                        && !candidateIdentities.contains(installed)) {
                     throw new IllegalStateException(
                             "An owned source cannot be transferred to a replacement binding");
                 }
@@ -7015,30 +7070,32 @@ public final class MapView extends JComponent implements AutoCloseable {
             List<MapLayerBinding> previous, List<MapLayerBinding> candidate) {
         Set<MapLayerBinding> retained = identitySet(candidate);
         Throwable primary = null;
-        for (int index = previous.size() - 1; index >= 0; index--) {
-            MapLayerBinding binding = previous.get(index);
-            if (retained.contains(binding)) {
-                continue;
-            }
-            try {
-                if (binding.owned()) {
-                    binding.closeFromOwner(this);
-                } else {
-                    binding.release(this);
+        for (boolean ownedPass : List.of(false, true)) {
+            for (int index = previous.size() - 1; index >= 0; index--) {
+                MapLayerBinding binding = previous.get(index);
+                if (retained.contains(binding) || binding.owned() != ownedPass) {
+                    continue;
                 }
-            } catch (RuntimeException | Error failure) {
-                if (failure instanceof SourceException sourceFailure) {
-                    transitionSourceReport(binding.id(), Optional.of(sourceFailure.report()));
+                try {
+                    if (binding.owned()) {
+                        binding.closeFromOwner(this);
+                    } else {
+                        binding.release(this);
+                    }
+                } catch (RuntimeException | Error failure) {
+                    if (failure instanceof SourceException sourceFailure) {
+                        transitionSourceReport(binding.id(), Optional.of(sourceFailure.report()));
+                    }
+                    if (primary == null) {
+                        primary = failure;
+                    } else {
+                        suppressDistinct(primary, failure);
+                    }
                 }
-                if (primary == null) {
-                    primary = failure;
-                } else {
-                    suppressDistinct(primary, failure);
+                if (isSourceBinding(binding)) {
+                    transitionSourceReport(binding.id(), Optional.empty());
+                    sourceAvailability.remove(binding.id());
                 }
-            }
-            if (isSourceBinding(binding)) {
-                transitionSourceReport(binding.id(), Optional.empty());
-                sourceAvailability.remove(binding.id());
             }
         }
         return primary;

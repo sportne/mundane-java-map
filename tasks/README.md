@@ -352,7 +352,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | --- | --- | --- | --- | --- |
 | [G14-001 — MapLibre Style profile decision](closed/G14-001-maplibre-style-profile-decision.md) | Complete | HITL | G13-006, G10-025 | Approved the v8 root/source/layer/property/expression matrix and Jackson boundary. |
 | [G14-002 — Literal vector-layer slice](closed/G14-002-literal-vector-layer-slice.md) | Complete | AFK | G14-001 | Created the optional adapter and rendered literal circle, line, and fill layers. |
-| [G14-003 — Explicit source, filter, and zoom binding](G14-003-explicit-source-filter-and-zoom-binding.md) | Proposed | AFK | G14-002 | Bind caller sources transactionally and apply filters, zoom ranges, and layer order. |
+| [G14-003 — Explicit source, filter, and zoom binding](closed/G14-003-explicit-source-filter-and-zoom-binding.md) | Complete | AFK | G14-002 | Bound caller sources transactionally with typed filters, zoom ranges, projection, and stable ownership. |
 | [G14-004 — Bounded MapLibre expressions](G14-004-bounded-maplibre-expressions.md) | Proposed | AFK | G14-003 | Evaluate the approved closed typed expression subset with exact limits and types. |
 | [G14-005 — Symbol icons and point labels](G14-005-symbol-icons-and-point-labels.md) | Proposed | AFK | G14-004 | Resolve caller-catalog icons and place bounded G11-compatible point labels. |
 | [G14-006 — MapLibre fixtures, gallery, and hardening](G14-006-maplibre-fixtures-gallery-and-hardening.md) | Proposed | HITL | G14-005 | Close hostile/interoperability evidence and approve the MapLibre gallery. |

@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /** Closed immutable operand used by bounded portrayal predicates. */
 public sealed interface PortrayalOperand
-        permits PortrayalOperand.Property, PortrayalOperand.Literal {
+        permits PortrayalOperand.Property, PortrayalOperand.Literal, PortrayalOperand.TypedLiteral {
     /**
      * Exact canonical feature-attribute lookup.
      *
@@ -30,6 +30,25 @@ public sealed interface PortrayalOperand
         public Literal {
             Objects.requireNonNull(text, "text");
             if (text.length() > 4_096) {
+                throw new IllegalArgumentException("text must contain at most 4096 characters");
+            }
+        }
+    }
+
+    /**
+     * Exact typed null, boolean, finite-decimal, or string literal.
+     *
+     * @param value exact immutable value
+     */
+    record TypedLiteral(ThematicValue value) implements PortrayalOperand {
+        /** Validates the closed literal profile. */
+        public TypedLiteral {
+            Objects.requireNonNull(value, "value");
+            if (value.kind() == ThematicValue.Kind.DATE) {
+                throw new IllegalArgumentException("date is not a supported typed literal");
+            }
+            if (value.kind() == ThematicValue.Kind.TEXT
+                    && ((String) value.value()).length() > 4_096) {
                 throw new IllegalArgumentException("text must contain at most 4096 characters");
             }
         }

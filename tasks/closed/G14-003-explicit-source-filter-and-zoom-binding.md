@@ -1,6 +1,6 @@
 # G14-003 — Explicit source, filter, and zoom binding
 
-Status: Proposed
+Status: Complete
 Depends on: G14-002
 Gate: G14
 Type: AFK
@@ -59,3 +59,8 @@ git diff --check
 
 The style adapter borrows sources during preflight; resulting ordinary map bindings retain the
 existing explicit ownership model. Legacy MapLibre filter syntax remains rejected.
+
+Completed with exact duplicate-detecting source registries, all-or-nothing borrowed binding,
+expression-form typed filters, normalized geometry context, EPSG:3857 zoom derivation,
+lower-inclusive/upper-exclusive layer selection, required-attribute projection, and a real
+source-backed viewer slice.

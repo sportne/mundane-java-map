@@ -12,6 +12,7 @@ import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.PortrayalComparison;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.PortrayalGeometryType;
 import io.github.mundanej.map.api.PortrayalLogicalOperator;
 import io.github.mundanej.map.api.PortrayalOperand;
 import io.github.mundanej.map.api.PortrayalPredicate;
@@ -403,6 +404,48 @@ class RulePortrayalEvaluatorTest {
                         .marker()
                         .isEmpty());
         assertTrue(resolver.requiresScaleContext());
+    }
+
+    @Test
+    void typedExistsGeometryAndConstantPredicatesUseExplicitContext() {
+        PortrayalPredicate predicate =
+                new PortrayalPredicate.Logical(
+                        PortrayalLogicalOperator.AND,
+                        List.of(
+                                new PortrayalPredicate.Exists(
+                                        new PortrayalOperand.Property("present")),
+                                new PortrayalPredicate.GeometryTypeIs(
+                                        java.util.Set.of(PortrayalGeometryType.POINT)),
+                                new PortrayalPredicate.Comparison(
+                                        PortrayalComparison.EQUAL,
+                                        new PortrayalOperand.Property("number"),
+                                        new PortrayalOperand.TypedLiteral(
+                                                io.github.mundanej.map.api.ThematicValue.numeric(
+                                                        5))),
+                                new PortrayalPredicate.Constant(true)));
+        FeaturePortrayalResolver resolver =
+                FeaturePortrayalResolver.compile(
+                        new RulePortrayalPlan(List.of(rule(predicate, RED))).portrayal());
+        PortrayalEvaluationContext context =
+                PortrayalEvaluationContext.atScaleAndZoom(100, 3.5)
+                        .withGeometryType(PortrayalGeometryType.POINT);
+
+        assertEquals(3.5, context.zoomLevel().orElseThrow());
+        assertEquals(
+                RED,
+                resolver.resolveAll(
+                                Map.of(
+                                        "present",
+                                        AttributeNull.INSTANCE,
+                                        "number",
+                                        BigDecimal.valueOf(5)),
+                                context)
+                        .marker()
+                        .orElseThrow());
+        assertTrue(
+                resolver.resolveAll(Map.of("present", true, "number", "5"), context)
+                        .marker()
+                        .isEmpty());
     }
 
     @Test

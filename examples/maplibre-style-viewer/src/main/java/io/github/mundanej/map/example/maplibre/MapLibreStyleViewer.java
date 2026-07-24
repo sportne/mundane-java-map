@@ -2,26 +2,35 @@ package io.github.mundanej.map.example.maplibre;
 
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
-import io.github.mundanej.map.api.Feature;
-import io.github.mundanej.map.api.FeatureStyle;
+import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
-import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
-import io.github.mundanej.map.core.InMemoryLayer;
+import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.MapViewport;
-import io.github.mundanej.map.io.maplibre.style.MapLibreLayer;
+import io.github.mundanej.map.io.maplibre.style.MapLibreBoundLayer;
+import io.github.mundanej.map.io.maplibre.style.MapLibreSourceRegistry;
 import io.github.mundanej.map.io.maplibre.style.MapLibreStyle;
+import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinder;
+import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinding;
 import io.github.mundanej.map.io.maplibre.style.MapLibreStyles;
 import java.awt.BorderLayout;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
@@ -55,11 +64,17 @@ public final class MapLibreStyleViewer {
                         CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
         view.setSize(800, 500);
         view.setViewport(new MapViewport(800, 500, 0, 0, 0.5));
+        InMemoryFeatureSource world = source("world", List.of(land(), route(), place()));
+        MapLibreStyleBinding binding =
+                MapLibreStyleBinder.bind(
+                        style,
+                        MapLibreSourceRegistry.builder().register("world-data", world).build());
+        Set<FeatureSource> ownedSources = Collections.newSetFromMap(new IdentityHashMap<>());
         view.setLayerBindings(
-                List.of(
-                        binding(style.layers().get(0), land()),
-                        binding(style.layers().get(1), route()),
-                        binding(style.layers().get(2), place())));
+                binding.layers().stream()
+                        .map(layer -> binding(layer, ownedSources.add(layer.source())))
+                        .toList());
+        binding.close();
         return view;
     }
 
@@ -89,42 +104,58 @@ public final class MapLibreStyleViewer {
         }
     }
 
-    private static MapLayerBinding binding(MapLibreLayer layer, Feature feature) {
-        return MapLayerBinding.portrayedSnapshot(
-                new InMemoryLayer(layer.id(), layer.id(), List.of(feature)),
-                layer.portrayal().orElseThrow());
+    private static MapLayerBinding binding(MapLibreBoundLayer layer, boolean owned) {
+        MapLayerBinding binding =
+                owned
+                        ? MapLayerBinding.ownedFeature(
+                                layer.id(),
+                                layer.id(),
+                                layer.source(),
+                                layer.portrayal().orElseThrow())
+                        : MapLayerBinding.borrowedFeature(
+                                layer.id(),
+                                layer.id(),
+                                layer.source(),
+                                layer.portrayal().orElseThrow());
+        binding.setPortrayalZoomRange(layer.minimumZoom(), layer.maximumZoom());
+        return binding;
     }
 
-    @SuppressWarnings("deprecation")
-    private static Feature land() {
-        return new Feature(
+    private static InMemoryFeatureSource source(String id, List<FeatureRecord> records) {
+        return InMemoryFeatureSource.open(
+                new SourceIdentity(id, id),
+                records,
+                Optional.empty(),
+                Optional.of(
+                        CrsMetadata.recognized(
+                                CrsDefinitions.EPSG_3857, Optional.empty(), Optional.empty())),
+                FeatureSourceLimits.LEVEL_1);
+    }
+
+    private static FeatureRecord land() {
+        return new FeatureRecord(
                 "land",
                 "Land",
                 new PolygonGeometry(
                         CoordinateSequence.of(
                                 -260, -160, 260, -160, 260, 160, -260, 160, -260, -160),
                         List.of()),
-                Map.of(),
-                FeatureStyle.polygon(Rgba.rgb(0, 0, 0), Rgba.rgb(0, 0, 0), 1));
+                Map.of());
     }
 
-    @SuppressWarnings("deprecation")
-    private static Feature route() {
-        return new Feature(
+    private static FeatureRecord route() {
+        return new FeatureRecord(
                 "route",
                 "Route",
                 new LineStringGeometry(CoordinateSequence.of(-230, -90, -70, 40, 220, 100)),
-                Map.of(),
-                FeatureStyle.line(Rgba.rgb(0, 0, 0), 1));
+                Map.of("kind", "route"));
     }
 
-    @SuppressWarnings("deprecation")
-    private static Feature place() {
-        return new Feature(
+    private static FeatureRecord place() {
+        return new FeatureRecord(
                 "place",
                 "Place",
                 new PointGeometry(new Coordinate(30, 25)),
-                Map.of(),
-                FeatureStyle.point(Rgba.rgb(0, 0, 0), 1));
+                Map.of("kind", "city"));
     }
 }

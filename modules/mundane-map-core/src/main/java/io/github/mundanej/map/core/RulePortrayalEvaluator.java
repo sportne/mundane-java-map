@@ -76,7 +76,8 @@ final class RulePortrayalEvaluator {
                 activeElse = rule;
                 continue;
             }
-            if (rule.predicate().isPresent() && !test(rule.predicate().orElseThrow(), attributes)) {
+            if (rule.predicate().isPresent()
+                    && !test(rule.predicate().orElseThrow(), attributes, context)) {
                 continue;
             }
             ordinaryMatched = true;
@@ -119,10 +120,22 @@ final class RulePortrayalEvaluator {
         return Optional.of(result);
     }
 
-    private static boolean test(PortrayalPredicate predicate, Map<String, Object> attributes) {
+    private static boolean test(
+            PortrayalPredicate predicate,
+            Map<String, Object> attributes,
+            PortrayalEvaluationContext context) {
         if (predicate instanceof PortrayalPredicate.IsNull isNull) {
             String name = isNull.property().name();
             return attributes.containsKey(name) && attributes.get(name) == AttributeNull.INSTANCE;
+        }
+        if (predicate instanceof PortrayalPredicate.Exists exists) {
+            return attributes.containsKey(exists.property().name());
+        }
+        if (predicate instanceof PortrayalPredicate.GeometryTypeIs geometry) {
+            return context.geometryType().filter(geometry.types()::contains).isPresent();
+        }
+        if (predicate instanceof PortrayalPredicate.Constant constant) {
+            return constant.value();
         }
         if (predicate instanceof PortrayalPredicate.Comparison comparison) {
             return compare(
@@ -143,9 +156,11 @@ final class RulePortrayalEvaluator {
         }
         PortrayalPredicate.Logical logical = (PortrayalPredicate.Logical) predicate;
         return switch (logical.operator()) {
-            case NOT -> !test(logical.children().getFirst(), attributes);
-            case AND -> logical.children().stream().allMatch(child -> test(child, attributes));
-            case OR -> logical.children().stream().anyMatch(child -> test(child, attributes));
+            case NOT -> !test(logical.children().getFirst(), attributes, context);
+            case AND ->
+                    logical.children().stream().allMatch(child -> test(child, attributes, context));
+            case OR ->
+                    logical.children().stream().anyMatch(child -> test(child, attributes, context));
         };
     }
 
@@ -165,6 +180,10 @@ final class RulePortrayalEvaluator {
             rightValue = convert((String) rightValue.value(), leftValue).orElse(null);
         }
         if (leftValue == null || rightValue == null) {
+            return false;
+        }
+        if ((leftValue.kind() == ThematicValue.Kind.NULL)
+                != (rightValue.kind() == ThematicValue.Kind.NULL)) {
             return false;
         }
         if (operation == PortrayalComparison.EQUAL) {
@@ -192,7 +211,7 @@ final class RulePortrayalEvaluator {
         }
         return switch (left.kind()) {
             case NUMERIC -> ((BigDecimal) left.value()).compareTo((BigDecimal) right.value());
-            case TEXT -> ((String) left.value()).compareTo((String) right.value());
+            case TEXT -> compareCodePoints((String) left.value(), (String) right.value());
             case DATE -> ((LocalDate) left.value()).compareTo((LocalDate) right.value());
             case LOGICAL, NULL -> null;
         };
@@ -217,9 +236,28 @@ final class RulePortrayalEvaluator {
         }
     }
 
+    private static int compareCodePoints(String left, String right) {
+        int leftIndex = 0;
+        int rightIndex = 0;
+        while (leftIndex < left.length() && rightIndex < right.length()) {
+            int leftPoint = left.codePointAt(leftIndex);
+            int rightPoint = right.codePointAt(rightIndex);
+            int compared = Integer.compare(leftPoint, rightPoint);
+            if (compared != 0) {
+                return compared;
+            }
+            leftIndex += Character.charCount(leftPoint);
+            rightIndex += Character.charCount(rightPoint);
+        }
+        return Integer.compare(left.length() - leftIndex, right.length() - rightIndex);
+    }
+
     private static OperandValue value(PortrayalOperand operand, Map<String, Object> attributes) {
         if (operand instanceof PortrayalOperand.Literal literal) {
             return new OperandValue(false, true, ThematicValue.text(literal.text()));
+        }
+        if (operand instanceof PortrayalOperand.TypedLiteral literal) {
+            return new OperandValue(false, false, literal.value());
         }
         String name = ((PortrayalOperand.Property) operand).name();
         if (!attributes.containsKey(name)) {
@@ -233,6 +271,11 @@ final class RulePortrayalEvaluator {
     private static void collect(PortrayalPredicate predicate, Set<String> attributes) {
         if (predicate instanceof PortrayalPredicate.IsNull isNull) {
             attributes.add(isNull.property().name());
+        } else if (predicate instanceof PortrayalPredicate.Exists exists) {
+            attributes.add(exists.property().name());
+        } else if (predicate instanceof PortrayalPredicate.GeometryTypeIs
+                || predicate instanceof PortrayalPredicate.Constant) {
+            return;
         } else if (predicate instanceof PortrayalPredicate.Comparison comparison) {
             collect(comparison.left(), attributes);
             collect(comparison.right(), attributes);
