@@ -13,6 +13,7 @@ dependencies {
     implementation project(':modules:mundane-map-io-svg')
     implementation project(':modules:mundane-map-io-se')
     implementation project(':modules:mundane-map-io-geojson-jackson')
+    implementation project(':modules:mundane-map-io-maplibre-style-jackson')
     implementation project(':modules:mundane-map-io-geotiff')
     implementation project(':modules:mundane-map-io-gpx')
     implementation project(':modules:mundane-map-io-kml')

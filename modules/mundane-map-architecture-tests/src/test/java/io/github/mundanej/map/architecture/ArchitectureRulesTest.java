@@ -1707,7 +1707,7 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void nativeSmokeHasTheExactFourteenExplicitProductionDependencies() throws IOException {
+    void nativeSmokeHasTheExactFifteenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(
                         ":modules:mundane-map-api",
@@ -1719,6 +1719,7 @@ class ArchitectureRulesTest {
                         ":modules:mundane-map-io-svg",
                         ":modules:mundane-map-io-se",
                         ":modules:mundane-map-io-geojson-jackson",
+                        ":modules:mundane-map-io-maplibre-style-jackson",
                         ":modules:mundane-map-io-geotiff",
                         ":modules:mundane-map-io-gpx",
                         ":modules:mundane-map-io-kml",

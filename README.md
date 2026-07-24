@@ -31,6 +31,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-kml` | Bounded Level 2 KML 2.2 point, line, polygon, and homogeneous multipart feature sources. |
 | `mundane-map-symbology-milstd2525` | Bounded Level 2 MIL-STD-2525E Change 1 icon-based point symbology. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
+| `mundane-map-io-maplibre-style-jackson` | Optional bounded Level 2 MapLibre v8 vector-style reader using Jackson Core. |
 | `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |
 
 The format modules contain no AWT types and do not discover implementations. Applications explicitly
@@ -235,7 +236,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Sixteen independent examples consume the published APIs without copying parsers or renderers:
+Eighteen independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -248,11 +249,13 @@ Sixteen independent examples consume the published APIs without copying parsers 
 ./gradlew :examples:gpx-viewer:run --args='<path.gpx>'
 ./gradlew :examples:kml-viewer:run --args='<path.kml>'
 ./gradlew :examples:geotiff-viewer:run
+./gradlew :examples:http-tile-viewer:run
 ./gradlew :examples:point-edit-viewer:run
 ./gradlew :examples:styling-label-viewer:run
 ./gradlew :examples:workspace-viewer:run
 ./gradlew :examples:vector-export:run
 ./gradlew :examples:se-viewer:run
+./gradlew :examples:maplibre-style-viewer:run
 ./gradlew :examples:live-track-stress:run --args='--population=1000000'
 ```
 

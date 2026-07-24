@@ -1,6 +1,6 @@
 # G14-002 — Literal vector-layer slice
 
-Status: Proposed
+Status: Complete
 Depends on: G14-001
 Gate: G14
 Type: AFK
@@ -51,3 +51,7 @@ git diff --check
 ## Notes
 
 Module creation lands with working parse-to-render behavior; it is not a schema/model scaffold.
+
+Completed with the isolated locked Jackson Core module, strict detached v8 root/source/layer model,
+literal circle/line/fill portrayals, stable failures, publication/architecture registration, and an
+in-memory AWT parse-to-render test plus the runnable `maplibre-style-viewer` example.

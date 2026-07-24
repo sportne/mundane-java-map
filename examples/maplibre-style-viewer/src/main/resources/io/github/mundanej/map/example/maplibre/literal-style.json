@@ -1,0 +1,45 @@
+{
+  "version": 8,
+  "name": "Literal vector slice",
+  "sources": {
+    "memory": {
+      "type": "geojson",
+      "data": "caller-owned in-memory features"
+    }
+  },
+  "layers": [
+    {
+      "id": "land",
+      "type": "fill",
+      "source": "memory",
+      "paint": {
+        "fill-color": "#d8e6c4",
+        "fill-outline-color": "#61734f"
+      }
+    },
+    {
+      "id": "route",
+      "type": "line",
+      "source": "memory",
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#285f9c",
+        "line-width": 5
+      }
+    },
+    {
+      "id": "place",
+      "type": "circle",
+      "source": "memory",
+      "paint": {
+        "circle-radius": 9,
+        "circle-color": "#f4a340",
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#62350b"
+      }
+    }
+  ]
+}

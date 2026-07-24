@@ -40,7 +40,8 @@ providers.
 The Jackson jar is pinned to SHA-256
 `9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2`. The Maven Central POM
 and the deterministic offline POM use the already approved G10-025 checksum allowlist. The adapter
-ships the Apache-2.0 Jackson notice plus the Jackson BSD-3-Clause notice and uses dependency locking
+ships the Apache-2.0 Jackson notice plus the upstream MIT notices for FastDoubleParser and Schubfach
+and uses dependency locking
 and the same Native Image service-resource exclusions as the GeoJSON adapter. No MapLibre code is
 linked into production; the specification and reduced examples are documentation/test inputs under
 their recorded licenses.
