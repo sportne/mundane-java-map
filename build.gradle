@@ -96,6 +96,7 @@ tasks.register('renderRegression') {
     dependsOn ':examples:live-track-stress:naturalEarthRenderRegression'
     dependsOn ':examples:http-tile-viewer:test'
     dependsOn ':examples:gpx-viewer:test'
+    dependsOn ':examples:kml-viewer:test'
 }
 
 tasks.register('performanceEvidence') {

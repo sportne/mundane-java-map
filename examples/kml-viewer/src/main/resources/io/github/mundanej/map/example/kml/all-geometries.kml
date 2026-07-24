@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark><name>Point</name><Point><coordinates>-4,0</coordinates></Point></Placemark>
+    <Placemark><name>Line</name><LineString><coordinates>-4,-3 4,-3</coordinates></LineString></Placemark>
+    <Placemark>
+      <name>Polygon with hole</name>
+      <Polygon>
+        <outerBoundaryIs><LinearRing><coordinates>-3,-2 3,-2 3,3 -3,3 -3,-2</coordinates></LinearRing></outerBoundaryIs>
+        <innerBoundaryIs><LinearRing><coordinates>-1,-1 -1,1 1,1 1,-1 -1,-1</coordinates></LinearRing></innerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark><name>Points</name><MultiGeometry>
+      <Point><coordinates>-4,4</coordinates></Point><Point><coordinates>4,4</coordinates></Point>
+    </MultiGeometry></Placemark>
+    <Placemark><name>Lines</name><MultiGeometry>
+      <LineString><coordinates>-4,-4 -2,-2</coordinates></LineString>
+      <LineString><coordinates>2,-2 4,-4</coordinates></LineString>
+    </MultiGeometry></Placemark>
+    <Placemark><name>Polygons</name><MultiGeometry>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>-5,5 -4,5 -4,6 -5,6 -5,5</coordinates></LinearRing></outerBoundaryIs></Polygon>
+      <Polygon><outerBoundaryIs><LinearRing><coordinates>4,5 5,5 5,6 4,6 4,5</coordinates></LinearRing></outerBoundaryIs></Polygon>
+    </MultiGeometry></Placemark>
+  </Document>
+</kml>

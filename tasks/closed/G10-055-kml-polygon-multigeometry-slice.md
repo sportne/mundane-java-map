@@ -1,6 +1,6 @@
 # G10-055 — KML polygon and MultiGeometry slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-054
 Gate: G10
 Type: AFK
@@ -58,3 +58,9 @@ git diff --check
 
 Use the existing ordinary Point/MultiPoint, LineString/MultiLineString, and Polygon/MultiPolygon
 contracts. Do not introduce a generic geometry collection solely to mirror KML.
+
+Completion evidence (2026-07-24): the KML adapter maps exact-closure polygons and ordered holes,
+canonicalizes coordinate negative zero, and flattens homogeneous Point, LineString, and Polygon
+MultiGeometry components into the ordinary packed multipart values. Mixed, nested, empty, and
+out-of-order polygon structures fail predictably. The local-file viewer exercises all supported
+families, and `renderRegression` verifies bounds, holes, and tolerant colors.

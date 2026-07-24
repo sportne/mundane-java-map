@@ -1,0 +1,16 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-kml')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.kml.KmlViewer'
+}
+
+description = 'Runnable bounded KML geometry viewer example.'

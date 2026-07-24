@@ -10,7 +10,11 @@ import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
+import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.io.ByteArrayInputStream;
@@ -235,14 +239,14 @@ final class KmlParser {
                     description = validateText(parseScalar("description", Set.of()));
                 }
                 case "visibility" -> parseVisibility();
-                case "Point", "LineString" -> {
+                case "Point", "LineString", "Polygon", "MultiGeometry" -> {
                     if (geometry != null) {
                         throw valueFailure("coordinates", "cardinality");
                     }
-                    geometry = parseSimpleGeometry(local);
-                    geometryKind = "Point".equals(local) ? "point" : "line";
+                    GeometryResult result = parseGeometry(local, totalCoordinates);
+                    geometry = result.geometry();
+                    geometryKind = result.kind();
                 }
-                case "Polygon", "MultiGeometry" -> throw profileFailure("geometry");
                 default -> {
                     if (PRESENTATION.contains(local)) {
                         warning("KML_PRESENTATION_IGNORED", presentationContext(local));
@@ -268,7 +272,21 @@ final class KmlParser {
         currentRecord = 0;
     }
 
-    private Geometry parseSimpleGeometry(String kind) throws XMLStreamException {
+    private GeometryResult parseGeometry(String kind, int geometryCoordinateStart)
+            throws XMLStreamException {
+        return switch (kind) {
+            case "Point" ->
+                    new GeometryResult("point", parseSimpleGeometry(kind, geometryCoordinateStart));
+            case "LineString" ->
+                    new GeometryResult("line", parseSimpleGeometry(kind, geometryCoordinateStart));
+            case "Polygon" -> new GeometryResult("polygon", parsePolygon(geometryCoordinateStart));
+            case "MultiGeometry" -> parseMultiGeometry(geometryCoordinateStart);
+            default -> throw new IllegalStateException("Unexpected supported KML geometry");
+        };
+    }
+
+    private Geometry parseSimpleGeometry(String kind, int geometryCoordinateStart)
+            throws XMLStreamException {
         requireAttributes(Set.of());
         String coordinates = null;
         boolean altitudeModeSeen = false;
@@ -317,7 +335,7 @@ final class KmlParser {
         if (coordinates == null) {
             throw valueFailure("coordinates", "missing");
         }
-        CoordinateSequence sequence = parseCoordinates(coordinates);
+        CoordinateSequence sequence = parseCoordinates(coordinates, geometryCoordinateStart);
         if ("Point".equals(kind)) {
             if (sequence.size() != 1) {
                 throw valueFailure("coordinates", "cardinality");
@@ -330,7 +348,249 @@ final class KmlParser {
         return new LineStringGeometry(sequence);
     }
 
-    private CoordinateSequence parseCoordinates(String value) {
+    private PolygonGeometry parsePolygon(int geometryCoordinateStart) throws XMLStreamException {
+        requireAttributes(Set.of());
+        CoordinateSequence exterior = null;
+        List<CoordinateSequence> holes = new ArrayList<>();
+        int stage = 0;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            String local = requireKmlElement();
+            switch (local) {
+                case "outerBoundaryIs" -> {
+                    if (exterior != null) {
+                        throw valueFailure("outerRing", "duplicate");
+                    }
+                    if (stage > 3) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 4;
+                    exterior = parseBoundary("outerRing", geometryCoordinateStart);
+                }
+                case "innerBoundaryIs" -> {
+                    if (stage < 4) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 5;
+                    holes.add(parseBoundary("innerRing", geometryCoordinateStart));
+                }
+                case "altitudeMode" -> {
+                    if (stage > 2) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 3;
+                    String mode = parseScalar("coordinates", Set.of()).strip();
+                    if (!"clampToGround".equals(mode)) {
+                        throw profileFailure("altitudeMode");
+                    }
+                }
+                case "extrude" -> {
+                    if (stage > 0) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 1;
+                    requireFalse(parseScalar("coordinates", Set.of()), "extrude");
+                }
+                case "tessellate" -> {
+                    if (stage > 1) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 2;
+                    requireFalse(parseScalar("coordinates", Set.of()), "tessellate");
+                }
+                default -> throw profileFailure("geometry");
+            }
+        }
+        if (exterior == null) {
+            throw valueFailure("outerRing", "missing");
+        }
+        return new PolygonGeometry(exterior, holes);
+    }
+
+    private CoordinateSequence parseBoundary(String field, int geometryCoordinateStart)
+            throws XMLStreamException {
+        requireAttributes(Set.of());
+        if (nextChildEvent() != XMLStreamConstants.START_ELEMENT
+                || !"LinearRing".equals(requireKmlElement())) {
+            throw valueFailure(field, "missing");
+        }
+        requireAttributes(Set.of());
+        String coordinates = null;
+        int stage = 0;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            String local = requireKmlElement();
+            switch (local) {
+                case "extrude" -> {
+                    if (stage > 0) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 1;
+                    requireFalse(parseScalar("coordinates", Set.of()), "extrude");
+                }
+                case "tessellate" -> {
+                    if (stage > 1) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 2;
+                    requireFalse(parseScalar("coordinates", Set.of()), "tessellate");
+                }
+                case "altitudeMode" -> {
+                    if (stage > 2) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 3;
+                    String mode = parseScalar("coordinates", Set.of()).strip();
+                    if (!"clampToGround".equals(mode)) {
+                        throw profileFailure("altitudeMode");
+                    }
+                }
+                case "coordinates" -> {
+                    if (stage > 3 || coordinates != null) {
+                        throw valueFailure(field, "cardinality");
+                    }
+                    stage = 4;
+                    coordinates = parseScalar("coordinates", Set.of());
+                }
+                default -> throw profileFailure("geometry");
+            }
+        }
+        if (nextChildEvent() != XMLStreamConstants.END_ELEMENT) {
+            throw valueFailure(field, "cardinality");
+        }
+        if (coordinates == null) {
+            throw valueFailure(field, "missing");
+        }
+        CoordinateSequence ring = parseCoordinates(coordinates, geometryCoordinateStart);
+        if (ring.size() < 4) {
+            throw valueFailure(field, "cardinality");
+        }
+        if (!ring.isClosed()) {
+            throw valueFailure(field, "closure");
+        }
+        return ring;
+    }
+
+    private GeometryResult parseMultiGeometry(int geometryCoordinateStart)
+            throws XMLStreamException {
+        requireAttributes(Set.of());
+        List<GeometryResult> components = new ArrayList<>();
+        String family = null;
+        while (true) {
+            int event = nextChildEvent();
+            if (event == XMLStreamConstants.END_ELEMENT) {
+                break;
+            }
+            String local = requireKmlElement();
+            if ("MultiGeometry".equals(local)
+                    || (!"Point".equals(local)
+                            && !"LineString".equals(local)
+                            && !"Polygon".equals(local))) {
+                throw profileFailure("multiGeometry");
+            }
+            String encounteredFamily =
+                    switch (local) {
+                        case "Point" -> "point";
+                        case "LineString" -> "line";
+                        case "Polygon" -> "polygon";
+                        default -> throw new IllegalStateException("Unexpected KML geometry");
+                    };
+            if (family != null && !family.equals(encounteredFamily)) {
+                throw profileFailure("multiGeometry");
+            }
+            family = encounteredFamily;
+            if ("Polygon".equals(local)) {
+                chargePart();
+            }
+            GeometryResult component = parseGeometry(local, geometryCoordinateStart);
+            components.add(component);
+        }
+        if (components.isEmpty()) {
+            throw profileFailure("multiGeometry");
+        }
+        return switch (components.get(0).kind()) {
+            case "point" ->
+                    new GeometryResult(
+                            "multipoint", new MultiPointGeometry(packPoints(components)));
+            case "line" -> {
+                chargeOwned(multiLineFlattenBytes(components));
+                yield new GeometryResult(
+                        "multiline",
+                        MultiLineStringGeometry.ofParts(
+                                components.stream()
+                                        .map(
+                                                component ->
+                                                        ((LineStringGeometry) component.geometry())
+                                                                .coordinates())
+                                        .toList()));
+            }
+            case "polygon" -> {
+                chargeOwned(multiPolygonFlattenBytes(components));
+                yield new GeometryResult(
+                        "multipolygon",
+                        MultiPolygonGeometry.ofPolygons(
+                                components.stream()
+                                        .map(component -> (PolygonGeometry) component.geometry())
+                                        .toList()));
+            }
+            default -> throw new IllegalStateException("Unexpected KML MultiGeometry family");
+        };
+    }
+
+    private CoordinateSequence packPoints(List<GeometryResult> components) {
+        chargeOwned(32L * components.size());
+        double[] ordinates = new double[Math.multiplyExact(components.size(), 2)];
+        for (int index = 0; index < components.size(); index++) {
+            var coordinate = ((PointGeometry) components.get(index).geometry()).coordinate();
+            ordinates[index * 2] = coordinate.x();
+            ordinates[index * 2 + 1] = coordinate.y();
+        }
+        return CoordinateSequence.of(ordinates);
+    }
+
+    private static long coordinateCount(List<GeometryResult> components) {
+        long coordinates = 0;
+        for (GeometryResult component : components) {
+            Geometry geometry = component.geometry();
+            long componentCoordinates = 0;
+            if (geometry instanceof LineStringGeometry line) {
+                componentCoordinates = line.coordinates().size();
+            } else if (geometry instanceof PolygonGeometry polygon) {
+                componentCoordinates = polygon.exterior().size();
+                for (CoordinateSequence hole : polygon.holes()) {
+                    componentCoordinates = Math.addExact(componentCoordinates, hole.size());
+                }
+            }
+            coordinates = Math.addExact(coordinates, componentCoordinates);
+        }
+        return coordinates;
+    }
+
+    private static long multiLineFlattenBytes(List<GeometryResult> components) {
+        long coordinateBytes = Math.multiplyExact(32, coordinateCount(components));
+        long fenceBytes = Math.multiplyExact(8L, Math.addExact(components.size(), 1));
+        return Math.addExact(coordinateBytes, fenceBytes);
+    }
+
+    private static long multiPolygonFlattenBytes(List<GeometryResult> components) {
+        long rings = 0;
+        for (GeometryResult component : components) {
+            PolygonGeometry polygon = (PolygonGeometry) component.geometry();
+            rings = Math.addExact(rings, Math.addExact(1, polygon.holes().size()));
+        }
+        long coordinateBytes = Math.multiplyExact(32, coordinateCount(components));
+        long ringFenceBytes = Math.multiplyExact(8, Math.addExact(rings, 1));
+        long polygonFenceBytes = Math.multiplyExact(8L, Math.addExact(components.size(), 1));
+        return Math.addExact(coordinateBytes, Math.addExact(ringFenceBytes, polygonFenceBytes));
+    }
+
+    private CoordinateSequence parseCoordinates(String value, int geometryCoordinateStart) {
         String stripped = value.strip();
         if (stripped.isEmpty()) {
             throw valueFailure("coordinates", "missing");
@@ -339,6 +599,14 @@ final class KmlParser {
         int tupleCount = tokenizer.countTokens();
         if (tupleCount > limits.maximumCoordinatesPerGeometry()) {
             throw limit("geometryCoordinates", tupleCount, limits.maximumCoordinatesPerGeometry());
+        }
+        long geometryCoordinates =
+                Math.addExact((long) totalCoordinates - geometryCoordinateStart, tupleCount);
+        if (geometryCoordinates > limits.maximumCoordinatesPerGeometry()) {
+            throw limit(
+                    "geometryCoordinates",
+                    geometryCoordinates,
+                    limits.maximumCoordinatesPerGeometry());
         }
         chargeGeometry(tupleCount);
         double[] packed = new double[Math.multiplyExact(tupleCount, 2)];
@@ -540,21 +808,29 @@ final class KmlParser {
     }
 
     private void chargeGeometry(int coordinateCount) {
-        long requestedParts = (long) parts + 1;
-        if (requestedParts > limits.maximumParts()) {
-            throw limit("parts", requestedParts, limits.maximumParts());
-        }
+        chargePart();
         long requestedCoordinates = (long) totalCoordinates + coordinateCount;
         if (requestedCoordinates > limits.maximumTotalCoordinates()) {
             throw limit("coordinates", requestedCoordinates, limits.maximumTotalCoordinates());
         }
-        long retainedAndTransientBytes = Math.addExact(4L, 16L * coordinateCount);
-        long requestedOwned = Math.addExact(ownedBytes, retainedAndTransientBytes);
+        long requestedOwned = Math.addExact(ownedBytes, 16L * coordinateCount);
+        if (requestedOwned > limits.maximumOwnedBytes()) {
+            throw limit("ownedBytes", requestedOwned, limits.maximumOwnedBytes());
+        }
+        totalCoordinates = Math.toIntExact(requestedCoordinates);
+        ownedBytes = requestedOwned;
+    }
+
+    private void chargePart() {
+        long requestedParts = (long) parts + 1;
+        if (requestedParts > limits.maximumParts()) {
+            throw limit("parts", requestedParts, limits.maximumParts());
+        }
+        long requestedOwned = Math.addExact(ownedBytes, 4);
         if (requestedOwned > limits.maximumOwnedBytes()) {
             throw limit("ownedBytes", requestedOwned, limits.maximumOwnedBytes());
         }
         parts++;
-        totalCoordinates = Math.toIntExact(requestedCoordinates);
         ownedBytes = requestedOwned;
     }
 
@@ -915,4 +1191,6 @@ final class KmlParser {
     }
 
     record Opening(List<FeatureRecord> records, DiagnosticReport diagnostics) {}
+
+    private record GeometryResult(String kind, Geometry geometry) {}
 }

@@ -2329,6 +2329,15 @@ consumer behavior. It shares no parser or public XML abstraction with GPX. Polyg
 MultiGeometry, exhaustive hostile-input evidence, and Native Image remain assigned to G10-055
 through G10-057.
 
+Implementation evidence (2026-07-24): G10-055 completes the approved static geometry mapping.
+Polygon exterior and interior rings retain source order and exact closure, coordinate parsing
+canonicalizes negative zero, and homogeneous MultiGeometry values flatten into the ordinary packed
+MultiPoint, MultiLineString, or MultiPolygon contracts without a KML-specific geometry collection.
+Mixed, nested, empty, or structurally reordered multipart values fail with stable closed-profile
+diagnostics. The local-file KML viewer exercises every supported geometry family, while the rendering
+lane verifies polygon holes, bounds, and tolerant colors rather than platform-identical pixels.
+Exhaustive hostile-input evidence and Native Image remain assigned to G10-056 and G10-057.
+
 Decision record (2026-07-17): **G10 GPX/KML source profile approval** is approved through the
 maintainer's advance HITL authorization for dependency-free remaining tasks. Approval accepts both
 independent secure StAX profiles, their explicit warned data loss, and G10-050 through G10-057 exactly
