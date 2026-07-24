@@ -137,6 +137,30 @@ limits bound bytes, XML structure and text, rules, predicates, symbolizers, cata
 owned output allocation. Unsupported or hostile input fails atomically with a stable structured
 `SeReadProblem`.
 
+## MapLibre Style support profile
+
+`mundane-map-io-maplibre-style-jackson` reads the named
+“mundane-java-map MapLibre v8 vector-style profile”; it does not claim general MapLibre or Mapbox
+compatibility. The optional AWT-free adapter directly constructs its pinned Jackson Core parser and
+publishes no Jackson type. It accepts bounded local byte snapshots only and never dereferences a
+style source or fetches a URL.
+
+The supported profile maps declaration-ordered circle, line, fill, and point-symbol layers onto the
+same immutable symbols, predicates, portrayal resolver, and point-label path used by project-native
+styles and the OGC SE adapter. Applications explicitly provide exact-key feature-source and named
+symbol catalogs. Literal values, typed filters, zoom ranges, and the closed documented
+`match`/`case`/`step`/linear-interpolation subset are supported; unsupported members and expressions
+fail atomically with stable structured diagnostics.
+
+Remote or inline source loading, vector/raster tiles, sprites, glyph services, arbitrary fonts,
+network access, 3D/terrain/heatmap layers, general MapLibre expressions, transitions, and extension
+syntax are excluded. The supported matrix and limits are authoritative in the
+[G14 design](design/G14-maplibre-style.md). The staged Java 21 consumer covers direct parse,
+expression, bind, icon and label rendering, and vector label capture. Ubuntu 24.04 Linux x86-64
+GraalVM CE 21 covers the same parser/binder, label-profile resolution, icon rendering, and stable
+diagnostic paths without claiming native Java2D glyph execution. Windows/macOS Native Image
+behavior is not claimed.
+
 ## Small example
 
 ```java

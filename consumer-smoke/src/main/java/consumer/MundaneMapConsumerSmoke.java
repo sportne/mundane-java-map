@@ -69,6 +69,11 @@ import io.github.mundanej.map.io.gpx.GpxFiles;
 import io.github.mundanej.map.io.gpx.GpxOpenOptions;
 import io.github.mundanej.map.io.kml.KmlFiles;
 import io.github.mundanej.map.io.kml.KmlOpenOptions;
+import io.github.mundanej.map.io.maplibre.style.MapLibreBoundLayer;
+import io.github.mundanej.map.io.maplibre.style.MapLibreSourceRegistry;
+import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinder;
+import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinding;
+import io.github.mundanej.map.io.maplibre.style.MapLibreStyles;
 import io.github.mundanej.map.io.shapefile.ShapefileOpenOptions;
 import io.github.mundanej.map.io.shapefile.Shapefiles;
 import io.github.mundanej.map.io.svg.SvgSymbols;
@@ -124,6 +129,7 @@ public final class MundaneMapConsumerSmoke {
         renderVector(registry, renderers);
         renderMilitarySymbol(registry, renderers);
         renderSeStyle(registry, renderers);
+        renderMapLibreStyle(registry, renderers);
         renderExplicitWorldWrap(registry, renderers);
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
@@ -777,6 +783,190 @@ public final class MundaneMapConsumerSmoke {
                     }
                     require(bluePixels >= 80, "SE catalog marker did not render");
                 });
+    }
+
+    private static void renderMapLibreStyle(
+            CrsRegistry registry, SymbolRendererRegistry renderers) throws Exception {
+        byte[] document =
+                """
+                {
+                  "version": 8,
+                  "sources": {"places": {"type": "geojson"}},
+                  "layers": [
+                    {
+                      "id": "category",
+                      "type": "circle",
+                      "source": "places",
+                      "filter": ["==", ["get", "family"], "category"],
+                      "paint": {
+                        "circle-radius": 10,
+                        "circle-color": [
+                          "match", ["get", "kind"], "capital", "#d82828", "#808080"
+                        ]
+                      }
+                    },
+                    {
+                      "id": "label",
+                      "type": "symbol",
+                      "source": "places",
+                      "filter": ["==", ["get", "family"], "label"],
+                      "layout": {
+                        "symbol-z-order": "source",
+                        "icon-image": "consumer.place",
+                        "icon-allow-overlap": true,
+                        "icon-ignore-placement": true,
+                        "icon-optional": true,
+                        "text-field": ["get", "name"],
+                        "text-font": ["SansSerif"],
+                        "text-size": 12,
+                        "text-anchor": "top",
+                        "text-offset": [0, 1.2],
+                        "text-optional": true
+                      }
+                    }
+                  ]
+                }
+                """
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var style = MapLibreStyles.read(document);
+        NamedSymbolCatalog catalog =
+                NamedSymbolCatalog.of(
+                        List.of(
+                                new NamedSymbol(
+                                        "consumer.place",
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.DIAMOND,
+                                                Rgba.rgb(35, 105, 215),
+                                                18,
+                                                1))));
+        InMemoryFeatureSource source =
+                InMemoryFeatureSource.open(
+                        new SourceIdentity("consumer-maplibre", "Consumer MapLibre"),
+                        List.of(
+                                new FeatureRecord(
+                                        "capital",
+                                        "Capital",
+                                        new PointGeometry(new Coordinate(-30, 0)),
+                                        Map.of("family", "category", "kind", "capital")),
+                                new FeatureRecord(
+                                        "label",
+                                        "Label",
+                                        new PointGeometry(new Coordinate(30, 0)),
+                                        Map.of("family", "label", "name", "Published style"))),
+                        Optional.empty(),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.empty(),
+                                        Optional.empty())),
+                        FeatureSourceLimits.LEVEL_1);
+        try (source;
+                MapLibreStyleBinding binding =
+                        MapLibreStyleBinder.bind(
+                                style,
+                                MapLibreSourceRegistry.builder()
+                                        .register("places", source)
+                                        .build(),
+                                catalog)) {
+            SwingUtilities.invokeAndWait(
+                    () -> {
+                        MapView view =
+                                new MapView(
+                                        registry,
+                                        CrsDefinitions.EPSG_3857,
+                                        CrsDefinitions.EPSG_3857,
+                                        renderers);
+                        BufferedImage image =
+                                new BufferedImage(160, 100, BufferedImage.TYPE_INT_ARGB);
+                        try {
+                            view.setSize(image.getWidth(), image.getHeight());
+                            view.setViewport(new MapViewport(160, 100, 0, 0, 1));
+                            view.setLayerBindings(
+                                    binding.layers().stream()
+                                            .map(MundaneMapConsumerSmoke::mapLibreBinding)
+                                            .toList());
+                            Graphics2D graphics = image.createGraphics();
+                            try {
+                                graphics.setColor(java.awt.Color.WHITE);
+                                graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                                view.paint(graphics);
+                            } finally {
+                                graphics.dispose();
+                            }
+                            int redPixels = 0;
+                            int bluePixels = 0;
+                            for (int y = 20; y < 80; y++) {
+                                for (int x = 20; x < 140; x++) {
+                                    int packed = image.getRGB(x, y);
+                                    int red = packed >>> 16 & 0xff;
+                                    int green = packed >>> 8 & 0xff;
+                                    int blue = packed & 0xff;
+                                    if (red > green + 80 && red > blue + 80) redPixels++;
+                                    if (blue > red + 60 && blue > green + 40) bluePixels++;
+                                }
+                            }
+                            require(redPixels >= 100, "MapLibre expression marker did not render");
+                            require(bluePixels >= 40, "MapLibre catalog icon did not render");
+                            var labels = view.captureVectorExportSnapshot().labels();
+                            require(labels.size() == 1, "MapLibre label count changed");
+                            var label = labels.getFirst();
+                            require(
+                                    label.text().equals("Published style"),
+                                    "MapLibre label text changed");
+                            int labelPixels =
+                                    countDarkPixels(
+                                            image,
+                                            (int) Math.floor(label.baselineX()),
+                                            (int)
+                                                    Math.floor(
+                                                            label.baselineY()
+                                                                    - label.style().sizePixels()
+                                                                            * 1.5),
+                                            (int)
+                                                    Math.ceil(
+                                                            label.baselineX()
+                                                                    + label.measuredAdvance()),
+                                            (int)
+                                                    Math.ceil(
+                                                            label.baselineY()
+                                                                    + label.style().sizePixels()
+                                                                            * 0.5));
+                            require(
+                                    labelPixels >= 10,
+                                    "MapLibre label glyphs did not render");
+                        } finally {
+                            view.close();
+                        }
+                    });
+        }
+    }
+
+    private static MapLayerBinding mapLibreBinding(MapLibreBoundLayer layer) {
+        MapLayerBinding binding =
+                MapLayerBinding.borrowedFeature(
+                        layer.id(),
+                        layer.id(),
+                        layer.source(),
+                        layer.portrayal().orElseThrow());
+        binding.setPortrayalZoomRange(layer.minimumZoom(), layer.maximumZoom());
+        return binding;
+    }
+
+    private static int countDarkPixels(
+            BufferedImage image, int minimumX, int minimumY, int maximumX, int maximumY) {
+        int count = 0;
+        for (int y = Math.max(0, minimumY); y < Math.min(image.getHeight(), maximumY); y++) {
+            for (int x = Math.max(0, minimumX); x < Math.min(image.getWidth(), maximumX); x++) {
+                int packed = image.getRGB(x, y);
+                int red = packed >>> 16 & 0xff;
+                int green = packed >>> 8 & 0xff;
+                int blue = packed & 0xff;
+                if (red < 120 && green < 120 && blue < 120) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private static FeaturePortrayal consumerPortrayal(

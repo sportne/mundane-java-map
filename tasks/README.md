@@ -356,7 +356,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G14-004 — Bounded MapLibre expressions](closed/G14-004-bounded-maplibre-expressions.md) | Complete | AFK | G14-003 | Evaluated bounded paint expressions with exact types, limits, omission, zoom, and rendering agreement. |
 | [G14-005 — Symbol icons and point labels](closed/G14-005-symbol-icons-and-point-labels.md) | Complete | AFK | G14-004 | Resolved caller-catalog icons and placed bounded G11-compatible point labels. |
 | [G14-006 — MapLibre fixtures, gallery, and hardening](closed/G14-006-maplibre-fixtures-gallery-and-hardening.md) | Complete | HITL | G14-005 | Closed hostile/interoperability evidence and approved the MapLibre gallery. |
-| [G14-007 — MapLibre native and publication closeout](G14-007-maplibre-native-publication-closeout.md) | Proposed | HITL | G14-006 | Close dependency, staged consumer, Linux Native Image, and G12–G14 evidence. |
+| [G14-007 — MapLibre native and publication closeout](closed/G14-007-maplibre-native-publication-closeout.md) | Complete | HITL | G14-006 | Closed dependency, staged consumer, Linux Native Image, and G12–G14 evidence. |
 
 ### G15 — Live-track stress and IOU tracking
 

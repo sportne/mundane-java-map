@@ -598,7 +598,7 @@ separately decomposed.
 
 ### G14 — MapLibre Style
 
-- G14 follows G13 and proposes an optional `mundane-map-io-maplibre-style-jackson` adapter for a
+- G14 follows G13 with an optional `mundane-map-io-maplibre-style-jackson` adapter for a
   bounded MapLibre Style Specification v8 subset. It reuses the existing locked Jackson Core
   boundary and G13's standards-neutral portrayal plan.
 - The first profile supports explicit caller-bound feature sources, circle/line/fill and bounded
@@ -612,8 +612,11 @@ separately decomposed.
   omission, zoom context, and rendering agreement. Explicit-catalog vector/raster icons and
   singular-point labels now share the established paint/export/collision path. Provenance-pinned
   interoperability fixtures, deterministic hostile/mutation coverage, the complete gallery, and
-  tolerant regression evidence are closed. G14-007 delivers publication/consumer/Linux Native Image
-  closeout.
+  tolerant regression evidence are closed. Complete G14-007 publishes and consumes the adapter from
+  staged Java 21 artifacts, proves parse/expression/bind/label-profile resolution/icon rendering and
+  stable rejection in the required Linux Native Image lane, and closes G12–G14 on one
+  standards-neutral portrayal pipeline. Native Java2D glyph execution remains outside the approved
+  boundary. G14 is complete.
 - See the [G14 detailed design](design/G14-maplibre-style.md) and the
   [G14 task set](tasks/README.md#g14--maplibre-style).
 

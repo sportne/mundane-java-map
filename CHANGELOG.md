@@ -23,6 +23,9 @@ First useful Level 1 release candidate.
 - A strict Level 2 local `.mmap.xml` version 1 workspace profile with bounded secure read, canonical
   atomic write, explicit guarded source/catalog registries, all-or-nothing owning sessions, and a
   runnable shapefile/world-file raster restore example.
+- An optional AWT-free Jackson Core adapter for the named bounded MapLibre v8 vector-style profile,
+  with explicit caller source/catalog binding, circle/line/fill/symbol layers, typed filters and
+  expressions, zoom ranges, icons, point labels, stable diagnostics, and no resource fetching.
 - Runnable examples for the implemented map, symbol, interaction, format, editing, styling, and
   workspace slices, plus independent corpus, rendering-regression, performance, Native Image,
   publication, and downstream-consumer verification lanes.

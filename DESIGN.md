@@ -62,7 +62,7 @@ design task; there are no empty speculative design files.
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | Complete |
-| G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-006 complete; G14-007 proposed |
+| G14 | [MapLibre Style](design/G14-maplibre-style.md) | Complete |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 through G16-004 complete; G16-005 through G16-007 draft |
 
@@ -81,8 +81,10 @@ literal vector rendering, G14-003 implements explicit borrowed-source binding, t
 geometry/zoom context, and zoom-range selection, G14-004 implements bounded typed paint
 expressions, G14-005 implements explicit-catalog icons and bounded point labels, and G14-006 closes
 the provenance fixtures, hostile-input/mutation hardening, complete gallery, and tolerant regression
-evidence. G14-007 remains proposed until its release evidence lands. The approval is for the named
-project subset and does not claim general MapLibre or Mapbox compatibility.
+evidence. G14-007 closes the locked dependency/service audit, staged Java 21 consumer, Linux Native
+Image label-profile/icon-render path, exact subset wording, and holistic G12–G14 review without
+weakening G11's native glyph boundary. The approval is for the named project subset and does not
+claim general MapLibre or Mapbox compatibility.
 
 Live-stress decision record (2026-07-21): G15-001 approves an example-local, dependency-free stress
 profile using an independently implemented forward IOU-Kalman state estimator derived from public
@@ -275,7 +277,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G14-004 | Closed typed expression subset, limits, required attributes, and deterministic evaluation | Complete |
 | G14-005 | Explicit-catalog icons and bounded G11-compatible point labels | Complete |
 | G14-006 | Provenance fixtures, hostile JSON/mutation hardening, gallery, and tolerant regression | Complete |
-| G14-007 | Dependency/service audit, publication/consumer/native evidence, and G12–G14 closeout | Draft |
+| G14-007 | Dependency/service audit, publication/consumer/native evidence, and G12–G14 closeout | Complete |
 | G15-001 | IOU equations/provenance, bounded IOU-Kalman Filter wording, workload, Natural Earth, packed execution, telemetry, and evidence decisions | Approved |
 | G15-002 | Example-local packed scalar IOU-Kalman Filter state estimator, stable coefficients, dense oracle, numerical bounds, and first working slice | Approved |
 | G15-003 | Deterministic per-track truth/reports, timing wheel, stable worker shards, lifecycle, and 10k headless filtering | Approved |

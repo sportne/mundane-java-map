@@ -499,3 +499,36 @@ needed. Windows/macOS Native behavior is not claimed without separate evidence.
 6. G14-006 closes provenance, hostile/mutation hardening, gallery, and tolerant regression evidence.
 7. G14-007 closes Javadocs, locks/notices, staged consumer, Linux Native Image, and the holistic
    G12–G14 portrayal review.
+
+## G14 closeout evidence
+
+G14-007 retains the single two-phase adapter boundary: direct bounded Jackson parse produces a
+detached style, then explicit registries transactionally bind caller-owned sources and catalogs.
+The staged Java 21 consumer resolves only published Maven artifacts and exercises a typed
+data-driven expression, explicit binding, catalog icon, point label, Java2D rendering, and vector
+label capture. The publication contract verifies the API/core/Jackson POM edge, sources, Javadocs,
+and package inventory. The locked Jackson runtime and checksum audit passes without databind,
+shading, service loading, or transitive adapter types.
+
+The shared native scenario performs direct parse, filter/expression evaluation, transactional bind,
+catalog and label-profile resolution, icon rendering, and exact `MAPLIBRE_ROOT_UNSUPPORTED`
+rejection. It adds no MapLibre or Jackson resource, reflection, service, or font JNI metadata.
+Following the approved G11 closeout, native Java2D glyph execution remains explicitly outside the
+native-target boundary because GraalVM 21 requires internal `sun.font` metadata for that path. The
+staged JVM consumer and rendering regression retain actual glyph paint/export evidence. On
+2026-07-24, `nativeSmoke` built and ran successfully on Ubuntu 24.04.1 Linux x86-64 under WSL2 with
+GraalVM CE 21.0.2+13.1. This is Linux evidence only and does not support a Windows or macOS Native
+Image claim.
+
+The holistic G12–G14 review retains the simplest common architecture that covers all three
+standards:
+
+- MIL-STD-2525, OGC SE, and MapLibre all terminate in the existing immutable symbol values and one
+  standards-neutral `FeaturePortrayal`/resolver/AWT paint, hit, label, and export pipeline.
+- Shared predicates, interpolation, evaluation context, and point-label anchor basis were added
+  only when a second real consumer justified them; no adapter vocabulary or external dependency
+  type leaks into API, core, or AWT.
+- Each standard owns its bounded parser and diagnostics. Explicit catalogs/source registries replace
+  discovery, reflection, network lookup, and implicit application resources.
+- The optional MapLibre adapter remains the sole G14 Jackson boundary. There is no second general
+  expression runtime, renderer registry, or source lifecycle model.

@@ -1,6 +1,6 @@
 # G14-007 — MapLibre native and publication closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G14-006
 Gate: G14
 Type: HITL
@@ -8,7 +8,7 @@ Type: HITL
 ## Goal
 
 Publish and consume the bounded MapLibre style adapter and prove direct-Jackson parse, expression,
-binding, icon/label, rendering, and diagnostic paths under Linux Native Image.
+binding, label-profile resolution, icon rendering, and diagnostic paths under Linux Native Image.
 
 ## Context
 
@@ -55,3 +55,12 @@ git diff --check
 
 HITL checkpoint: **G14 Linux Native Image, publication, and G12–G14 symbology closeout**. Broader
 platform or full-spec claims require separate evidence and tasks.
+
+The maintainer approved the task set before execution. The staged Java 21 consumer parses,
+evaluates, binds, renders, and captures an icon label from published artifacts only. The shared
+native scenario additionally proves label-profile resolution, icon rendering, and the exact
+unsupported-root diagnostic without MapLibre resources, Jackson services, reflection metadata, or
+internal font JNI additions. In accordance with the approved G11 boundary, it makes no native
+Java2D glyph-execution claim. On 2026-07-24 the aggregate executable built and ran on Ubuntu 24.04.1
+Linux x86-64 under WSL2 with GraalVM CE 21.0.2+13.1. Module checks, publication/consumer smoke,
+Native Image smoke, the normal quality gate, and whitespace validation passed before closeout.
