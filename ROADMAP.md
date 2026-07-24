@@ -421,8 +421,11 @@ separately decomposed.
   snapshots local UTF-8 KML 2.2, traverses supported containers, and exposes ordered Point,
   LineString, Polygon, and homogeneous MultiGeometry placemarks through the ordinary EPSG:4326
   source/query/render stack. Its local-file viewer and tolerant regression cover holes and packed
-  multipart geometry. G10-056 and G10-057 remain the proposed hardening and Native Image branch;
-  GPX and KML converge only for shared final security/native evidence.
+  multipart geometry. G10-056 is also complete: the closed grammar, warned presentation/altitude
+  loss, rejected dynamic/network constructs, all parser budgets, mutation/cancellation/cleanup
+  precedence, hostile XML fixtures, seeded mutations, and a provenance-pinned simplekml fixture are
+  verified without dereferencing input references. G10-057 remains the proposed Native Image
+  closeout; GPX and KML converge only for shared final security/native evidence.
 - Remote XYZ uses an explicit blocking acquisition client that callers run off UI/render threads; a
   successful bounded HTTP batch returns a detached Web Mercator raster source. The first profile has
   no credentials, redirects, proxy, cookies, retries, disk cache, live-network `RasterSource`, Native

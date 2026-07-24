@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document>
+        <name>MundaneJ independent fixture</name>
+        <open>1</open>
+        <Placemark>
+            <name>Origin</name>
+            <description>Synthetic point</description>
+            <Point>
+                <coordinates>-77.0365,38.8977,0.0</coordinates>
+            </Point>
+        </Placemark>
+        <Placemark>
+            <name>Route</name>
+            <LineString>
+                <coordinates>-77.04,38.89,0.0 -77.03,38.9,0.0</coordinates>
+            </LineString>
+        </Placemark>
+        <Placemark>
+            <name>Area</name>
+            <Polygon>
+                <outerBoundaryIs>
+                    <LinearRing>
+                        <coordinates>-77.05,38.88,0.0 -77.02,38.88,0.0 -77.02,38.91,0.0 -77.05,38.91,0.0 -77.05,38.88,0.0</coordinates>
+                    </LinearRing>
+                </outerBoundaryIs>
+                <innerBoundaryIs>
+                    <LinearRing>
+                        <coordinates>-77.04,38.89,0.0 -77.03,38.89,0.0 -77.03,38.9,0.0 -77.04,38.9,0.0 -77.04,38.89,0.0</coordinates>
+                    </LinearRing>
+                </innerBoundaryIs>
+            </Polygon>
+        </Placemark>
+    </Document>
+</kml>

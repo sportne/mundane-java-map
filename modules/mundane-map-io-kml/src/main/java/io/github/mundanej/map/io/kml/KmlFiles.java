@@ -24,6 +24,21 @@ import java.util.Set;
 
 /** Opens bounded local KML 2.2 documents as immutable feature sources. */
 public final class KmlFiles {
+    private static final KmlFileAccess SYSTEM_ACCESS =
+            new KmlFileAccess() {
+                @Override
+                public BasicFileAttributes readAttributes(Path path) throws IOException {
+                    return Files.readAttributes(
+                            path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                }
+
+                @Override
+                public SeekableByteChannel open(Path path) throws IOException {
+                    return Files.newByteChannel(
+                            path, Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
+                }
+            };
+
     private KmlFiles() {}
 
     /**
@@ -45,7 +60,25 @@ public final class KmlFiles {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(cancellation, "cancellation");
         checkCancelled(identity, cancellation);
-        byte[] snapshot = readSnapshot(path, identity, options.formatLimits(), cancellation);
+        byte[] snapshot =
+                readSnapshot(path, identity, options.formatLimits(), cancellation, SYSTEM_ACCESS);
+        return openOwnedSnapshot(snapshot, identity, options, cancellation);
+    }
+
+    static FeatureSource open(
+            Path path,
+            SourceIdentity identity,
+            KmlOpenOptions options,
+            CancellationToken cancellation,
+            KmlFileAccess access) {
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(cancellation, "cancellation");
+        Objects.requireNonNull(access, "access");
+        checkCancelled(identity, cancellation);
+        byte[] snapshot =
+                readSnapshot(path, identity, options.formatLimits(), cancellation, access);
         return openOwnedSnapshot(snapshot, identity, options, cancellation);
     }
 
@@ -96,9 +129,13 @@ public final class KmlFiles {
     }
 
     private static byte[] readSnapshot(
-            Path path, SourceIdentity identity, KmlLimits limits, CancellationToken cancellation) {
+            Path path,
+            SourceIdentity identity,
+            KmlLimits limits,
+            CancellationToken cancellation,
+            KmlFileAccess access) {
         Path normalized = path.toAbsolutePath().normalize();
-        BasicFileAttributes before = attributes(normalized, identity, "open");
+        BasicFileAttributes before = initialAttributes(normalized, identity, access);
         if (!before.isRegularFile() || before.isSymbolicLink() || before.size() == 0) {
             throw ioFailure(identity, "attributes", "other", null);
         }
@@ -108,28 +145,10 @@ public final class KmlFiles {
         if (before.size() > limits.maximumOwnedBytes()) {
             throw limit(identity, "ownedBytes", before.size(), limits.maximumOwnedBytes());
         }
-        byte[] snapshot = new byte[Math.toIntExact(before.size())];
-        try (SeekableByteChannel input =
-                Files.newByteChannel(
-                        normalized, Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS))) {
-            ByteBuffer target = ByteBuffer.wrap(snapshot);
-            while (target.hasRemaining()) {
-                checkCancelled(identity, cancellation);
-                if (input.read(target) < 0) {
-                    throw ioFailure(identity, "read", "changed", null);
-                }
-            }
-            if (input.size() != snapshot.length) {
-                throw ioFailure(identity, "read", "changed", null);
-            }
-        } catch (NoSuchFileException failure) {
-            throw ioFailure(identity, "open", "notFound", failure);
-        } catch (AccessDeniedException | SecurityException failure) {
-            throw ioFailure(identity, "open", "accessDenied", failure);
-        } catch (IOException failure) {
-            throw ioFailure(identity, "read", "other", failure);
-        }
-        BasicFileAttributes after = attributes(normalized, identity, "read");
+        int expected = Math.toIntExact(before.size());
+        byte[] snapshot = new byte[expected];
+        readChannel(normalized, identity, cancellation, access, snapshot, expected);
+        BasicFileAttributes after = finalAttributes(normalized, identity, access);
         if (!after.isRegularFile()
                 || after.isSymbolicLink()
                 || before.size() != after.size()
@@ -140,16 +159,84 @@ public final class KmlFiles {
         return snapshot;
     }
 
-    private static BasicFileAttributes attributes(
-            Path path, SourceIdentity identity, String operation) {
+    private static BasicFileAttributes initialAttributes(
+            Path path, SourceIdentity identity, KmlFileAccess access) {
         try {
-            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            return access.readAttributes(path);
         } catch (NoSuchFileException failure) {
-            throw ioFailure(identity, operation, "notFound", failure);
+            throw ioFailure(identity, "open", "notFound", failure);
         } catch (AccessDeniedException | SecurityException failure) {
-            throw ioFailure(identity, operation, "accessDenied", failure);
+            throw ioFailure(identity, "open", "accessDenied", failure);
         } catch (IOException failure) {
-            throw ioFailure(identity, operation, "other", failure);
+            throw ioFailure(identity, "read", "other", failure);
+        }
+    }
+
+    private static BasicFileAttributes finalAttributes(
+            Path path, SourceIdentity identity, KmlFileAccess access) {
+        try {
+            return access.readAttributes(path);
+        } catch (IOException | SecurityException failure) {
+            throw ioFailure(identity, "read", "changed", failure);
+        }
+    }
+
+    private static void readChannel(
+            Path path,
+            SourceIdentity identity,
+            CancellationToken cancellation,
+            KmlFileAccess access,
+            byte[] snapshot,
+            int expected) {
+        SeekableByteChannel input;
+        try {
+            input = access.open(path);
+        } catch (NoSuchFileException failure) {
+            throw ioFailure(identity, "open", "notFound", failure);
+        } catch (AccessDeniedException | SecurityException failure) {
+            throw ioFailure(identity, "open", "accessDenied", failure);
+        } catch (IOException failure) {
+            throw ioFailure(identity, "open", "other", failure);
+        }
+        Throwable primary = null;
+        try {
+            ByteBuffer target = ByteBuffer.wrap(snapshot);
+            while (target.hasRemaining()) {
+                checkCancelled(identity, cancellation);
+                int count = input.read(target);
+                if (count < 0) {
+                    throw ioFailure(identity, "read", "changed", null);
+                }
+            }
+            checkCancelled(identity, cancellation);
+            if (input.read(ByteBuffer.allocate(1)) >= 0) {
+                throw ioFailure(identity, "read", "changed", null);
+            }
+            if (input.size() != expected) {
+                throw ioFailure(identity, "read", "changed", null);
+            }
+        } catch (IOException failure) {
+            primary = ioFailure(identity, "read", "other", failure);
+        } catch (RuntimeException | Error failure) {
+            primary = failure;
+        }
+        SourceException closeFailure = null;
+        try {
+            input.close();
+        } catch (IOException failure) {
+            closeFailure = ioFailure(identity, "close", "other", failure);
+        }
+        if (primary != null) {
+            if (closeFailure != null) {
+                primary.addSuppressed(closeFailure);
+            }
+            if (primary instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw (Error) primary;
+        }
+        if (closeFailure != null) {
+            throw closeFailure;
         }
     }
 
@@ -157,7 +244,7 @@ public final class KmlFiles {
         return before == null || after == null || before.equals(after);
     }
 
-    static void checkCancelled(SourceIdentity identity, CancellationToken cancellation) {
+    private static void checkCancelled(SourceIdentity identity, CancellationToken cancellation) {
         if (cancellation.isCancellationRequested()) {
             KmlDiagnostics diagnostics = new KmlDiagnostics(identity.id(), 1);
             throw diagnostics.failure(

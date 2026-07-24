@@ -1,6 +1,6 @@
 # G10-056 — KML hardening and fixtures
 
-Status: Proposed
+Status: Complete
 Depends on: G10-055
 Gate: G10
 Type: HITL
@@ -58,3 +58,11 @@ git diff --check
 
 HITL checkpoint: **G10 KML fixture provenance approval**. The maintainer must approve the source and
 redistribution record for every non-generated fixture before completion.
+
+Completion evidence (2026-07-24): the maintainer's advance HITL approval accepts the synthetic
+`simplekml` 1.3.6 fixture and its recorded LGPL-3.0-or-later generator/BSD-3-Clause output
+disposition. Its 1,330 bytes are pinned at SHA-256
+`32fc9de3e4cc1a09254f01a3b922a406b2237f79c3c6dc403ede3b5c7f37e2f2`. The closed ordered grammar,
+warned presentation/altitude loss, rejected dynamic semantics, prospective limit matrix,
+mutation/cancellation/cleanup precedence, security canaries, and deterministic mutations are covered
+through structured outcomes without external dereferencing.

@@ -2338,6 +2338,20 @@ diagnostics. The local-file KML viewer exercises every supported geometry family
 lane verifies polygon holes, bounds, and tolerant colors rather than platform-identical pixels.
 Exhaustive hostile-input evidence and Native Image remain assigned to G10-056 and G10-057.
 
+Implementation evidence (2026-07-24): G10-056 closes the static KML grammar and opening boundary.
+Feature, presentation, geometry-control, Polygon, and LinearRing child order is explicit; ignored
+presentation and altitude values produce bounded warnings; dynamic/network, overlay, model, tour,
+update, region, time, schema, visibility, altitude, extrusion, and tessellation semantics fail with
+the closed diagnostics before any reference can be followed. Prospective XML, feature, coordinate,
+part, scalar, decoded-text, numeric-token, warning, input, and owned-memory ceilings have exact and
+one-over evidence. File seams prove mutation, cancellation, read/close suppression, and final
+fingerprint precedence, while DTD/XXE, XInclude, schema-location, malformed UTF-8/XML, and seeded
+mutations remain inside structured outcomes. The approved independent fixture contains only synthetic
+project data serialized by LGPL-3.0-or-later `simplekml` 1.3.6, deterministically removes that tool's
+automatic non-profile object IDs, is distributed as BSD-3-Clause project output, and pins 1,330 bytes
+at SHA-256 `32fc9de3e4cc1a09254f01a3b922a406b2237f79c3c6dc403ede3b5c7f37e2f2`.
+Native Image remains assigned to G10-057.
+
 Decision record (2026-07-17): **G10 GPX/KML source profile approval** is approved through the
 maintainer's advance HITL authorization for dependency-free remaining tasks. Approval accepts both
 independent secure StAX profiles, their explicit warned data loss, and G10-050 through G10-057 exactly

@@ -19,6 +19,7 @@ import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +42,9 @@ final class KmlParser {
                             new AttributeField("geometryKind", AttributeType.TEXT, false)));
 
     private static final String KML = "http://www.opengis.net/kml/2.2";
+    private static final String GX = "http://www.google.com/kml/ext/2.2";
+    private static final String ATOM = "http://www.w3.org/2005/Atom";
+    private static final String XAL = "urn:oasis:names:tc:ciq:xsdschema:xAL:2.0";
     private static final QName ID = new QName("", "id");
     private static final Pattern DECIMAL =
             Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
@@ -181,24 +185,38 @@ final class KmlParser {
 
     private void parseContainer() throws XMLStreamException {
         requireAttributes(Set.of());
+        int stage = 0;
+        Set<String> seen = new HashSet<>();
         while (true) {
             int event = nextChildEvent();
             if (event == XMLStreamConstants.END_ELEMENT) {
                 return;
             }
-            String local = requireKmlElement();
+            String local = reader.getLocalName();
+            String presentation = presentationConstruct();
+            String unsupported = unsupportedConstruct();
             if (isFeature(local)) {
+                requireKmlElement();
+                stage = requireOrder(stage, 200, false);
                 parseFeature();
             } else if ("name".equals(local) || "description".equals(local)) {
+                requireKmlElement();
+                stage = requireOrder(stage, featureRank(local), !seen.add(local));
                 parseScalar(local, Set.of());
             } else if ("visibility".equals(local)) {
+                requireKmlElement();
+                stage = requireOrder(stage, featureRank(local), !seen.add(local));
                 parseVisibility();
-            } else if (PRESENTATION.contains(local)) {
-                warning("KML_PRESENTATION_IGNORED", presentationContext(local));
+            } else if (presentation != null) {
+                int rank = featureRank(local);
+                boolean repeatable = "style".equals(presentation);
+                stage = requireOrder(stage, rank, !repeatable && !seen.add(presentationKey()));
+                warning("KML_PRESENTATION_IGNORED", Map.of("construct", presentation));
                 skipSubtree();
-            } else if (UNSUPPORTED.contains(local)) {
-                throw profileFailure(unsupportedContext(local));
+            } else if (unsupported != null) {
+                throw profileFailure(unsupported);
             } else {
+                requireKmlElement();
                 throw profileFailure("foreignElement");
             }
         }
@@ -217,14 +235,35 @@ final class KmlParser {
         String geometryKind = null;
         boolean nameSeen = false;
         boolean descriptionSeen = false;
+        int stage = 0;
+        Set<String> presentationSeen = new HashSet<>();
         while (true) {
             int event = nextChildEvent();
             if (event == XMLStreamConstants.END_ELEMENT) {
                 break;
             }
-            String local = requireKmlElement();
+            String local = reader.getLocalName();
+            String presentation = presentationConstruct();
+            String unsupported = unsupportedConstruct();
+            if (unsupported != null) {
+                throw profileFailure(unsupported);
+            }
+            if (presentation != null) {
+                int rank = featureRank(local);
+                boolean repeatable = "style".equals(presentation);
+                stage =
+                        requireOrder(
+                                stage,
+                                rank,
+                                !repeatable && !presentationSeen.add(presentationKey()));
+                warning("KML_PRESENTATION_IGNORED", Map.of("construct", presentation));
+                skipSubtree();
+                continue;
+            }
+            requireKmlElement();
             switch (local) {
                 case "name" -> {
+                    stage = requireOrder(stage, featureRank(local), false);
                     if (nameSeen) {
                         throw valueFailure("name", "duplicate");
                     }
@@ -232,14 +271,21 @@ final class KmlParser {
                     name = validateText(parseScalar("name", Set.of()));
                 }
                 case "description" -> {
+                    stage = requireOrder(stage, featureRank(local), false);
                     if (descriptionSeen) {
                         throw valueFailure("description", "duplicate");
                     }
                     descriptionSeen = true;
                     description = validateText(parseScalar("description", Set.of()));
                 }
-                case "visibility" -> parseVisibility();
+                case "visibility" -> {
+                    stage =
+                            requireOrder(
+                                    stage, featureRank(local), !presentationSeen.add("visibility"));
+                    parseVisibility();
+                }
                 case "Point", "LineString", "Polygon", "MultiGeometry" -> {
+                    stage = requireOrder(stage, 200, false);
                     if (geometry != null) {
                         throw valueFailure("coordinates", "cardinality");
                     }
@@ -247,16 +293,7 @@ final class KmlParser {
                     geometry = result.geometry();
                     geometryKind = result.kind();
                 }
-                default -> {
-                    if (PRESENTATION.contains(local)) {
-                        warning("KML_PRESENTATION_IGNORED", presentationContext(local));
-                        skipSubtree();
-                    } else if (UNSUPPORTED.contains(local)) {
-                        throw profileFailure(unsupportedContext(local));
-                    } else {
-                        throw profileFailure("foreignElement");
-                    }
-                }
+                default -> throw profileFailure("foreignElement");
             }
         }
         if (geometry == null) {
@@ -268,6 +305,7 @@ final class KmlParser {
         values.put("kmlId", kmlId == null ? AttributeNull.INSTANCE : kmlId);
         values.put("description", description);
         values.put("geometryKind", geometryKind);
+        chargeOwned(320L + 2L * name.length());
         records.add(new FeatureRecord("kml:placemark:" + physicalFeatures, name, geometry, values));
         currentRecord = 0;
     }
@@ -289,9 +327,7 @@ final class KmlParser {
             throws XMLStreamException {
         requireAttributes(Set.of());
         String coordinates = null;
-        boolean altitudeModeSeen = false;
-        boolean extrudeSeen = false;
-        boolean tessellateSeen = false;
+        int stage = 0;
         while (true) {
             int event = nextChildEvent();
             if (event == XMLStreamConstants.END_ELEMENT) {
@@ -303,30 +339,39 @@ final class KmlParser {
                     if (coordinates != null) {
                         throw valueFailure("coordinates", "duplicate");
                     }
+                    int maximumStage = "Point".equals(kind) ? 2 : 3;
+                    if (stage > maximumStage) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = maximumStage + 1;
                     coordinates = parseScalar("coordinates", Set.of());
                 }
                 case "altitudeMode" -> {
-                    if (altitudeModeSeen) {
-                        throw valueFailure("coordinates", "duplicate");
+                    int altitudeStage = "Point".equals(kind) ? 2 : 3;
+                    if (stage >= altitudeStage) {
+                        throw xmlFailure("order", null);
                     }
-                    altitudeModeSeen = true;
+                    stage = altitudeStage;
                     String mode = parseScalar("coordinates", Set.of()).strip();
                     if (!"clampToGround".equals(mode)) {
                         throw profileFailure("altitudeMode");
                     }
                 }
                 case "extrude" -> {
-                    if (extrudeSeen) {
-                        throw valueFailure("coordinates", "duplicate");
+                    if (stage > 0) {
+                        throw xmlFailure("order", null);
                     }
-                    extrudeSeen = true;
+                    stage = 1;
                     requireFalse(parseScalar("coordinates", Set.of()), "extrude");
                 }
                 case "tessellate" -> {
-                    if (tessellateSeen) {
-                        throw valueFailure("coordinates", "duplicate");
+                    if ("Point".equals(kind)) {
+                        throw profileFailure("tessellate");
                     }
-                    tessellateSeen = true;
+                    if (stage > 1) {
+                        throw xmlFailure("order", null);
+                    }
+                    stage = 2;
                     requireFalse(parseScalar("coordinates", Set.of()), "tessellate");
                 }
                 default -> throw profileFailure("geometry");
@@ -375,6 +420,7 @@ final class KmlParser {
                         throw xmlFailure("order", null);
                     }
                     stage = 5;
+                    chargeOwned(8);
                     holes.add(parseBoundary("innerRing", geometryCoordinateStart));
                 }
                 case "altitudeMode" -> {
@@ -509,6 +555,7 @@ final class KmlParser {
                 chargePart();
             }
             GeometryResult component = parseGeometry(local, geometryCoordinateStart);
+            chargeOwned(8);
             components.add(component);
         }
         if (components.isEmpty()) {
@@ -655,22 +702,38 @@ final class KmlParser {
     private String parseScalar(String field, Set<QName> attributesAllowed)
             throws XMLStreamException {
         requireAttributes(attributesAllowed);
-        StringBuilder result = new StringBuilder();
+        char[] value = new char[0];
+        int length = 0;
         while (true) {
             int event = nextEvent();
             if (event == XMLStreamConstants.END_ELEMENT) {
-                return result.toString();
+                chargeOwned(2L * length);
+                String result = new String(value, 0, length);
+                releaseOwned(2L * value.length);
+                return result;
             }
             if (isText(event)) {
-                if ((long) result.length() + reader.getTextLength()
-                        > limits.maximumScalarCharacters()) {
+                int textLength = reader.getTextLength();
+                if ((long) length + textLength > limits.maximumScalarCharacters()) {
                     throw limit(
                             "scalarCharacters",
-                            (long) result.length() + reader.getTextLength(),
+                            (long) length + textLength,
                             limits.maximumScalarCharacters());
                 }
-                result.append(
-                        reader.getTextCharacters(), reader.getTextStart(), reader.getTextLength());
+                int required = Math.addExact(length, textLength);
+                if (required > value.length) {
+                    chargeOwned(2L * required);
+                    char[] grown = java.util.Arrays.copyOf(value, required);
+                    releaseOwned(2L * value.length);
+                    value = grown;
+                }
+                System.arraycopy(
+                        reader.getTextCharacters(),
+                        reader.getTextStart(),
+                        value,
+                        length,
+                        textLength);
+                length = required;
             } else if (event != XMLStreamConstants.COMMENT
                     && event != XMLStreamConstants.PROCESSING_INSTRUCTION) {
                 throw valueFailure(field, "nestedContent");
@@ -813,7 +876,7 @@ final class KmlParser {
         if (requestedCoordinates > limits.maximumTotalCoordinates()) {
             throw limit("coordinates", requestedCoordinates, limits.maximumTotalCoordinates());
         }
-        long requestedOwned = Math.addExact(ownedBytes, 16L * coordinateCount);
+        long requestedOwned = Math.addExact(ownedBytes, 32L * coordinateCount);
         if (requestedOwned > limits.maximumOwnedBytes()) {
             throw limit("ownedBytes", requestedOwned, limits.maximumOwnedBytes());
         }
@@ -858,6 +921,13 @@ final class KmlParser {
         ownedBytes = Math.addExact(ownedBytes, count);
         if (ownedBytes > limits.maximumOwnedBytes()) {
             throw limit("ownedBytes", ownedBytes, limits.maximumOwnedBytes());
+        }
+    }
+
+    private void releaseOwned(long count) {
+        ownedBytes = Math.subtractExact(ownedBytes, count);
+        if (ownedBytes < 0) {
+            throw new IllegalStateException("KML owned-byte accounting underflow");
         }
     }
 
@@ -915,7 +985,7 @@ final class KmlParser {
                 && (bytes[0] & 0xff) == 0xef
                 && (bytes[1] & 0xff) == 0xbb
                 && (bytes[2] & 0xff) == 0xbf) {
-            diagnostics.warning("KML_UTF8_BOM_IGNORED", Map.of(), 0);
+            warning("KML_UTF8_BOM_IGNORED", Map.of());
             offset = 3;
         } else if (hasUnsupportedBom()) {
             throw encodingFailure("bom");
@@ -1065,10 +1135,82 @@ final class KmlParser {
     }
 
     private String requireKmlElement() {
-        if (!KML.equals(reader.getNamespaceURI())) {
+        String namespace = reader.getNamespaceURI();
+        if (GX.equals(namespace)) {
+            if ("Tour".equals(reader.getLocalName())) {
+                throw profileFailure("tour");
+            }
+            if ("altitudeMode".equals(reader.getLocalName())) {
+                throw profileFailure("altitudeMode");
+            }
+        }
+        if (!KML.equals(namespace)) {
             throw profileFailure("foreignElement");
         }
         return reader.getLocalName();
+    }
+
+    private int requireOrder(int previous, int encountered, boolean duplicate) {
+        if (encountered < previous) {
+            throw xmlFailure("order", null);
+        }
+        if (duplicate) {
+            throw xmlFailure("cardinality", null);
+        }
+        return Math.max(previous, encountered);
+    }
+
+    private String presentationConstruct() {
+        String namespace = reader.getNamespaceURI();
+        String local = reader.getLocalName();
+        if (KML.equals(namespace) && PRESENTATION.contains(local)) {
+            return presentationContext(local).get("construct");
+        }
+        if ((ATOM.equals(namespace) && ("author".equals(local) || "link".equals(local)))
+                || (XAL.equals(namespace) && "AddressDetails".equals(local))) {
+            return "contact";
+        }
+        return null;
+    }
+
+    private String presentationKey() {
+        return reader.getNamespaceURI() + '\u0000' + reader.getLocalName();
+    }
+
+    private String unsupportedConstruct() {
+        String namespace = reader.getNamespaceURI();
+        String local = reader.getLocalName();
+        if (KML.equals(namespace) && UNSUPPORTED.contains(local)) {
+            return unsupportedContext(local);
+        }
+        if (GX.equals(namespace) && "Tour".equals(local)) {
+            return "tour";
+        }
+        if (GX.equals(namespace) && "altitudeMode".equals(local)) {
+            return "altitudeMode";
+        }
+        return null;
+    }
+
+    private static int featureRank(String local) {
+        return switch (local) {
+            case "name" -> 10;
+            case "visibility" -> 20;
+            case "open" -> 30;
+            case "author" -> 40;
+            case "link" -> 41;
+            case "address" -> 42;
+            case "AddressDetails" -> 43;
+            case "phoneNumber" -> 44;
+            case "Snippet" -> 50;
+            case "description" -> 60;
+            case "LookAt", "Camera" -> 70;
+            case "styleUrl" -> 80;
+            case "Style", "StyleMap" -> 90;
+            case "Region" -> 100;
+            case "ExtendedData" -> 110;
+            default -> 200;
+        };
     }
 
     private void requireAttributes(Set<QName> allowed) {

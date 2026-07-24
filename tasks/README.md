@@ -290,7 +290,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-053 — Native Image GPX smoke](closed/G10-053-native-image-gpx-smoke.md) | Complete | HITL | G10-052 | Prove bounded GPX success, warning, and malformed Linux native paths. |
 | [G10-054 — KML point and line first slice](closed/G10-054-kml-point-line-first-slice.md) | Complete | AFK | G10-005 | Read, query, render, publish, and consume bounded KML points and lines. |
 | [G10-055 — KML polygon and MultiGeometry slice](closed/G10-055-kml-polygon-multigeometry-slice.md) | Complete | AFK | G10-054 | Render bounded polygons and homogeneous MultiGeometry values. |
-| [G10-056 — KML hardening and fixtures](G10-056-kml-hardening-and-fixtures.md) | Proposed | HITL | G10-055 | Close KML warning/rejection/security behavior and approve fixture provenance. |
+| [G10-056 — KML hardening and fixtures](closed/G10-056-kml-hardening-and-fixtures.md) | Complete | HITL | G10-055 | Close KML warning/rejection/security behavior and approve fixture provenance. |
 | [G10-057 — Native Image KML closeout](G10-057-native-image-kml-closeout.md) | Proposed | HITL | G10-053, G10-056 | Prove bounded KML native paths and close shared XML security evidence. |
 | [G10-060 — HTTP tile one-tile slice](closed/G10-060-http-tile-one-tile-slice.md) | Complete | AFK | G10-039 | Acquire one bounded PNG/JPEG tile into a detached source through loopback HTTP. |
 | [G10-061 — HTTP tile regions, cache, and rendering](closed/G10-061-http-tile-region-cache-rendering.md) | Complete | AFK | G10-060 | Add exact region math, deterministic batches, missing tiles, LRU, and rendering. |
