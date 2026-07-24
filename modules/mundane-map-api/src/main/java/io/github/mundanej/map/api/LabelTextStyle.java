@@ -7,7 +7,7 @@ import java.util.Objects;
  *
  * @param color visible RGBA text color
  * @param weight supported logical font weight
- * @param sizePixels logical screen-pixel font size from 6 through 72
+ * @param sizePixels logical screen-pixel font size from 1 through 512
  */
 public record LabelTextStyle(Rgba color, LabelWeight weight, double sizePixels) {
     /** Validates the bounded visible text style. */
@@ -17,8 +17,8 @@ public record LabelTextStyle(Rgba color, LabelWeight weight, double sizePixels) 
         if (color.alpha() == 0) {
             throw new IllegalArgumentException("color must have positive alpha");
         }
-        if (!Double.isFinite(sizePixels) || sizePixels < 6.0 || sizePixels > 72.0) {
-            throw new IllegalArgumentException("sizePixels must be finite and between 6 and 72");
+        if (!Double.isFinite(sizePixels) || sizePixels < 1.0 || sizePixels > 512.0) {
+            throw new IllegalArgumentException("sizePixels must be finite and between 1 and 512");
         }
     }
 }

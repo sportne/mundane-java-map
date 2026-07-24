@@ -84,6 +84,10 @@ public final class PointLabelLayouts {
         double minX;
         double minY;
         switch (position) {
+            case CENTER -> {
+                minX = center(anchorMinX, anchorMaxX, width);
+                minY = center(anchorMinY, anchorMaxY, height);
+            }
             case N -> {
                 minX = center(anchorMinX, anchorMaxX, width);
                 minY = anchorMinY - profile.gapPixels() - height;

@@ -3,9 +3,33 @@ package io.github.mundanej.map.io.maplibre.style;
 import io.github.mundanej.map.api.CancellationToken;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Allocation-free structural accounting for expression-valued style properties. */
 final class MapLibreExpressionAccounting {
+    private static final Set<String> OPERATIONS =
+            Set.of(
+                    "!",
+                    "==",
+                    "!=",
+                    "<",
+                    "<=",
+                    ">",
+                    ">=",
+                    "all",
+                    "any",
+                    "case",
+                    "geometry-type",
+                    "get",
+                    "has",
+                    "interpolate",
+                    "literal",
+                    "match",
+                    "step",
+                    "to-number",
+                    "to-string",
+                    "zoom");
+
     private MapLibreExpressionAccounting() {}
 
     static Counts count(
@@ -38,7 +62,8 @@ final class MapLibreExpressionAccounting {
     private static boolean expression(Object value) {
         return value instanceof List<?> list
                 && !list.isEmpty()
-                && list.getFirst() instanceof String;
+                && list.getFirst() instanceof String operation
+                && OPERATIONS.contains(operation);
     }
 
     private static final class Counter {

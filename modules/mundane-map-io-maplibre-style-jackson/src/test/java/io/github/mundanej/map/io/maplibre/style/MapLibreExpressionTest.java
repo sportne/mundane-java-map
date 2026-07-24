@@ -324,7 +324,7 @@ class MapLibreExpressionTest {
     @Test
     void accountingAndFilterCompilationPollCancellation() {
         List<Object> property = new ArrayList<>();
-        property.add("unknown");
+        property.add("all");
         for (int index = 0; index < 300; index++) {
             property.add(true);
         }

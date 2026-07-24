@@ -29,8 +29,10 @@ import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.LabelPlacementException;
 import io.github.mundanej.map.api.LabelTextStyle;
 import io.github.mundanej.map.api.LabelWeight;
+import io.github.mundanej.map.api.LiteralLabelText;
 import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PointLabelAnchorBasis;
 import io.github.mundanej.map.api.PointLabelPosition;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.ResolutionRange;
@@ -42,6 +44,7 @@ import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.TextAttribute;
+import io.github.mundanej.map.api.VectorExportSnapshot;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.DistanceStrategies;
@@ -123,6 +126,52 @@ class MapViewPointLabelTest {
                                             noLabel)));
                     BufferedImage plain = paint(view);
                     assertFalse(hasDarkInk(plain, 58, 25, 80, 50));
+                    view.close();
+                });
+    }
+
+    @Test
+    void featurePointCenterAnchorIsIndependentOfMarkerBoundsInPaintAndExport() throws Exception {
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    PointLabelProfile profile =
+                            new PointLabelProfile(
+                                    new LiteralLabelText("X"),
+                                    new LabelTextStyle(
+                                            Rgba.rgb(20, 20, 20), LabelWeight.NORMAL, 12),
+                                    List.of(PointLabelPosition.CENTER),
+                                    0,
+                                    8,
+                                    -4,
+                                    0,
+                                    0,
+                                    ResolutionRange.ALL,
+                                    PointLabelAnchorBasis.FEATURE_POINT);
+                    InMemoryLayer layer =
+                            new InMemoryLayer(
+                                    "point", "point", List.of(feature("point", "", 0, RED)));
+                    MapView view = view();
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.portrayedSnapshot(
+                                            layer,
+                                            FeaturePortrayal.markers(new FixedSymbolSelector(RED))
+                                                    .withPointLabel(profile))));
+                    VectorExportSnapshot.Label small =
+                            view.captureVectorExportSnapshot().labels().getFirst();
+                    assertTrue(hasDarkInk(paint(view), 50, 35, 70, 55));
+
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.portrayedSnapshot(
+                                            layer,
+                                            FeaturePortrayal.markers(new FixedSymbolSelector(BLUE))
+                                                    .withPointLabel(profile))));
+                    VectorExportSnapshot.Label large =
+                            view.captureVectorExportSnapshot().labels().getFirst();
+
+                    assertEquals(small.baselineX(), large.baselineX());
+                    assertEquals(small.baselineY(), large.baselineY());
                     view.close();
                 });
     }

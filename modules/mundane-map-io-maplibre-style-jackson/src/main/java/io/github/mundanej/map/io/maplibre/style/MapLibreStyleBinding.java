@@ -53,7 +53,13 @@ public final class MapLibreStyleBinding implements AutoCloseable {
     /** Invalidates this binding without closing borrowed sources. */
     @Override
     public void close() {
-        closed.set(true);
+        if (closed.compareAndSet(false, true)) {
+            for (MapLibreBoundLayer layer : layers) {
+                if (layer.source() instanceof SingularPointFeatureSource points) {
+                    points.close();
+                }
+            }
+        }
     }
 
     private void requireOpen() {

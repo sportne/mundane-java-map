@@ -24,7 +24,8 @@ class PointLabelLayoutsTest {
     private static final ScreenBox VISUAL_AT_ZERO = new ScreenBox(0, -8, 10, 2);
 
     @Test
-    void placesAllEightCompassCandidatesFromTranslatedMarkerAndVisualBounds() {
+    void placesCenterAndAllEightCompassCandidatesFromTranslatedMarkerAndVisualBounds() {
+        assertVisual(PointLabelPosition.CENTER, new ScreenBox(47, 42, 57, 52));
         assertVisual(PointLabelPosition.N, new ScreenBox(47, 23, 57, 33));
         assertVisual(PointLabelPosition.NE, new ScreenBox(66, 23, 76, 33));
         assertVisual(PointLabelPosition.E, new ScreenBox(66, 42, 76, 52));

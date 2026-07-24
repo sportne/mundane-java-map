@@ -57,6 +57,7 @@ import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PlacedPointLabel;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PointLabelAnchorBasis;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
@@ -883,7 +884,11 @@ public final class MapView extends JComponent implements AutoCloseable {
                                     layerIndex,
                                     feature,
                                     feature.label().orElseThrow(),
-                                    screenBox(markerBounds)));
+                                    feature.label().orElseThrow().profile().anchorBasis()
+                                                    == PointLabelAnchorBasis.FEATURE_POINT
+                                            ? new ScreenBox(
+                                                    anchor.x(), anchor.y(), anchor.x(), anchor.y())
+                                            : screenBox(markerBounds)));
                 }
             }
         }
@@ -1579,7 +1584,12 @@ public final class MapView extends JComponent implements AutoCloseable {
                                         layerIndex,
                                         feature,
                                         feature.label().orElseThrow(),
-                                        screenBox(result.nominalMarkerBounds().orElseThrow())));
+                                        labelAnchorBounds(
+                                                feature,
+                                                feature.label().orElseThrow(),
+                                                screenBox(
+                                                        result.nominalMarkerBounds().orElseThrow()),
+                                                viewportSnapshot)));
                     }
                     if (hoverSnapshot.isPresent()
                             && matches(hoverSnapshot.orElseThrow(), layer.id(), feature.id())) {
@@ -6203,6 +6213,22 @@ public final class MapView extends JComponent implements AutoCloseable {
                     Map.of("reason", "projectedSeam"));
         }
         return List.of(new GeographicSeamSplitter.Fragment(geometry, 0L));
+    }
+
+    private ScreenBox labelAnchorBounds(
+            VisualFeature feature,
+            ResolvedPointLabel label,
+            ScreenBox markerBounds,
+            MapViewport viewportSnapshot) {
+        if (label.profile().anchorBasis() == PointLabelAnchorBasis.MARKER_BOUNDS) {
+            return markerBounds;
+        }
+        Coordinate screen =
+                toScreen(
+                        ((PointGeometry) feature.geometry()).coordinate(),
+                        feature.sourceToDisplay(),
+                        featureViewport(feature, viewportSnapshot));
+        return new ScreenBox(screen.x(), screen.y(), screen.x(), screen.y());
     }
 
     private static List<GeographicSeamSplitter.Fragment> wrappedEditableGeometryFragments(

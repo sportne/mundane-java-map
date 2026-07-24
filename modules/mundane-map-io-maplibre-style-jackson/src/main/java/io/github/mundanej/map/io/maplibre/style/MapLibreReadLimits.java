@@ -12,12 +12,12 @@ package io.github.mundanej.map.io.maplibre.style;
  * @param maximumSources source ceiling
  * @param maximumLayers layer ceiling
  * @param maximumMetadataEntries metadata-entry ceiling
- * @param maximumExpressionNodes future expression-node ceiling
- * @param maximumExpressionDepth future expression-depth ceiling
- * @param maximumStops future interpolation-stop ceiling
- * @param maximumCategories future category ceiling
- * @param maximumCatalogReferences future catalog-reference ceiling
- * @param maximumProducedRules future produced-rule ceiling
+ * @param maximumExpressionNodes expression-node ceiling
+ * @param maximumExpressionDepth expression-depth ceiling
+ * @param maximumStops interpolation-stop ceiling
+ * @param maximumCategories category ceiling
+ * @param maximumCatalogReferences catalog-reference ceiling
+ * @param maximumProducedRules produced-rule ceiling
  * @param maximumOwnedBytes conservative reader-owned allocation ceiling
  */
 public record MapLibreReadLimits(

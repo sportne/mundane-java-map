@@ -62,7 +62,7 @@ design task; there are no empty speculative design files.
 | G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | Complete |
-| G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-004 complete; G14-005 through G14-007 proposed |
+| G14 | [MapLibre Style](design/G14-maplibre-style.md) | G14-001 through G14-005 complete; G14-006 and G14-007 proposed |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 through G16-004 complete; G16-005 through G16-007 draft |
 
@@ -78,8 +78,9 @@ non-executable until Proposed G10-004 and G11-004 complete; authoring those card
 Symbology-planning record (2026-07-19, updated 2026-07-24): G12 and G13 are complete. G14-001
 approves the bounded MapLibre Style v8 profile and isolated Jackson boundary; G14-002 implements
 literal vector rendering, G14-003 implements explicit borrowed-source binding, typed filters,
-geometry/zoom context, and zoom-range selection, and G14-004 implements bounded typed paint
-expressions. G14-005 through G14-007 remain proposed until their
+geometry/zoom context, and zoom-range selection, G14-004 implements bounded typed paint
+expressions, and G14-005 implements explicit-catalog icons and bounded point labels. G14-006 and
+G14-007 remain proposed until their
 code and evidence land. The approval is for the named project subset and does not claim general
 MapLibre or Mapbox compatibility.
 
@@ -272,7 +273,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G14-002 | Direct bounded JSON reader, literal circle/line/fill layers, rendering, and module creation | Complete |
 | G14-003 | Explicit transactional source registry, filters, zoom context, ordering, and ownership | Complete |
 | G14-004 | Closed typed expression subset, limits, required attributes, and deterministic evaluation | Complete |
-| G14-005 | Explicit-catalog icons and bounded G11-compatible point labels | Draft |
+| G14-005 | Explicit-catalog icons and bounded G11-compatible point labels | Complete |
 | G14-006 | Provenance fixtures, hostile JSON/mutation hardening, gallery, and tolerant regression | Draft |
 | G14-007 | Dependency/service audit, publication/consumer/native evidence, and G12–G14 closeout | Draft |
 | G15-001 | IOU equations/provenance, bounded IOU-Kalman Filter wording, workload, Natural Earth, packed execution, telemetry, and evidence decisions | Approved |

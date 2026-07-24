@@ -18,6 +18,9 @@ final class AttributeValueConversions {
         if (conversion.operation() == AttributeValueConversion.Operation.IDENTITY) {
             return ThematicValue.fromAttribute(primary);
         }
+        if (conversion.operation() == AttributeValueConversion.Operation.TO_STRING) {
+            return Optional.of(ThematicValue.text(LabelTextValues.stringify(primary)));
+        }
         if (conversion.candidates().isEmpty()) {
             return toNumber(primary);
         }

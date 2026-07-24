@@ -1,7 +1,9 @@
 package io.github.mundanej.map.api;
 
-/** Compass position of a point label outside its translated marker bounds. */
+/** Center or compass position of a point label relative to its translated anchor bounds. */
 public enum PointLabelPosition {
+    /** Centered on the selected anchor basis. */
+    CENTER,
     /** North. */
     N,
     /** North-east. */

@@ -79,19 +79,19 @@ class PointLabelValuesTest {
                 () -> profile(List.of(PointLabelPosition.N), -1, 0, 0, 0));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> profile(List.of(PointLabelPosition.N), 65, 0, 0, 0));
+                () -> profile(List.of(PointLabelPosition.N), 32_769, 0, 0, 0));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> profile(List.of(PointLabelPosition.N), 0, -257, 0, 0));
+                () -> profile(List.of(PointLabelPosition.N), 0, -32_769, 0, 0));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> profile(List.of(PointLabelPosition.N), 0, 257, 0, 0));
+                () -> profile(List.of(PointLabelPosition.N), 0, 32_769, 0, 0));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> profile(List.of(PointLabelPosition.N), 0, 0, -257, 0));
+                () -> profile(List.of(PointLabelPosition.N), 0, 0, -32_769, 0));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> profile(List.of(PointLabelPosition.N), 0, 0, 257, 0));
+                () -> profile(List.of(PointLabelPosition.N), 0, 0, 32_769, 0));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> profile(List.of(PointLabelPosition.N), 0, 0, 0, -1));
@@ -102,8 +102,9 @@ class PointLabelValuesTest {
                 IllegalArgumentException.class,
                 () -> profile(List.of(PointLabelPosition.N), Double.NaN, 0, 0, 0));
 
-        PointLabelProfile exact = profile(List.of(PointLabelPosition.N), 64, -256, 256, 64);
-        assertEquals(64, exact.gapPixels());
+        PointLabelProfile exact =
+                profile(List.of(PointLabelPosition.N), 32_768, -32_768, 32_768, 64);
+        assertEquals(32_768, exact.gapPixels());
     }
 
     @Test
@@ -113,12 +114,13 @@ class PointLabelValuesTest {
                 () -> new LabelTextStyle(Rgba.TRANSPARENT, LabelWeight.NORMAL, 12));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 5.99));
+                () -> new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 0.99));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.BOLD, 72.01));
-        assertEquals(6, new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 6).sizePixels());
-        assertEquals(72, new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.BOLD, 72).sizePixels());
+                () -> new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.BOLD, 512.01));
+        assertEquals(1, new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 1).sizePixels());
+        assertEquals(
+                512, new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.BOLD, 512).sizePixels());
 
         ResolutionRange range = new ResolutionRange(0.5, 2);
         assertTrue(range.includes(0.5));

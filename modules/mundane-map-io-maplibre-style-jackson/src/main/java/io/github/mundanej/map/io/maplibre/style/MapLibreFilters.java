@@ -462,10 +462,10 @@ final class MapLibreFilters {
 
         private void node(String location, int depth) {
             nodes++;
-            if ((nodes & 255) == 0 && cancellation.isCancellationRequested()) {
+            long aggregateNodes = (long) precedingNodes + nodes;
+            if ((aggregateNodes & 255) == 0 && cancellation.isCancellationRequested()) {
                 throw MapLibreStyles.failure("MAPLIBRE_CANCELLED", location, Map.of());
             }
-            long aggregateNodes = (long) precedingNodes + nodes;
             if (aggregateNodes > limits.maximumExpressionNodes()) {
                 throw limit(
                         location,

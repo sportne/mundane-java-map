@@ -12,6 +12,7 @@ import io.github.mundanej.map.api.GraduatedSymbolStep;
 import io.github.mundanej.map.api.InterpolatedSymbolSelector;
 import io.github.mundanej.map.api.InterpolatedSymbolStop;
 import io.github.mundanej.map.api.InterpolationInput;
+import io.github.mundanej.map.api.LiteralLabelText;
 import io.github.mundanej.map.api.OmittedSymbol;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.PortrayalEvaluationContext;
@@ -19,6 +20,7 @@ import io.github.mundanej.map.api.PortrayalPredicate;
 import io.github.mundanej.map.api.ResolvedFeaturePortrayal;
 import io.github.mundanej.map.api.RulePortrayalPlan;
 import io.github.mundanej.map.api.RuleSymbolSelector;
+import io.github.mundanej.map.api.StringifiedTextAttribute;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolSelector;
@@ -293,11 +295,23 @@ public final class FeaturePortrayalResolver {
         if (pointLabel.orElseThrow().textSource() instanceof FeatureName) {
             return featureName.isBlank() ? Optional.empty() : Optional.of(featureName);
         }
-        String attribute = ((TextAttribute) pointLabel.orElseThrow().textSource()).attribute();
+        if (pointLabel.orElseThrow().textSource() instanceof LiteralLabelText literal) {
+            return Optional.of(literal.text());
+        }
+        String attribute =
+                pointLabel.orElseThrow().textSource() instanceof TextAttribute text
+                        ? text.attribute()
+                        : ((StringifiedTextAttribute) pointLabel.orElseThrow().textSource())
+                                .attribute();
         Object value = attributes.get(attribute);
-        return value instanceof String text && !text.isBlank()
-                ? Optional.of(text)
-                : Optional.empty();
+        String text =
+                pointLabel.orElseThrow().textSource() instanceof StringifiedTextAttribute
+                        ? LabelTextValues.stringify(
+                                attributes.getOrDefault(
+                                        attribute,
+                                        io.github.mundanej.map.api.AttributeNull.INSTANCE))
+                        : value instanceof String exact ? exact : "";
+        return text.isBlank() ? Optional.empty() : Optional.of(text);
     }
 
     /**
@@ -475,16 +489,21 @@ public final class FeaturePortrayalResolver {
     }
 
     private List<String> requiredPaintAttributes(boolean includeLabel) {
-        if (!includeLabel
-                || pointLabel.isEmpty()
-                || !(pointLabel.orElseThrow().textSource() instanceof TextAttribute text)) {
+        if (!includeLabel || pointLabel.isEmpty()) {
             return requiredSymbolAttributes;
         }
-        if (requiredSymbolAttributes.contains(text.attribute())) {
+        String attribute =
+                pointLabel.orElseThrow().textSource() instanceof TextAttribute text
+                        ? text.attribute()
+                        : pointLabel.orElseThrow().textSource()
+                                        instanceof StringifiedTextAttribute converted
+                                ? converted.attribute()
+                                : null;
+        if (attribute == null || requiredSymbolAttributes.contains(attribute)) {
             return requiredSymbolAttributes;
         }
         ArrayList<String> attributes = new ArrayList<>(requiredSymbolAttributes);
-        attributes.add(text.attribute());
+        attributes.add(attribute);
         return List.copyOf(attributes);
     }
 

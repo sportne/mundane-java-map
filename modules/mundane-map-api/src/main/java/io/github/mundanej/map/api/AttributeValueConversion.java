@@ -13,12 +13,18 @@ public final class AttributeValueConversion {
     public static final AttributeValueConversion TO_NUMBER =
             new AttributeValueConversion(Operation.TO_NUMBER, List.of());
 
+    /** String conversion of the selector's primary attribute only. */
+    public static final AttributeValueConversion TO_STRING =
+            new AttributeValueConversion(Operation.TO_STRING, List.of());
+
     /** Closed conversion operation. */
     public enum Operation {
         /** Preserve the canonical input type. */
         IDENTITY,
         /** Select the first candidate convertible to a finite decimal. */
-        TO_NUMBER
+        TO_NUMBER,
+        /** Convert canonical null, boolean, number, or string to exact text. */
+        TO_STRING
     }
 
     private final Operation operation;

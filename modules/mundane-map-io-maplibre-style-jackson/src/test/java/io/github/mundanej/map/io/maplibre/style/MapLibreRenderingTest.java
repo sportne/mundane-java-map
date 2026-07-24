@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.CrsMetadata;
@@ -12,12 +13,16 @@ import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureStyle;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.NamedSymbol;
+import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceIdentity;
+import io.github.mundanej.map.api.VectorExportSnapshot;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
@@ -209,6 +214,84 @@ class MapLibreRenderingTest {
 
                         view.close();
                         assertTrue(source.isClosed());
+                    });
+        }
+    }
+
+    @Test
+    void sourceBackedSymbolLayersShareOrderingAndGlobalLabelCollision() throws Exception {
+        MapLibreStyle style =
+                read(
+                        """
+                        {"version":8,"sources":{},"layers":[
+                          {"id":"ordinary","type":"circle","source":"places",
+                           "paint":{"circle-radius":3,"circle-color":"#00ff00"}},
+                          {"id":"under","type":"symbol","source":"places","layout":{
+                            "symbol-z-order":"source","icon-image":"red",
+                            "icon-allow-overlap":true,"icon-ignore-placement":true,
+                            "icon-optional":true,"text-field":["get","name"],
+                            "text-font":["SansSerif"],"text-optional":true}},
+                          {"id":"over","type":"symbol","source":"places","layout":{
+                            "symbol-z-order":"source","icon-image":"blue",
+                            "icon-allow-overlap":true,"icon-ignore-placement":true,
+                            "icon-optional":true,"text-field":["get","name"],
+                            "text-font":["SansSerif"],"text-optional":true}}
+                        ]}
+                        """);
+        NamedSymbolCatalog catalog =
+                NamedSymbolCatalog.of(
+                        List.of(
+                                new NamedSymbol(
+                                        "red",
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.SQUARE, Rgba.rgb(255, 0, 0), 14, 1)),
+                                new NamedSymbol(
+                                        "blue",
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.SQUARE,
+                                                Rgba.rgb(0, 0, 255),
+                                                10,
+                                                1))));
+        InMemoryFeatureSource source =
+                InMemoryFeatureSource.open(
+                        new SourceIdentity("places", "Places"),
+                        List.of(
+                                new FeatureRecord(
+                                        "city",
+                                        "",
+                                        new PointGeometry(new Coordinate(0, 0)),
+                                        Map.of("name", "City"))),
+                        Optional.empty(),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.empty(),
+                                        Optional.empty())),
+                        FeatureSourceLimits.LEVEL_1);
+        try (source;
+                MapLibreStyleBinding styleBinding =
+                        MapLibreStyleBinder.bind(
+                                style,
+                                MapLibreSourceRegistry.builder().register("places", source).build(),
+                                catalog)) {
+            SwingUtilities.invokeAndWait(
+                    () -> {
+                        MapView view = view(100, 100);
+                        List<MapLibreBoundLayer> layers = styleBinding.layers();
+                        view.setLayerBindings(
+                                List.of(
+                                        sourceBinding(layers.get(0), true),
+                                        sourceBinding(layers.get(1), false),
+                                        sourceBinding(layers.get(2), false)));
+
+                        BufferedImage image = paint(view, 100, 100);
+                        VectorExportSnapshot export = view.captureVectorExportSnapshot();
+                        assertColor(image, 50, 50, 0, 0, 255, 2);
+                        assertEquals(1, export.labels().size());
+                        assertEquals("City", export.labels().getFirst().text());
+                        assertEquals(
+                                "over", view.hitTest(50, 50, 0).topmost().orElseThrow().layerId());
+                        view.close();
                     });
         }
     }

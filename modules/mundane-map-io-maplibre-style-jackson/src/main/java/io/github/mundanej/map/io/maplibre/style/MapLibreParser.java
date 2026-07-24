@@ -2,6 +2,7 @@ package io.github.mundanej.map.io.maplibre.style;
 
 import io.github.mundanej.map.api.AttributeNull;
 import io.github.mundanej.map.api.FeaturePortrayal;
+import io.github.mundanej.map.api.FixedSymbolSelector;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +29,7 @@ final class MapLibreParser {
     private int stops;
     private int categories;
     private int producedRules;
+    private int catalogReferences;
     private long ownedBytes;
 
     MapLibreParser(JsonParser parser, MapLibreReadOptions options, int inputBytes) {
@@ -179,6 +181,7 @@ final class MapLibreParser {
                     case "circle" -> MapLibreLayerType.CIRCLE;
                     case "line" -> MapLibreLayerType.LINE;
                     case "fill" -> MapLibreLayerType.FILL;
+                    case "symbol" -> MapLibreLayerType.SYMBOL;
                     default ->
                             throw failure("MAPLIBRE_LAYER_UNSUPPORTED", location + "/type", "type");
                 };
@@ -234,9 +237,31 @@ final class MapLibreParser {
                         limits.maximumProducedRules(),
                         location,
                         "producedRules");
+        MapLibreSymbolSpec symbolSpec =
+                type == MapLibreLayerType.SYMBOL
+                        ? MapLibreSymbolParser.parse(
+                                layout, paint, limits, options.cancellation(), location)
+                        : null;
+        if (symbolSpec != null) {
+            catalogReferences =
+                    aggregate(
+                            catalogReferences,
+                            symbolSpec.catalogReferences(),
+                            limits.maximumCatalogReferences(),
+                            location + "/layout/icon-image",
+                            "catalogReferences");
+        }
         Optional<FeaturePortrayal> validated =
-                MapLibreSymbols.literal(
-                        type, layout, paint, location, visible, limits, options.cancellation());
+                type == MapLibreLayerType.SYMBOL
+                        ? visible ? Optional.of(deferredPortrayal(symbolSpec)) : Optional.empty()
+                        : MapLibreSymbols.literal(
+                                type,
+                                layout,
+                                paint,
+                                location,
+                                visible,
+                                limits,
+                                options.cancellation());
         if (object.containsKey("filter")) {
             MapLibreFilters.CompiledFilter filter =
                     MapLibreFilters.compileLayerFilter(
@@ -261,7 +286,12 @@ final class MapLibreParser {
                                 location + "/filter",
                                 "producedRules");
             }
-            validated = MapLibreFilters.apply(validated, filter.predicate());
+            if (symbolSpec == null) {
+                validated = MapLibreFilters.apply(validated, filter.predicate());
+            } else {
+                symbolSpec = symbolSpec.withFilter(filter.predicate());
+                validated = visible ? Optional.of(deferredPortrayal(symbolSpec)) : Optional.empty();
+            }
         }
         Optional<FeaturePortrayal> portrayal = visible ? validated : Optional.empty();
         return new MapLibreLayer(
@@ -275,12 +305,17 @@ final class MapLibreParser {
                 portrayal);
     }
 
+    private static FeaturePortrayal deferredPortrayal(MapLibreSymbolSpec spec) {
+        return FeaturePortrayal.markers(new FixedSymbolSelector(new MapLibreDeferredSymbol(spec)));
+    }
+
     private boolean visibility(
             Map<String, Object> layout, MapLibreLayerType type, String location) {
         Set<String> accepted =
                 switch (type) {
                     case CIRCLE, FILL -> Set.of("visibility");
                     case LINE -> Set.of("visibility", "line-cap", "line-join");
+                    case SYMBOL -> layout.keySet();
                 };
         requireMembers(layout, accepted, "MAPLIBRE_PROPERTY_UNSUPPORTED", location);
         if (!layout.containsKey("visibility")) {

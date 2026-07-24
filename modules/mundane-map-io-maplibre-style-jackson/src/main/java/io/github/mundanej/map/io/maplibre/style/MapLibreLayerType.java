@@ -7,5 +7,7 @@ public enum MapLibreLayerType {
     /** Linear geometry. */
     LINE,
     /** Polygon interiors and outlines. */
-    FILL
+    FILL,
+    /** Point icon with optional point label. */
+    SYMBOL
 }

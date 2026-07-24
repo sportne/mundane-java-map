@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * One immutable declaration-ordered literal vector layer.
+ * One immutable declaration-ordered vector or symbol layer.
  *
  * @param id exact unique layer identifier
  * @param source exact detached source identifier
@@ -15,7 +15,7 @@ import java.util.Optional;
  * @param minimumZoom inclusive minimum zoom
  * @param maximumZoom exclusive maximum zoom
  * @param metadata retained bounded scalar metadata
- * @param portrayal ordinary portrayal, empty for an invisible or degenerate layer
+ * @param portrayal detached portrayal, empty for an invisible or degenerate layer
  */
 public record MapLibreLayer(
         String id,

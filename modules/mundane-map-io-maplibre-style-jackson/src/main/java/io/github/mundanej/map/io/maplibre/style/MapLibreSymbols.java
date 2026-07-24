@@ -97,6 +97,7 @@ final class MapLibreSymbols {
             case CIRCLE -> circle(paint, location + "/paint");
             case LINE -> line(layout, paint, location, renderingRequired);
             case FILL -> fill(paint, location + "/paint");
+            case SYMBOL -> throw new AssertionError("symbol layers use deferred binding");
         };
     }
 
@@ -308,6 +309,7 @@ final class MapLibreSymbols {
                             "circle-stroke-opacity");
             case LINE -> Set.of("line-color", "line-width", "line-opacity");
             case FILL -> Set.of("fill-color", "fill-opacity", "fill-outline-color");
+            case SYMBOL -> Set.of();
         };
     }
 
@@ -628,6 +630,7 @@ final class MapLibreSymbols {
                             case CIRCLE -> SymbolRole.MARKER;
                             case LINE -> SymbolRole.LINE;
                             case FILL -> SymbolRole.FILL;
+                            case SYMBOL -> throw new AssertionError("symbol materialization");
                         });
             }
             if (portrayal.orElseThrow().selectors().size() != 1) {

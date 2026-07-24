@@ -1,6 +1,6 @@
 # G14-005 — Symbol icons and point labels
 
-Status: Proposed
+Status: Complete
 Depends on: G14-004
 Gate: G14
 Type: AFK

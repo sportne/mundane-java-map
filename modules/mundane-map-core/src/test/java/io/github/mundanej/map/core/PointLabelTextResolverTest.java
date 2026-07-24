@@ -8,10 +8,12 @@ import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.LabelTextStyle;
 import io.github.mundanej.map.api.LabelWeight;
+import io.github.mundanej.map.api.LiteralLabelText;
 import io.github.mundanej.map.api.PointLabelPosition;
 import io.github.mundanej.map.api.PointLabelProfile;
 import io.github.mundanej.map.api.ResolutionRange;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.StringifiedTextAttribute;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRole;
@@ -43,6 +45,26 @@ class PointLabelTextResolverTest {
                 Optional.empty(), attributes.resolveLabelText("name", Map.of("label", 10L), 1));
         assertEquals(
                 Optional.empty(), attributes.resolveLabelText("name", Map.of("label", "\t"), 1));
+    }
+
+    @Test
+    void resolvesLiteralAndClosedStringConversionWithoutLeakingUnsupportedValues() {
+        FeaturePortrayalResolver literal =
+                resolver(new LiteralLabelText("fixed"), ResolutionRange.ALL);
+        assertEquals(Optional.of("fixed"), literal.resolveLabelText("", Map.of(), 1));
+        assertEquals(List.of(), literal.requiredConfigurationAttributes());
+
+        FeaturePortrayalResolver converted =
+                resolver(new StringifiedTextAttribute("value"), ResolutionRange.ALL);
+        assertEquals(Optional.of("true"), converted.resolveLabelText("", Map.of("value", true), 1));
+        assertEquals(Optional.of("12.5"), converted.resolveLabelText("", Map.of("value", 12.5), 1));
+        assertEquals(
+                Optional.of("1e+21"), converted.resolveLabelText("", Map.of("value", 1.0e21), 1));
+        assertEquals(Optional.empty(), converted.resolveLabelText("", Map.of(), 1));
+        assertEquals(
+                Optional.empty(),
+                converted.resolveLabelText("", Map.of("value", List.of("unsupported")), 1));
+        assertEquals(List.of("value"), converted.requiredConfigurationAttributes());
     }
 
     @Test

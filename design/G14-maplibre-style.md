@@ -135,7 +135,11 @@ model but produces no binding and its source need not resolve. Property transiti
 Geometry roles are exact: circle accepts point and multipoint; line accepts line and multiline; fill
 accepts polygon and multipolygon; symbol accepts singular points in the first profile. An
 incompatible geometry does not match that layer. It is not an error and cannot be restyled into a
-different role.
+different role. Because the standards-neutral portrayal geometry category intentionally normalizes
+singular and multipart shapes, binding exposes a borrowed singular-point source view for symbol
+layers. Symbol layers sharing a source share that view, while ordinary layers retain the original
+source; the view uses a deterministic derived logical identity so both can coexist in one
+`MapView`. Closing the view never closes the caller source.
 
 ### Per-property expression matrix
 
@@ -353,6 +357,8 @@ composite, map-unit, and custom marker renderers are
 rejected because their intrinsic placement cannot be reconstructed faithfully. Binding defensively
 reconstructs the selected built-in marker with the MapLibre size, anchor, offset, rotation,
 rotation mode, and opacity while preserving vector path/paint or raster pixels/interpolation.
+The detached public `MapLibreLayer` record retains its existing components; an internal
+non-renderable marker carries the unresolved declaration until the explicit binder replaces it.
 When `text-field` is present, `icon-image` must be one literal catalog name that resolves during
 preflight; data-dependent icon selection is admitted only for icon-only layers. Thus the current
 label contract never encounters a selected label after its marker disappears.
@@ -389,8 +395,10 @@ marker-gap semantics are MapLibre semantics.
 Supported fixed properties are: `text-size` `[1,512]` pixels (default `16`); `text-color` (default
 `#000000`); `text-opacity` `[0,1]` (default `1`); one fixed `text-anchor` (default `center`);
 `text-variable-anchor` as one through nine unique anchors, which takes precedence over
-`text-anchor`; `text-offset` as a two-number em array (default `[0,0]`); nonnegative
-`text-radial-offset` in ems (default `0`, mutually exclusive with nonzero `text-offset`);
+`text-anchor`; `text-offset` as a two-number em array with each component in `[-64,64]` (default
+`[0,0]`); `text-radial-offset` in `[0,64]` ems (default `0`, mutually exclusive with nonzero
+`text-offset`). The shared point-label contract admits the resulting inclusive
+`[-32_768,32_768]` pixel offsets and `[0,32_768]` pixel radial gap at the maximum text size;
 `text-padding` `[0,64]` pixels (default `2`); and `symbol-sort-key` as an exactly integral value in
 `[-1_000_000_000,1_000_000_000]`. Binding maps it to priority `-sort-key`, so lower MapLibre keys
 are admitted first without lost ordering. `symbol-z-order` is required and must be `source`; the
@@ -425,7 +433,9 @@ Public `MapLibreReadLimits` exposes defaults and hard maxima. Values are validat
 | Produced rules | 4,096 | 4,096 |
 | Estimated owned bytes | 32 MiB | 512 MiB |
 
-Counters are aggregate across the document. String length is checked before copying where Jackson
+Counters are aggregate across the document. Static catalog names count during read; dynamic
+attribute icon selection reserves the exact supplied catalog size transactionally during binding
+against the same captured ceiling. String length is checked before copying where Jackson
 permits. The parser checks cancellation at root members, every source/layer, and every 256 tokens or
 expression nodes. Limits fail before growing the next collection. Recursion never exceeds the
 configured expression/JSON depth. Parsed collections and byte arrays are defensively copied; packed
