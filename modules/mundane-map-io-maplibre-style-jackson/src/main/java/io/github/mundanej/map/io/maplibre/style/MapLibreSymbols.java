@@ -75,12 +75,10 @@ final class MapLibreSymbols {
             } catch (MapLibreReadException failure) {
                 throw failure;
             } catch (IllegalArgumentException failure) {
-                throw new MapLibreReadException(
-                        MapLibreStyles.failure(
-                                        "MAPLIBRE_EXPRESSION_TYPE",
-                                        dynamic.location(),
-                                        Map.of("reason", "incompatibleResults"))
-                                .problem(),
+                throw MapLibreStyles.failure(
+                        "MAPLIBRE_EXPRESSION_TYPE",
+                        dynamic.location(),
+                        Map.of("reason", "incompatibleResults"),
                         failure);
             }
         }

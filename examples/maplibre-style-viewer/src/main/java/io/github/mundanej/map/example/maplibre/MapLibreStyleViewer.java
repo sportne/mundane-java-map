@@ -7,11 +7,15 @@ import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.LineStringGeometry;
+import io.github.mundanej.map.api.NamedSymbol;
+import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapLayerBinding;
 import io.github.mundanej.map.awt.MapView;
+import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
@@ -23,6 +27,8 @@ import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinder;
 import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinding;
 import io.github.mundanej.map.io.maplibre.style.MapLibreStyles;
 import java.awt.BorderLayout;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
@@ -31,15 +37,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
-/** Runnable in-memory example for the bounded literal MapLibre vector-style slice. */
+/** Runnable in-memory gallery for the bounded MapLibre vector-style profile. */
 public final class MapLibreStyleViewer {
     private static final String STYLE =
-            "/io/github/mundanej/map/example/maplibre/literal-style.json";
+            "/io/github/mundanej/map/example/maplibre/gallery-style.json";
 
     private MapLibreStyleViewer() {}
 
@@ -52,39 +59,71 @@ public final class MapLibreStyleViewer {
         SwingUtilities.invokeLater(MapLibreStyleViewer::show);
     }
 
-    /**
-     * Creates a caller-owned configured map view.
-     *
-     * @return configured view
-     */
-    public static MapView createMapView() {
+    static GallerySession createSession() {
         MapLibreStyle style = readStyle();
         MapView view =
                 new MapView(
                         CrsRegistry.level1(), CrsDefinitions.EPSG_3857, CrsDefinitions.EPSG_3857);
         view.setSize(800, 500);
         view.setViewport(new MapViewport(800, 500, 0, 0, 0.5));
-        InMemoryFeatureSource world = source("world", List.of(land(), route(), place()));
-        MapLibreStyleBinding binding =
-                MapLibreStyleBinder.bind(
-                        style,
-                        MapLibreSourceRegistry.builder().register("world-data", world).build());
-        Set<FeatureSource> ownedSources = Collections.newSetFromMap(new IdentityHashMap<>());
-        view.setLayerBindings(
-                binding.layers().stream()
-                        .map(layer -> binding(layer, ownedSources.add(layer.source())))
-                        .toList());
-        binding.close();
-        return view;
+        InMemoryFeatureSource world =
+                source(
+                        "gallery",
+                        List.of(
+                                land(),
+                                route(),
+                                point("category-capital", -165, 80, "category", "capital", 0),
+                                point("category-town", -115, 80, "category", "town", 0),
+                                point("step-small", -55, 80, "step", "town", 20),
+                                point("step-large", 5, 80, "step", "town", 2000),
+                                point("conditional", -55, -70, "conditional", "alert", 0),
+                                point("zoom", 70, 80, "zoom", "town", 0),
+                                point("symbol-capital", 145, 80, "symbol", "capital", 0),
+                                point("symbol-town", 205, 80, "symbol", "town", 0),
+                                point("dynamic-icon", -125, -70, "dynamic-symbol", "town", 0),
+                                missing(),
+                                point("ordered", 125, -70, "ordered", "town", 0)));
+        try {
+            MapLibreStyleBinding binding =
+                    MapLibreStyleBinder.bind(
+                            style,
+                            MapLibreSourceRegistry.builder().register("gallery", world).build(),
+                            catalog());
+            try {
+                Set<FeatureSource> ownedSources =
+                        Collections.newSetFromMap(new IdentityHashMap<>());
+                view.setLayerBindings(
+                        binding.layers().stream()
+                                .map(layer -> binding(layer, ownedSources.add(layer.source())))
+                                .toList());
+                return new GallerySession(view, binding);
+            } catch (RuntimeException failure) {
+                binding.close();
+                throw failure;
+            }
+        } catch (RuntimeException failure) {
+            view.close();
+            world.close();
+            throw failure;
+        }
     }
 
     private static void show() {
-        JFrame frame = new JFrame("mundane-java-map — MapLibre literal vector style");
-        frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        MapView view = createMapView();
+        JFrame frame = new JFrame("mundane-java-map — MapLibre vector-style gallery");
+        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        GallerySession session = createSession();
+        MapView view = session.view();
+        frame.addWindowListener(
+                new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent event) {
+                        session.close();
+                    }
+                });
         frame.add(
                 new JLabel(
-                        "Detached v8 JSON styles caller-owned in-memory point, line, and polygon data."),
+                        "Literals, filters, categories, steps, zoom interpolation, icons, labels, "
+                                + "missing data, and ordering."),
                 BorderLayout.NORTH);
         frame.add(view, BorderLayout.CENTER);
         frame.pack();
@@ -151,11 +190,70 @@ public final class MapLibreStyleViewer {
                 Map.of("kind", "route"));
     }
 
-    private static FeatureRecord place() {
+    private static FeatureRecord point(
+            String id, double x, double y, String family, String kind, long population) {
         return new FeatureRecord(
-                "place",
-                "Place",
-                new PointGeometry(new Coordinate(30, 25)),
-                Map.of("kind", "city"));
+                id,
+                id,
+                new PointGeometry(new Coordinate(x, y)),
+                Map.of(
+                        "family", family,
+                        "kind", kind,
+                        "population", population,
+                        "name", id.replace('-', ' ')));
+    }
+
+    private static FeatureRecord missing() {
+        return new FeatureRecord(
+                "missing",
+                "Missing attribute",
+                new PointGeometry(new Coordinate(55, -70)),
+                Map.of("family", "missing"));
+    }
+
+    private static NamedSymbolCatalog catalog() {
+        return NamedSymbolCatalog.of(
+                List.of(
+                        new NamedSymbol(
+                                "capital",
+                                BuiltInMarkers.filledScreen(
+                                        io.github.mundanej.map.api.BuiltInMarker.STAR,
+                                        Rgba.rgb(190, 50, 55),
+                                        22,
+                                        1)),
+                        new NamedSymbol(
+                                "town",
+                                BuiltInMarkers.filledScreen(
+                                        io.github.mundanej.map.api.BuiltInMarker.DIAMOND,
+                                        Rgba.rgb(43, 102, 161),
+                                        16,
+                                        1))));
+    }
+
+    static final class GallerySession implements AutoCloseable {
+        private final MapView view;
+        private final MapLibreStyleBinding binding;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        private GallerySession(MapView view, MapLibreStyleBinding binding) {
+            this.view = view;
+            this.binding = binding;
+        }
+
+        MapView view() {
+            if (closed.get()) {
+                throw new IllegalStateException("Gallery session is closed");
+            }
+            return view;
+        }
+
+        /** Closes the view before releasing its style binding. */
+        @Override
+        public void close() {
+            if (closed.compareAndSet(false, true)) {
+                view.close();
+                binding.close();
+            }
+        }
     }
 }

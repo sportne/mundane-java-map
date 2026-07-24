@@ -19,6 +19,31 @@ import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 
 final class MapLibreParser {
+    private static final Set<String> KNOWN_UNSUPPORTED_MEMBERS =
+            Set.of(
+                    "sprite",
+                    "glyphs",
+                    "terrain",
+                    "sky",
+                    "light",
+                    "fog",
+                    "projection",
+                    "transition",
+                    "imports",
+                    "global-state",
+                    "featuresets",
+                    "schema",
+                    "models",
+                    "promoteId",
+                    "generateId",
+                    "cluster",
+                    "clusterProperties",
+                    "clusterMaxZoom",
+                    "clusterRadius",
+                    "lineMetrics",
+                    "filter",
+                    "source-layer",
+                    "slot");
     private final JsonParser parser;
     private final MapLibreReadOptions options;
     private final MapLibreReadLimits limits;
@@ -444,10 +469,16 @@ final class MapLibreParser {
             Map<String, Object> object, Set<String> accepted, String code, String location) {
         for (String member : object.keySet()) {
             if (!accepted.contains(member)) {
+                String diagnosticMember =
+                        KNOWN_UNSUPPORTED_MEMBERS.contains(member) ? member : "member";
                 throw MapLibreStyles.failure(
-                        code, location + "/member", Map.of("reason", "member"));
+                        code, child(location, diagnosticMember), Map.of("reason", "member"));
             }
         }
+    }
+
+    private static String child(String location, String member) {
+        return "/".equals(location) ? location + member : location + '/' + member;
     }
 
     private Object require(Map<String, Object> object, String member, String location) {

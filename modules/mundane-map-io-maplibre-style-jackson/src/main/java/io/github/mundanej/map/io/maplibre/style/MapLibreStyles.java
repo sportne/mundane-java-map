@@ -76,8 +76,8 @@ public final class MapLibreStyles {
 
     static MapLibreReadException failure(
             String code, String location, Map<String, String> context, Throwable cause) {
-        return new MapLibreReadException(
-                new MapLibreProblem(code, "read", location, context), cause);
+        Objects.requireNonNull(cause, "cause");
+        return new MapLibreReadException(new MapLibreProblem(code, "read", location, context));
     }
 
     private static void checkCancelled(MapLibreReadOptions options) {

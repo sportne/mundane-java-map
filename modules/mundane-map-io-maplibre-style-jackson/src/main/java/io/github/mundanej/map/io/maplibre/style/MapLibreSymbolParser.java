@@ -136,7 +136,7 @@ final class MapLibreSymbolParser {
 
         Optional<PointLabelProfile> label =
                 layout.containsKey("text-field")
-                        ? label(layout, paint, icon, location)
+                        ? label(layout, paint, location)
                         : noLabel(layout, paint, location);
         return new MapLibreSymbolSpec(
                 icon,
@@ -154,11 +154,9 @@ final class MapLibreSymbolParser {
     }
 
     private static Optional<PointLabelProfile> label(
-            Map<String, Object> layout,
-            Map<String, Object> paint,
-            MapLibreSymbolSpec.IconExpression icon,
-            String location) {
-        if (!(icon instanceof MapLibreSymbolSpec.IconExpression.Literal)) {
+            Map<String, Object> layout, Map<String, Object> paint, String location) {
+        Object iconValue = layout.get("icon-image");
+        if (!(iconValue instanceof String)) {
             throw unsupported(location + "/layout/icon-image", "dynamicIconWithText");
         }
         requireTrue(layout, "icon-optional", location + "/layout");
@@ -603,7 +601,7 @@ final class MapLibreSymbolParser {
     private static void members(Map<String, Object> values, Set<String> accepted, String location) {
         for (String name : values.keySet()) {
             if (name.endsWith("-transition") || !accepted.contains(name)) {
-                throw unsupported(location + '/' + name, "property");
+                throw unsupported(location + "/property", "property");
             }
         }
     }

@@ -1,0 +1,148 @@
+{
+  "version": 8,
+  "name": "Bounded MapLibre vector-style gallery",
+  "sources": {
+    "gallery": {
+      "type": "geojson",
+      "data": "caller-owned in-memory gallery features"
+    }
+  },
+  "layers": [
+    {
+      "id": "land",
+      "type": "fill",
+      "source": "gallery",
+      "filter": ["==", ["geometry-type"], "Polygon"],
+      "paint": {
+        "fill-color": "#d8e6c4",
+        "fill-outline-color": "#61734f"
+      }
+    },
+    {
+      "id": "route",
+      "type": "line",
+      "source": "gallery",
+      "filter": ["all", ["==", ["geometry-type"], "LineString"], ["==", ["get", "kind"], "route"]],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "round"
+      },
+      "paint": {
+        "line-color": "#285f9c",
+        "line-width": 5
+      }
+    },
+    {
+      "id": "category",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "category"],
+      "paint": {
+        "circle-radius": 11,
+        "circle-color": ["match", ["get", "kind"], "capital", "#c83f49", "town", "#e89a36", "#777777"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#4f2830"
+      }
+    },
+    {
+      "id": "population-step",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "step"],
+      "paint": {
+        "circle-radius": ["step", ["to-number", ["get", "population"]], 5, 100, 9, 1000, 14],
+        "circle-color": "#4e83c4",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#183b65"
+      }
+    },
+    {
+      "id": "conditional",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "conditional"],
+      "paint": {
+        "circle-radius": 10,
+        "circle-color": ["case", ["==", ["get", "kind"], "alert"], "#d9473f", "#4a9a62"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#4a2520"
+      }
+    },
+    {
+      "id": "zoom-ramp",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "zoom"],
+      "paint": {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 0, 4, 24, 18],
+        "circle-color": "#6f55a5",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#31214f"
+      }
+    },
+    {
+      "id": "icon-label",
+      "type": "symbol",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "symbol"],
+      "layout": {
+        "symbol-z-order": "source",
+        "icon-image": "capital",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        "icon-optional": true,
+        "text-field": ["to-string", ["get", "name"]],
+        "text-font": ["SansSerif"],
+        "text-size": 15,
+        "text-anchor": "top",
+        "text-offset": [0, 1.2],
+        "text-padding": 3,
+        "text-optional": true
+      }
+    },
+    {
+      "id": "dynamic-icon",
+      "type": "symbol",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "dynamic-symbol"],
+      "layout": {
+        "symbol-z-order": "source",
+        "icon-image": ["match", ["get", "kind"], "capital", "capital", "town"],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true
+      }
+    },
+    {
+      "id": "missing-data",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["!", ["has", "kind"]],
+      "paint": {
+        "circle-radius": 8,
+        "circle-color": "#aaaaaa",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#333333"
+      }
+    },
+    {
+      "id": "ordered-underlay",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "ordered"],
+      "paint": {
+        "circle-radius": 16,
+        "circle-color": "#f0c94b"
+      }
+    },
+    {
+      "id": "ordered-overlay",
+      "type": "circle",
+      "source": "gallery",
+      "filter": ["==", ["get", "family"], "ordered"],
+      "paint": {
+        "circle-radius": 8,
+        "circle-color": "#2d597f"
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # G14-006 — MapLibre fixtures, gallery, and hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G14-005
 Gate: G14
 Type: HITL
@@ -55,3 +55,8 @@ git diff --check
 
 HITL checkpoint: **G14 MapLibre interoperability-profile and gallery approval**. Rejected valid
 MapLibre features are documented exclusions, not hardening defects.
+
+Approval disposition (2026-07-24): the project-authored boundary matrix, reduced BSD-3-Clause
+interoperability fixtures, full-profile gallery, and tolerant regression evidence are accepted for
+the named project subset. Remote resources and all other documented exclusions remain honest stable
+rejections; no general MapLibre or Mapbox compatibility claim is made.

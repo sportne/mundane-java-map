@@ -19,6 +19,7 @@ sourceSets {
         java.srcDir 'src/renderRegressionTest/java'
         resources.srcDir rootProject.file('modules/mundane-map-io-geotiff/src/test/resources')
         resources.srcDir rootProject.file('examples/se-viewer/src/main/resources')
+        resources.srcDir rootProject.file('examples/maplibre-style-viewer/src/main/resources')
         compileClasspath += sourceSets.main.output
         runtimeClasspath += output + compileClasspath
     }
@@ -32,6 +33,7 @@ configurations {
 dependencies {
     renderRegressionTestImplementation project(':modules:mundane-map-io-se')
     renderRegressionTestImplementation project(':modules:mundane-map-io-svg')
+    renderRegressionTestImplementation project(':modules:mundane-map-io-maplibre-style-jackson')
     renderRegressionTestImplementation project(':modules:mundane-map-symbology-milstd2525')
 }
 

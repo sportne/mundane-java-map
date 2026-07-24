@@ -14,19 +14,7 @@ public final class MapLibreReadException extends RuntimeException {
      * @param problem immutable failure detail
      */
     public MapLibreReadException(MapLibreProblem problem) {
-        this(problem, null);
-    }
-
-    /**
-     * Creates a stable failure with a non-contractual debugging cause.
-     *
-     * @param problem immutable failure detail
-     * @param cause optional cause
-     */
-    public MapLibreReadException(MapLibreProblem problem, Throwable cause) {
-        super(
-                "MapLibre style read failed: " + Objects.requireNonNull(problem, "problem").code(),
-                cause);
+        super("MapLibre style read failed: " + Objects.requireNonNull(problem, "problem").code());
         this.problem = problem;
     }
 

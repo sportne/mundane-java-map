@@ -1,0 +1,19 @@
+{
+  "version": 8,
+  "name": "Reduced MapLibre remote-resource example",
+  "sprite": "https://example.invalid/sprite",
+  "glyphs": "https://example.invalid/fonts/{fontstack}/{range}.pbf",
+  "sources": {
+    "tiles": {
+      "type": "vector"
+    }
+  },
+  "layers": [
+    {
+      "id": "places",
+      "type": "symbol",
+      "source": "tiles",
+      "source-layer": "place"
+    }
+  ]
+}
