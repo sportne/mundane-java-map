@@ -9,11 +9,14 @@ import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.SourceIdentity;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 final class GeoPackageFeatureSource implements FeatureSource {
     private final GeoPackageSession session;
-    private final GeoPackageFeatureTable table;
+    private final GeoPackageTableProfile profile;
     private final GeoPackageFeatureOptions options;
     private final FeatureSourceMetadata metadata;
     private GeoPackageFeatureCursor cursor;
@@ -22,11 +25,12 @@ final class GeoPackageFeatureSource implements FeatureSource {
     GeoPackageFeatureSource(
             SourceIdentity identity,
             GeoPackageSession session,
-            GeoPackageFeatureTable table,
+            GeoPackageTableProfile profile,
             GeoPackageFeatureOptions options) {
         this.session = session;
-        this.table = table;
+        this.profile = profile;
         this.options = options;
+        GeoPackageFeatureTable table = profile.table();
         metadata =
                 new FeatureSourceMetadata(
                         identity,
@@ -61,9 +65,9 @@ final class GeoPackageFeatureSource implements FeatureSource {
         if (cursor != null) {
             throw new IllegalStateException("A GeoPackage cursor is already open");
         }
-        if (query.attributes().isOnly()) {
-            throw new IllegalArgumentException("The point-only slice has no attributes");
-        }
+        GeoPackageFailures.checkpoint(
+                metadata.identity().id(), cancellation::isCancellationRequested, "feature-query");
+        List<GeoPackageAttributeColumn> projection = projection(query);
         FeatureQueryLimits limits =
                 query.tighterLimits().orElse(options.featureSourceLimits().queryLimits());
         if (!limits.tightens(options.featureSourceLimits().queryLimits())) {
@@ -73,12 +77,38 @@ final class GeoPackageFeatureSource implements FeatureSource {
                 new GeoPackageFeatureCursor(
                         this,
                         session,
-                        table,
+                        profile.table(),
+                        projection,
                         query,
                         cancellation,
                         limits,
                         metadata.identity().id());
         return cursor;
+    }
+
+    private List<GeoPackageAttributeColumn> projection(FeatureQuery query) {
+        if (query.attributes().equals(io.github.mundanej.map.api.AttributeSelection.NONE)) {
+            return List.of();
+        }
+        if (!query.attributes().isOnly()) {
+            return profile.attributes();
+        }
+        List<GeoPackageAttributeColumn> selected = new ArrayList<>();
+        for (String name : query.attributes().orderedNames()) {
+            GeoPackageAttributeColumn column =
+                    profile.attributes().stream()
+                            .filter(candidate -> candidate.name().equals(name))
+                            .findFirst()
+                            .orElseThrow(
+                                    () ->
+                                            GeoPackageFailures.failure(
+                                                    metadata.identity().id(),
+                                                    "SOURCE_QUERY_ATTRIBUTE_UNKNOWN",
+                                                    "Query requested an unknown attribute",
+                                                    Map.of("field", name)));
+            selected.add(column);
+        }
+        return List.copyOf(selected);
     }
 
     @Override

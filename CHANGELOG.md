@@ -27,7 +27,8 @@ First useful Level 1 release candidate.
   with explicit caller source/catalog binding, circle/line/fill/symbol layers, typed filters and
   expressions, zoom ranges, icons, point labels, stable diagnostics, and no resource fetching.
 - An optional Linux JVM-only Xerial adapter for strict read-only GeoPackage 1.4.0 catalog and
-  Point/MultiPoint feature sources, with classified dependency verification, immutable-file checks,
+  all six approved two-dimensional feature geometry families, typed attribute projection, and
+  retained/recognized CRS metadata, with classified dependency verification, immutable-file checks,
   bounded SQLite policy, stable diagnostics, and no JDBC types in public contracts.
 - Runnable examples for the implemented map, symbol, interaction, format, editing, styling, and
   workspace slices, plus independent corpus, rendering-regression, performance, Native Image,
@@ -53,8 +54,8 @@ First useful Level 1 release candidate.
 - PNG/JPEG decoding uses the explicitly registered JDK `ImageIO` boundary in `mundane-map-awt`.
   DTED, GeoTIFF, the static SVG subset, the optional Jackson Core GeoJSON adapter, editing/styling,
   and local workspace persistence are implemented Level 2 capabilities and do not broaden Level 1.
-  GeoPackage line/polygon/attribute/tile completion, MBTiles, and optional JTS/PROJ/GDAL adapters
-  remain future work. The GeoPackage adapter is JVM-only and does not broaden Native Image claims.
+  GeoPackage tiles, MBTiles, and optional JTS/PROJ/GDAL adapters remain future work. The GeoPackage
+  adapter is JVM-only and does not broaden Native Image claims.
 - Performance evidence is scenario- and environment-specific. It establishes correctness and the
   retained Level 1 optimization decisions, not portable latency or throughput guarantees.
 - The intended Native Image claim is limited to the separately recorded Ubuntu 24.04 Linux x86_64

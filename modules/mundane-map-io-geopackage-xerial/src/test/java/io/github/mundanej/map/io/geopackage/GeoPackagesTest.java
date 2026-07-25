@@ -303,11 +303,11 @@ class GeoPackagesTest {
                 () -> inspect(crs, GeoPackageInspectOptions.defaults()));
 
         Path attributes = fixture("attributes.gpkg");
-        executeWrite(attributes, "ALTER TABLE points ADD COLUMN name TEXT");
+        executeWrite(attributes, "ALTER TABLE points ADD COLUMN name VARCHAR");
         assertFailure(
-                "GEOPACKAGE_PROFILE_UNSUPPORTED",
-                "construct",
-                "contentType",
+                "GEOPACKAGE_SCHEMA_INVALID",
+                "field",
+                "columns",
                 () -> inspect(attributes, GeoPackageInspectOptions.defaults()));
     }
 

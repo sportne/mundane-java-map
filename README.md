@@ -204,8 +204,9 @@ Unknown definitions are retained when available but are not guessed or transform
 MBTiles, remote tiles, additional projections, and optional JTS/PROJ/GDAL adapters remain Level 2
 work. DTED, the static SVG subset, and the optional
 Jackson Core GeoJSON and Xerial GeoPackage profiles are implemented Level 2 capabilities and do not
-broaden Level 1. GeoPackage currently provides catalog and Point/MultiPoint feature behavior; its
-remaining geometries, attributes, tiles, and final Linux deployment evidence are separate tasks.
+broaden Level 1. GeoPackage provides catalog and all six approved two-dimensional feature geometry
+families, typed attribute projection, retained/recognized CRS metadata, and a runnable feature
+viewer; tiles and final Linux deployment evidence remain separate tasks.
 
 ## MIL-STD-2525 point-symbol profile
 
@@ -263,7 +264,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Eighteen independent examples consume the published APIs without copying parsers or renderers:
+Nineteen independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -276,6 +277,7 @@ Eighteen independent examples consume the published APIs without copying parsers
 ./gradlew :examples:gpx-viewer:run --args='<path.gpx>'
 ./gradlew :examples:kml-viewer:run --args='<path.kml>'
 ./gradlew :examples:geotiff-viewer:run
+./gradlew :examples:geopackage-viewer:run --args='/absolute/path/data.gpkg feature_table'
 ./gradlew :examples:http-tile-viewer:run
 ./gradlew :examples:point-edit-viewer:run
 ./gradlew :examples:styling-label-viewer:run

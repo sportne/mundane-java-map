@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * Detached immutable catalog for the first GeoPackage profile.
  *
- * @param featureTables supported Point and MultiPoint feature tables in catalog order
+ * @param featureTables supported two-dimensional feature tables in catalog order
  * @param tileTables supported tile tables; source opening is introduced by G10-042
  * @param report bounded opening warnings
  */

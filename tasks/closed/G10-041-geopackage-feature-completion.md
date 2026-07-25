@@ -1,6 +1,6 @@
 # G10-041 — GeoPackage feature completion
 
-Status: Proposed
+Status: Complete
 Depends on: G10-040
 Gate: G10
 Type: AFK

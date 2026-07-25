@@ -14,7 +14,7 @@ import java.util.OptionalLong;
  * @param geometryColumnName exact bounded geometry-column name
  * @param geometryType canonical declared geometry type
  * @param primaryKey exact integer primary-key column name
- * @param attributeSchema attributes supported by this implementation slice
+ * @param attributeSchema approved typed attributes in declaration order
  * @param srsId declared spatial-reference identifier
  * @param crs retained and possibly recognized CRS metadata
  * @param bounds optional declared content bounds

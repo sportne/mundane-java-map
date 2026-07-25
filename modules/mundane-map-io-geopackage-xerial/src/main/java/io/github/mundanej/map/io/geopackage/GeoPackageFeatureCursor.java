@@ -14,6 +14,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +24,7 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
     private final GeoPackageSession session;
     private final GeoPackageFeatureTable table;
     private final FeatureQuery query;
+    private final List<GeoPackageAttributeColumn> projection;
     private final CancellationToken cancellation;
     private final FeatureQueryAccounting accounting;
     private final String sourceId;
@@ -32,6 +34,8 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
     private final int maximumWarnings;
     private long omittedWarnings;
     private long physicalRow;
+    private long decodedTextCharacters;
+    private long decodedOwnedBytes;
     private FeatureRecord current;
     private boolean closed;
 
@@ -39,6 +43,7 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
             GeoPackageFeatureSource owner,
             GeoPackageSession session,
             GeoPackageFeatureTable table,
+            List<GeoPackageAttributeColumn> projection,
             FeatureQuery query,
             CancellationToken cancellation,
             FeatureQueryLimits limits,
@@ -46,6 +51,7 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
         this.owner = owner;
         this.session = session;
         this.table = table;
+        this.projection = List.copyOf(projection);
         this.query = query;
         this.cancellation = cancellation;
         this.sourceId = sourceId;
@@ -55,16 +61,32 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
         PreparedStatement prepared = null;
         ResultSet result = null;
         try {
-            String sql =
-                    "SELECT "
-                            + GeoPackageCatalogReader.quote(table.primaryKey())
-                            + ","
-                            + GeoPackageCatalogReader.quote(table.geometryColumnName())
-                            + " FROM "
-                            + GeoPackageCatalogReader.quote(table.tableName())
-                            + " ORDER BY "
-                            + GeoPackageCatalogReader.quote(table.primaryKey());
-            prepared = session.connection().prepareStatement(sql);
+            StringBuilder sql =
+                    new StringBuilder("SELECT ")
+                            .append(GeoPackageCatalogReader.quote(table.primaryKey()))
+                            .append(',')
+                            .append(GeoPackageCatalogReader.quote(table.geometryColumnName()));
+            String quotedGeometry = GeoPackageCatalogReader.quote(table.geometryColumnName());
+            sql.append(",typeof(")
+                    .append(quotedGeometry)
+                    .append("),length(")
+                    .append(quotedGeometry)
+                    .append(')');
+            for (GeoPackageAttributeColumn attribute : this.projection) {
+                String quoted = GeoPackageCatalogReader.quote(attribute.name());
+                sql.append(',')
+                        .append(quoted)
+                        .append(",typeof(")
+                        .append(quoted)
+                        .append("),length(CAST(")
+                        .append(quoted)
+                        .append(" AS BLOB))");
+            }
+            sql.append(" FROM ")
+                    .append(GeoPackageCatalogReader.quote(table.tableName()))
+                    .append(" ORDER BY ")
+                    .append(GeoPackageCatalogReader.quote(table.primaryKey()));
+            prepared = session.connection().prepareStatement(sql.toString());
             prepared.setFetchSize(256);
             result = prepared.executeQuery();
             statement = prepared;
@@ -94,9 +116,24 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
                 if (rows.wasNull()) {
                     throw record("id", "null");
                 }
-                byte[] bytes = rows.getBytes(2);
-                if (bytes == null) {
+                String geometryStorage = rows.getString(3);
+                long geometryBytes = rows.getLong(4);
+                boolean geometryLengthNull = rows.wasNull();
+                if ("null".equals(geometryStorage) || geometryLengthNull) {
                     throw record("geometry", "null");
+                }
+                if (!"blob".equals(geometryStorage)) {
+                    throw record("geometry", "storageClass");
+                }
+                if (geometryBytes <= 0) {
+                    throw record("geometry", "range");
+                }
+                if (geometryBytes > session.limits().maximumBlobBytes()) {
+                    throw limit("blobBytes", geometryBytes, session.limits().maximumBlobBytes());
+                }
+                byte[] bytes = rows.getBytes(2);
+                if (bytes == null || bytes.length != geometryBytes) {
+                    throw record("geometry", "value");
                 }
                 GeoPackageGeometryDecoder.DecodedGeometry decoded;
                 try {
@@ -107,9 +144,13 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
                                     table.srsId(),
                                     table.geometryType(),
                                     session.limits(),
-                                    cancellation);
+                                    cancellation,
+                                    query.sourceBounds());
                 } catch (io.github.mundanej.map.api.SourceException failure) {
                     throw GeoPackageFailures.atRecord(failure, physicalRow);
+                }
+                if (decoded.filtered()) {
+                    continue;
                 }
                 if (decoded.isEmpty()) {
                     recordEmptyWarning(decoded.emptyType());
@@ -120,7 +161,9 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
                         && !intersects(query.sourceBounds().orElseThrow(), geometry.envelope())) {
                     continue;
                 }
-                FeatureRecord record = new FeatureRecord(Long.toString(id), "", geometry, Map.of());
+                Map<String, Object> attributes = decodeAttributes();
+                FeatureRecord record =
+                        new FeatureRecord(Long.toString(id), "", geometry, attributes);
                 accounting.recordReturned(record, 0, cancellation);
                 session.verifyBeforePublication(cancellation, "publish");
                 current = record;
@@ -216,6 +259,68 @@ final class GeoPackageFeatureCursor implements FeatureCursor {
                         "GEOPACKAGE_RECORD_INVALID",
                         "GeoPackage feature record is invalid",
                         Map.of("field", field, "reason", reason)),
+                physicalRow);
+    }
+
+    private Map<String, Object> decodeAttributes() throws SQLException {
+        if (projection.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<String, Object> attributes = new LinkedHashMap<>();
+        long rowText = 0;
+        long rowOwned = 0;
+        for (int index = 0; index < projection.size(); index++) {
+            GeoPackageFailures.checkpoint(
+                    sourceId, cancellation::isCancellationRequested, "feature-query");
+            GeoPackageAttributeColumn column = projection.get(index);
+            int valueIndex = 5 + index * 3;
+            GeoPackageAttributeDecoder.DecodedAttribute decoded;
+            try {
+                decoded =
+                        GeoPackageAttributeDecoder.decode(
+                                sourceId,
+                                rows,
+                                valueIndex,
+                                valueIndex + 1,
+                                valueIndex + 2,
+                                column,
+                                session.limits());
+            } catch (io.github.mundanej.map.api.SourceException failure) {
+                throw GeoPackageFailures.atRecord(failure, physicalRow);
+            }
+            rowText = Math.addExact(rowText, decoded.textCharacters());
+            rowOwned = Math.addExact(rowOwned, decoded.ownedBytes());
+            attributes.put(column.name(), decoded.value());
+        }
+        long nextText = Math.addExact(decodedTextCharacters, rowText);
+        long nextOwned = Math.addExact(decodedOwnedBytes, rowOwned);
+        if (nextText > session.limits().maximumTextCharacters()) {
+            throw limit("textCharacters", nextText, session.limits().maximumTextCharacters());
+        }
+        if (nextOwned > session.limits().maximumOwnedBytes()) {
+            throw limit("ownedBytes", nextOwned, session.limits().maximumOwnedBytes());
+        }
+        decodedTextCharacters = nextText;
+        decodedOwnedBytes = nextOwned;
+        return java.util.Collections.unmodifiableMap(attributes);
+    }
+
+    private io.github.mundanej.map.api.SourceException limit(
+            String name, long requested, long maximum) {
+        return GeoPackageFailures.atRecord(
+                GeoPackageFailures.failure(
+                        sourceId,
+                        "SOURCE_LIMIT_EXCEEDED",
+                        "GeoPackage operation limit exceeded",
+                        Map.of(
+                                "scope",
+                                "geopackageCursor",
+                                "limit",
+                                name,
+                                "requested",
+                                Long.toString(requested),
+                                "maximum",
+                                Long.toString(maximum))),
                 physicalRow);
     }
 

@@ -408,7 +408,12 @@ module, and broader follow-up remains separately decomposed.
   immutable local-file sessions, catalogs strict GeoPackage 1.4.0 content, and queries/renders Point
   and MultiPoint feature rows in stable primary-key order. Publication and the clean Java 21 staged
   consumer resolve only the approved classifiers. The claim remains Linux x86-64 glibc JVM-only and
-  Native Image `not-targeted`; G10-041 through G10-044 own the remaining format and deployment work.
+  Native Image `not-targeted`.
+- G10-041 is complete. The same bounded source now reads, queries, and renders Point, MultiPoint,
+  LineString, MultiLineString, Polygon, and MultiPolygon values; validates multipart rings and
+  optional header envelopes; exposes the approved typed attribute schema/projection; and retains
+  explicitly recognized or unknown CRS metadata. The runnable GeoPackage viewer exercises the real
+  feature stack. G10-042 through G10-044 own tiles, MBTiles, and final Linux deployment evidence.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly

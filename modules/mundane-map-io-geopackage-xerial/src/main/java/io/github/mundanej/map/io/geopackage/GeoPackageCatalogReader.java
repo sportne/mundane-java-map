@@ -10,6 +10,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.DateTimeException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -17,12 +19,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.regex.Pattern;
 
 final class GeoPackageCatalogReader {
+    private static final Pattern UTC_MILLISECONDS =
+            Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z");
     private static final String FEATURE_SQL =
             """
             SELECT c.table_name, g.column_name, g.geometry_type_name, g.srs_id, g.z, g.m,
-                   c.min_x, c.min_y, c.max_x, c.max_y, c.srs_id
+                   c.min_x, c.min_y, c.max_x, c.max_y, c.srs_id,
+                   c.identifier, c.description, c.last_change
               FROM gpkg_contents c
               JOIN gpkg_geometry_columns g ON g.table_name = c.table_name
              WHERE c.data_type = 'features'
@@ -31,26 +37,32 @@ final class GeoPackageCatalogReader {
 
     private GeoPackageCatalogReader() {}
 
-    static GeoPackageCatalog read(
-            String sourceId,
-            GeoPackageSession session,
-            CancellationToken cancellation,
-            boolean onlyPointTypes) {
+    static GeoPackageCatalogSnapshot read(
+            String sourceId, GeoPackageSession session, CancellationToken cancellation) {
         session.beforeOperation(cancellation, "inspect");
         try {
             validateRequiredTables(sourceId, session);
             validateExtensions(sourceId, session);
-            Map<Integer, CrsMetadata> crs = readCrs(sourceId, session);
+            MetadataBudget metadataBudget = new MetadataBudget(sourceId, session.limits());
+            Map<Integer, CrsMetadata> crs = readCrs(sourceId, session, metadataBudget);
             List<GeoPackageFeatureTable> tables = new ArrayList<>();
+            List<GeoPackageTableProfile> profiles = new ArrayList<>();
             LinkedHashSet<String> contentTables = new LinkedHashSet<>();
             try (Statement statement = session.connection().createStatement();
                     ResultSet rows = statement.executeQuery(FEATURE_SQL)) {
                 while (rows.next()) {
                     checkpoint(sourceId, cancellation);
+                    metadataBudget.row();
                     String table = identifier(sourceId, rows.getString(1), session.limits());
                     String geometryColumn =
                             identifier(sourceId, rows.getString(2), session.limits());
                     String geometryTypeText = rows.getString(3).toUpperCase(Locale.ROOT);
+                    metadataBudget.text(table);
+                    metadataBudget.text(geometryColumn);
+                    metadataBudget.text(geometryTypeText);
+                    if (!contentTables.add(table)) {
+                        throw schema(sourceId, "geometryColumns", "tableName", "duplicate");
+                    }
                     int srsId = rows.getInt(4);
                     if (rows.wasNull() || rows.getInt(11) != srsId || rows.wasNull()) {
                         throw schema(sourceId, "contents", "srsId", "reference");
@@ -58,18 +70,15 @@ final class GeoPackageCatalogReader {
                     if (rows.getInt(5) != 0 || rows.getInt(6) != 0) {
                         throw unsupported(sourceId, "dimension");
                     }
-                    if (!geometryTypeText.equals("POINT")
-                            && !geometryTypeText.equals("MULTIPOINT")
-                            && !geometryTypeText.equals("GEOMETRY")) {
-                        if (onlyPointTypes) {
-                            throw unsupported(sourceId, "geometryType");
-                        }
-                        continue;
-                    }
+                    validateContentMetadata(sourceId, rows, session.limits(), metadataBudget);
                     GeoPackageGeometryType geometryType =
                             switch (geometryTypeText) {
                                 case "POINT" -> GeoPackageGeometryType.POINT;
                                 case "MULTIPOINT" -> GeoPackageGeometryType.MULTI_POINT;
+                                case "LINESTRING" -> GeoPackageGeometryType.LINE_STRING;
+                                case "MULTILINESTRING" -> GeoPackageGeometryType.MULTI_LINE_STRING;
+                                case "POLYGON" -> GeoPackageGeometryType.POLYGON;
+                                case "MULTIPOLYGON" -> GeoPackageGeometryType.MULTI_POLYGON;
                                 case "GEOMETRY" -> GeoPackageGeometryType.GEOMETRY;
                                 default -> throw unsupported(sourceId, "geometryType");
                             };
@@ -77,21 +86,26 @@ final class GeoPackageCatalogReader {
                     if (metadata == null) {
                         throw schema(sourceId, "geometryColumns", "srsId", "reference");
                     }
-                    String primaryKey = primaryKey(sourceId, session, table, geometryColumn);
-                    contentTables.add(table);
+                    TableColumns columns =
+                            tableColumns(sourceId, session, table, geometryColumn, metadataBudget);
                     Optional<Envelope> extent = extent(sourceId, rows);
                     long count = rowCount(sourceId, session, table);
-                    tables.add(
+                    GeoPackageFeatureTable descriptor =
                             new GeoPackageFeatureTable(
                                     table,
                                     geometryColumn,
                                     geometryType,
-                                    primaryKey,
-                                    new AttributeSchema(List.of()),
+                                    columns.primaryKey(),
+                                    new AttributeSchema(
+                                            columns.attributes().stream()
+                                                    .map(GeoPackageAttributeColumn::field)
+                                                    .toList()),
                                     srsId,
                                     metadata,
                                     extent,
-                                    OptionalLong.of(count)));
+                                    OptionalLong.of(count));
+                    tables.add(descriptor);
+                    profiles.add(new GeoPackageTableProfile(descriptor, columns.attributes()));
                     if (tables.size() > session.limits().maximumSchemaObjects()) {
                         throw limit(
                                 sourceId,
@@ -104,7 +118,8 @@ final class GeoPackageCatalogReader {
             validateContentsProfile(sourceId, session, contentTables);
             validateObjectInventory(sourceId, session, contentTables);
             session.afterOperation(cancellation, "publish");
-            return new GeoPackageCatalog(tables, List.of(), DiagnosticReport.empty());
+            return new GeoPackageCatalogSnapshot(
+                    new GeoPackageCatalog(tables, List.of(), DiagnosticReport.empty()), profiles);
         } catch (SQLException exception) {
             throw session.queryFailure(exception, "catalog");
         }
@@ -216,63 +231,48 @@ final class GeoPackageCatalogReader {
         }
     }
 
-    private static Map<Integer, CrsMetadata> readCrs(String sourceId, GeoPackageSession session)
+    private static Map<Integer, CrsMetadata> readCrs(
+            String sourceId, GeoPackageSession session, MetadataBudget metadataBudget)
             throws SQLException {
         java.util.LinkedHashMap<Integer, CrsMetadata> values = new java.util.LinkedHashMap<>();
         String sql =
                 """
-                SELECT srs_id, organization, organization_coordsys_id, definition
+                SELECT srs_id, srs_name, organization, organization_coordsys_id,
+                       definition, description
                   FROM gpkg_spatial_ref_sys ORDER BY srs_id
                 """;
         try (Statement statement = session.connection().createStatement();
                 ResultSet rows = statement.executeQuery(sql)) {
-            long rowCount = 0;
-            long textCharacters = 0;
-            long ownedBytes = 0;
             while (rows.next()) {
-                rowCount++;
-                if (rowCount > session.limits().maximumMetadataRows()) {
-                    throw limit(
-                            sourceId,
-                            "metadataRows",
-                            rowCount,
-                            session.limits().maximumMetadataRows());
-                }
+                metadataBudget.row();
                 int id = rows.getInt(1);
-                String organization = rows.getString(2);
-                int organizationId = rows.getInt(3);
-                String definition = rows.getString(4);
-                if (organization == null
+                String srsName = rows.getString(2);
+                String organization = rows.getString(3);
+                int organizationId = rows.getInt(4);
+                String definition = rows.getString(5);
+                String description = rows.getString(6);
+                if (srsName == null
+                        || srsName.isBlank()
+                        || srsName.length() > session.limits().maximumTextValueCharacters()
+                        || organization == null
                         || organization.isBlank()
                         || organization.length() > session.limits().maximumTextValueCharacters()
                         || definition == null
                         || definition.isBlank()
-                        || definition.length() > session.limits().maximumTextValueCharacters()
+                        || definition.length()
+                                > Math.min(
+                                        session.limits().maximumTextValueCharacters(),
+                                        CrsMetadata.RETAINED_DEFINITION_LIMIT)
+                        || (description != null
+                                && description.length()
+                                        > session.limits().maximumTextValueCharacters())
                         || values.containsKey(id)) {
                     throw schema(sourceId, "spatialRefSys", "definition", "value");
                 }
-                textCharacters =
-                        Math.addExact(
-                                textCharacters,
-                                Math.addExact(organization.length(), definition.length()));
-                ownedBytes =
-                        Math.addExact(
-                                ownedBytes,
-                                2L * Math.addExact(organization.length(), definition.length()));
-                if (textCharacters > session.limits().maximumTextCharacters()) {
-                    throw limit(
-                            sourceId,
-                            "textCharacters",
-                            textCharacters,
-                            session.limits().maximumTextCharacters());
-                }
-                if (ownedBytes > session.limits().maximumOwnedBytes()) {
-                    throw limit(
-                            sourceId,
-                            "ownedBytes",
-                            ownedBytes,
-                            session.limits().maximumOwnedBytes());
-                }
+                metadataBudget.text(srsName);
+                metadataBudget.text(organization);
+                metadataBudget.text(definition);
+                metadataBudget.text(description);
                 CrsMetadata metadata;
                 if ("EPSG".equalsIgnoreCase(organization)
                         && id == organizationId
@@ -299,23 +299,36 @@ final class GeoPackageCatalogReader {
         return Map.copyOf(values);
     }
 
-    private static String primaryKey(
-            String sourceId, GeoPackageSession session, String table, String geometryColumn)
+    private static TableColumns tableColumns(
+            String sourceId,
+            GeoPackageSession session,
+            String table,
+            String geometryColumn,
+            MetadataBudget metadataBudget)
             throws SQLException {
         String primaryKey = null;
         boolean geometryFound = false;
+        List<GeoPackageAttributeColumn> attributes = new ArrayList<>();
         try (Statement statement = session.connection().createStatement();
                 ResultSet columns =
-                        statement.executeQuery("PRAGMA table_info(" + quote(table) + ")")) {
+                        statement.executeQuery("PRAGMA table_xinfo(" + quote(table) + ")")) {
             int count = 0;
             while (columns.next()) {
                 count++;
+                metadataBudget.row();
                 String name = identifier(sourceId, columns.getString("name"), session.limits());
                 String type = columns.getString("type");
+                metadataBudget.text(name);
+                metadataBudget.text(type);
                 int pk = columns.getInt("pk");
+                if (columns.getInt("hidden") != 0) {
+                    throw schema(sourceId, "selectedTable", "columns", "constraint");
+                }
                 if (name.equals(geometryColumn)) {
                     geometryFound = true;
-                    if (!"BLOB".equalsIgnoreCase(type) || columns.getInt("notnull") != 1) {
+                    if (!"BLOB".equalsIgnoreCase(type)
+                            || columns.getInt("notnull") != 1
+                            || pk != 0) {
                         throw schema(sourceId, "selectedTable", "geometry", "type");
                     }
                 }
@@ -325,7 +338,13 @@ final class GeoPackageCatalogReader {
                     }
                     primaryKey = name;
                 } else if (!name.equals(geometryColumn)) {
-                    throw unsupported(sourceId, "contentType");
+                    attributes.add(
+                            GeoPackageAttributeColumn.parse(
+                                    sourceId,
+                                    name,
+                                    type,
+                                    columns.getInt("notnull") == 0,
+                                    session.limits()));
                 }
             }
             if (count > session.limits().maximumColumns()) {
@@ -335,7 +354,34 @@ final class GeoPackageCatalogReader {
         if (primaryKey == null || !geometryFound) {
             throw schema(sourceId, "selectedTable", "primaryKey", "missing");
         }
-        return primaryKey;
+        return new TableColumns(primaryKey, attributes);
+    }
+
+    private static void validateContentMetadata(
+            String sourceId, ResultSet rows, GeoPackageLimits limits, MetadataBudget metadataBudget)
+            throws SQLException {
+        String identifier = rows.getString(12);
+        String description = rows.getString(13);
+        String lastChange = rows.getString(14);
+        if (identifier != null
+                && (identifier.isBlank()
+                        || identifier.length() > limits.maximumTextValueCharacters())) {
+            throw schema(sourceId, "contents", "identifier", "value");
+        }
+        if (description != null && description.length() > limits.maximumTextValueCharacters()) {
+            throw schema(sourceId, "contents", "description", "value");
+        }
+        if (lastChange == null || !UTC_MILLISECONDS.matcher(lastChange).matches()) {
+            throw schema(sourceId, "contents", "lastChange", "value");
+        }
+        try {
+            Instant.parse(lastChange);
+        } catch (DateTimeException exception) {
+            throw schema(sourceId, "contents", "lastChange", "value");
+        }
+        metadataBudget.text(identifier);
+        metadataBudget.text(description);
+        metadataBudget.text(lastChange);
     }
 
     private static Optional<Envelope> extent(String sourceId, ResultSet rows) throws SQLException {
@@ -607,4 +653,45 @@ final class GeoPackageCatalogReader {
     }
 
     private record Column(String name, String type, boolean notNull, int primaryKeyOrder) {}
+
+    private record TableColumns(String primaryKey, List<GeoPackageAttributeColumn> attributes) {
+        private TableColumns {
+            attributes = List.copyOf(attributes);
+        }
+    }
+
+    private static final class MetadataBudget {
+        private final String sourceId;
+        private final GeoPackageLimits limits;
+        private long rows;
+        private long textCharacters;
+        private long ownedBytes;
+
+        private MetadataBudget(String sourceId, GeoPackageLimits limits) {
+            this.sourceId = sourceId;
+            this.limits = limits;
+        }
+
+        private void row() {
+            rows++;
+            if (rows > limits.maximumMetadataRows()) {
+                throw limit(sourceId, "metadataRows", rows, limits.maximumMetadataRows());
+            }
+        }
+
+        private void text(String value) {
+            if (value == null) {
+                return;
+            }
+            textCharacters = Math.addExact(textCharacters, value.length());
+            ownedBytes = Math.addExact(ownedBytes, Math.multiplyExact(2L, value.length()));
+            if (textCharacters > limits.maximumTextCharacters()) {
+                throw limit(
+                        sourceId, "textCharacters", textCharacters, limits.maximumTextCharacters());
+            }
+            if (ownedBytes > limits.maximumOwnedBytes()) {
+                throw limit(sourceId, "ownedBytes", ownedBytes, limits.maximumOwnedBytes());
+            }
+        }
+    }
 }

@@ -4,7 +4,6 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.SourceIdentity;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.Objects;
 
 /** Explicit entry points for the bounded read-only GeoPackage profile. */
@@ -35,12 +34,12 @@ public final class GeoPackages {
         try (GeoPackageSession session =
                 GeoPackageSession.open(
                         identity.id(), fingerprint, options.limits(), cancellation)) {
-            return GeoPackageCatalogReader.read(identity.id(), session, cancellation, true);
+            return GeoPackageCatalogReader.read(identity.id(), session, cancellation).catalog();
         }
     }
 
     /**
-     * Opens one exact Point or MultiPoint feature table.
+     * Opens one exact supported feature table.
      *
      * @param path authorized local GeoPackage path
      * @param identity stable diagnostic identity
@@ -71,25 +70,9 @@ public final class GeoPackages {
         GeoPackageSession session =
                 GeoPackageSession.open(identity.id(), fingerprint, options.limits(), cancellation);
         try {
-            GeoPackageCatalog catalog =
-                    GeoPackageCatalogReader.read(identity.id(), session, cancellation, true);
-            GeoPackageFeatureTable selected =
-                    catalog.featureTables().stream()
-                            .filter(table -> table.tableName().equals(tableName))
-                            .findFirst()
-                            .orElseThrow(
-                                    () ->
-                                            GeoPackageFailures.failure(
-                                                    identity.id(),
-                                                    "GEOPACKAGE_SCHEMA_INVALID",
-                                                    "Selected GeoPackage table is unavailable",
-                                                    Map.of(
-                                                            "object",
-                                                            "selectedTable",
-                                                            "field",
-                                                            "kind",
-                                                            "reason",
-                                                            "missing")));
+            GeoPackageCatalogSnapshot snapshot =
+                    GeoPackageCatalogReader.read(identity.id(), session, cancellation);
+            GeoPackageTableProfile selected = snapshot.requireFeature(tableName, identity.id());
             return new GeoPackageFeatureSource(identity, session, selected, options);
         } catch (RuntimeException | Error failure) {
             try {
