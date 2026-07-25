@@ -185,6 +185,7 @@ def publicationContract = [
     "mundane-map-symbology-milstd2525|mundane-map-api|||io/github/mundanej/map/symbology/milstd2525/|${milStd2525BinaryEntries}",
     'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
     'mundane-map-io-maplibre-style-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/maplibre/style/',
+    'mundane-map-io-geopackage-xerial|mundane-map-api|mundane-map-core|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/geopackage/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'
 ].asImmutable()
 def releaseProjectByArtifact = publishedProjects.collectEntries { path ->
@@ -241,8 +242,16 @@ tasks.register('publicationDryRun') {
 }
 
 def consumerRoot = layout.buildDirectory.dir('consumer-smoke')
+def generateConsumerGeoPackageFixture =
+        ':modules:mundane-map-io-geopackage-xerial:generateConsumerGeoPackageFixture'
+def consumerGeoPackageFixture = layout.projectDirectory.file(
+        'modules/mundane-map-io-geopackage-xerial/build/generated/consumer-fixture/consumer.gpkg')
 def prepareConsumerSmoke = tasks.register('prepareConsumerSmoke', Sync) {
+    dependsOn generateConsumerGeoPackageFixture
     from layout.projectDirectory.dir('consumer-smoke')
+    from(consumerGeoPackageFixture) {
+        into 'src/main/resources'
+    }
     into consumerRoot.map { it.dir('project') }
 }
 def cleanConsumerSmokeHome = tasks.register('cleanConsumerSmokeHome', Delete) {
@@ -258,6 +267,7 @@ tasks.register('consumerSmoke', Exec) {
             '--no-configuration-cache', '--no-watch-fs', '--console=plain',
             "--gradle-user-home=${consumerRoot.get().dir('gradle-home').asFile.absolutePath}",
             "-Pmap.consumerRepository=${layout.buildDirectory.dir('release-dry-run/maven').get().asFile.absolutePath}",
+            "-Pmap.consumerExternalRepository=${layout.buildDirectory.dir('consumer-external/maven').get().asFile.absolutePath}",
             "-Pmap.consumerVersion=${project.version}",
             '-Dorg.gradle.java.installations.auto-download=false'
     environment 'JAVA_HOME',
@@ -279,11 +289,17 @@ configurations {
         canBeConsumed = false
         canBeResolved = true
     }
+    xerialConsumerProvenance {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
 }
 dependencies {
     // Spotless resolves the platform-specific Groovy-Eclipse launcher lazily at execution time.
     offlineTooling 'com.diffplug.durian:durian-swt.os:4.3.1'
     offlineTooling 'com.google.googlejavaformat:google-java-format:1.28.0'
+    xerialConsumerProvenance 'org.xerial:sqlite-jdbc:3.53.2.0@pom'
 }
 
 def buildLogicCoordinates = layout.projectDirectory.file(
@@ -327,17 +343,62 @@ tasks.register('offlineRepositoryVerification', OfflineBuildVerification) {
     outputs.upToDateWhen { false }
 }
 
+def cleanConsumerExternalDependencies = tasks.register('cleanConsumerExternalDependencies', Delete) {
+    delete layout.buildDirectory.dir('consumer-external')
+}
 def stageConsumerExternalDependencies = tasks.register('stageConsumerExternalDependencies', Copy) {
     group = 'publishing'
     description = 'Adds approved external adapter dependencies to the staged consumer repository.'
-    dependsOn tasks.named('publicationDryRun'), assembleOfflineRepository
+    dependsOn tasks.named('publicationDryRun'), assembleOfflineRepository,
+            cleanConsumerExternalDependencies
     from(assembleOfflineRepository.flatMap { it.outputDirectory }) {
         include 'tools/jackson/core/jackson-core/3.1.5/**'
         include 'tools/jackson/jackson-bom/3.1.5/**'
+        include 'org/xerial/sqlite-jdbc/3.53.2.0/sqlite-jdbc-3.53.2.0-without-natives.jar*'
+        include 'org/xerial/sqlite-jdbc/3.53.2.0/sqlite-jdbc-3.53.2.0-natives-linux.jar*'
     }
-    into layout.buildDirectory.dir('release-dry-run/maven')
+    from(configurations.xerialConsumerProvenance) {
+        into 'org/xerial/sqlite-jdbc/3.53.2.0'
+        rename { 'sqlite-jdbc-3.53.2.0.pom' }
+    }
+    into layout.buildDirectory.dir('consumer-external/maven')
+}
+def verifyConsumerExternalDependencies = tasks.register('verifyConsumerExternalDependencies') {
+    group = 'verification'
+    dependsOn stageConsumerExternalDependencies
+    def xerialDirectory = layout.buildDirectory.dir(
+            'consumer-external/maven/org/xerial/sqlite-jdbc/3.53.2.0')
+    inputs.dir(xerialDirectory)
+    doLast {
+        File directory = xerialDirectory.get().asFile
+        Map<String, String> expected = [
+            'sqlite-jdbc-3.53.2.0.pom':
+                '63858f3bb9c9161cc41f848b9df59a58d5811b4a13b0663470b7aae655466c5e',
+            'sqlite-jdbc-3.53.2.0-without-natives.jar':
+                'ccfd2bc6b289be6ed599b92c6036610cb73fe64c43ffd7b54f46b6e412afc34d',
+            'sqlite-jdbc-3.53.2.0-natives-linux.jar':
+                '1c25f9fa2c0cb8e0af6eba32121fa71823c9ebcc9ba83024b1955e11e43e99f5'
+        ]
+        if ((directory.listFiles()*.name as Set) != expected.keySet()) {
+            throw new GradleException(
+                    "Unexpected Xerial consumer mirror: ${directory.listFiles()*.name}")
+        }
+        expected.each { name, checksum ->
+            java.security.MessageDigest digest =
+                    java.security.MessageDigest.getInstance('SHA-256')
+            directory.toPath().resolve(name).toFile().withInputStream { input ->
+                byte[] buffer = new byte[8192]
+                for (int count; (count = input.read(buffer)) >= 0;) {
+                    digest.update(buffer, 0, count)
+                }
+            }
+            if (digest.digest().encodeHex().toString() != checksum) {
+                throw new GradleException("Xerial consumer mirror checksum mismatch: ${name}")
+            }
+        }
+    }
 }
 
 tasks.named('consumerSmoke') {
-    dependsOn stageConsumerExternalDependencies
+    dependsOn verifyConsumerExternalDependencies
 }

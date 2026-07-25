@@ -172,7 +172,14 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 require(
                         "runtime".equals(scope),
                         "External dependency must be runtime scoped in " + pom);
-                externalRuntime.add(group + ":" + artifact + ":" + dependencyVersion);
+                String classifier = childText(dependency, "classifier");
+                externalRuntime.add(
+                        group
+                                + ":"
+                                + artifact
+                                + ":"
+                                + dependencyVersion
+                                + (classifier.isBlank() ? "" : "@" + classifier));
             }
         }
         require(

@@ -65,6 +65,9 @@ import io.github.mundanej.map.io.geojson.GeoJsonOpenOptions;
 import io.github.mundanej.map.io.geojson.GeoJsonWriteLimits;
 import io.github.mundanej.map.io.geotiff.GeoTiffFiles;
 import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
+import io.github.mundanej.map.io.geopackage.GeoPackageFeatureOptions;
+import io.github.mundanej.map.io.geopackage.GeoPackageInspectOptions;
+import io.github.mundanej.map.io.geopackage.GeoPackages;
 import io.github.mundanej.map.io.gpx.GpxFiles;
 import io.github.mundanej.map.io.gpx.GpxOpenOptions;
 import io.github.mundanej.map.io.kml.KmlFiles;
@@ -143,6 +146,7 @@ public final class MundaneMapConsumerSmoke {
             testHttpTile(directory, decoders);
             testDted(directory);
             testGeoTiff();
+            testGeoPackage(directory, registry, renderers);
             testWorkspace(directory);
         } finally {
             try (var paths = Files.walk(directory)) {
@@ -1208,6 +1212,79 @@ public final class MundaneMapConsumerSmoke {
         } finally {
             source.close();
         }
+    }
+
+    private static void testGeoPackage(
+            Path directory, CrsRegistry registry, SymbolRendererRegistry renderers)
+            throws Exception {
+        Path path = directory.resolve("consumer.gpkg");
+        try (var input =
+                MundaneMapConsumerSmoke.class.getResourceAsStream("/consumer.gpkg")) {
+            require(input != null, "GeoPackage staged fixture is missing");
+            Files.copy(input, path);
+        }
+
+        var catalog =
+                GeoPackages.inspect(
+                        path,
+                        new SourceIdentity("consumer-geopackage", "Consumer GeoPackage"),
+                        GeoPackageInspectOptions.defaults(),
+                        CancellationToken.none());
+        require(
+                catalog.featureTables().size() == 1
+                        && catalog.featureTables().getFirst().tableName().equals("points"),
+                "GeoPackage staged catalog changed");
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    FeatureSource source =
+                            GeoPackages.openFeatures(
+                                    path,
+                                    new SourceIdentity(
+                                            "consumer-geopackage", "Consumer GeoPackage"),
+                                    "points",
+                                    GeoPackageFeatureOptions.defaults(),
+                                    CancellationToken.none());
+                    MapView view =
+                            new MapView(
+                                    registry,
+                                    CrsDefinitions.EPSG_4326,
+                                    CrsDefinitions.EPSG_4326,
+                                    renderers);
+                    view.setSize(80, 80);
+                    view.setViewport(new MapViewport(80, 80, 0, 0, 0.25));
+                    view.setLayerBindings(
+                            List.of(
+                                    MapLayerBinding.ownedFeature(
+                                            "consumer-geopackage",
+                                            "Consumer GeoPackage",
+                                            source,
+                                            BuiltInMarkers.filledScreen(
+                                                    BuiltInMarker.CIRCLE,
+                                                    Rgba.rgb(20, 70, 210),
+                                                    9,
+                                                    1),
+                                            SolidLineSymbol.of(
+                                                    new SymbolStroke(
+                                                            Rgba.rgb(20, 70, 210),
+                                                            new SymbolLength(
+                                                                    1,
+                                                                    SymbolUnit.SCREEN_PIXEL)),
+                                                    1),
+                                            SolidFillSymbol.of(Rgba.rgb(20, 70, 210), 1))));
+                    BufferedImage image =
+                            new BufferedImage(80, 80, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = image.createGraphics();
+                    try {
+                        view.paint(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    require(
+                            image.getRGB(40, 40) != 0,
+                            "GeoPackage staged feature did not render");
+                    view.close();
+                    require(source.isClosed(), "GeoPackage staged source was not closed");
+                });
     }
 
     private static void testWorkspace(Path directory) throws IOException {

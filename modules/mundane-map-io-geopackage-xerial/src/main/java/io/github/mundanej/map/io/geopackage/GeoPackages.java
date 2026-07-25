@@ -1,0 +1,103 @@
+package io.github.mundanej.map.io.geopackage;
+
+import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.SourceIdentity;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Objects;
+
+/** Explicit entry points for the bounded read-only GeoPackage profile. */
+public final class GeoPackages {
+    private GeoPackages() {}
+
+    /**
+     * Inspects supported feature content into a detached immutable catalog.
+     *
+     * @param path authorized local GeoPackage path
+     * @param identity stable diagnostic identity
+     * @param options bounded inspection options
+     * @param cancellation operation cancellation token
+     * @return detached catalog
+     */
+    public static GeoPackageCatalog inspect(
+            Path path,
+            SourceIdentity identity,
+            GeoPackageInspectOptions options,
+            CancellationToken cancellation) {
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(cancellation, "cancellation");
+        GeoPackageFailures.checkpoint(identity.id(), cancellation::isCancellationRequested, "open");
+        GeoPackageFile.Fingerprint fingerprint =
+                GeoPackageFile.preflight(identity.id(), path, options.limits(), cancellation);
+        try (GeoPackageSession session =
+                GeoPackageSession.open(
+                        identity.id(), fingerprint, options.limits(), cancellation)) {
+            return GeoPackageCatalogReader.read(identity.id(), session, cancellation, true);
+        }
+    }
+
+    /**
+     * Opens one exact Point or MultiPoint feature table.
+     *
+     * @param path authorized local GeoPackage path
+     * @param identity stable diagnostic identity
+     * @param tableName exact catalog table name
+     * @param options bounded source options
+     * @param cancellation opening cancellation token
+     * @return caller-owned feature source
+     */
+    public static FeatureSource openFeatures(
+            Path path,
+            SourceIdentity identity,
+            String tableName,
+            GeoPackageFeatureOptions options,
+            CancellationToken cancellation) {
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(identity, "identity");
+        Objects.requireNonNull(tableName, "tableName");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(cancellation, "cancellation");
+        if (tableName.isBlank()
+                || tableName.indexOf('\0') >= 0
+                || tableName.length() > options.limits().maximumIdentifierCharacters()) {
+            throw new IllegalArgumentException("tableName must be a bounded non-blank identifier");
+        }
+        GeoPackageFailures.checkpoint(identity.id(), cancellation::isCancellationRequested, "open");
+        GeoPackageFile.Fingerprint fingerprint =
+                GeoPackageFile.preflight(identity.id(), path, options.limits(), cancellation);
+        GeoPackageSession session =
+                GeoPackageSession.open(identity.id(), fingerprint, options.limits(), cancellation);
+        try {
+            GeoPackageCatalog catalog =
+                    GeoPackageCatalogReader.read(identity.id(), session, cancellation, true);
+            GeoPackageFeatureTable selected =
+                    catalog.featureTables().stream()
+                            .filter(table -> table.tableName().equals(tableName))
+                            .findFirst()
+                            .orElseThrow(
+                                    () ->
+                                            GeoPackageFailures.failure(
+                                                    identity.id(),
+                                                    "GEOPACKAGE_SCHEMA_INVALID",
+                                                    "Selected GeoPackage table is unavailable",
+                                                    Map.of(
+                                                            "object",
+                                                            "selectedTable",
+                                                            "field",
+                                                            "kind",
+                                                            "reason",
+                                                            "missing")));
+            return new GeoPackageFeatureSource(identity, session, selected, options);
+        } catch (RuntimeException | Error failure) {
+            try {
+                session.close();
+            } catch (RuntimeException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
+    }
+}

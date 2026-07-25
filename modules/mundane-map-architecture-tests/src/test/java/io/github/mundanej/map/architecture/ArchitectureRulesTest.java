@@ -367,6 +367,95 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void geoPackageAdapterKeepsXerialPrivateAndAvoidsProjectOwnedLoading() {
+        ModuleDescriptor module = moduleEndingWith("mundane-map-io-geopackage-xerial");
+        var classes = classesByModule.get(module);
+        List<String> forbidden =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(
+                                target ->
+                                        target.equals("java.sql.DriverManager")
+                                                || target.equals("java.util.ServiceLoader")
+                                                || target.equals("org.sqlite.SQLiteDataSource")
+                                                || target.startsWith("java.awt."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        List<String> publicXerialLeaks =
+                classes.stream()
+                        .filter(type -> type.getModifiers().contains(JavaModifier.PUBLIC))
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(target -> target.startsWith("org.sqlite."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        boolean directConnection =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .anyMatch(
+                                dependency ->
+                                        dependency
+                                                .getTargetClass()
+                                                .getName()
+                                                .equals("org.sqlite.jdbc4.JDBC4Connection"));
+        List<String> forbiddenCalls =
+                classes.stream()
+                        .flatMap(type -> type.getMethods().stream())
+                        .flatMap(method -> method.getMethodCallsFromSelf().stream())
+                        .filter(
+                                call -> {
+                                    String owner = call.getTargetOwner().getName();
+                                    String name = call.getName();
+                                    return (owner.equals("java.lang.Class")
+                                                    && (name.equals("forName")
+                                                            || name.startsWith("getResource")))
+                                            || (owner.equals("java.lang.ClassLoader")
+                                                    && name.startsWith("getResource"))
+                                            || (owner.equals("java.lang.Module")
+                                                    && name.startsWith("getResource"))
+                                            || (owner.equals("java.lang.System")
+                                                    && (name.equals("load")
+                                                            || name.equals("loadLibrary")))
+                                            || (owner.equals("java.lang.Runtime")
+                                                    && (name.equals("load")
+                                                            || name.equals("loadLibrary")
+                                                            || name.startsWith("exec")));
+                                })
+                        .map(
+                                call ->
+                                        call.getOrigin().getFullName()
+                                                + " -> "
+                                                + call.getTarget().getFullName())
+                        .sorted()
+                        .toList();
+        List<String> reflectionDependencies =
+                classes.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(target -> target.startsWith("java.lang.reflect."))
+                        .distinct()
+                        .sorted()
+                        .toList();
+        List<String> nativeMethods =
+                classes.stream()
+                        .flatMap(type -> type.getMethods().stream())
+                        .filter(method -> method.getModifiers().contains(JavaModifier.NATIVE))
+                        .map(method -> method.getFullName())
+                        .sorted()
+                        .toList();
+
+        assertTrue(forbidden.isEmpty(), forbidden::toString);
+        assertTrue(forbiddenCalls.isEmpty(), forbiddenCalls::toString);
+        assertTrue(reflectionDependencies.isEmpty(), reflectionDependencies::toString);
+        assertTrue(nativeMethods.isEmpty(), nativeMethods::toString);
+        assertTrue(publicXerialLeaks.isEmpty(), publicXerialLeaks::toString);
+        assertTrue(directConnection, "GeoPackage adapter must construct JDBC4Connection directly");
+    }
+
+    @Test
     void actualNativeTargetedCodeAvoidsProhibitedMechanisms() {
         List<String> violations = new ArrayList<>();
         classesByModule.forEach(

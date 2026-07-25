@@ -22,6 +22,23 @@ if (!java.nio.file.Files.isDirectory(repository.resolve('io/github/mundanej'))) 
     throw new GradleException(
             'map.consumerRepository must contain the staged io.github.mundanej group')
 }
+String configuredExternalRepository =
+        providers.gradleProperty('map.consumerExternalRepository').orNull
+java.nio.file.Path externalRepository = null
+try {
+    if (configuredExternalRepository != null) {
+        externalRepository = java.nio.file.Path.of(configuredExternalRepository)
+    }
+} catch (IllegalArgumentException ignored) {
+    // The common invariant below is intentionally the complete public failure.
+}
+if (externalRepository == null
+        || !externalRepository.isAbsolute()
+        || externalRepository != externalRepository.normalize()
+        || !java.nio.file.Files.isDirectory(externalRepository)) {
+    throw new GradleException(
+            'map.consumerExternalRepository must name an absolute existing directory')
+}
 String consumerVersion = providers.gradleProperty('map.consumerVersion').orNull
 if (consumerVersion == null || consumerVersion.isBlank()) {
     throw new GradleException('map.consumerVersion must not be blank')
@@ -31,5 +48,25 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         maven { url = repository.toUri() }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'xerialArtifactMirror'
+                    url = externalRepository.toUri()
+                    metadataSources {
+                        artifact()
+                    }
+                }
+            }
+            filter {
+                includeGroup 'org.xerial'
+            }
+        }
+        maven {
+            url = externalRepository.toUri()
+            content {
+                excludeGroup 'org.xerial'
+            }
+        }
     }
 }

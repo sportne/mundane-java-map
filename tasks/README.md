@@ -279,7 +279,7 @@ follow their recorded dependencies, and broader follow-up still requires a new c
 | [G10-037 — GeoTIFF corpus, viewers, and performance](closed/G10-037-geotiff-corpus-viewers-and-performance.md) | Complete | HITL | G10-036 | Approve an independent corpus and complete viewer/performance evidence. |
 | [G10-038 — Native Image GeoTIFF closeout](closed/G10-038-native-image-geotiff-closeout.md) | Complete | HITL | G10-037 | Prove the bounded raster/elevation/codec Linux Native Image paths. |
 | [G10-039 — Encoded raster byte decoder](closed/G10-039-encoded-raster-byte-decoder.md) | Complete | AFK | G6-004, G10-006 | Decode bounded detached PNG/JPEG bytes through the explicit image registry. |
-| [G10-040 — GeoPackage catalog and point features](G10-040-geopackage-catalog-and-point-features.md) | Proposed | AFK | G10-004, G11-004 | Qualify Xerial and deliver bounded GeoPackage catalog/point feature behavior. |
+| [G10-040 — GeoPackage catalog and point features](closed/G10-040-geopackage-catalog-and-point-features.md) | Complete | AFK | G10-004, G11-004 | Qualified Xerial and delivered bounded GeoPackage catalog/point feature behavior. |
 | [G10-041 — GeoPackage feature completion](G10-041-geopackage-feature-completion.md) | Proposed | AFK | G10-040 | Complete geometry, attributes, CRS, query, viewer, and feature hardening. |
 | [G10-042 — GeoPackage tiles and hardening](G10-042-geopackage-tiles-and-hardening.md) | Proposed | HITL | G10-041, G10-039 | Render bounded sparse tile matrices and approve independent container evidence. |
 | [G10-043 — MBTiles raster slice](G10-043-mbtiles-raster-slice.md) | Proposed | AFK | G10-039, G11-004 | Read and render bounded TMS PNG/JPEG MBTiles through a staged adapter. |

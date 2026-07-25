@@ -403,6 +403,12 @@ module, and broader follow-up remains separately decomposed.
   construction, immutable local-file sessions, closed limits/diagnostics, and a Java 21 Linux
   x86-64/glibc 2.35+ JVM-only target. It creates no module or dependency; G10-040 through G10-044
   follow their remaining recorded dependencies.
+- G10-040 is complete. The published optional `mundane-map-io-geopackage-xerial` module pins the
+  approved split Xerial 3.53.2.0 code/Linux classifiers, keeps JDBC/Xerial private, enforces bounded
+  immutable local-file sessions, catalogs strict GeoPackage 1.4.0 content, and queries/renders Point
+  and MultiPoint feature rows in stable primary-key order. Publication and the clean Java 21 staged
+  consumer resolve only the approved classifiers. The claim remains Linux x86-64 glibc JVM-only and
+  Native Image `not-targeted`; G10-041 through G10-044 own the remaining format and deployment work.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly

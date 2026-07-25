@@ -34,6 +34,7 @@ dependencies {
     implementation "io.github.mundanej:mundane-map-io-kml:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-workspace:${mapVersion}"
     implementation "io.github.mundanej:mundane-map-symbology-milstd2525:${mapVersion}"
+    implementation "io.github.mundanej:mundane-map-io-geopackage-xerial:${mapVersion}"
 }
 
 application {
@@ -78,10 +79,23 @@ def verifyResolvedComponents = tasks.register('verifyResolvedComponents') {
             ,"io.github.mundanej:mundane-map-symbology-milstd2525:${mapVersion}"
             ,"tools.jackson.core:jackson-core:3.1.5"
             ,"tools.jackson:jackson-bom:3.1.5"
+            ,"io.github.mundanej:mundane-map-io-geopackage-xerial:${mapVersion}"
+            ,"org.xerial:sqlite-jdbc:3.53.2.0"
         ] as Set
         if (modules != expected) {
             throw new GradleException(
                     "consumer component mismatch: expected ${expected.sort()}, found ${modules.sort()}")
+        }
+        Set<String> xerialArtifacts = runtime.files*.name.findAll {
+            it.startsWith('sqlite-jdbc-3.53.2.0')
+        } as Set
+        Set<String> expectedXerialArtifacts = [
+            'sqlite-jdbc-3.53.2.0-without-natives.jar',
+            'sqlite-jdbc-3.53.2.0-natives-linux.jar'
+        ] as Set
+        if (xerialArtifacts != expectedXerialArtifacts) {
+            throw new GradleException(
+                    "consumer Xerial artifact mismatch: ${xerialArtifacts.sort()}")
         }
     }
 }

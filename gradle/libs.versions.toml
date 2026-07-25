@@ -10,6 +10,7 @@ errorpronePlugin = "5.1.0"
 errorprone = "2.49.0"
 graalvmNativePlugin = "1.1.0"
 jacksonCore = "3.1.5"
+xerialSqlite = "3.53.2.0"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -18,6 +19,7 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
 jackson-core = { module = "tools.jackson.core:jackson-core", version.ref = "jacksonCore" }
+xerial-sqlite = { module = "org.xerial:sqlite-jdbc", version.ref = "xerialSqlite" }
 
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotlessPlugin" }

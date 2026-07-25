@@ -1,0 +1,281 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+def xerialProvenance = configurations.create('xerialProvenance') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation('org.xerial:sqlite-jdbc:3.53.2.0:without-natives') {
+        transitive = false
+    }
+    runtimeOnly('org.xerial:sqlite-jdbc:3.53.2.0:natives-linux') {
+        transitive = false
+    }
+    add(xerialProvenance.name, 'org.xerial:sqlite-jdbc:3.53.2.0@pom')
+    testImplementation project(':modules:mundane-map-awt')
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+def xerialRuntime = configurations.runtimeClasspath.incoming.artifactView {
+    componentFilter { identifier ->
+        identifier.displayName.startsWith('org.xerial:sqlite-jdbc:')
+    }
+}.files
+
+def verifyXerialDependency = tasks.register('verifyXerialDependency') {
+    group = 'verification'
+    description = 'Verifies the approved split Xerial runtime graph and checksums.'
+    inputs.files(xerialRuntime, xerialProvenance)
+    doLast {
+        def runtimeFiles = xerialRuntime.files.sort { it.name }
+        def expectedNames = [
+            'sqlite-jdbc-3.53.2.0-natives-linux.jar',
+            'sqlite-jdbc-3.53.2.0-without-natives.jar'
+        ]
+        if (runtimeFiles*.name != expectedNames) {
+            throw new GradleException("Unexpected Xerial runtime artifacts: ${runtimeFiles*.name}")
+        }
+        def sha256 = { File file ->
+            java.security.MessageDigest digest =
+                    java.security.MessageDigest.getInstance('SHA-256')
+            file.withInputStream { input ->
+                byte[] buffer = new byte[8192]
+                for (int count; (count = input.read(buffer)) >= 0;) {
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().encodeHex().toString()
+        }
+        def expected = [
+            'sqlite-jdbc-3.53.2.0-without-natives.jar':
+            'ccfd2bc6b289be6ed599b92c6036610cb73fe64c43ffd7b54f46b6e412afc34d',
+            'sqlite-jdbc-3.53.2.0-natives-linux.jar':
+            '1c25f9fa2c0cb8e0af6eba32121fa71823c9ebcc9ba83024b1955e11e43e99f5'
+        ]
+        runtimeFiles.each { file ->
+            if (sha256(file) != expected[file.name]) {
+                throw new GradleException("Xerial dependency checksum mismatch: ${file.name}")
+            }
+        }
+        def poms = xerialProvenance.files
+        def expectedPoms = [
+            // Maven Central provenance POM.
+            '63858f3bb9c9161cc41f848b9df59a58d5811b4a13b0663470b7aae655466c5e',
+            // Deterministic dependency-only POM produced by assembleOfflineRepository.
+            '5db10af5937d365297af1a2cf18332b8230ca12119656ca6fb2b584f07f5d51c'
+        ] as Set
+        if (poms.size() != 1
+                || !expectedPoms.contains(sha256(poms.iterator().next()))) {
+            throw new GradleException('Xerial dependency POM checksum mismatch')
+        }
+
+        File codeJar = runtimeFiles.find { it.name.endsWith('-without-natives.jar') }
+        File nativeJar = runtimeFiles.find { it.name.endsWith('-natives-linux.jar') }
+        def code = new java.util.jar.JarFile(codeJar)
+        def natives = new java.util.jar.JarFile(nativeJar)
+        try {
+            def requiredCodeEntries = [
+                'META-INF/services/java.sql.Driver',
+                'META-INF/native-image/org.xerial/sqlite-jdbc/native-image.properties',
+                'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature.class',
+                'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature$1.class',
+                'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature$SqliteJdbcFeatureException.class',
+                'META-INF/maven/org.xerial/sqlite-jdbc/LICENSE',
+                'META-INF/maven/org.xerial/sqlite-jdbc/LICENSE.zentus',
+                'sqlite-jdbc.properties'
+            ] as Set
+            def presentCodeEntries = requiredCodeEntries.findAll { code.getEntry(it) != null } as Set
+            if (presentCodeEntries != requiredCodeEntries) {
+                throw new GradleException(
+                "Xerial mechanism/resource inventory changed: ${presentCodeEntries}")
+            }
+            def allCodeEntries = code.entries().findAll {
+                !it.directory
+            }.collect { it.name } as Set
+            def closedEntryGroups = [
+                'META-INF/services/':
+                [
+                    'META-INF/services/java.sql.Driver'
+                ] as Set,
+                'META-INF/native-image/':
+                [
+                    'META-INF/native-image/org.xerial/sqlite-jdbc/native-image.properties'
+                ] as Set,
+                'META-INF/versions/9/org/sqlite/nativeimage/':
+                [
+                    'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature.class',
+                    'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature$1.class',
+                    'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature$SqliteJdbcFeatureException.class'
+                ] as Set
+            ]
+            closedEntryGroups.each { prefix, expectedEntries ->
+                def actualEntries = allCodeEntries.findAll { it.startsWith(prefix) } as Set
+                if (actualEntries != expectedEntries) {
+                    throw new GradleException(
+                    "Xerial closed resource inventory changed for ${prefix}: ${actualEntries}")
+                }
+            }
+            String service = code.getInputStream(
+                    code.getEntry('META-INF/services/java.sql.Driver')).getText('UTF-8').trim()
+            if (service != 'org.sqlite.JDBC') {
+                throw new GradleException("Xerial JDBC service inventory changed: ${service}")
+            }
+            def expectedNatives = [
+                'org/sqlite/native/Linux/riscv64/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/x86/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/armv6/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/x86_64/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/ppc64/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/aarch64/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/armv7/libsqlitejdbc.so',
+                'org/sqlite/native/Linux/arm/libsqlitejdbc.so',
+                'org/sqlite/native/Linux-Musl/x86/libsqlitejdbc.so',
+                'org/sqlite/native/Linux-Musl/x86_64/libsqlitejdbc.so',
+                'org/sqlite/native/Linux-Musl/aarch64/libsqlitejdbc.so'
+            ] as Set
+            def presentNatives = natives.entries().findAll {
+                !it.directory && it.name.endsWith('.so')
+            }.collect { it.name } as Set
+            if (presentNatives != expectedNatives) {
+                throw new GradleException("Xerial native inventory changed: ${presentNatives}")
+            }
+            def requiredClassTokens = [
+                'org/sqlite/util/LoggerFactory.class':
+                [
+                    'org.slf4j.Logger',
+                    'java/lang/Class',
+                    'forName'
+                ],
+                'org/sqlite/util/OSInfo.class':
+                [
+                    '/proc/self/map_files',
+                    '/etc/os-release',
+                    'uname -o',
+                    'uname -m',
+                    '/system/lib/libGLESv1_CM.so',
+                    '/system/lib64/libGLESv1_CM.so',
+                    'java/lang/Runtime',
+                    'exec'
+                ],
+                'org/sqlite/util/LibraryLoaderUtil.class':
+                [
+                    '/%s/native/%s',
+                    'getResource'
+                ],
+                'org/sqlite/SQLiteJDBCLoader.class':
+                [
+                    'org.sqlite.tmpdir',
+                    'java.io.tmpdir',
+                    'org.sqlite.lib.path',
+                    'getResourceAsStream',
+                    'load',
+                    'loadLibrary'
+                ]
+            ]
+            requiredClassTokens.each { name, tokens ->
+                byte[] bytes = code.getInputStream(code.getEntry(name)).readAllBytes()
+                String constants = new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                def missing = tokens.findAll { !constants.contains(it) }
+                if (!missing.isEmpty()) {
+                    throw new GradleException(
+                    "Xerial external-mechanism inventory changed in ${name}: ${missing}")
+                }
+            }
+            def mechanismOwners = [
+                'org.slf4j.Logger':
+                [
+                    'org/sqlite/util/LoggerFactory.class'
+                ] as Set,
+                '/proc/self/map_files':
+                [
+                    'org/sqlite/util/OSInfo.class'
+                ] as Set,
+                '/etc/os-release':
+                [
+                    'org/sqlite/util/OSInfo.class'
+                ] as Set,
+                '/system/lib/libGLESv1_CM.so':
+                [
+                    'org/sqlite/util/OSInfo.class'
+                ] as Set,
+                '/system/lib64/libGLESv1_CM.so':
+                [
+                    'org/sqlite/util/OSInfo.class'
+                ] as Set,
+                'forName':
+                [
+                    'org/sqlite/util/LoggerFactory.class'
+                ] as Set,
+                'getResourceAsStream':
+                [
+                    'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature.class',
+                    'org/sqlite/SQLiteJDBCLoader.class',
+                    'org/sqlite/jdbc3/JDBC3DatabaseMetaData.class'
+                ] as Set,
+                'getResource':
+                [
+                    'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature.class',
+                    'org/sqlite/SQLiteConnection.class',
+                    'org/sqlite/SQLiteJDBCLoader$VersionHolder.class',
+                    'org/sqlite/SQLiteJDBCLoader.class',
+                    'org/sqlite/jdbc3/JDBC3DatabaseMetaData.class',
+                    'org/sqlite/util/LibraryLoaderUtil.class',
+                    'org/sqlite/util/ResourceFinder.class'
+                ] as Set,
+                'loadLibrary':
+                [
+                    'org/sqlite/SQLiteJDBCLoader.class',
+                    'org/sqlite/core/NativeDB.class'
+                ] as Set,
+                'java/lang/Runtime':
+                [
+                    'META-INF/versions/9/org/sqlite/nativeimage/SqliteJdbcFeature$SqliteJdbcFeatureException.class',
+                    'org/sqlite/util/OSInfo.class',
+                    'org/sqlite/util/ProcessRunner.class'
+                ] as Set
+            ]
+            def classEntries = allCodeEntries.findAll { it.endsWith('.class') }
+            mechanismOwners.each { token, expectedOwners ->
+                def actualOwners = classEntries.findAll { name ->
+                    byte[] bytes = code.getInputStream(code.getEntry(name)).readAllBytes()
+                    new String(bytes, java.nio.charset.StandardCharsets.ISO_8859_1)
+                            .contains(token)
+                } as Set
+                if (actualOwners != expectedOwners) {
+                    throw new GradleException(
+                    "Xerial mechanism owner inventory changed for ${token}: ${actualOwners}")
+                }
+            }
+        } finally {
+            code.close()
+            natives.close()
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyXerialDependency
+}
+
+def consumerFixture = layout.buildDirectory.file('generated/consumer-fixture/consumer.gpkg')
+tasks.register('generateConsumerGeoPackageFixture', JavaExec) {
+    group = 'verification'
+    description = 'Generates the strict synthetic GeoPackage used by the staged consumer.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.io.geopackage.GeoPackageConsumerFixtureGenerator'
+    args consumerFixture.get().asFile.absolutePath
+    outputs.file consumerFixture
+}
+
+description = 'Optional bounded GeoPackage support using Xerial SQLite JDBC.'

@@ -18,6 +18,7 @@ out/
 
 # Local work areas and transient output
 scratch/
+.codex/
 *.log
 *.tmp
 

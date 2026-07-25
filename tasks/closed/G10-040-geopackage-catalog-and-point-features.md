@@ -1,6 +1,6 @@
 # G10-040 — GeoPackage catalog and point features
 
-Status: Proposed
+Status: Complete
 Depends on: G10-004, G11-004
 Gate: G10
 Type: AFK
@@ -51,7 +51,8 @@ publication metadata, classified dependency mirror, and clean offline-consumer t
 
 ```bash
 ./gradlew :modules:mundane-map-io-geopackage-xerial:check :modules:mundane-map-architecture-tests:check --console=plain
-./gradlew offlineRepositoryVerification publicationDryRun consumerSmoke --console=plain
+./gradlew offlineRepositoryVerification --console=plain
+./gradlew publicationDryRun consumerSmoke --console=plain
 ./gradlew qualityGate --console=plain
 git diff --check
 ```

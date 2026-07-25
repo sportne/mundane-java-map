@@ -1,0 +1,24 @@
+Mundane Java Map — GeoPackage Xerial adapter
+
+External runtime:
+  org.xerial:sqlite-jdbc:3.53.2.0
+  without-natives SHA-256:
+    ccfd2bc6b289be6ed599b92c6036610cb73fe64c43ffd7b54f46b6e412afc34d
+  natives-linux SHA-256:
+    1c25f9fa2c0cb8e0af6eba32121fa71823c9ebcc9ba83024b1955e11e43e99f5
+  release-signing fingerprint:
+    C1CBA75EC9BD0BAF8061935459E05CE618187ED4
+  qualification reviewed: 2026-07-25
+
+The qualification rechecked Maven Central provenance/signatures and the public Xerial and GitHub
+advisory records on the review date. The build verifies the pinned dependency graph, artifact
+checksums, service/Native Image metadata, native entry set, and the approved reflection,
+host-file, process, resource, temporary-file, and load-mechanism inventory.
+
+Xerial SQLite JDBC is licensed under the Apache License, Version 2.0.
+Portions derived from Zentus SQLite JDBC retain the upstream BSD 2-Clause notice.
+SQLite is dedicated to the public domain.
+
+Upstream source and complete notices:
+  https://github.com/xerial/sqlite-jdbc
+  https://github.com/xerial/sqlite-jdbc/tree/3.53.2.0
