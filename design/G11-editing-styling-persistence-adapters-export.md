@@ -1472,8 +1472,8 @@ module, later task file, serializer dependency, migration framework, or broader 
 
 ### Evidence gate, not an adapter framework
 
-G11-004 proposes one disposition for each named external integration after its concrete G10/G11 use
-case has been designed. The design task would create no module, dependency, interface, registry, or implementation task.
+G11-004 records one disposition for each named external integration after its concrete G10/G11 use
+case has been designed. The design task creates no module, dependency, interface, registry, or implementation task.
 The three possible dispositions are:
 
 - `ACCEPT`: one demonstrated capability has an exact module, dependency, license, conversion,
@@ -1485,15 +1485,14 @@ The three possible dispositions are:
 - `REJECT`: the integration conflicts with a non-waivable project boundary and may be reconsidered
   only by explicitly changing that boundary.
 
-An adapter accepted by a future checkpoint would remain a concrete consumer of existing MundaneJ contracts. This proposed decision does
+An accepted adapter remains a concrete consumer of existing MundaneJ contracts. This decision does
 not add a generic `Adapter`, external-geometry facade, database abstraction, native-loader SPI,
 provider registry, classpath discovery mechanism, or exception bridge. `mundane-map-api` remains
 unchanged. G10-003, G10-004, G10-007, and G11-001 are the exact evidence dependencies for GDAL,
 SQLite, PROJ, and JTS respectively; the general G0 adapter policy is already transitively closed and
 does not justify another task dependency.
 
-The proposed dispositions are shown below. They are not approved project decisions while G11-004
-remains Proposed:
+The approved dispositions are:
 
 | Candidate | Decision | Current evidence |
 | --- | --- | --- |
@@ -1505,24 +1504,30 @@ remains Proposed:
 No candidate is `REJECT`: a later evidenced need can reopen a deferred choice without implying that
 the current design promised compatibility.
 
-### Proposed Xerial format adapters
+Decision record (2026-07-25): the maintainer explicitly approved **G11 optional-adapter disposition
+approval** after reviewing the named dependency, external-JNI, classifier, platform, licensing, and
+Native Image tradeoffs. SQLite through Xerial is `ACCEPT`; JTS, PROJ, and GDAL are `DEFER` with the
+reopen evidence below. Approval is limited to the two named format adapters and creates no generic
+adapter API, module, dependency, or implementation outside the existing G10 task graph.
 
-The proposed acceptance is limited to two future, separately published Level 2 modules
+### Approved Xerial format adapters
+
+The approved acceptance is limited to two future, separately published Level 2 modules
 `mundane-map-io-geopackage-xerial` and `mundane-map-io-mbtiles-xerial`. Their `mundane-map-io-*` names
 would be required because they would implement concrete data formats; the `-xerial` suffix would make the external
 implementation/deployment boundary visible. There is no generic SQLite artifact, shared public
-connection, JDBC facade, or third adapter. If approved, the G10-004 format contracts would remain authoritative for SQL,
+connection, JDBC facade, or third adapter. The G10-004 format contracts remain authoritative for SQL,
 schemas, geometry/tile decoding, limits, caching, cancellation, immutable-input checks, and source
 ownership rather than being duplicated here.
 
-The proposed pinned coordinate is exactly `org.xerial:sqlite-jdbc:3.53.2.0`. G10-004 records the independently
+The approved pinned coordinate is exactly `org.xerial:sqlite-jdbc:3.53.2.0`. G10-004 records the independently
 verified POM, code-classifier, Linux-classifier, and rejected all-platform JAR hashes. Each adapter
 would declare the `without-natives` classifier for compilation and runtime and the `natives-linux`
 classifier at runtime only, both non-transitively. Resolution must contain those exact two JARs and
 POM metadata—no ordinary/default JAR, `natives-all`, optional SLF4J binding, version range, dynamic
 selector, unclassified duplicate, or extra transitive component. A version, classifier, checksum, or
 constructor change first amends the G10 profile; an implementation card may not drift silently while
-claiming conformance with this proposal.
+claiming conformance with this decision.
 
 The code classifier's `org.sqlite.jdbc4.JDBC4Connection` would be constructed directly inside each module's
 private connection policy. Project code does not call `DriverManager`, `ServiceLoader`, `Class.forName`,
@@ -1531,11 +1536,11 @@ loader. No project class declares a native method. The upstream classifier's own
 JNI declarations, resource/URL extraction, `System.load*`, process-global loader, LoggerFactory
 `Class.forName("org.slf4j.Logger")`, `/proc/self/map_files` and `/etc/os-release` musl probes, and
 the supported-path `uname -o` plus fixed `/system/lib/libGLESv1_CM.so` and
-`/system/lib64/libGLESv1_CM.so` Android probes would become an inventoried external-artifact exception under G0 only after approval. The
+`/system/lib64/libGLESv1_CM.so` Android probes are an approved inventoried external-artifact exception under G0. The
 exact graph contains no SLF4J, making the caught reflective miss and JDK logger fallback deterministic
 in supported evidence. External-artifact tests scan those descriptors, paths, strings, symbolic calls,
 and native entries; they are not copied, shaded, repackaged, registered, or represented as MundaneJ
-code. Thus the proposed external native classifier could be allowed after approval while project-owned or repacked native
+code. Thus the approved external native classifier is allowed for these two JVM-only adapters while project-owned or repacked native
 binaries remain excluded.
 
 Every public or protected class, constructor, field, method, record component, generic bound, throws
@@ -1543,17 +1548,17 @@ clause, and annotation surface in the two modules would contain only JDK or Mund
 implementation fields and methods could use the qualified JDBC/Xerial connections, statements, results,
 exceptions, SQL text, native paths, and loader state. Public openers would return only `FeatureSource` or
 `RasterSource` and use
-the explicit static format facades proposed by G10-004; no registration or plugin discovery is added.
+the explicit static format facades approved by G10-004; no registration or plugin discovery is added.
 Format sources would own connections/statements/cursors under the existing all-or-nothing and reverse-close
 contracts. Raw SQL, database identifiers, filesystem/native paths, provider messages, and exception
 messages never enter diagnostics.
 
-If approved and implemented, both project modules would be classified in the authoritative inventory
+When implemented, both project modules are classified in the authoritative inventory
 as published Level 2 **Optional adapters**, never Level 1, with Native Image policy `not-targeted`.
 Before connection initialization,
 one private policy requires exact Linux plus `amd64|x86_64` system properties and a false result from
-Xerial `OSInfo.isMusl()`; every other result maps to `unsupportedPlatform`. That proposed external
-probe would account for the host-file access above. The proposed support floor would be Java 21 on x86-64 Linux with glibc
+Xerial `OSInfo.isMusl()`; every other result maps to `unsupportedPlatform`. That approved external
+probe accounts for the host-file access above. The approved support floor is Java 21 on x86-64 Linux with glibc
 2.35: pinned Ubuntu 22.04/glibc 2.35 and Ubuntu 24.04/glibc 2.39 would be the exact positive lanes, while
 glibc below 2.35 would remain unverified even though artifact inspection finds no native symbol newer than
 `GLIBC_2.3`. The classifier's unused architectures/libc variants would not create support. Windows,
@@ -1566,10 +1571,10 @@ SQLite's public-domain statement, bundled notices, and the exact native inventor
 would retain the project license and never shade or redistribute Xerial bytes. Each module would join settings,
 the project inventory, normal checking, publication staging, release-contract checks, the exact
 build-only classifier mirror, and the offline consumer only with its first working behavior. The
-published POM/module metadata would carry the proposed classified dependency scopes so a clean consumer
+published POM/module metadata would carry the approved classified dependency scopes so a clean consumer
 does not need an ambient driver or global Gradle cache.
 
-G10-004's proposed stable `SQLITE_ADAPTER_UNAVAILABLE` outcomes would remain the only deployment boundary:
+G10-004's approved stable `SQLITE_ADAPTER_UNAVAILABLE` outcomes remain the only deployment boundary:
 `reason=unsupportedPlatform|nativeLoad|temporaryDirectory`. Other connection/query/format failures
 retain that design's closed codes and safe contexts. Tests must force each deployment outcome without
 copying native messages. Every deployment negative runs in its own fresh forked JVM because Xerial's
@@ -1610,7 +1615,7 @@ connection/cursor/source cleanup; format
 parity and hostile-input tests; publication staging; and a fresh offline consumer. Native Image is not
 run or claimed for these adapters unless a later task changes `not-targeted` with real evidence.
 
-No new G11 implementation card is created. If approved, the proposed work would use G10's graph:
+No new G11 implementation card is created. The approved work uses G10's graph:
 
 ```text
 G6-004 + G10-006 -> G10-039
@@ -1620,18 +1625,18 @@ G10-039 + G11-004 -> G10-043
 G10-042 + G10-043 -> G10-044
 ```
 
-G10-039 may land before G10-004 or G11-004; those decisions do not own or block the dependency-neutral
-G6 helper. After G10-039 and approval of both G10-004 and G11-004, the GeoPackage and MBTiles working roots would consume it and
+G10-039 landed before G10-004 and G11-004; those decisions do not own or block the dependency-neutral
+G6 helper. With both decisions approved, the GeoPackage and MBTiles working roots consume it and
 are logically independent. They are not path-safe in parallel when they both touch settings, the
 project inventory, root Gradle, publication/consumer fixtures, the task index, or roadmap; one
 integrator serializes those shared changes. Deferred candidates add no tasks and cannot be reported
 as blocked work.
 
-The named HITL checkpoint is **G11 optional-adapter disposition approval**. A maintainer would need to approve the
+The named HITL checkpoint is **G11 optional-adapter disposition approval**. The maintainer approved the
 one `ACCEPT` and three `DEFER` outcomes, exact Xerial coordinate/classifiers/checksums, two-module and
 public-type boundary, external-JNI exception, licenses/notices, Java 21 Linux x86-64/glibc 2.35+
 support, Native Image `not-targeted` policy, deployment diagnostics, reopen evidence, and reused G10
-graph before G10-040 or G10-043 is created. This is the smallest adapter policy consistent with
+graph before G10-040 or G10-043 implementation begins. This is the smallest adapter policy consistent with
 demonstrated needs: two useful format adapters, no generic integration framework, and no speculative
 geometry/projection/GDAL cost.
 
@@ -2288,13 +2293,14 @@ approved through the maintainer's advance HITL authorization for dependency-free
 Approval selects the detached snapshot/AWT-capture boundary, canonical writer in the existing SVG
 module, strict no-fallback profile, and G11-040 through G11-043 exactly as specified above. It creates
 no production API, module, later task file, renderer framework, or external dependency. This decision
-does not approve the dependency-bearing G11-004 optional-adapter disposition.
+did not itself approve the dependency-bearing G11-004 optional-adapter disposition, which was
+separately approved on 2026-07-25.
 
 ## G11 holistic simplicity closeout
 
 The G11 design describes five independent capabilities only where an observable workflow requires
-them. Four dependency-free profiles are now approved; G11-004 remains a proposed dependency-bearing
-adapter decision:
+them. Four dependency-free profiles and the separately reviewed G11-004 dependency-bearing decision
+are now approved:
 
 - editing is an application-owned immutable point-session with bounded history/snapping, not a
   mutation mode attached to read-only sources;
@@ -2302,7 +2308,7 @@ adapter decision:
   without adding an expression language or layout engine;
 - workspace v1 persists only portable local references/configuration through explicit application
   openers and does not serialize live edit, portrayal, source, registry, or cache graphs;
-- the proposed adapter disposition would accept only the two demonstrated SQLite format adapters,
+- the approved adapter disposition accepts only the two demonstrated SQLite format adapters,
   while JTS, PROJ, and GDAL reserve nothing until evidence changes; and
 - vector export is one detached snapshot plus one canonical SVG writer in an existing module, not a
   renderer/document/plugin framework.
@@ -2358,10 +2364,10 @@ difference. Conversely, no current consumer justifies a generic plugin system, s
 binding layer, geometry engine, projection framework, cache framework, background scheduler, or
 custom native library. Later work follows the task index and approved decompositions, revisiting a
 profile through its named HITL checkpoint whenever evidence invalidates an assumption rather than
-silently widening the design. G10-002 and G10-004 are now approved; G11-004 remains proposed and is
-not silently approved by this cross-gate review.
+silently widening the design. G10-002, G10-004, and the separately reviewed G11-004 decision are now
+approved.
 
 Task-authoring record (2026-07-18): the approved G11 working graphs are now materialized as Proposed
 G11-010 through G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through
 G11-043 cards. Conditional G10-040 through G10-044 cards record the reviewed SQLite graph only.
-G10-004 is approved; they remain non-executable until Proposed G11-004 completes.
+G10-004 and G11-004 are approved; their own task dependencies now govern execution.

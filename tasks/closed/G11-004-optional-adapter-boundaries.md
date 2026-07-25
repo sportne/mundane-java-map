@@ -1,6 +1,6 @@
 # G11-004 — Optional adapter boundaries
 
-Status: Proposed
+Status: Complete
 Depends on: G10-003, G10-004, G10-007, G11-001
 Gate: G11
 Type: HITL
@@ -65,7 +65,9 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: **G11 optional-adapter disposition approval**. The maintainer approves the one
+HITL checkpoint: **G11 optional-adapter disposition approval**. The maintainer explicitly approved
+the named checkpoint on 2026-07-25 after its dependency, external-JNI, classifier, platform,
+licensing, and Native Image tradeoffs were presented. Approval covers the one
 `ACCEPT`, three `DEFER` outcomes, exact Xerial artifacts/licenses/external-JNI boundary, Java 21 Linux
 x86-64/glibc 2.35+ JVM-only claim, Native Image `not-targeted` policy, reopen evidence, and reused G10
 graph. Project code still declares/loads no native library; Level 1 remains JDK-only.

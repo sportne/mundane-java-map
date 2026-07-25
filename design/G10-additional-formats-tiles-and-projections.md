@@ -1465,8 +1465,8 @@ reachability, cleanup, and format behavior without weakening the Level 1 rules.
 
 G10-006 independently authorizes G10-039 as the first non-file consumer boundary for G6. The helper
 depends only on the completed G6 image contracts/implementation and G10-006; it does not depend on,
-or imply approval of, the optional SQLite/Xerial profile. G10-004 is now approved; after G11-004
-completes, the embedded tile BLOB consumers reuse the same helper. G10-039 adds one toolkit-neutral synchronous
+or imply approval of, the optional SQLite/Xerial profile. G10-004 and G11-004 are now approved, so
+the embedded tile BLOB consumers reuse the same helper. G10-039 adds one toolkit-neutral synchronous
 operation to `mundane-map-io-image`:
 
 ```text
@@ -1894,8 +1894,8 @@ writable private temporary directory. These are test-only process/classpath cont
 loader seam or supported incomplete dependency graph. No Native Image, new
 corpus command, public network, benchmark threshold, or Level 1 release record is changed.
 
-G10-039 is the dependency-neutral prerequisite authorized by G10-006. G10-004 is approved; after the
-global G11-004 adapter decision completes, execute the five SQLite-format cards that consume it:
+G10-039 is the dependency-neutral prerequisite authorized by G10-006. G10-004 and the global G11-004
+adapter decision are approved; execute the five SQLite-format cards that consume it:
 
 1. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
    connection policy, and deliver catalog plus Point/MultiPoint feature query/render, publication, and
@@ -2966,8 +2966,8 @@ G10 preserves the smallest useful boundaries after reviewing all seven decisions
 - GeoTIFF keeps bounded image and elevation entry points in one format module without becoming a TIFF,
   CRS, or GDAL framework.
 - The approved GeoPackage and MBTiles profiles remain separate optional adapters; G10-039's
-  dependency-neutral encoded-byte helper is already justified by HTTP XYZ and will be reused after
-  G11-004 completes.
+  dependency-neutral encoded-byte helper is already justified by HTTP XYZ and is reused by their
+  implementation tasks.
 - GPX and KML keep separate secure StAX state machines instead of a speculative XML/GIS hierarchy.
 - HTTP XYZ is explicit acquisition into a detached raster, not network behavior hidden in paint or
   `RasterSource.read`.
@@ -2984,4 +2984,4 @@ simpler, and G11 may build on these explicit outputs without reopening their sco
 Task-authoring record (2026-07-18): the approved implementation graphs are now materialized as
 Proposed G10-030 through G10-039, G10-050 through G10-057, and G10-060 through G10-062 cards.
 G10-040 through G10-044 also exist as conditional planning cards so the GeoPackage/MBTiles graph is
-reviewable. G10-004 is approved, but they cannot execute until Proposed G11-004 completes.
+reviewable. G10-004 and G11-004 are approved, so their own task dependencies now govern execution.

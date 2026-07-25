@@ -59,7 +59,7 @@ design task; there are no empty speculative design files.
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
 | G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-007 approved; implementation slices remain separately gated |
-| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-003 and G11-005 approved; G11-004 reviewed proposal; G11 closeout and whole-design closeout approved with that exclusion |
+| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-005 approved; implementation remains separately gated |
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | Complete |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | Complete |
@@ -72,8 +72,8 @@ organizational only unless the same change explicitly records a new decision and
 Implementation-planning record (2026-07-18): the approved G10/G11 decompositions are represented by
 Proposed G10-030 through G10-039, G10-050 through G10-057, G10-060 through G10-062, G11-010 through
 G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through G11-043 task cards.
-Conditional G10-040 through G10-044 cards also record the reviewed SQLite working graph. G10-004 is
-now approved; those cards remain non-executable until Proposed G11-004 completes.
+Conditional G10-040 through G10-044 cards also record the reviewed SQLite working graph. G10-004 and
+G11-004 are approved; those cards are now governed by their own task dependencies.
 
 Symbology-planning record (2026-07-19, updated 2026-07-24): G12 and G13 are complete. G14-001
 approves the bounded MapLibre Style v8 profile and isolated Jackson boundary; G14-002 implements
@@ -181,7 +181,7 @@ external dependencies, or implementation of open tile/container tasks.
 | 2026-07-13 | Model editing as bounded immutable-record replacement in one application-owned session. | Atomic revisions, delta history, same-CRS snapping, and an explicit AWT binding add point editing without mutable geometry, source write-back, topology machinery, or a generic command framework. |
 | 2026-07-13 | Select symbols with closed binding-owned selectors and place singular-point labels in one bounded global pass. | Exact scalar matching, projected attribute queries, AWT-only metrics, toolkit-neutral placement, and greedy operation-local collision handling add useful cartography without an expression, font, hit, or cache framework. |
 | 2026-07-13 | Persist only portable local map configuration in one strict XML v1 workspace. | Canonical bytes, guarded relative paths, application-owned source/catalog registries, and atomic replacement reopen a useful Level 1 map without coupling the workspace module to format adapters or serializing runtime state, secrets, format data, or arbitrary objects. |
-| 2026-07-13 | Propose accepting two Xerial SQLite format adapters while deferring JTS, PROJ, and GDAL; approval remains pending. | Exact classifiers, private JDBC/native boundaries, and a Linux JVM-only claim could serve the proposed GeoPackage/MBTiles profiles; the other libraries currently have no demonstrated gap requiring a framework, dependency, module, or task. |
+| 2026-07-25 | Accept two Xerial SQLite format adapters while deferring JTS, PROJ, and GDAL. | Exact classifiers, private JDBC/native boundaries, and a Linux JVM-only claim serve the approved GeoPackage/MBTiles profiles; the other libraries currently have no demonstrated gap requiring a framework, dependency, module, or task. |
 | 2026-07-13 | Export one detached viewport snapshot as canonical static SVG 1.1 through the existing SVG module. | An API-owned immutable vector-export handoff, AWT-owned synchronous capture, exact built-in vector profile, core algorithm reuse, and bounded atomic writer preserve visible map order without a scene graph, renderer callback, raster fallback, or new module. |
 | 2026-07-17 | Approve `0.1.0` candidate `a5d10791d6cf811b438cb72504ff8b00b2ab8d75` for the bounded Level 1 support statement. | Six independent exact-revision lanes, byte-identical publication manifests, clean consumer evidence, and narrow Linux Native Image wording satisfy the release gate without release automation or a broader platform/capability claim. |
 | 2026-07-19 | Propose a bounded MIL-STD-2525E Change 1 point-symbol module as the first standards-based symbology gate. | Canonical 30-position SIDCs, finite explicit land/activity tables, existing vector symbols, and honest profile wording can add tactical value without a second renderer or complete-standard claim. |
@@ -257,7 +257,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G11-001 | Immutable edit commands/snapshots, atomic revisions, bounded delta history, same-CRS vertex/segment snapping, point-first AWT integration, and four later slices | Approved |
 | G11-002 | Closed fixed/categorical/graduated portrayals, exact query/interaction behavior, bounded singular-point labels, fixed paint/export metrics, toolkit-neutral placement, and five later slices | Approved |
 | G11-003 | AWT-free XML v1 model, portable field exclusions, guarded local paths, application openers/session ownership, atomic writer, and five later slices | Approved |
-| G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Reviewed |
+| G11-004 | ACCEPT/DEFER rubric, two qualified Xerial format adapters, three evidence-gated deferrals, corrected working graph, and no generic adapter API | Approved |
 | G11-005 | Detached vector-export snapshot, AWT capture, canonical static SVG, exact effect/text/limit/failure policy, four later slices, and G11/G0–G11 simplicity closeout | Approved |
 | G12-001 | Exact 2525E Change 1 point profile, code-table inventory, fixture rights, diagnostics, and conformance wording | Approved |
 | G12-002 | Canonical packed 30-position SIDC parsing, retained fields, support classification, and module boundary | Approved |

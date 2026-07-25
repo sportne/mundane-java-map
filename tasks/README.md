@@ -112,7 +112,7 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
 - G10-039 is a dependency-neutral image helper. After it lands, the GPX and KML branches may proceed
   together after G10-005, and the HTTP XYZ branch may proceed independently; shared module inventory,
   examples, rendering, publication, and native files still require one integration owner.
-- G10-004 is complete; G10-040 through G10-044 may not begin until Proposed G11-004 completes.
+- G10-004 and G11-004 are complete; G10-040 through G10-044 follow their recorded dependencies.
   Once approved, the GeoPackage and MBTiles branches are logically parallel after their distinct
   roots, but Xerial dependency locking, publication, fixture, and support-evidence files are shared.
 - After their approved profile roots, G11 editing/history and snapping branches converge at G11-013;
@@ -236,8 +236,8 @@ Level 1 is complete only when G8-004 is complete.
 Level 2 starts after G8-004. Approved profiles with implementation outcomes are decomposed below into
 reviewable vertical slices; an approved `DEFER` outcome creates no implementation card or module.
 G10-004 approves the SQLite container format profiles and exact dependency candidate without adding
-production code. G10-040 through G10-044 remain planning records until Proposed G11-004 completes.
-Every card remains subject to its dependencies, and broader follow-up still requires a new card.
+production code; G11-004 approves the optional-adapter dispositions. G10-040 through G10-044 now
+follow their recorded dependencies, and broader follow-up still requires a new card.
 
 ### G9 — Elevation and DTED
 
@@ -303,7 +303,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G11-001 — Editing, undo, and snapping model](closed/G11-001-editing-undo-and-snapping-model.md) | Complete | HITL | G8-004 | Approve a point-first immutable edit session, bounded history, and same-CRS snapping. |
 | [G11-002 — Thematic styling and label placement](closed/G11-002-thematic-styling-and-label-placement.md) | Complete | HITL | G8-004 | Approve closed thematic selectors and one bounded deterministic point-label pass. |
 | [G11-003 — Workspace persistence profile](closed/G11-003-workspace-persistence-profile.md) | Complete | HITL | G8-004 | Approve strict local XML v1 persistence with explicit application openers and atomic replacement. |
-| [G11-004 — Optional adapter boundaries](G11-004-optional-adapter-boundaries.md) | Proposed | HITL | G10-003, G10-004, G10-007, G11-001 | Decide whether to accept two Xerial format adapters and defer JTS, PROJ, and GDAL. |
+| [G11-004 — Optional adapter boundaries](closed/G11-004-optional-adapter-boundaries.md) | Complete | HITL | G10-003, G10-004, G10-007, G11-001 | Accept two Xerial format adapters and defer JTS, PROJ, and GDAL. |
 | [G11-005 — Vector map export profile](closed/G11-005-vector-map-export-profile.md) | Complete | HITL | G10-001, G11-002 | Approve detached AWT capture and canonical static SVG export in the existing SVG module. |
 | [G11-010 — Immutable point-edit session slice](closed/G11-010-immutable-point-edit-session-slice.md) | Complete | AFK | G11-001 | Create, replace, and delete immutable point features through a real editable map binding. |
 | [G11-011 — Bounded undo/redo slice](closed/G11-011-bounded-undo-redo-slice.md) | Complete | AFK | G11-010 | Add bounded delta history, eviction, rollback evidence, and viewer undo/redo. |

@@ -293,9 +293,10 @@ architectural requirement. Level 1 completed at
 
 Level 2 begins after G8-004. Approved profiles that select implementation now have linked vertical
 slices in the [task index](tasks/README.md#level-2-backlog); an approved `DEFER` outcome creates none.
-The G10-040 through G10-044 SQLite-format cards document the reviewed design. G10-004 now approves
-the format profiles and exact dependency candidate, but implementation remains gated by Proposed
-G11-004. No task creates an empty module, and broader follow-up remains separately decomposed.
+The G10-040 through G10-044 SQLite-format cards document the reviewed design. G10-004 approves the
+format profiles and exact dependency candidate, and G11-004 approves the optional-adapter
+dispositions. The working cards are now governed by their own dependencies. No task creates an empty
+module, and broader follow-up remains separately decomposed.
 
 ### G9 — Elevation and DTED
 
@@ -401,7 +402,7 @@ G11-004. No task creates an empty module, and broader follow-up remains separate
   MBTiles 1.3 profiles, exact Xerial 3.53.2.0 code/Linux classifiers and checksums, private direct
   construction, immutable local-file sessions, closed limits/diagnostics, and a Java 21 Linux
   x86-64/glibc 2.35+ JVM-only target. It creates no module or dependency; G10-040 through G10-044
-  remain gated by G11-004 and their own dependencies.
+  follow their remaining recorded dependencies.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly
@@ -507,9 +508,11 @@ G11-004. No task creates an empty module, and broader follow-up remains separate
   read/write/open/close path plus one stable hostile-XML failure; the required lane passed on
   2026-07-20 using GraalVM CE Java 21.0.2 on Ubuntu 24.04 WSL2 Linux x86-64. This evidence makes no
   Windows, macOS, Linux AArch64, non-WSL distribution, or broader cross-platform Native Image claim.
-- G11-004 remains Proposed. Its draft evaluates whether to accept bounded Xerial-backed GeoPackage/
-  MBTiles adapters and defer JTS, PROJ, and GDAL; no adapter disposition, classifier, platform claim,
-  generic adapter API, or module is approved.
+- G11-004 is complete as a design decision. It accepts only the two bounded Xerial-backed GeoPackage/
+  MBTiles format adapters and records JTS, PROJ, and GDAL as `DEFER` with explicit reopen evidence.
+  Approval fixes the private external-type/JNI boundary, exact classifier/checksum/license inventory,
+  Java 21 Linux x86-64/glibc 2.35+ JVM-only support target, and Native Image `not-targeted` policy. It
+  creates no generic adapter API, dependency, or module.
 - G11-005 is complete as a design decision. Export one detached logical-screen viewport as canonical
   static SVG 1.1. API-owned immutable snapshot values cross from synchronous AWT capture into the
   existing AWT-free SVG module, which
