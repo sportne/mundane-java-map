@@ -112,7 +112,7 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
 - G10-039 is a dependency-neutral image helper. After it lands, the GPX and KML branches may proceed
   together after G10-005, and the HTTP XYZ branch may proceed independently; shared module inventory,
   examples, rendering, publication, and native files still require one integration owner.
-- G10-040 through G10-044 may not begin until their Proposed G10-004/G11-004 decisions complete.
+- G10-004 is complete; G10-040 through G10-044 may not begin until Proposed G11-004 completes.
   Once approved, the GeoPackage and MBTiles branches are logically parallel after their distinct
   roots, but Xerial dependency locking, publication, fixture, and support-evidence files are shared.
 - After their approved profile roots, G11 editing/history and snapping branches converge at G11-013;
@@ -235,8 +235,8 @@ Level 1 is complete only when G8-004 is complete.
 
 Level 2 starts after G8-004. Approved profiles with implementation outcomes are decomposed below into
 reviewable vertical slices; an approved `DEFER` outcome creates no implementation card or module.
-The G10-040 through G10-044 SQLite-format cards are planning records only until both Proposed
-G10-004 and G11-004 complete, so their existence does not approve Xerial, GeoPackage, or MBTiles.
+G10-004 approves the SQLite container format profiles and exact dependency candidate without adding
+production code. G10-040 through G10-044 remain planning records until Proposed G11-004 completes.
 Every card remains subject to its dependencies, and broader follow-up still requires a new card.
 
 ### G9 — Elevation and DTED
@@ -259,7 +259,7 @@ Every card remains subject to its dependencies, and broader follow-up still requ
 | [G10-001 — Secure SVG import profile and first slice](closed/G10-001-secure-svg-import-profile-and-first-slice.md) | Complete | HITL | G8-004 | Securely import static marker SVG into ordinary symbols and prove render/native/consumer paths. |
 | [G10-002 — GeoJSON feature-source profile decision](closed/G10-002-geojson-feature-source-profile-decision.md) | Complete | HITL | G8-004 | Approve a strict 2D RFC 7946 reader/writer and one isolated Jackson Core adapter. |
 | [G10-003 — GeoTIFF raster/elevation profile decision](closed/G10-003-geotiff-raster-and-elevation-profile-decision.md) | Complete | HITL | G8-004, G9-001 | Approve a strict JDK-only Classic TIFF profile with explicit raster/elevation routing. |
-| [G10-004 — SQLite container adapter profiles](G10-004-sqlite-container-adapter-profiles.md) | Proposed | HITL | G8-004 | Decide whether to approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
+| [G10-004 — SQLite container adapter profiles](closed/G10-004-sqlite-container-adapter-profiles.md) | Complete | HITL | G8-004 | Approve strict GeoPackage/MBTiles profiles and a pinned Linux JVM-only Xerial boundary. |
 | [G10-005 — GPX and KML source profiles](closed/G10-005-gpx-and-kml-source-profiles.md) | Complete | HITL | G8-004 | Approve separate bounded GPX 1.1 and static KML 2.2 feature sources. |
 | [G10-006 — Remote tile source first slice](closed/G10-006-remote-tile-source-first-slice.md) | Complete | AFK | G8-004 | Design explicit bounded HTTP XYZ acquisition into detached raster snapshots. |
 | [G10-007 — Additional projection selection](closed/G10-007-additional-projection-selection.md) | Complete | HITL | G8-004 | Approve the three-outcome evidence gate and record the current projection decision as DEFER. |

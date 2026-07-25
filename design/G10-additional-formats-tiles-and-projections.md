@@ -1352,10 +1352,18 @@ only with a separately reviewed G10-030 task.
 
 ### Approval and dependency boundary
 
-The named checkpoint is **G10 SQLite container profile approval**. If approved, it would independently select the
+The named checkpoint is **G10 SQLite container profile approval**. Approval independently selects the
 GeoPackage and MBTiles profiles below, one external-driver deployment, the bounded JNI qualification,
-and the later implementation graph. The profile below is a proposal, not an approved project decision;
-G10-004 remains Proposed and creates no module or production code.
+and the later implementation graph. G10-004 is complete as a design decision and creates no module or
+production code.
+
+Decision record (2026-07-25): the maintainer explicitly approved **G10 SQLite container profile
+approval** after reviewing the named dependency, JNI, platform, and Native Image tradeoffs. Approval selects the strict
+GeoPackage 1.4.0 and MBTiles 1.3 read-only profiles, exact Xerial 3.53.2.0 split artifacts and
+checksums, Linux x86-64/glibc 2.35+ Java 21 JVM-only boundary, private direct-construction and
+immutable-file policy, qualified opaque SQLite/JNI allocation, closed diagnostics, and G10-040
+through G10-044 graph exactly as recorded below. It does not add a dependency, module, Native Image
+claim, or non-Linux support claim.
 
 The future implementations are two published Level 2 Optional adapters:
 
@@ -1405,7 +1413,7 @@ classifier still contains upstream binaries for several Linux architectures and 
 Xerial publishes no narrower classifier. A private platform preflight runs before connection/native
 initialization: `os.name` must be exactly `Linux`, `os.arch` must be `amd64` or `x86_64`, and Xerial's
 `OSInfo.isMusl()` must be false; every other result is `SQLITE_ADAPTER_UNAVAILABLE` with
-`reason=unsupportedPlatform`. The proposed profile would make its first support claim for a Java 21 JVM on that x86-64 Linux path with
+`reason=unsupportedPlatform`. The approved profile makes its first support claim for a Java 21 JVM on that x86-64 Linux path with
 glibc 2.35 or newer. Pinned Ubuntu 22.04/glibc 2.35 is the minimum evidence lane and Ubuntu
 24.04/glibc 2.39 is the second lane; each records the exact image, JDK, kernel, and `getconf` result.
 The pinned glibc native's symbol table requires at most `GLIBC_2.3`, but that is artifact inventory,
@@ -1447,7 +1455,7 @@ resource access, temporary properties, and load APIs; the supported-path test ex
 above and no other process/file target. Any addition or changed control-path inventory
 requires design review rather than an allow-all dependency exemption.
 
-The proposed adapters would be JVM-only and would have Native Image policy `not-targeted`. Xerial's own reachability
+The approved adapters are JVM-only and have Native Image policy `not-targeted`. Xerial's own reachability
 metadata is not a project compatibility claim. Neither adapter enters the shared native executable,
 and the Linux JVM evidence below cannot be described as Native Image evidence. Any later claim needs
 a new HITL packaging task that proves the exact native library, extraction/static-link policy,
@@ -1457,8 +1465,8 @@ reachability, cleanup, and format behavior without weakening the Level 1 rules.
 
 G10-006 independently authorizes G10-039 as the first non-file consumer boundary for G6. The helper
 depends only on the completed G6 image contracts/implementation and G10-006; it does not depend on,
-or imply approval of, the optional SQLite/Xerial profile. If G10-004 and G11-004 are later approved,
-their embedded tile BLOB consumers reuse the same helper. G10-039 adds one toolkit-neutral synchronous
+or imply approval of, the optional SQLite/Xerial profile. G10-004 is now approved; after G11-004
+completes, the embedded tile BLOB consumers reuse the same helper. G10-039 adds one toolkit-neutral synchronous
 operation to `mundane-map-io-image`:
 
 ```text
@@ -1886,8 +1894,8 @@ writable private temporary directory. These are test-only process/classpath cont
 loader seam or supported incomplete dependency graph. No Native Image, new
 corpus command, public network, benchmark threshold, or Level 1 release record is changed.
 
-G10-039 is the dependency-neutral prerequisite authorized by G10-006. If G10-004 and the global
-G11-004 adapter decision are approved, create five SQLite-format cards that consume it:
+G10-039 is the dependency-neutral prerequisite authorized by G10-006. G10-004 is approved; after the
+global G11-004 adapter decision completes, execute the five SQLite-format cards that consume it:
 
 1. `G10-040` — pin/classify Xerial, create `mundane-map-io-geopackage-xerial`, enforce the complete
    connection policy, and deliver catalog plus Point/MultiPoint feature query/render, publication, and
@@ -2806,7 +2814,7 @@ The repository provides no demonstrated third-projection workflow:
   EPSG:4326/EPSG:3857 definitions and direct operation;
 - The approved DTED, GPX, and KML profiles expose geographic WGS 84 coordinates; Proposed G10-002
   would do the same for RFC 7946 GeoJSON;
-- XYZ uses the canonical Web Mercator matrix; the Proposed G10-004 draft would do the same for MBTiles
+- XYZ uses the canonical Web Mercator matrix; the approved G10-004 profile does the same for MBTiles
   and recognize only the existing EPSG:4326/EPSG:3857 definitions for GeoPackage features/tiles;
 - the GeoTIFF profile rejects unapproved EPSG, user-defined, WKT, vertical, and compound CRS constructs
   rather than widening recognition, and no fixture or consumer requires another accepted operation;
@@ -2957,9 +2965,9 @@ G10 preserves the smallest useful boundaries after reviewing all seven decisions
   approved 2D geometry families.
 - GeoTIFF keeps bounded image and elevation entry points in one format module without becoming a TIFF,
   CRS, or GDAL framework.
-- The proposed GeoPackage and MBTiles profiles would remain separate optional adapters; G10-039's
-  dependency-neutral encoded-byte helper is already justified by HTTP XYZ and would be reused if
-  G10-004 and G11-004 are approved.
+- The approved GeoPackage and MBTiles profiles remain separate optional adapters; G10-039's
+  dependency-neutral encoded-byte helper is already justified by HTTP XYZ and will be reused after
+  G11-004 completes.
 - GPX and KML keep separate secure StAX state machines instead of a speculative XML/GIS hierarchy.
 - HTTP XYZ is explicit acquisition into a detached raster, not network behavior hidden in paint or
   `RasterSource.read`.
@@ -2976,5 +2984,4 @@ simpler, and G11 may build on these explicit outputs without reopening their sco
 Task-authoring record (2026-07-18): the approved implementation graphs are now materialized as
 Proposed G10-030 through G10-039, G10-050 through G10-057, and G10-060 through G10-062 cards.
 G10-040 through G10-044 also exist as conditional planning cards so the GeoPackage/MBTiles graph is
-reviewable, but they cannot execute until Proposed G10-004 and G11-004 complete and do not approve
-the Xerial boundary.
+reviewable. G10-004 is approved, but they cannot execute until Proposed G11-004 completes.

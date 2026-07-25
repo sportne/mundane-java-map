@@ -1,6 +1,6 @@
 # G10-004 — SQLite container adapter profiles
 
-Status: Proposed
+Status: Complete
 Depends on: G8-004
 Gate: G10
 Type: HITL
@@ -71,7 +71,9 @@ git diff --check
 
 ## Notes
 
-HITL checkpoint: **G10 SQLite container profile approval**. Approval covers both independent profiles,
+HITL checkpoint: **G10 SQLite container profile approval**. The maintainer explicitly approved the
+named checkpoint on 2026-07-25 after its dependency, JNI, platform, and Native Image tradeoffs were
+presented. Approval covers both independent profiles,
 the verified `3.53.2.0` code-only plus Linux-native Xerial classifiers, licensing/native-extraction
 tradeoff, strict read-only policy, two module boundaries, JVM-only platform wording, and later task
 graph. Any future version change first amends the authoritative G10 design pin and checksums.

@@ -1497,7 +1497,7 @@ remains Proposed:
 
 | Candidate | Decision | Current evidence |
 | --- | --- | --- |
-| SQLite through Xerial JDBC | `ACCEPT` | The G10-004 draft specifies two bounded read-only container profiles and proposed working-card roots. |
+| SQLite through Xerial JDBC | `ACCEPT` | The approved G10-004 decision specifies two bounded read-only container profiles and working-card roots. |
 | JTS | `DEFER` | G11-001 needs only point replacement and same-CRS vertex/segment snapping already designed in core. |
 | PROJ | `DEFER` | G10-007 selected no third CRS and explicitly recorded `DEFER`. |
 | GDAL | `DEFER` | G10-003 selected a bounded JDK-only GeoTIFF reader and identified no missing runtime capability. |
@@ -2358,10 +2358,10 @@ difference. Conversely, no current consumer justifies a generic plugin system, s
 binding layer, geometry engine, projection framework, cache framework, background scheduler, or
 custom native library. Later work follows the task index and approved decompositions, revisiting a
 profile through its named HITL checkpoint whenever evidence invalidates an assumption rather than
-silently widening the design. G10-002, G10-004, and G11-004 remain proposed and are not silently
-approved by this cross-gate review.
+silently widening the design. G10-002 and G10-004 are now approved; G11-004 remains proposed and is
+not silently approved by this cross-gate review.
 
 Task-authoring record (2026-07-18): the approved G11 working graphs are now materialized as Proposed
 G11-010 through G11-013, G11-020 through G11-024, G11-030 through G11-034, and G11-040 through
-G11-043 cards. Conditional G10-040 through G10-044 cards record the reviewed SQLite graph only; they
-remain non-executable until Proposed G10-004 and G11-004 complete.
+G11-043 cards. Conditional G10-040 through G10-044 cards record the reviewed SQLite graph only.
+G10-004 is approved; they remain non-executable until Proposed G11-004 completes.

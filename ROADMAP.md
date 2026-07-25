@@ -293,10 +293,9 @@ architectural requirement. Level 1 completed at
 
 Level 2 begins after G8-004. Approved profiles that select implementation now have linked vertical
 slices in the [task index](tasks/README.md#level-2-backlog); an approved `DEFER` outcome creates none.
-The G10-040 through G10-044 SQLite-format cards document the reviewed design but remain gated by the
-Proposed G10-004 and G11-004 decisions. Their presence does not approve an external dependency,
-adapter, artifact, or platform claim. No task creates an empty module, and broader follow-up remains
-separately decomposed.
+The G10-040 through G10-044 SQLite-format cards document the reviewed design. G10-004 now approves
+the format profiles and exact dependency candidate, but implementation remains gated by Proposed
+G11-004. No task creates an empty module, and broader follow-up remains separately decomposed.
 
 ### G9 — Elevation and DTED
 
@@ -398,10 +397,11 @@ separately decomposed.
   writes deterministic output, reopens it, checks one exact malformed diagnostic, and excludes the
   Jackson service descriptor/service from native registration. Generic JSON serialization remains
   outside scope; Windows and macOS Native Image remain unclaimed.
-- G10-004 remains Proposed. Its draft evaluates strict GeoPackage and MBTiles profiles and an Xerial
-  boundary; G10-040 through G10-044 record the conditional working graph but cannot execute while
-  G10-004 or G11-004 is incomplete. No adapter, artifact coordinate/classifier set, or platform claim
-  is approved.
+- G10-004 is complete as a design decision. It approves strict read-only GeoPackage 1.4.0 and
+  MBTiles 1.3 profiles, exact Xerial 3.53.2.0 code/Linux classifiers and checksums, private direct
+  construction, immutable local-file sessions, closed limits/diagnostics, and a Java 21 Linux
+  x86-64/glibc 2.35+ JVM-only target. It creates no module or dependency; G10-040 through G10-044
+  remain gated by G11-004 and their own dependencies.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly
