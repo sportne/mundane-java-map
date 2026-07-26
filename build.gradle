@@ -70,6 +70,13 @@ tasks.register('checkAll') {
     dependsOn checkedProjects.collect { "${it}:check" }
 }
 
+tasks.register('supportedJdkTests') {
+    group = 'verification'
+    description = 'Runs every normal JUnit suite on the configured supported test JDK.'
+    dependsOn gradle.includedBuild('build-logic').task(':test')
+    dependsOn checkedProjects.collect { "${it}:test" }
+}
+
 tasks.register('qualityGate') {
     group = 'verification'
     description = 'Runs the normal local and CI quality gate.'

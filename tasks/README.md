@@ -398,7 +398,7 @@ strict CRS/source coordinates and adds bounded periodic display behavior above t
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G17-001 — Documentation currency and consistency audit](closed/G17-001-documentation-currency-and-consistency-audit.md) | Complete | AFK | G10-044, G16-007 | Reconciled user, design, roadmap, task, example, support, and verification documentation with current evidence. |
-| [G17-002 — Build and CI duration reduction](G17-002-build-and-ci-duration-reduction.md) | Proposed | HITL | G10-044, G16-007 | Measure and shorten local/CI critical paths while mechanically preserving every verification lane. |
+| [G17-002 — Build and CI duration reduction](closed/G17-002-build-and-ci-duration-reduction.md) | Complete | HITL | G10-044, G16-007 | Split full Java 21 quality from Java 25 supported-runtime tests, cutting the measured Java 25 warm median 78.6% while mechanically retaining every verification lane. |
 | [G17-003 — Comprehensive public Javadocs](G17-003-comprehensive-public-javadocs.md) | Proposed | AFK | G17-001, G17-002 | Document every public/protected production declaration and enforce strict project-wide doclint. |
 | [G17-004 — Raise aggregate code coverage to 80 percent](G17-004-raise-aggregate-code-coverage-to-80-percent.md) | Proposed | AFK | G17-002, G17-003 | Raise every governed project's existing bundle instruction floor from 60% to 80% through behavioral tests. |
 | [G17-005 — Enforce 80 percent coverage per source file](G17-005-per-source-file-code-coverage.md) | Proposed | AFK | G17-004 | Add deterministic 80% instruction coverage enforcement and reports for every production source file. |

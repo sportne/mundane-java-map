@@ -270,7 +270,10 @@ tasks.named('test') {
         exclude '.gradle/**', '**/build/**'
     })
     inputs.file(rootProject.file('.github/workflows/native-image.yml'))
+    inputs.file(rootProject.file('.github/workflows/ci.yml'))
+    inputs.file(rootProject.file('.github/workflows/offline-repository.yml'))
     inputs.file(rootProject.file('.github/workflows/sqlite-adapter-evidence.yml'))
+    inputs.file(rootProject.file('verification/G17-002-verification-manifest.tsv'))
     systemProperty 'map.architecture.modules', moduleDescriptors
     systemProperty 'map.architecture.supportProjects',
             inventory.findAll { it.category == 'SUPPORT' }
@@ -309,6 +312,9 @@ tasks.named('test') {
             }.join('\n')
     systemProperty 'map.architecture.nativeWorkflow',
             rootProject.file('.github/workflows/native-image.yml').absolutePath
+    systemProperty 'map.verification.repositoryRoot', rootProject.projectDir.absolutePath
+    systemProperty 'map.verification.manifest',
+            rootProject.file('verification/G17-002-verification-manifest.tsv').absolutePath
     systemProperty 'map.architecture.sqliteAdapterWorkflow',
             rootProject.file('.github/workflows/sqlite-adapter-evidence.yml').absolutePath
 }

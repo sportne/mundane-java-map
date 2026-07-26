@@ -1,0 +1,4 @@
+phase	command	profile_wall_seconds	task_rows	configuration_seconds	compilation_parallel_seconds	unit_tests_parallel_seconds	javadoc_parallel_seconds	checkstyle_parallel_seconds	spotbugs_parallel_seconds	jacoco_parallel_seconds	spotless_parallel_seconds
+before	./gradlew -Pmap.testJavaVersion=25 qualityGate --profile --console=plain	63.01	914	1.043	407.275	49.153	63.538	12.646	27.271	93.718	48.217
+rejected-checkAll	./gradlew -Pmap.testJavaVersion=25 checkAll --profile --console=plain	71.90	872	0.708	33.246	40.886	0.000	13.613	57.813	17.095	56.784
+after	./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --profile --console=plain --no-build-cache --no-configuration-cache --max-workers=4	56.841	354	1.403	110.447	86.714	0.000	0.000	0.000	0.000	0.000

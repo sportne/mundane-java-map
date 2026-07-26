@@ -1,6 +1,6 @@
 # G17-002 — Build and CI duration reduction
 
-Status: Proposed
+Status: Complete
 Depends on: G10-044, G16-007
 Gate: G17
 Type: HITL
@@ -88,3 +88,11 @@ Record the HITL checkpoint with the reviewed commit, runner/local environments, 
 locations, medians and variance, before/after task and job manifests, and the maintainer disposition.
 Native Image and SQLite deployment evidence may be satisfied by their exact-commit workflows rather
 than being folded into `qualityGate`.
+
+The 2026-07-26 maintainer checkpoint approved the reviewed Option 2 schedule: Java 21 owns the full
+`qualityGate`, while Java 25 runs every normal project and included-build JUnit suite through
+`supportedJdkTests`. The explicitly Java-21-bound performance entry-contract tests remain mandatory
+in a separate tagged Java 21 task. Controlled evidence, rejected alternatives, retained-lane
+manifest, build-duration causes, and future optimization choices are recorded in
+`design/G17-project-hardening.md` and `verification/G17-002-*.tsv`. Exact-commit GitHub outcomes and
+timings are correlated after the resulting task commit is pushed.

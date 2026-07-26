@@ -2,6 +2,19 @@ plugins {
     id 'groovy-gradle-plugin'
 }
 
+def testJavaVersion =
+        providers.gradleProperty('map.testJavaVersion').map(Integer::parseInt).getOrElse(21)
+if (testJavaVersion < 21) {
+    throw new GradleException(
+            "map.testJavaVersion must be 21 or newer; received ${testJavaVersion}")
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
 def buildLogicPluginMarkers = [
     [id: 'com.diffplug.spotless', version: libs.versions.spotlessPlugin.get(),
         implementation: 'com.diffplug.spotless:spotless-plugin-gradle'],
@@ -24,6 +37,9 @@ dependencies {
 }
 
 tasks.withType(Test).configureEach {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(testJavaVersion)
+    }
     useJUnitPlatform()
     systemProperty 'map.rootDir', rootDir.parentFile.absolutePath
     testLogging {

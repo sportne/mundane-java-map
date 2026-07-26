@@ -136,6 +136,8 @@ class BuildConfigurationTest {
         BuildResult result = pluginRunner(project, "compileJava", "printJavaBaseline").build();
         assertTrue(result.getOutput().contains("JAVA_RELEASE=21"));
         assertTrue(result.getOutput().contains("TEST_JAVA_VERSION=21"));
+        assertTrue(result.getOutput().contains("JACOCO_ENABLED=true"));
+        assertTrue(result.getOutput().contains("TEST_FINALIZERS=:jacocoTestReport"));
         byte[] classBytes =
                 Files.readAllBytes(project.resolve("build/classes/java/main/example/Sample.class"));
         int majorVersion = ((classBytes[6] & 0xff) << 8) | (classBytes[7] & 0xff);
@@ -146,6 +148,63 @@ class BuildConfigurationTest {
                         UnexpectedBuildFailure.class,
                         () -> pluginRunner(project, "help", "-Pmap.javaRelease=25").build());
         assertTrue(failure.getMessage().contains("map.javaRelease is fixed at 21; received 25"));
+    }
+
+    @Test
+    void supportedTestJdkDoesNotRepeatJava21CoverageReporting() throws Exception {
+        Path project = createJavaConventionFixture();
+
+        BuildResult result =
+                pluginRunner(
+                                project,
+                                "printJavaBaseline",
+                                "-Pmap.testJavaVersion=25")
+                        .build();
+
+        assertTrue(result.getOutput().contains("TEST_JAVA_VERSION=25"));
+        assertTrue(result.getOutput().contains("JACOCO_ENABLED=false"));
+        assertTrue(result.getOutput().contains("TEST_FINALIZERS="));
+        assertTrue(!result.getOutput().contains("TEST_FINALIZERS=:jacocoTestReport"));
+    }
+
+    @Test
+    void supportedJdkAggregateContainsOnlyNormalInventoryTests() throws Exception {
+        String rootBuild = Files.readString(ROOT.resolve("build.gradle"));
+        int start = rootBuild.indexOf("tasks.register('supportedJdkTests')");
+        int end = rootBuild.indexOf("\ntasks.register(", start + 1);
+        assertTrue(start >= 0);
+        assertTrue(end > start);
+        String task = rootBuild.substring(start, end);
+
+        assertTrue(task.contains("gradle.includedBuild('build-logic').task(':test')"));
+        assertTrue(task.contains("checkedProjects.collect { \"${it}:test\" }"));
+        assertTrue(!task.contains(":check"));
+        assertTrue(!task.contains("qualityGate"));
+        assertTrue(!task.contains("jacoco"));
+        assertTrue(!task.contains("javadoc"));
+        assertTrue(!task.contains("spot"));
+
+        String performanceBuild =
+                Files.readString(
+                        ROOT.resolve("modules/mundane-map-performance-tests/build.gradle"));
+        assertTrue(!performanceBuild.contains("tasks.withType(Test).configureEach"));
+        int oracleStart =
+                performanceBuild.indexOf(
+                        "def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test)");
+        int oracleEnd = performanceBuild.indexOf("\n}", oracleStart);
+        assertTrue(oracleStart >= 0);
+        assertTrue(oracleEnd > oracleStart);
+        assertTrue(
+                performanceBuild
+                        .substring(oracleStart, oracleEnd)
+                        .contains("javaLauncher = java21Launcher"));
+        assertTrue(performanceBuild.contains("def java21EvidenceContractTest"));
+        assertTrue(performanceBuild.contains("includeTags 'java21-evidence'"));
+        assertTrue(performanceBuild.contains("excludeTags 'java21-evidence'"));
+        assertTrue(performanceBuild.contains("dependsOn java21EvidenceContractTest"));
+        assertTrue(
+                performanceBuild.contains(
+                        "executionData.from(java21EvidenceExecutionData)"));
     }
 
     @Test
@@ -259,6 +318,8 @@ class BuildConfigurationTest {
                     doLast {
                         println "JAVA_RELEASE=" + tasks.compileJava.options.release.get()
                         println "TEST_JAVA_VERSION=" + tasks.test.javaLauncher.get().metadata.languageVersion
+                        println "JACOCO_ENABLED=" + tasks.test.extensions.getByName('jacoco').enabled
+                        println "TEST_FINALIZERS=" + tasks.test.finalizedBy.getDependencies(tasks.test)*.path.sort().join(',')
                     }
                 }
                 """);

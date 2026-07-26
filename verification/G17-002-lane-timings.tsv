@@ -1,0 +1,8 @@
+phase	environment	command	elapsed_seconds	status	interpretation
+before	G10-044-GitHub-main	.github/workflows/ci.yml	about-720	pass	prior reviewed main-workflow observation; not a controlled local sample
+before	G10-044-GitHub-offline	.github/workflows/offline-repository.yml	about-960	pass	prior reviewed isolated-workflow observation; not a controlled local sample
+after	local-restored-caches	./gradlew -Pmap.testJavaVersion=21 qualityGate --console=plain	59.6	pass	unchanged full quality owner
+after	local-restored-caches	./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --console=plain	7.4	pass	dedicated supported-JDK owner; median of final warm samples
+after	local-isolated-home	./gradlew offlineRepositoryVerification --console=plain	298.0	pass	retained isolation lane
+after	local-restored-caches	./gradlew renderRegression shapefileCorpus dtedCorpus performanceEvidence --console=plain	149.4	pass	retained specialized validation batch
+after	local-restored-caches	./gradlew publicationDryRun consumerSmoke --console=plain	38.3	pass	retained opt-in publication and consumer batch

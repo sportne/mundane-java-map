@@ -9,8 +9,10 @@ import java.util.Locale;
 import java.util.TimeZone;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("java21-evidence")
 class EvidenceConfigurationTest {
     private Locale locale;
     private TimeZone zone;

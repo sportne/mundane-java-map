@@ -90,13 +90,10 @@ def evidenceScenarioIds = [
     'world-wrap-plan-wrapped'
 ].asImmutable()
 
-tasks.withType(Test).configureEach {
-    javaLauncher = java21Launcher
-}
-
 def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
     group = 'verification'
     description = 'Independently verifies the frozen BASELINE semantic observations.'
+    javaLauncher = java21Launcher
     dependsOn tasks.named('testClasses')
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
@@ -118,6 +115,31 @@ def verifyBaselineOracle = tasks.register('verifyBaselineOracle', Test) {
     reports.html.outputLocation = layout.buildDirectory.dir('reports/tests/baselineOracle')
     reports.junitXml.outputLocation = layout.buildDirectory.dir('test-results/baselineOracle')
     binaryResultsDirectory = layout.buildDirectory.dir('test-results/baselineOracle/binary')
+}
+
+def java21EvidenceContractTest = tasks.register('java21EvidenceContractTest', Test) {
+    group = 'verification'
+    description = 'Verifies Java 21-specific performance evidence entry contracts.'
+    javaLauncher = java21Launcher
+    dependsOn tasks.named('testClasses')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'java21-evidence'
+    }
+    systemProperty 'performanceProfile', 'SMOKE'
+    minHeapSize = '512m'
+    maxHeapSize = '512m'
+    jvmArgs evidenceJvmArguments.drop(2)
+    shouldRunAfter tasks.named('test')
+    reports.html.outputLocation = layout.buildDirectory.dir('reports/tests/java21EvidenceContract')
+    reports.junitXml.outputLocation =
+            layout.buildDirectory.dir('test-results/java21EvidenceContract')
+    binaryResultsDirectory =
+            layout.buildDirectory.dir('test-results/java21EvidenceContract/binary')
+}
+def java21EvidenceExecutionData = java21EvidenceContractTest.map { task ->
+    task.extensions.getByName('jacoco').destinationFile
 }
 
 def commonEvidence = { RunPerformanceEvidence task, String prefix, def output ->
@@ -265,10 +287,25 @@ tasks.register('performanceJfr') {
 }
 
 tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'java21-evidence'
+    }
     systemProperty 'performanceProfile', 'SMOKE'
     minHeapSize = '512m'
     maxHeapSize = '512m'
     jvmArgs evidenceJvmArguments.drop(2)
+}
+
+tasks.named('check') {
+    dependsOn java21EvidenceContractTest
+}
+
+tasks.named('jacocoTestReport') {
+    executionData.from(java21EvidenceExecutionData)
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    executionData.from(java21EvidenceExecutionData)
 }
 
 tasks.register('authorRasterEvidenceResources', JavaExec) {

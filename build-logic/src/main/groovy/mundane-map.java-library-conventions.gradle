@@ -45,6 +45,7 @@ tasks.withType(Test).configureEach {
     javaLauncher = javaToolchains.launcherFor {
         languageVersion = JavaLanguageVersion.of(testJavaVersion)
     }
+    systemProperty 'map.testJavaVersion', testJavaVersion
     useJUnitPlatform {
         excludeTags 'slow', 'native-image', 'manual'
     }
@@ -91,7 +92,12 @@ jacoco {
 }
 
 tasks.named('test') {
-    finalizedBy tasks.named('jacocoTestReport')
+    if (testJavaVersion == javaRelease) {
+        finalizedBy tasks.named('jacocoTestReport')
+    } else {
+        extensions.getByType(
+                org.gradle.testing.jacoco.plugins.JacocoTaskExtension).enabled = false
+    }
 }
 
 tasks.named('jacocoTestReport') {

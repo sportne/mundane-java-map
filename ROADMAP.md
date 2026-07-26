@@ -787,10 +787,10 @@ unchanged.
 - [G17-001](tasks/closed/G17-001-documentation-currency-and-consistency-audit.md) reconciles user,
   developer, design, roadmap, task, example, provenance, support, and verification documentation
   against current source and executable evidence.
-- [G17-002](tasks/G17-002-build-and-ci-duration-reduction.md) profiles controlled cold/warm local
-  builds and exact GitHub jobs, then removes measured bottlenecks while mechanically retaining every
-  existing verification lane and isolation guarantee. Wall-clock observations remain evidence, not
-  portable quality thresholds.
+- [G17-002](tasks/closed/G17-002-build-and-ci-duration-reduction.md) separates the full Java 21
+  quality owner from Java 25 supported-runtime tests, reducing the measured Java 25 warm median
+  78.6% while mechanically retaining every verification lane and isolation guarantee. Wall-clock
+  observations remain evidence, not portable quality thresholds.
 - [G17-003](tasks/G17-003-comprehensive-public-javadocs.md) expands strict Java 21 doclint and
   missing-Javadoc enforcement from the original Level 1 public modules to every hand-authored
   public/protected production declaration in modules, examples, and build support.

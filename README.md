@@ -72,11 +72,19 @@ interpolation invariants rather than byte-identical whole images. `performanceQu
 noncanonical iteration lane; only `performanceEvidence` produces canonical performance evidence.
 The opt-in `liveTrackEvidence` task runs one explicitly selected 10k, 100k, or 1m profile and is not
 part of the normal gate. The offline lane verifies the complete normal gate from one isolated
-Maven-layout repository. GitHub Actions separately runs Java 21/25 quality jobs, rendering,
+Maven-layout repository. GitHub Actions separately runs the Java 21 quality and Java 25 test jobs, rendering,
 Shapefile/DTED corpus and performance jobs, a Linux x86-64 Native Image job, isolated offline
 repository verification, and the exact glibc/musl SQLite-adapter platform matrix. These specialized
 lanes remain separate because they require cold homes, corpus data, external tools, containers,
 platform-specific behavior, or deliberately expensive evidence.
+
+The Java 21 CI job owns the complete `qualityGate`, including formatting, Checkstyle, SpotBugs,
+coverage reporting and thresholds, architecture rules, and Javadocs. The Java 25 job runs
+`supportedJdkTests`, which compiles against Java 21 and executes every normal JUnit suite—including
+the architecture-test suite—on the additional supported test JDK. It does not repeat task-based
+formatting, Checkstyle, SpotBugs, coverage, or Javadocs. The checked
+[verification manifest](verification/G17-002-verification-manifest.tsv)
+maps every normal, specialized, platform, and opt-in lane to its owning workflow or command.
 
 ## Level 1 support statement
 

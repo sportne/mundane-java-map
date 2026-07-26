@@ -38,6 +38,7 @@ import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -630,6 +631,7 @@ class EvidenceHarnessTest {
     }
 
     @Test
+    @Tag("java21-evidence")
     void mainRejectsArgumentsAndOutputPaths() {
         RuntimeSettings settings = RuntimeSettings.install();
         String previousOutput = System.getProperty("performanceOutput");

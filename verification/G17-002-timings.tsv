@@ -1,0 +1,15 @@
+phase	protocol	run	command	elapsed_seconds	user_seconds	system_seconds	maxrss_kb	outcome
+before	clean-with-restored-caches	1	./gradlew -Pmap.testJavaVersion=25 qualityGate --console=plain	117.99	1.29	0.27	122964	pass
+before	warm-restored-caches	2	./gradlew -Pmap.testJavaVersion=25 qualityGate --console=plain	32.92	0.97	0.16	113608	pass
+before	warm-restored-caches	3	./gradlew -Pmap.testJavaVersion=25 qualityGate --console=plain	36.40	0.97	0.18	114552	pass
+rejected-checkAll	clean-with-restored-caches	1	./gradlew -Pmap.testJavaVersion=25 checkAll --console=plain	74.00	1.12	0.14	117232	pass
+rejected-checkAll	warm-restored-caches	2	./gradlew -Pmap.testJavaVersion=25 checkAll --console=plain	33.95	0.91	0.22	114944	pass
+rejected-checkAll	warm-restored-caches	3	./gradlew -Pmap.testJavaVersion=25 checkAll --console=plain	30.32	0.89	0.21	114432	pass-with-background-spotless-classloader-warning
+before	clean-no-build-or-configuration-cache-4-workers	1	./gradlew -Pmap.testJavaVersion=25 qualityGate --console=plain --no-build-cache --no-configuration-cache --max-workers=4	179.95	1.41	0.44	123116	pass
+before	clean-no-build-or-configuration-cache-4-workers	2	./gradlew -Pmap.testJavaVersion=25 qualityGate --console=plain --no-build-cache --no-configuration-cache --max-workers=4	178.98	1.58	0.28	117152	pass
+rejected-checkAll	clean-no-build-or-configuration-cache-4-workers	1	./gradlew -Pmap.testJavaVersion=25 checkAll --console=plain --no-build-cache --no-configuration-cache --max-workers=4	177.21	1.58	0.32	118992	pass-with-background-spotless-classloader-warning
+rejected-checkAll	clean-no-build-or-configuration-cache-4-workers	2	./gradlew -Pmap.testJavaVersion=25 checkAll --console=plain --no-build-cache --no-configuration-cache --max-workers=4	168.86	1.49	0.33	123608	pass-with-background-spotless-classloader-warning
+after	warm-restored-caches	1	./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --console=plain	8.03	0.79	0.20	114636	pass
+after	warm-restored-caches	2	./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --console=plain	6.80	0.86	0.12	114944	pass
+after	clean-no-build-or-configuration-cache-4-workers	1	./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --console=plain --no-build-cache --no-configuration-cache --max-workers=4	51.93	1.02	0.20	114748	pass
+after	clean-no-build-or-configuration-cache-4-workers	2	./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --console=plain --no-build-cache --no-configuration-cache --max-workers=4	50.01	1.02	0.22	115816	pass
