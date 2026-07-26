@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import javax.inject.Inject;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -29,37 +30,96 @@ import org.gradle.work.DisableCachingByDefault;
 /** Runs a performance evidence process entirely from an invocation-specific /tmp directory. */
 @DisableCachingByDefault(because = "Performance observations are intentionally rerun")
 public abstract class RunPerformanceEvidence extends DefaultTask {
+    /** Creates a task instance whose properties Gradle configures before execution. */
+    @Inject
+    public RunPerformanceEvidence() {}
+
+    /**
+     * Provides the runtime classpath copied into the invocation-specific directory.
+     *
+     * @return child-process runtime classpath
+     */
     @Classpath
     public abstract ConfigurableFileCollection getRuntimeClasspath();
 
+    /**
+     * Provides fixture files staged for the child evidence process.
+     *
+     * @return staged fixture files
+     */
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getStagedInputFiles();
 
+    /**
+     * Provides system-property names mapped to staged fixture paths.
+     *
+     * @return staged-input property mapping
+     */
     @Input
     public abstract MapProperty<String, String> getStagedInputs();
 
+    /**
+     * Provides the ordered JVM arguments for the child process.
+     *
+     * @return ordered JVM arguments
+     */
     @Input
     public abstract ListProperty<String> getJvmArguments();
 
+    /**
+     * Provides deterministic system properties for the child process.
+     *
+     * @return child-process system properties
+     */
     @Input
     public abstract MapProperty<String, String> getSystemProperties();
 
+    /**
+     * Provides ordered application arguments for the evidence entry point.
+     *
+     * @return ordered application arguments
+     */
     @Input
     public abstract ListProperty<String> getProgramArguments();
 
+    /**
+     * Provides report names that must be emitted before output is accepted.
+     *
+     * @return expected report names
+     */
     @Input
     public abstract ListProperty<String> getExpectedReports();
 
+    /**
+     * Provides scenario identifiers permitted for a selected-scenario invocation.
+     *
+     * @return allowed scenario identifiers
+     */
     @Input
     public abstract ListProperty<String> getAllowedScenarios();
 
+    /**
+     * Provides the safe prefix used for the invocation-specific directory under {@code /tmp}.
+     *
+     * @return temporary-directory prefix
+     */
     @Input
     public abstract Property<String> getScratchPrefix();
 
+    /**
+     * Provides the exact Java executable used for the child process.
+     *
+     * @return child-process Java executable
+     */
     @InputFile
     public abstract RegularFileProperty getJavaExecutable();
 
+    /**
+     * Provides the directory receiving validated reports from the isolated process.
+     *
+     * @return validated report directory
+     */
     @OutputDirectory
     public abstract DirectoryProperty getOutputDirectory();
 

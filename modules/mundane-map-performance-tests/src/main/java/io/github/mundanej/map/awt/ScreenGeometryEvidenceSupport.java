@@ -9,13 +9,30 @@ import java.awt.image.BufferedImage;
 public final class ScreenGeometryEvidenceSupport {
     private ScreenGeometryEvidenceSupport() {}
 
-    /** Creates an evidence-only map view in the selected fixed implementation mode. */
+    /**
+     * Creates an evidence-only map view in the selected fixed implementation mode.
+     *
+     * @param registry explicit transform registry
+     * @param mapCrs source map coordinate reference system
+     * @param displayCrs display coordinate reference system
+     * @param level1 whether to enable the fixed Level 1 screen-geometry optimization
+     * @return caller-owned map view
+     */
     public static MapView view(
             CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs, boolean level1) {
         return view(registry, mapCrs, displayCrs, level1, false);
     }
 
-    /** Creates an evidence view with the evidence-retained vector-template cache selected. */
+    /**
+     * Creates an evidence view with the evidence-retained vector-template cache selected.
+     *
+     * @param registry explicit transform registry
+     * @param mapCrs source map coordinate reference system
+     * @param displayCrs display coordinate reference system
+     * @param level1 whether to enable the fixed Level 1 screen-geometry optimization
+     * @param vectorTemplateCache whether to retain the bounded vector-template cache
+     * @return caller-owned map view
+     */
     public static MapView view(
             CrsRegistry registry,
             CrsDefinition mapCrs,
@@ -37,12 +54,22 @@ public final class ScreenGeometryEvidenceSupport {
                 cacheMode);
     }
 
-    /** Clears the retained vector-template partition before a cold sample. */
+    /**
+     * Clears the retained vector-template partition before a cold sample.
+     *
+     * @param view evidence view whose cache is cleared
+     */
     public static void clearVectorTemplateCache(MapView view) {
         view.clearVectorTemplateCacheForEvidence();
     }
 
-    /** Paints once and returns only call-local deterministic work facts. */
+    /**
+     * Paints once and returns only call-local deterministic work facts.
+     *
+     * @param view evidence view to paint
+     * @param image destination image whose graphics context is created and disposed
+     * @return immutable facts for this paint call
+     */
     public static PaintResult paint(MapView view, BufferedImage image) {
         Graphics2D graphics = image.createGraphics();
         try {
@@ -61,7 +88,18 @@ public final class ScreenGeometryEvidenceSupport {
         }
     }
 
-    /** Non-published immutable result consumed by the performance harness. */
+    /**
+     * Non-published immutable result consumed by the performance harness.
+     *
+     * @param inputCoordinates input coordinate count
+     * @param projectedCoordinates projected coordinate count
+     * @param renderCoordinates retained render coordinate count
+     * @param lineFragments rendered line-fragment count
+     * @param culledPaths culled path count
+     * @param fallbackPlans fallback plan count
+     * @param retainedRenderGeometryBytes logical retained geometry bytes
+     * @param cacheFacts operation-local cache facts
+     */
     public record PaintResult(
             long inputCoordinates,
             long projectedCoordinates,
@@ -71,7 +109,12 @@ public final class ScreenGeometryEvidenceSupport {
             long fallbackPlans,
             long retainedRenderGeometryBytes,
             CacheFacts cacheFacts) {
-        /** Adds two sequential paint calls with checked arithmetic. */
+        /**
+         * Adds two sequential paint calls with checked arithmetic.
+         *
+         * @param other later paint result
+         * @return combined immutable result
+         */
         public PaintResult plus(PaintResult other) {
             return new PaintResult(
                     Math.addExact(inputCoordinates, other.inputCoordinates),
@@ -85,13 +128,21 @@ public final class ScreenGeometryEvidenceSupport {
         }
     }
 
-    /** Public only inside the non-published performance fixture source set. */
+    /**
+     * Public only inside the non-published performance fixture source set.
+     *
+     * @param vectorTemplate vector-template cache partition facts
+     */
     public record CacheFacts(PartitionFacts vectorTemplate) {
         static CacheFacts from(RenderCachePaintMetrics metrics) {
             return new CacheFacts(PartitionFacts.from(metrics.vectorTemplate()));
         }
 
-        /** Returns the empty operation-local fact set. */
+        /**
+         * Returns the empty operation-local fact set.
+         *
+         * @return immutable zero-valued cache facts
+         */
         public static CacheFacts empty() {
             return new CacheFacts(PartitionFacts.empty());
         }
@@ -101,7 +152,22 @@ public final class ScreenGeometryEvidenceSupport {
         }
     }
 
-    /** Exact facts for one typed private cache partition. */
+    /**
+     * Exact facts for one typed private cache partition.
+     *
+     * @param requests lookup request count
+     * @param hits cache-hit count
+     * @param misses cache-miss count
+     * @param builds template-build count
+     * @param admissions admitted-entry count
+     * @param evictions eviction count
+     * @param bypasses bypass count
+     * @param buildUnits deterministic build-work units
+     * @param currentEntries entries retained after the operation
+     * @param currentLogicalBytes logical bytes retained after the operation
+     * @param peakEntries peak retained entries
+     * @param peakLogicalBytes peak retained logical bytes
+     */
     public record PartitionFacts(
             long requests,
             long hits,

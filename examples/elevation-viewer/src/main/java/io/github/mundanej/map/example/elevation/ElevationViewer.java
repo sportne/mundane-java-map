@@ -42,13 +42,22 @@ public final class ElevationViewer {
 
     private ElevationViewer() {}
 
-    /** Creates the analytic source off EDT and schedules the Swing window. */
+    /**
+     * Creates the analytic source off the EDT and schedules the Swing window.
+     *
+     * @param arguments ignored command-line arguments
+     */
     public static void main(String[] arguments) {
         ElevationSource source = createSource();
         EventQueue.invokeLater(() -> show(source));
     }
 
-    /** Creates one deterministic analytic EPSG:4326 metre grid away from poles and antimeridian. */
+    /**
+     * Creates one deterministic analytic EPSG:4326 metre grid away from poles and antimeridian.
+     *
+     * @return newly allocated caller-owned elevation source
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
+     */
     public static ElevationSource createSource() {
         if (EventQueue.isDispatchThread()) {
             throw new IllegalStateException("Elevation source creation must run off the EDT");
@@ -84,7 +93,13 @@ public final class ElevationViewer {
         return PackedElevationGrid.copyOf(metadata, samples, noData);
     }
 
-    /** Creates a real owned elevation map view on the EDT. */
+    /**
+     * Creates a real owned elevation map view on the EDT.
+     *
+     * @param source source whose ownership transfers to the returned view
+     * @return map view that closes {@code source} when the view is closed
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
+     */
     public static MapView createView(ElevationSource source) {
         Objects.requireNonNull(source, "source");
         if (!EventQueue.isDispatchThread()) {
@@ -114,7 +129,14 @@ public final class ElevationViewer {
         }
     }
 
-    /** Creates hillshade, rendered-color interpolation, and opacity controls on the EDT. */
+    /**
+     * Creates hillshade, rendered-color interpolation, and opacity controls on the EDT.
+     *
+     * @param view map view updated by the controls
+     * @param status label updated with the selected rendering options
+     * @return caller-owned control panel
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
+     */
     public static JPanel createControls(MapView view, JLabel status) {
         Objects.requireNonNull(view, "view");
         Objects.requireNonNull(status, "status");

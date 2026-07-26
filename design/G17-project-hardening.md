@@ -158,3 +158,37 @@ HITL checkpoint: on 2026-07-26 the maintainer approved the reviewed Option 2 sch
 the measured Java 21 full-`qualityGate` and Java 25 `supportedJdkTests` trade-off, build-duration
 causes, follow-up options, and retained verification manifest. Exact-commit GitHub timings will be
 correlated after the task commits are pushed.
+
+## G17-003 comprehensive public Javadocs
+
+Strict Java 21 documentation generation and missing-Javadoc enforcement now apply to every
+hand-authored main source set in the 41-project inventory and to the included `build-logic` build,
+not only the 18 published modules. The `javadocAll` aggregate covers those sources once and is the
+documentation dependency of `qualityGate`; it uses UTF-8, every doclint group, warnings-as-errors,
+deterministic no-timestamp output, and no network documentation links.
+
+The shared public-API Checkstyle policy requires package documentation and non-empty Javadocs for
+public/protected types, methods, constructors, fields, enum constants, and annotation elements. It
+also checks type parameters and record components at the type declaration, and method parameters
+and non-void returns plus declared or directly thrown failures on ordinary methods and constructors.
+No annotation implicitly exempts a hand-authored type; in particular, Checkstyle's default
+`Generated` exemptions are explicitly cleared. Compact record constructors retain invariant-focused
+comments without duplicating the record component tags already enforced on the record declaration.
+Overrides may use inherited documentation; generated Gradle adapter sources remain outside the
+hand-authored build-support source tree.
+
+The audit added package contracts to all 20 runnable examples and the two non-published production
+support packages, documented the build task inputs/outputs and explicit Gradle-managed constructors,
+completed example entry-point and factory contracts, and completed the performance bridge's units
+and ownership descriptions. Published-module documentation already satisfied the earlier presence
+policy; the stronger parameter, return, record-component, non-empty-description, and deprecation
+rules found and closed the remaining gaps without changing runtime behavior.
+
+`BuildConfigurationTest` proves the all-source-set scheduling and independently mutates documented
+fixtures for missing package, public/protected type, constructor, method, field, enum constant,
+annotation element, record component, type/value parameter, return, non-empty description,
+deprecation, checked/unchecked failure, and annotation-exemption coverage. Publication verification
+compares every staged binary top-level type with its source entry and every externally visible
+top-level or nested type with its generated Javadoc page; corruption tests remove each artifact in
+turn. `javadocAll`, the all-project public-API scan, publication staging, consumer resolution, and
+`qualityGate` provide the executable documentation and artifact evidence.

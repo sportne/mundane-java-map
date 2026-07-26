@@ -56,6 +56,7 @@ public final class RasterRequestAccounting {
      * @param rowCount authoritative positive grid height
      * @param window zero-based grid window to validate
      * @throws SourceException when the window extends outside the grid
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public void validateWindow(int columnCount, int rowCount, RasterWindow window) {
         if (columnCount <= 0 || rowCount <= 0) {

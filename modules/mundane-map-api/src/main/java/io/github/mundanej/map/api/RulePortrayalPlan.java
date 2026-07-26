@@ -16,6 +16,7 @@ public final class RulePortrayalPlan {
      * Creates and validates an ordered rule plan.
      *
      * @param rules non-empty declaration-ordered rules
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public RulePortrayalPlan(List<PortrayalRule> rules) {
         this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));

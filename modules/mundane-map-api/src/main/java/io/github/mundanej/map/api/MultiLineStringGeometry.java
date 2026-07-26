@@ -32,6 +32,7 @@ public final class MultiLineStringGeometry implements Geometry {
      *
      * @param parts non-empty line parts in encounter order
      * @return immutable packed multiline geometry
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static MultiLineStringGeometry ofParts(List<CoordinateSequence> parts) {
         List<CoordinateSequence> copy = List.copyOf(Objects.requireNonNull(parts, "parts"));

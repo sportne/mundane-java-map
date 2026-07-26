@@ -49,6 +49,7 @@ public final class GeoPackages {
      * @param options bounded source options
      * @param cancellation opening cancellation token
      * @return caller-owned feature source
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static FeatureSource openFeatures(
             Path path,
@@ -97,6 +98,7 @@ public final class GeoPackages {
      * @param decoders explicit PNG/JPEG decoder registry
      * @param cancellation opening cancellation token
      * @return caller-owned raster source
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static RasterSource openTiles(
             Path path,

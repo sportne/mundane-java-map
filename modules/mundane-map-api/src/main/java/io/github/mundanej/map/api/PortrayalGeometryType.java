@@ -16,6 +16,7 @@ public enum PortrayalGeometryType {
      *
      * @param geometry immutable supported geometry
      * @return normalized category
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static PortrayalGeometryType fromGeometry(Geometry geometry) {
         Objects.requireNonNull(geometry, "geometry");

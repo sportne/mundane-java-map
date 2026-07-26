@@ -13,6 +13,7 @@ public final class FeatureEditNotificationException extends RuntimeException {
      *
      * @param committedResult applied authoritative result
      * @param cause first listener failure
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public FeatureEditNotificationException(
             FeatureEditResult committedResult, RuntimeException cause) {

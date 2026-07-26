@@ -52,6 +52,10 @@ The normal local gate is:
 ./gradlew qualityGate --console=plain
 ```
 
+For documentation-only feedback, `./gradlew javadocAll --console=plain` generates strict Java 21
+Javadocs for every module, example, and hand-authored build-support source set. The normal gate also
+runs exhaustive public/protected declaration checks and the same Javadoc aggregate.
+
 Specialized evidence remains independent so normal development does not silently require platform
 raster evidence, a corpus, profiling, publication staging, or a native toolchain:
 

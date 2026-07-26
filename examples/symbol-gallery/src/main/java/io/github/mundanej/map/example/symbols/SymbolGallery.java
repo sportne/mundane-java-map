@@ -27,12 +27,21 @@ public final class SymbolGallery {
 
     private SymbolGallery() {}
 
-    /** Launches the gallery on the Swing event-dispatch thread. */
+    /**
+     * Launches the gallery on the Swing event-dispatch thread.
+     *
+     * @param arguments ignored command-line arguments
+     */
     public static void main(String[] arguments) {
         SwingUtilities.invokeLater(SymbolGallery::showWindow);
     }
 
-    /** Creates the complete gallery without opening a top-level window. */
+    /**
+     * Creates the complete gallery without opening a top-level window.
+     *
+     * @return caller-owned panel containing the ordinary and military symbol sections
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
+     */
     public static JPanel createGalleryPanel() {
         if (!SwingUtilities.isEventDispatchThread()) {
             throw new IllegalStateException("gallery construction must run on the EDT");

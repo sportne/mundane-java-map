@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.concurrent.TimeUnit;
+import javax.inject.Inject;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.DirectoryProperty;
@@ -23,22 +24,56 @@ import org.gradle.work.DisableCachingByDefault;
 /** Runs the quality gate from copied sources, an empty Gradle home, and one local repository. */
 @DisableCachingByDefault(because = "Executes an isolated child build")
 public abstract class OfflineBuildVerification extends DefaultTask {
+    /** Creates a task instance whose properties Gradle configures before execution. */
+    @Inject
+    public OfflineBuildVerification() {}
+
+    /**
+     * Provides the project source tree copied into the isolated scratch directory.
+     *
+     * @return project source tree
+     */
     @Internal
     public abstract DirectoryProperty getSourceDirectory();
 
+    /**
+     * Provides the sole Maven repository made visible to the isolated build.
+     *
+     * @return isolated Maven repository
+     */
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getRepositoryDirectory();
 
+    /**
+     * Provides the ordinary Gradle home from which only the verified wrapper is copied.
+     *
+     * @return ordinary Gradle home
+     */
     @Internal
     public abstract DirectoryProperty getGradleUserHome();
 
+    /**
+     * Provides the Java home used to launch the isolated Gradle process.
+     *
+     * @return launcher Java home
+     */
     @Input
     public abstract Property<String> getJavaHome();
 
+    /**
+     * Provides the Java 21 toolchain installation exposed to the isolated build.
+     *
+     * @return Java 21 home
+     */
     @Input
     public abstract Property<String> getJava21Home();
 
+    /**
+     * Provides the directory recreated for the copied project and empty Gradle home.
+     *
+     * @return isolated scratch directory
+     */
     @Internal
     public abstract DirectoryProperty getScratchDirectory();
 

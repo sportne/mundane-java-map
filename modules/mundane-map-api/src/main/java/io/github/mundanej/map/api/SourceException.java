@@ -27,6 +27,7 @@ public final class SourceException extends RuntimeException {
      * @param report complete report ending in {@code terminal}
      * @param terminal final error diagnostic
      * @param cause optional non-contractual debugging cause
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public SourceException(DiagnosticReport report, SourceDiagnostic terminal, Throwable cause) {
         super(Objects.requireNonNull(terminal, "terminal").message(), cause);

@@ -54,6 +54,7 @@ public final class FeatureQueryAccounting {
      * @param retainedReferenceSlots additional retained reference slots owned by the caller
      * @param cancellation operation cancellation token checked before publication
      * @throws SourceException when cancellation is requested or a query limit would be exceeded
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public void recordReturned(
             FeatureRecord record, int retainedReferenceSlots, CancellationToken cancellation) {

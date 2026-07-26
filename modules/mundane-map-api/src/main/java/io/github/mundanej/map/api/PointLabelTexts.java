@@ -16,6 +16,7 @@ public final class PointLabelTexts {
      * @return Unicode code-point count
      * @throws NullPointerException if text is null
      * @throws IllegalArgumentException if text is blank, too long, or contains a line separator
+     * @throws ValidationException if the text violates the supported label profile
      */
     public static int requireSupported(String text) {
         Objects.requireNonNull(text, "text");

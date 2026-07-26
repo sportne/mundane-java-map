@@ -126,6 +126,7 @@ public final class VectorExportSnapshot {
      * @param limits detached-snapshot limits
      * @param cancellation cancellation signal polled before publication
      * @return immutable detached snapshot
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static VectorExportSnapshot of(
             int widthPixels,

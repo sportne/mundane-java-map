@@ -25,6 +25,7 @@ public final class LiveTrackPresentationProbe {
      *
      * @param args exactly one of {@code 10k}, {@code 100k}, or {@code 1m}
      * @throws Exception if EDT coordination fails
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public static void main(String[] args) throws Exception {
         int population = parsePopulation(args);

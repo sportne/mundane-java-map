@@ -102,6 +102,8 @@ public final class PointEditController implements MapTool {
      * @param externalReferences ordered external snap references, excluding the target layer
      * @param snapLimits bounded resolver limits
      * @param tolerancePixels snap tolerance in {@code (0, 256]}
+     * @throws IllegalArgumentException if an argument violates the documented constraints
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public PointEditController(
             MapView view,

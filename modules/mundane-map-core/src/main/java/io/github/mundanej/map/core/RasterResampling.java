@@ -109,6 +109,7 @@ public final class RasterResampling {
      * @param xWeights horizontal weights
      * @param yWeights vertical weights
      * @return one unpremultiplied packed RGBA sample
+     * @throws NullPointerException if a required argument is {@code null}
      */
     public static int bilinearRgba(
             int northWest,

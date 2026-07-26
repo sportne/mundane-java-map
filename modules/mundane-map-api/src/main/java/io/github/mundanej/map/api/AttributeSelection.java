@@ -26,6 +26,7 @@ public final class AttributeSelection {
      *
      * @param names exact field names in requested order
      * @return immutable named-field selection
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static AttributeSelection only(List<String> names) {
         List<String> copy = List.copyOf(Objects.requireNonNull(names, "names"));

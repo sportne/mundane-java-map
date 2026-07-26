@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import javax.inject.Inject;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -30,18 +31,47 @@ import org.gradle.work.DisableCachingByDefault;
 /** Materializes the exact resolved external component set as a reusable Maven repository. */
 @DisableCachingByDefault(because = "Reads Gradle's local artifact cache")
 public abstract class AssembleOfflineRepository extends DefaultTask {
+    /** Creates a task instance whose properties Gradle configures before execution. */
+    @Inject
+    public AssembleOfflineRepository() {}
+
+    /**
+     * Provides the exact external module coordinates to stage.
+     *
+     * @return exact external module coordinates to stage
+     */
     @Input
     public abstract ListProperty<String> getCoordinates();
 
+    /**
+     * Provides plugin-marker rows whose implementation modules must also be staged.
+     *
+     * @return plugin-marker rows whose implementation modules must also be staged
+     */
     @Input
     public abstract ListProperty<String> getPluginMarkers();
 
+    /**
+     * Provides per-project files containing additional resolved coordinate rows.
+     *
+     * @return per-project files containing additional resolved coordinate rows
+     */
     @InputFiles
     public abstract ConfigurableFileCollection getCoordinateFiles();
 
+    /**
+     * Provides the Gradle artifact cache read by this non-cacheable staging task.
+     *
+     * @return Gradle artifact cache
+     */
     @Internal
     public abstract DirectoryProperty getArtifactCache();
 
+    /**
+     * Provides the directory in which the complete Maven repository is materialized.
+     *
+     * @return repository output directory
+     */
     @OutputDirectory
     public abstract DirectoryProperty getOutputDirectory();
 

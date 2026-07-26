@@ -40,6 +40,8 @@ public final class MilitarySymbols {
      * @param palette approved palette
      * @param opacity caller opacity from zero through one
      * @return ordinary composite symbol
+     * @throws MilitarySymbolException if the requested symbol cannot be resolved under this
+     *     method's policy
      */
     public static Symbol resolveStrict(
             MilitarySymbolId id,
@@ -76,6 +78,8 @@ public final class MilitarySymbols {
      * @param palette approved palette
      * @param opacity caller opacity from zero through one
      * @return symbol and optional degradation
+     * @throws MilitarySymbolException if the requested symbol cannot be resolved under this
+     *     method's policy
      */
     public static MilitarySymbolResolution resolveDegraded(
             MilitarySymbolId id,

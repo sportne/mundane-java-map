@@ -23,6 +23,7 @@ public final class HatchLayouts {
      * @param featureId stable feature identifier used in structured failures
      * @return immutable packed non-zero segments clipped to {@code bounds}
      * @throws SymbolException when required work exceeds the segment limit or arithmetic is unsafe
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static HatchSegments cover(
             HatchPattern pattern,

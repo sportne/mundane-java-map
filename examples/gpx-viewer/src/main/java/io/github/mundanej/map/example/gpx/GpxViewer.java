@@ -74,6 +74,7 @@ public final class GpxViewer {
      *
      * @param path local GPX file
      * @return configured owning map view
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public static MapView createMapView(Path path) {
         if (EventQueue.isDispatchThread()) {

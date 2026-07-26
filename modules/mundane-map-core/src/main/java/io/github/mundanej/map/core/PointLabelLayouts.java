@@ -31,6 +31,8 @@ public final class PointLabelLayouts {
      * @param featureIndex zero-based captured feature index for stable failures
      * @param ordinaryPaintOrdinal non-negative ordinary paint order
      * @return immutable toolkit-neutral placed candidate
+     * @throws AssertionError if an internal closed-case invariant is violated
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static PlacedPointLabel place(
             String layerId,

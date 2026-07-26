@@ -77,12 +77,19 @@ tasks.register('supportedJdkTests') {
     dependsOn checkedProjects.collect { "${it}:test" }
 }
 
+tasks.register('javadocAll') {
+    group = 'documentation'
+    description = 'Generates strict Javadocs for every main source set and build support.'
+    dependsOn gradle.includedBuild('build-logic').task(':javadoc')
+    dependsOn checkedProjects.collect { "${it}:javadoc" }
+}
+
 tasks.register('qualityGate') {
     group = 'verification'
     description = 'Runs the normal local and CI quality gate.'
     dependsOn 'checkAll'
     dependsOn checkedProjects.collect { "${it}:spotlessCheck" }
-    dependsOn checkedProjects.collect { "${it}:javadoc" }
+    dependsOn 'javadocAll'
 }
 
 tasks.named('check') {
@@ -231,11 +238,20 @@ def stageReleaseDryRun = tasks.register('stageReleaseDryRun') {
     dependsOn publicationTaskPaths
 }
 
+def publicationSurfaceClasspath = configurations.create('publicationSurfaceClasspath') {
+    canBeConsumed = false
+    canBeResolved = true
+}
+publishedProjects.each { path ->
+    dependencies.add(publicationSurfaceClasspath.name, project(path))
+}
+
 def verifyPublicationDryRun = tasks.register(
         'verifyPublicationDryRun', VerifyPublicationRepository) {
     group = 'verification'
     description = 'Verifies the project invariants of the staged Maven repository.'
     dependsOn stageReleaseDryRun
+    surfaceClasspath.from(publicationSurfaceClasspath)
     repositoryDirectory = layout.buildDirectory.dir('release-dry-run/maven')
     releaseContract = publicationContract
     publicationVersion = project.version.toString()

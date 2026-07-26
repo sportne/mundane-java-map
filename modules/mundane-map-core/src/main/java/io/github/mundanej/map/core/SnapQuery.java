@@ -78,6 +78,7 @@ public final class SnapQuery {
      * @param exclusions exact feature keys omitted from traversal
      * @param limits immutable operation ceilings
      * @param cancellation read-only cancellation signal
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public SnapQuery(
             double screenX,

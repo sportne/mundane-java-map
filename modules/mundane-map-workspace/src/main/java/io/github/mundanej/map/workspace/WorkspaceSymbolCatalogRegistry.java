@@ -39,6 +39,7 @@ public final class WorkspaceSymbolCatalogRegistry {
          * @param id exact dotted lowercase catalog ID
          * @param catalog immutable named catalog
          * @return this builder
+         * @throws IllegalArgumentException if an argument violates the documented constraints
          */
         public Builder register(String id, NamedSymbolCatalog catalog) {
             requireUsable();

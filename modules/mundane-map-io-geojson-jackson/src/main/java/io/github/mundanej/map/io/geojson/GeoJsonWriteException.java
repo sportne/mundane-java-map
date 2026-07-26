@@ -19,6 +19,7 @@ public final class GeoJsonWriteException extends RuntimeException {
      * @param problem stable failure value
      * @param sourceReport source report only for a mapped source failure
      * @param cause optional debugging cause
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public GeoJsonWriteException(
             GeoJsonWriteProblem problem, Optional<DiagnosticReport> sourceReport, Throwable cause) {

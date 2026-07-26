@@ -36,6 +36,7 @@ public final class MbTilesTileCachePolicy {
      * @param maximumEntries maximum retained tile count
      * @param maximumPixelBytes maximum exact RGBA bytes
      * @return enabled cache policy
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static MbTilesTileCachePolicy bounded(int maximumEntries, long maximumPixelBytes) {
         if (maximumEntries <= 0 || maximumPixelBytes < TILE_BYTES) {

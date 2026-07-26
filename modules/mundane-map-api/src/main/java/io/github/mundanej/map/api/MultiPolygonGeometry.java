@@ -39,6 +39,7 @@ public final class MultiPolygonGeometry implements Geometry {
      *
      * @param polygons non-empty polygons in encounter order
      * @return immutable packed multipolygon geometry
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static MultiPolygonGeometry ofPolygons(List<PolygonGeometry> polygons) {
         List<PolygonGeometry> copy = List.copyOf(Objects.requireNonNull(polygons, "polygons"));

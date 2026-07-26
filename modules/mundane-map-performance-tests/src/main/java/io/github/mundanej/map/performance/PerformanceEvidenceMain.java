@@ -15,6 +15,8 @@ public final class PerformanceEvidenceMain {
      *
      * @param arguments empty for evidence, or exactly {@code --dted-memory-probe}
      * @throws Exception when configuration, fixture, scenario, cleanup, or report work fails
+     * @throws IllegalArgumentException if an argument violates the documented constraints
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public static void main(String[] arguments) throws Exception {
         if (arguments.length == 1 && arguments[0].equals("--dted-memory-probe")) {

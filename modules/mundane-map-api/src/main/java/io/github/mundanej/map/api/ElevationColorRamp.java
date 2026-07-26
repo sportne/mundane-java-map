@@ -19,6 +19,7 @@ public final class ElevationColorRamp {
      *
      * @param unit exact unit of every threshold
      * @param stops two through 256 strictly increasing stops
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public ElevationColorRamp(ElevationUnit unit, List<ElevationColorStop> stops) {
         this.unit = Objects.requireNonNull(unit, "unit");
@@ -61,6 +62,7 @@ public final class ElevationColorRamp {
      *
      * @param elevation finite elevation in {@link #unit()}
      * @return deterministic unpremultiplied sRGB color
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public Rgba colorAt(double elevation) {
         if (!Double.isFinite(elevation)) {

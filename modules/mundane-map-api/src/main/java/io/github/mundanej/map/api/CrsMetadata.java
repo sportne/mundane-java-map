@@ -49,6 +49,7 @@ public final class CrsMetadata {
      * @param declaredIdentifier optional exact declared identifier
      * @param retainedDefinition optional bounded original definition text
      * @return immutable unknown metadata
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static CrsMetadata unknown(
             Optional<String> declaredIdentifier, Optional<String> retainedDefinition) {

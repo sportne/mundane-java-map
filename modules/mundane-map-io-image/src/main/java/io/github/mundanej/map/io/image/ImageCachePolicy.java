@@ -38,6 +38,7 @@ public final class ImageCachePolicy {
      * @param maximumEntries maximum retained result count
      * @param maximumPixelBytes maximum retained RGBA pixel bytes
      * @return a bounded policy
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static ImageCachePolicy bounded(int maximumEntries, long maximumPixelBytes) {
         if (maximumEntries <= 0 || maximumPixelBytes <= 0) {

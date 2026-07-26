@@ -20,6 +20,7 @@ public final class MapHitResults implements Iterable<MapHit> {
      *
      * @param hits feature hits in topmost-first order
      * @return immutable hit results
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static MapHitResults of(List<MapHit> hits) {
         Objects.requireNonNull(hits, "hits");

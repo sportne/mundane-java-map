@@ -50,6 +50,9 @@ public final class MapLibreSourceRegistry {
          * @param identifier exact non-blank style source identifier
          * @param source open caller-owned source
          * @return this builder
+         * @throws IllegalArgumentException if an argument violates the documented constraints
+         * @throws IllegalStateException if the operation is not valid in the current state or
+         *     thread
          */
         public Builder register(String identifier, FeatureSource source) {
             requireMutable();

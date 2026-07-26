@@ -104,6 +104,7 @@ public final class RasterIconSymbol implements MarkerSymbol {
      * @param interpolation raster sampling mode
      * @param opacity finite opacity from zero through one
      * @return immutable proportional raster icon
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static RasterIconSymbol screenWidth(
             int width,
@@ -162,6 +163,7 @@ public final class RasterIconSymbol implements MarkerSymbol {
      * @param x zero-based intrinsic column
      * @param y zero-based intrinsic row
      * @return unpremultiplied {@code 0xRRGGBBAA} pixel
+     * @throws IndexOutOfBoundsException if an index is outside the documented bounds
      */
     public int rgbaAt(int x, int y) {
         if (x < 0 || x >= width || y < 0 || y >= height) {

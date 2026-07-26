@@ -38,7 +38,7 @@ public final class GeoPackageViewer {
     /**
      * Opens one local GeoPackage table and launches a Swing map view.
      *
-     * @param arguments {@code <absolute.gpkg> <table> [tile-zoom]}
+     * @param arguments {@code absolute.gpkg table [tile-zoom]}
      */
     public static void main(String[] arguments) {
         if (arguments.length == 3) {

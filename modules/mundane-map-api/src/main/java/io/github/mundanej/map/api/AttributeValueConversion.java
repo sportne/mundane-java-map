@@ -49,6 +49,7 @@ public final class AttributeValueConversion {
      *
      * @param candidates one through eight attribute or literal candidates
      * @return immutable numeric conversion
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static AttributeValueConversion toNumber(
             List<? extends AttributeValueCandidate> candidates) {

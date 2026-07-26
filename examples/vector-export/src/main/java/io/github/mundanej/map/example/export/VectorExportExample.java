@@ -55,7 +55,11 @@ public final class VectorExportExample {
 
     private VectorExportExample() {}
 
-    /** Launches the example; an optional first argument selects the output SVG path. */
+    /**
+     * Launches the example; an optional first argument selects the output SVG path.
+     *
+     * @param arguments optional output-path argument
+     */
     public static void main(String[] arguments) {
         Path target =
                 arguments.length == 0
@@ -64,7 +68,13 @@ public final class VectorExportExample {
         SwingUtilities.invokeLater(() -> showWindow(target));
     }
 
-    /** Creates the example panel without opening a top-level window. */
+    /**
+     * Creates the example panel without opening a top-level window.
+     *
+     * @param target SVG destination used by the panel's export action
+     * @return caller-owned panel containing the map, status, and export control
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
+     */
     public static JPanel createPanel(Path target) {
         if (!SwingUtilities.isEventDispatchThread()) {
             throw new IllegalStateException("vector-export example must be created on the EDT");

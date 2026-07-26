@@ -62,6 +62,7 @@ public final class RasterGridWindows {
      * @param metadata placed raster metadata
      * @param window wholly contained source window
      * @return conservative map envelope for the window's outer edges
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static Envelope mapBounds(RasterSourceMetadata metadata, RasterWindow window) {
         Objects.requireNonNull(metadata, "metadata");
@@ -88,6 +89,7 @@ public final class RasterGridWindows {
      * @param window wholly contained source window
      * @param viewport current display viewport in the raster CRS
      * @return positive output dimensions capped to the source-window dimensions
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static OutputSize outputSize(
             RasterSourceMetadata metadata, RasterWindow window, MapViewport viewport) {

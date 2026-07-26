@@ -36,6 +36,7 @@ public final class ElevationRasterization {
      * @param interpolation rendered-color resampling mode
      * @param effectiveLimits complete effective raster-request limits
      * @return empty for no positive-area intersection, otherwise a fully preflighted plan
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static Optional<Plan> plan(
             ElevationSourceMetadata metadata,
@@ -101,6 +102,9 @@ public final class ElevationRasterization {
      * @param style immutable colorization style with the source's exact unit
      * @param cancellation operation-local cooperative cancellation token
      * @return complete immutable RGBA read
+     * @throws ArithmeticException if required size arithmetic overflows
+     * @throws IllegalArgumentException if an argument violates the documented constraints
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public static RasterRead rasterize(
             ElevationSource source,

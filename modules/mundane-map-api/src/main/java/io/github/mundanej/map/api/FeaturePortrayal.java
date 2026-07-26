@@ -40,6 +40,7 @@ public final class FeaturePortrayal {
      * @param line optional line-role selector
      * @param fill optional fill-role selector
      * @param pointLabel optional point-label profile, which requires a marker selector
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public FeaturePortrayal(
             Optional<? extends SymbolSelector> marker,

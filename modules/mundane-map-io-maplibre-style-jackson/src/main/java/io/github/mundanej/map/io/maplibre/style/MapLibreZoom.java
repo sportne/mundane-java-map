@@ -18,6 +18,7 @@ public final class MapLibreZoom {
      * @param worldUnitsPerPixel finite positive horizontal resolution
      * @return finite, unclamped fractional zoom
      * @throws MapLibreBindException for a non-Web-Mercator context
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static double fromWebMercatorResolution(
             CrsDefinition displayCrs, double worldUnitsPerPixel) {

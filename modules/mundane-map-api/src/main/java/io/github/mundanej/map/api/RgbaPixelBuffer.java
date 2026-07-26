@@ -66,6 +66,7 @@ public final class RgbaPixelBuffer {
      * @param column zero-based pixel column
      * @param row zero-based pixel row
      * @return unpremultiplied {@code 0xRRGGBBAA} pixel
+     * @throws IndexOutOfBoundsException if an index is outside the documented bounds
      */
     public int rgbaAt(int column, int row) {
         if (column < 0 || column >= width || row < 0 || row >= height) {
@@ -131,6 +132,7 @@ public final class RgbaPixelBuffer {
          * @param row zero-based pixel row
          * @param value unpremultiplied {@code 0xRRGGBBAA} pixel
          * @return this builder
+         * @throws IndexOutOfBoundsException if an index is outside the documented bounds
          */
         public Builder setRgba(int column, int row, int value) {
             requireOpen();

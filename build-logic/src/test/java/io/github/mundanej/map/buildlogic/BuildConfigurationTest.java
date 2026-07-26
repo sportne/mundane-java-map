@@ -208,30 +208,299 @@ class BuildConfigurationTest {
     }
 
     @Test
-    void publishedApiDocumentationPolicyIsStrictAndOffline() throws Exception {
+    void allMainSourceDocumentationPolicyIsStrictAndOffline() throws Exception {
         String javaConvention =
                 Files.readString(
                         ROOT.resolve(
                                 "build-logic/src/main/groovy/"
                                         + "mundane-map.java-library-conventions.gradle"));
+        assertTrue(javaConvention.contains("options.addBooleanOption('Xdoclint:all', true)"));
+        assertTrue(javaConvention.contains("options.addBooleanOption('Werror', true)"));
+        assertTrue(javaConvention.contains("options.addBooleanOption('notimestamp', true)"));
         assertTrue(!javaConvention.contains("options.links"));
+        assertTrue(javaConvention.contains("tasks.register('checkstylePublicApi', Checkstyle)"));
+        assertTrue(javaConvention.contains("source = sourceSets.main.allJava"));
 
         String publishingConvention =
                 Files.readString(
                         ROOT.resolve(
                                 "build-logic/src/main/groovy/"
                                         + "mundane-map.publishing-conventions.gradle"));
-        assertTrue(publishingConvention.contains("options.addBooleanOption('Xdoclint:all', true)"));
-        assertTrue(publishingConvention.contains("options.addBooleanOption('Werror', true)"));
-        assertTrue(publishingConvention.contains("options.addBooleanOption('notimestamp', true)"));
         assertTrue(!publishingConvention.contains("options.links"));
-        assertTrue(publishingConvention.contains("tasks.register('checkstylePublicApi', Checkstyle)"));
+        assertTrue(!publishingConvention.contains("tasks.withType(Javadoc)"));
+        assertTrue(!publishingConvention.contains("tasks.register('checkstylePublicApi'"));
+
+        String buildLogic = Files.readString(ROOT.resolve("build-logic/build.gradle"));
+        assertTrue(buildLogic.contains("source = fileTree('src/main/java')"));
+        assertTrue(buildLogic.contains("tasks.register('checkstylePublicApi', Checkstyle)"));
+        assertTrue(buildLogic.contains("options.addBooleanOption('Xdoclint:all', true)"));
+        assertTrue(buildLogic.contains("options.addBooleanOption('Werror', true)"));
+        assertTrue(buildLogic.contains("options.addBooleanOption('notimestamp', true)"));
+
+        String rootBuild = Files.readString(ROOT.resolve("build.gradle"));
+        assertTrue(rootBuild.contains("tasks.register('javadocAll')"));
+        assertTrue(rootBuild.contains("gradle.includedBuild('build-logic').task(':javadoc')"));
+        assertTrue(rootBuild.contains("checkedProjects.collect { \"${it}:javadoc\" }"));
+        assertTrue(rootBuild.contains("dependsOn 'javadocAll'"));
 
         String publicApiRules =
                 Files.readString(ROOT.resolve("config/checkstyle/checkstyle-public-api.xml"));
         assertTrue(publicApiRules.contains("<module name=\"JavadocPackage\"/>"));
         assertTrue(publicApiRules.contains("<module name=\"MissingJavadocType\">"));
         assertTrue(publicApiRules.contains("<module name=\"MissingJavadocMethod\">"));
+        assertTrue(publicApiRules.contains("<module name=\"JavadocType\">"));
+        assertTrue(publicApiRules.contains("<module name=\"JavadocMethod\">"));
+        assertTrue(publicApiRules.contains("<module name=\"JavadocVariable\">"));
+        assertTrue(publicApiRules.contains("<module name=\"JavadocStyle\">"));
+        assertTrue(publicApiRules.contains("<module name=\"MissingDeprecated\"/>"));
+        assertTrue(publicApiRules.contains("<property name=\"skipAnnotations\" value=\"\"/>"));
+        assertTrue(publicApiRules.contains("<property name=\"allowedAnnotations\" value=\"\"/>"));
+        assertTrue(publicApiRules.contains("<property name=\"validateThrows\" value=\"true\"/>"));
+        assertTrue(!publicApiRules.contains("excludeScope"));
+        assertTrue(!publicApiRules.contains("Generated"));
+    }
+
+    @Test
+    void publicApiInventoryRejectsEveryUndocumentedDeclarationKind() throws Exception {
+        Path project = createJavaConventionFixture();
+        Path config = Files.createDirectories(project.resolve("config/checkstyle"));
+        Files.copy(
+                ROOT.resolve("config/checkstyle/checkstyle-public-api.xml"),
+                config.resolve("checkstyle-public-api.xml"));
+        Path source = project.resolve("src/main/java/example");
+        Files.writeString(
+                source.resolve("package-info.java"),
+                "/** Documented fixture package. */\npackage example;\n");
+        String[][] mutations = {
+            {"TypeMissing.java", "package example;\npublic class TypeMissing {}\n"},
+            {
+                "ConstructorMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public class ConstructorMissing {
+                    public ConstructorMissing() {}
+                }
+                """
+            },
+            {
+                "MethodMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public class MethodMissing {
+                    public int method() {
+                        return 1;
+                    }
+                }
+                """
+            },
+            {
+                "ProtectedMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public class ProtectedMissing {
+                    protected void operation() {}
+                }
+                """
+            },
+            {
+                "ProtectedTypeMissing.java",
+                """
+                package example;
+                /** Documented enclosing type. */
+                public class ProtectedTypeMissing {
+                    protected static class Nested {}
+                }
+                """
+            },
+            {
+                "FieldMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public final class FieldMissing {
+                    public static final int VALUE = 1;
+                    private FieldMissing() {}
+                }
+                """
+            },
+            {
+                "ChoiceMissing.java",
+                """
+                package example;
+                /** Documented enum. */
+                public enum ChoiceMissing {
+                    VALUE
+                }
+                """
+            },
+            {
+                "AnnotationElementMissing.java",
+                """
+                package example;
+                /** Documented annotation. */
+                public @interface AnnotationElementMissing {
+                    String value();
+                }
+                """
+            },
+            {
+                "RecordComponentMissing.java",
+                """
+                package example;
+                /** Documented record without its component tag. */
+                public record RecordComponentMissing(String value) {}
+                """
+            },
+            {
+                "TypeParameterMissing.java",
+                """
+                package example;
+                /** Documented generic type without its type-parameter tag. */
+                public final class TypeParameterMissing<T> {}
+                """
+            },
+            {
+                "ParameterMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public final class ParameterMissing {
+                    private ParameterMissing() {}
+                    /**
+                     * Returns its argument.
+                     *
+                     * @return the argument
+                     */
+                    public static int method(int value) {
+                        return value;
+                    }
+                }
+                """
+            },
+            {
+                "ReturnMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public final class ReturnMissing {
+                    private ReturnMissing() {}
+                    /** Returns one without its return tag. */
+                    public static int method() {
+                        return 1;
+                    }
+                }
+                """
+            },
+            {
+                "EmptyMissing.java",
+                """
+                package example;
+                /** */
+                public final class EmptyMissing {}
+                """
+            },
+            {
+                "DeprecatedMissing.java",
+                """
+                package example;
+                /** Legacy type without its deprecation tag. */
+                @Deprecated
+                public final class DeprecatedMissing {}
+                """
+            },
+            {
+                "CheckedThrowsMissing.java",
+                """
+                package example;
+                import java.io.IOException;
+                /** Documented type. */
+                public final class CheckedThrowsMissing {
+                    private CheckedThrowsMissing() {}
+                    /**
+                     * Reads one value.
+                     *
+                     * @param value value to parse
+                     * @return parsed length
+                     */
+                    public static int read(String value) throws IOException {
+                        throw new IOException("fixture");
+                    }
+                }
+                """
+            },
+            {
+                "UncheckedThrowsMissing.java",
+                """
+                package example;
+                /** Documented type. */
+                public final class UncheckedThrowsMissing {
+                    private UncheckedThrowsMissing() {}
+                    /**
+                     * Parses one value.
+                     *
+                     * @param value value to parse
+                     * @return parsed length
+                     */
+                    public static int parse(String value) {
+                        if (value.isBlank()) {
+                            throw new IllegalArgumentException("blank");
+                        }
+                        return value.length();
+                    }
+                }
+                """
+            },
+            {
+                "GeneratedMissing.java",
+                """
+                package example;
+                import javax.annotation.processing.Generated;
+                @Generated("fixture")
+                public final class GeneratedMissing {}
+                """
+            }
+        };
+        for (String[] mutation : mutations) {
+            Files.writeString(source.resolve(mutation[0]), mutation[1]);
+        }
+        Path missingPackage = Files.createDirectories(source.getParent().resolve("missingpackage"));
+        Files.writeString(
+                missingPackage.resolve("PackageMissing.java"),
+                "package missingpackage;\npublic final class PackageMissing {}\n");
+
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () -> pluginRunner(project, "checkstylePublicApi").build());
+        String output = failure.getMessage();
+        assertTrue(output.contains("Missing package-info.java file. [JavadocPackage]"));
+        assertViolation(output, "TypeMissing.java", "MissingJavadocType");
+        assertViolation(output, "ConstructorMissing.java", "MissingJavadocMethod");
+        assertViolation(output, "MethodMissing.java", "MissingJavadocMethod");
+        assertViolation(output, "ProtectedMissing.java", "MissingJavadocMethod");
+        assertViolation(output, "ProtectedTypeMissing.java", "MissingJavadocType");
+        assertViolation(output, "FieldMissing.java", "JavadocVariable");
+        assertViolation(output, "ChoiceMissing.java", "JavadocVariable");
+        assertViolation(output, "AnnotationElementMissing.java", "MissingJavadocMethod");
+        assertViolation(output, "RecordComponentMissing.java", "JavadocType");
+        assertViolation(output, "TypeParameterMissing.java", "JavadocType");
+        assertViolation(output, "ParameterMissing.java", "JavadocMethod");
+        assertViolation(output, "ReturnMissing.java", "JavadocMethod");
+        assertViolation(output, "EmptyMissing.java", "JavadocStyle");
+        assertViolation(output, "DeprecatedMissing.java", "MissingDeprecated");
+        assertViolation(output, "CheckedThrowsMissing.java", "JavadocMethod");
+        assertViolation(output, "UncheckedThrowsMissing.java", "JavadocMethod");
+        assertViolation(output, "GeneratedMissing.java", "MissingJavadocType");
+    }
+
+    private static void assertViolation(String output, String file, String rule) {
+        assertTrue(
+                output.lines()
+                        .anyMatch(line -> line.contains(file) && line.contains("[" + rule + "]")),
+                () -> "Missing " + rule + " mutation result for " + file + ":\n" + output);
     }
 
     @Test
@@ -264,7 +533,8 @@ class BuildConfigurationTest {
                 tasks.register('repositoryPolicy') {
                     doLast {
                         println "PLUGIN_REPOSITORIES=" + gradle.settings.pluginManagement.repositories*.name.join(',')
-                        println "DEPENDENCY_REPOSITORIES=" + gradle.settings.dependencyResolutionManagement.repositories*.name.join(',')
+                        println "DEPENDENCY_REPOSITORIES=" \
+                                + gradle.settings.dependencyResolutionManagement.repositories*.name.join(',')
                         def offline = providers.gradleProperty('map.offlineRepo').orNull
                         if (offline != null) println "OFFLINE_REPOSITORY=" + file(offline).toPath().toUri()
                     }
@@ -319,7 +589,8 @@ class BuildConfigurationTest {
                         println "JAVA_RELEASE=" + tasks.compileJava.options.release.get()
                         println "TEST_JAVA_VERSION=" + tasks.test.javaLauncher.get().metadata.languageVersion
                         println "JACOCO_ENABLED=" + tasks.test.extensions.getByName('jacoco').enabled
-                        println "TEST_FINALIZERS=" + tasks.test.finalizedBy.getDependencies(tasks.test)*.path.sort().join(',')
+                        println "TEST_FINALIZERS=" \
+                                + tasks.test.finalizedBy.getDependencies(tasks.test)*.path.sort().join(',')
                     }
                 }
                 """);
@@ -353,7 +624,9 @@ class BuildConfigurationTest {
                         path = java.nio.file.Path.of(configured)
                     }
                 } catch (IllegalArgumentException exception) {
-                    throw new GradleException('map.offlineRepo must be an absolute normalized path or file URI', exception)
+                    throw new GradleException(
+                            'map.offlineRepo must be an absolute normalized path or file URI',
+                            exception)
                 }
                 if (!path.isAbsolute() || path != path.normalize()) {
                     throw new GradleException('map.offlineRepo must be an absolute normalized path or file URI')

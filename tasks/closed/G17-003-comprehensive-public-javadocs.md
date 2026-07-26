@@ -1,6 +1,6 @@
 # G17-003 — Comprehensive public Javadocs
 
-Status: Proposed
+Status: Complete
 Depends on: G17-001, G17-002
 Gate: G17
 Type: AFK
@@ -81,3 +81,9 @@ If `javadocAll` does not exist when implementation begins, this task may introdu
 declarative aggregate for existing per-project Javadoc tasks. It must not run Javadocs twice inside
 `qualityGate`. Documentation must describe observed contracts; do not change a public API merely to
 make its prose easier to write.
+
+The completed implementation applies strict Java 21 Javadoc generation and declaration-presence
+checks to all hand-authored module, example, test-support, and build-support production sources.
+Mutation tests independently cover every required declaration and contract-tag category, while
+publication verification compares the staged binary, source, and Javadoc type surfaces. The
+independent code review found no remaining actionable issues after its findings were addressed.

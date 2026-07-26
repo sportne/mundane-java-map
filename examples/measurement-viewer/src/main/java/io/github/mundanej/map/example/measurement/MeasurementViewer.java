@@ -22,12 +22,20 @@ import javax.swing.WindowConstants;
 public final class MeasurementViewer {
     private MeasurementViewer() {}
 
-    /** Launches the viewer on the Swing event-dispatch thread. */
+    /**
+     * Launches the viewer on the Swing event-dispatch thread.
+     *
+     * @param arguments ignored command-line arguments
+     */
     public static void main(String[] arguments) {
         SwingUtilities.invokeLater(MeasurementViewer::showWindow);
     }
 
-    /** Creates both configured example tabs without opening a window. */
+    /**
+     * Creates both configured example tabs without opening a window.
+     *
+     * @return caller-owned tabbed pane containing planar and geographic examples
+     */
     public static JTabbedPane createContent() {
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Planar metres", tab(planarView(), planarExplanation()));

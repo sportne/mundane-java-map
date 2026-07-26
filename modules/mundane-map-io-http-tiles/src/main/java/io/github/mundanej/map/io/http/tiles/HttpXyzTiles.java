@@ -16,6 +16,7 @@ public final class HttpXyzTiles {
      * @param options immutable client policy and limits
      * @param decoders explicitly registered PNG/JPEG decoders
      * @return caller-owned unopened-network client
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static HttpXyzTileClient open(
             SourceIdentity identity,

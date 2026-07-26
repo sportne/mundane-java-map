@@ -25,6 +25,7 @@ public final class HttpXyzTemplate {
      *
      * @param value bounded printable-ASCII fixed-host template
      * @return validated redacting template
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static HttpXyzTemplate parse(String value) {
         Objects.requireNonNull(value, "value");

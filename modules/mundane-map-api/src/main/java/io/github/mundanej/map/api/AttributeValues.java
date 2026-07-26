@@ -17,6 +17,7 @@ public final class AttributeValues {
      *
      * @param attributes source attributes
      * @return immutable canonical attributes
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static Map<String, Object> canonicalize(Map<String, ?> attributes) {
         Objects.requireNonNull(attributes, "attributes");
@@ -36,6 +37,7 @@ public final class AttributeValues {
      *
      * @param value supported non-null attribute value
      * @return immutable canonical representation
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static Object canonicalizeValue(Object value) {
         Objects.requireNonNull(value, "attribute value");

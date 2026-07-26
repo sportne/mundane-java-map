@@ -41,13 +41,21 @@ import javax.swing.WindowConstants;
 public final class BasicViewer {
     private BasicViewer() {}
 
-    /** Launches the viewer on the Swing event-dispatch thread. */
+    /**
+     * Launches the viewer on the Swing event-dispatch thread.
+     *
+     * @param arguments command-line options; {@code --world-wrap} enables horizontal repetition
+     */
     public static void main(String[] arguments) {
         boolean worldWrap = List.of(arguments).contains("--world-wrap");
         SwingUtilities.invokeLater(() -> showWindow(worldWrap));
     }
 
-    /** Creates the configured map view without opening a window. */
+    /**
+     * Creates the configured map view without opening a window.
+     *
+     * @return caller-owned map view
+     */
     public static MapView createMapView() {
         MapView map = new MapView(new WebMercatorProjection());
         map.setLayers(List.of(sampleLayer()));

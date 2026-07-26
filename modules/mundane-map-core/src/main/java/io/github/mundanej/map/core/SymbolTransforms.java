@@ -48,6 +48,7 @@ public final class SymbolTransforms {
      * @param outwardBearingDegrees finite clockwise screen bearing in degrees used as the rotation
      *     base
      * @return validated local-to-screen affine transform
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static MarkerTransform markerAtScreenBearing(
             Envelope viewBox,

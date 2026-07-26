@@ -27,6 +27,15 @@ java {
     withJavadocJar()
 }
 
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    options.docEncoding = 'UTF-8'
+    options.addBooleanOption('Xdoclint:all', true)
+    options.addBooleanOption('Werror', true)
+    options.addBooleanOption('notimestamp', true)
+}
+
 dependencies {
     testImplementation platform(libs.junit.bom)
     testImplementation libs.junit.jupiter
@@ -59,6 +68,18 @@ checkstyle {
     toolVersion = libs.versions.checkstyle.get()
     configDirectory = rootProject.file('config/checkstyle')
     sourceSets = [sourceSets.main, sourceSets.test]
+}
+
+def publicApiCheck = tasks.register('checkstylePublicApi', Checkstyle) {
+    group = 'verification'
+    description = 'Checks main-source public declarations for complete API documentation.'
+    source = sourceSets.main.allJava
+    classpath = files()
+    configFile = rootProject.file('config/checkstyle/checkstyle-public-api.xml')
+}
+
+tasks.named('check') {
+    dependsOn publicApiCheck
 }
 
 spotless {

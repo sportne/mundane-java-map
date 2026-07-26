@@ -32,6 +32,7 @@ public final class MapScreenBasis {
      * @param xUnitScreenDelta logical-screen delta for one positive projected x unit
      * @param yUnitScreenDelta logical-screen delta for one positive projected y unit
      * @return validated immutable similarity basis
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public static MapScreenBasis of(Coordinate xUnitScreenDelta, Coordinate yUnitScreenDelta) {
         Objects.requireNonNull(xUnitScreenDelta, "xUnitScreenDelta");

@@ -15,6 +15,7 @@ public final class AttributeSchema {
      * Copies and validates ordered unique fields.
      *
      * @param fields fields in source order
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public AttributeSchema(List<AttributeField> fields) {
         this.fields = List.copyOf(Objects.requireNonNull(fields, "fields"));

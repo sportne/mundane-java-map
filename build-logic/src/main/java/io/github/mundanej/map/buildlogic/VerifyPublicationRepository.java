@@ -2,6 +2,9 @@ package io.github.mundanej.map.buildlogic;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Modifier;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,14 +20,17 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 import java.util.zip.ZipFile;
+import javax.inject.Inject;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
@@ -38,20 +44,57 @@ import org.w3c.dom.Element;
 /** Verifies the project-specific invariants of the staged Maven repository. */
 @DisableCachingByDefault(because = "Reads freshly staged publication output")
 public abstract class VerifyPublicationRepository extends DefaultTask {
+    /** Creates a task instance whose properties Gradle configures before execution. */
+    @Inject
+    public VerifyPublicationRepository() {}
+
+    /**
+     * Provides dependencies required to inspect published class visibility without initialization.
+     *
+     * @return publication surface-inspection classpath
+     */
+    @Classpath
+    public abstract ConfigurableFileCollection getSurfaceClasspath();
+
+    /**
+     * Provides the staged Maven repository to inspect.
+     *
+     * @return staged repository directory
+     */
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getRepositoryDirectory();
 
+    /**
+     * Provides the exact published-module and dependency contract rows.
+     *
+     * @return release contract rows
+     */
     @Input
     public abstract ListProperty<String> getReleaseContract();
 
+    /**
+     * Provides the version expected on every staged publication.
+     *
+     * @return expected publication version
+     */
     @Input
     public abstract Property<String> getPublicationVersion();
 
+    /**
+     * Provides the project license that must appear unchanged in every archive.
+     *
+     * @return expected license file
+     */
     @InputFile
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract RegularFileProperty getLicenseFile();
 
+    /**
+     * Provides the deterministic artifact manifest written after successful verification.
+     *
+     * @return artifact-manifest output file
+     */
     @OutputFile
     public abstract RegularFileProperty getArtifactManifest();
 
@@ -79,12 +122,166 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                     getLicenseFile().get().getAsFile().toPath(),
                     manifest);
         }
+        verifyDocumentedSurfaces(
+                group, getPublicationVersion().get(), contract, getSurfaceClasspath().getFiles());
         Path output = getArtifactManifest().get().getAsFile().toPath();
         Files.createDirectories(output.getParent());
         Files.writeString(
                 output,
                 String.join("\n", manifest.stream().sorted().toList()) + "\n",
                 StandardCharsets.UTF_8);
+    }
+
+    private static void verifyDocumentedSurfaces(
+            Path group, String version, Map<String, Contract> contract, Set<java.io.File> classpath)
+            throws Exception {
+        Map<String, PublicationArchives> archives = new LinkedHashMap<>();
+        for (var entry : contract.entrySet()) {
+            Path versionDirectory = group.resolve(entry.getKey()).resolve(version);
+            List<Path> payloads;
+            try (var paths = Files.list(versionDirectory)) {
+                payloads = paths.filter(Files::isRegularFile).toList();
+            }
+            archives.put(
+                    entry.getKey(),
+                    new PublicationArchives(
+                            exactlyOne(
+                                    payloads,
+                                    name ->
+                                            name.endsWith(".jar")
+                                                    && !name.endsWith("-sources.jar")
+                                                    && !name.endsWith("-javadoc.jar"),
+                                    entry.getKey() + " binary"),
+                            exactlyOne(
+                                    payloads,
+                                    name -> name.endsWith("-sources.jar"),
+                                    entry.getKey() + " sources"),
+                            exactlyOne(
+                                    payloads,
+                                    name -> name.endsWith("-javadoc.jar"),
+                                    entry.getKey() + " Javadocs")));
+        }
+        List<URL> binaryUrls = new ArrayList<>();
+        archives.values().stream()
+                .map(PublicationArchives::binary)
+                .map(VerifyPublicationRepository::toUrl)
+                .forEach(binaryUrls::add);
+        classpath.stream()
+                .map(java.io.File::toPath)
+                .map(VerifyPublicationRepository::toUrl)
+                .forEach(binaryUrls::add);
+        try (URLClassLoader loader =
+                new URLClassLoader(
+                        binaryUrls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader())) {
+            for (var entry : archives.entrySet()) {
+                PublicationArchives module = entry.getValue();
+                verifyDocumentedSurface(
+                        module.binary(),
+                        module.sources(),
+                        module.javadocs(),
+                        contract.get(entry.getKey()).packageRoot(),
+                        loader);
+            }
+        }
+    }
+
+    static void verifyDocumentedSurface(
+            Path binary, Path sources, Path javadocs, String packageRoot) throws Exception {
+        try (URLClassLoader loader =
+                new URLClassLoader(
+                        new URL[] {toUrl(binary)}, ClassLoader.getPlatformClassLoader())) {
+            verifyDocumentedSurface(binary, sources, javadocs, packageRoot, loader);
+        }
+    }
+
+    private static void verifyDocumentedSurface(
+            Path binary,
+            Path sources,
+            Path javadocs,
+            String packageRoot,
+            ClassLoader loader)
+            throws Exception {
+        Set<String> binaryEntries = archiveEntries(binary, packageRoot, ".class");
+        Set<String> binaryTopLevel =
+                binaryEntries.stream()
+                        .filter(name -> !name.contains("$"))
+                        .filter(name -> !name.endsWith("package-info.class"))
+                        .map(name -> name.substring(0, name.length() - ".class".length()))
+                        .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+        Set<String> sourceTopLevel =
+                archiveEntries(sources, packageRoot, ".java").stream()
+                        .filter(name -> !name.endsWith("package-info.java"))
+                        .map(name -> name.substring(0, name.length() - ".java".length()))
+                        .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+        require(
+                sourceTopLevel.equals(binaryTopLevel),
+                "Source surface mismatch for "
+                        + binary
+                        + ": expected "
+                        + binaryTopLevel
+                        + ", found "
+                        + sourceTopLevel);
+
+        Set<String> expectedJavadocs = new TreeSet<>();
+        for (String entry : binaryEntries) {
+            if (entry.endsWith("package-info.class") || entry.endsWith("module-info.class")) {
+                continue;
+            }
+            String className =
+                    entry.substring(0, entry.length() - ".class".length()).replace('/', '.');
+            Class<?> type = Class.forName(className, false, loader);
+            if (isDocumentedType(type)) {
+                expectedJavadocs.add(
+                        className.replace('.', '/').replace('$', '.') + ".html");
+            }
+        }
+        Set<String> actualJavadocs =
+                archiveEntries(javadocs, packageRoot, ".html").stream()
+                        .filter(name -> !name.contains("/class-use/"))
+                        .filter(name -> !name.contains("/doc-files/"))
+                        .filter(name -> !name.endsWith("/package-summary.html"))
+                        .filter(name -> !name.endsWith("/package-tree.html"))
+                        .filter(name -> !name.endsWith("/package-use.html"))
+                        .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+        require(
+                actualJavadocs.equals(expectedJavadocs),
+                "Javadoc surface mismatch for "
+                        + binary
+                        + ": expected "
+                        + expectedJavadocs
+                        + ", found "
+                        + actualJavadocs);
+    }
+
+    private static Set<String> archiveEntries(Path archive, String packageRoot, String suffix)
+            throws IOException {
+        try (var zip = new ZipFile(archive.toFile())) {
+            return zip.stream()
+                    .filter(entry -> !entry.isDirectory())
+                    .map(java.util.zip.ZipEntry::getName)
+                    .filter(name -> name.startsWith(packageRoot) && name.endsWith(suffix))
+                    .collect(java.util.stream.Collectors.toCollection(TreeSet::new));
+        }
+    }
+
+    private static boolean isDocumentedType(Class<?> type) {
+        if (type.isSynthetic() || type.isAnonymousClass() || type.isLocalClass()) {
+            return false;
+        }
+        int modifiers = type.getModifiers();
+        if (!Modifier.isPublic(modifiers) && !Modifier.isProtected(modifiers)) {
+            return false;
+        }
+        Class<?> enclosing = type.getEnclosingClass();
+        return enclosing == null || isDocumentedType(enclosing);
+    }
+
+    private static URL toUrl(Path path) {
+        try {
+            return path.toUri().toURL();
+        } catch (java.net.MalformedURLException exception) {
+            throw new GradleException("Invalid publication path " + path, exception);
+        }
     }
 
     private static void verifyModule(
@@ -102,7 +299,12 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         try (var paths = Files.list(versionDirectory)) {
             payloads =
                     paths.filter(Files::isRegularFile)
-                            .filter(path -> !isChecksum(path) && !path.getFileName().toString().equals("maven-metadata.xml"))
+                            .filter(
+                                    path ->
+                                            !isChecksum(path)
+                                                    && !path.getFileName()
+                                                            .toString()
+                                                            .equals("maven-metadata.xml"))
                             .sorted()
                             .toList();
         }
@@ -249,6 +451,8 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 !content.contains("testFixtures") && !content.contains("-test-fixtures"),
                 "Test-fixture variant leaked into " + metadata);
     }
+
+    private record PublicationArchives(Path binary, Path sources, Path javadocs) {}
 
     private static void verifySha256(Path payload) throws IOException {
         Path sidecar = payload.resolveSibling(payload.getFileName() + ".sha256");

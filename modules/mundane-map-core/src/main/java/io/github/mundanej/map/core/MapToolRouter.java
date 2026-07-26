@@ -116,6 +116,7 @@ public final class MapToolRouter {
      * @param event strictly increasing toolkit-neutral event
      * @param context current immutable tool context
      * @return routing outcome for host default handling, capture, and cursor state
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public RouteOutcome route(MapToolEvent event, MapToolContext context) {
         Objects.requireNonNull(event, "event");
@@ -201,6 +202,7 @@ public final class MapToolRouter {
      * @param event strictly increasing semantic command event
      * @param context current immutable tool context
      * @return routing outcome for host default handling and cursor state
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public RouteOutcome routeCommand(MapToolCommandEvent event, MapToolContext context) {
         Objects.requireNonNull(event, "event");
@@ -258,6 +260,7 @@ public final class MapToolRouter {
      * Refreshes an installed tool after the host becomes available again.
      *
      * @return routing outcome containing the refreshed cursor state
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public RouteOutcome resume() {
         if (dispatching) {

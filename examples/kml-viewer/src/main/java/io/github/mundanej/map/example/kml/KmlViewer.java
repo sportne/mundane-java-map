@@ -73,6 +73,7 @@ public final class KmlViewer {
      *
      * @param path local KML file
      * @return configured owning map view
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public static MapView createMapView(Path path) {
         if (EventQueue.isDispatchThread()) {

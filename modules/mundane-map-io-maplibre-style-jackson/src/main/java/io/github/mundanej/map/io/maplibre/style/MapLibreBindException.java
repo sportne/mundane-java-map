@@ -12,6 +12,7 @@ public final class MapLibreBindException extends RuntimeException {
      * Creates a stable bind failure.
      *
      * @param problem immutable bind-phase detail
+     * @throws IllegalArgumentException if an argument violates the documented constraints
      */
     public MapLibreBindException(MapLibreProblem problem) {
         super("MapLibre style bind failed: " + Objects.requireNonNull(problem, "problem").code());

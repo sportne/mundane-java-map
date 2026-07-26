@@ -58,6 +58,7 @@ public final class VectorPath {
      *
      * @param commandIndex zero-based command index
      * @return command at the index
+     * @throws IndexOutOfBoundsException if an index is outside the documented bounds
      */
     public VectorPathCommand commandAt(int commandIndex) {
         if (commandIndex < 0 || commandIndex >= commandCodes.length) {
@@ -80,6 +81,7 @@ public final class VectorPath {
      *
      * @param ordinateIndex zero-based operand index
      * @return finite ordinate
+     * @throws IndexOutOfBoundsException if an index is outside the documented bounds
      */
     public double ordinateAt(int ordinateIndex) {
         if (ordinateIndex < 0 || ordinateIndex >= ordinates.length) {
@@ -248,6 +250,8 @@ public final class VectorPath {
          * @param x finite path-coordinate x ordinate
          * @param y finite path-coordinate y ordinate
          * @return this builder
+         * @throws IllegalStateException if the operation is not valid in the current state or
+         *     thread
          */
         public Builder moveTo(double x, double y) {
             requireUsable();
@@ -336,6 +340,8 @@ public final class VectorPath {
          * Closes the active non-empty subpath.
          *
          * @return this builder
+         * @throws IllegalStateException if the operation is not valid in the current state or
+         *     thread
          */
         public Builder close() {
             requireUsable();
@@ -351,6 +357,8 @@ public final class VectorPath {
          * Validates and publishes the one immutable path produced by this builder.
          *
          * @return immutable path
+         * @throws IllegalStateException if the operation is not valid in the current state or
+         *     thread
          */
         public VectorPath build() {
             requireUsable();

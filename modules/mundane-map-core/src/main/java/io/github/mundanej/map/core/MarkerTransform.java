@@ -99,6 +99,8 @@ public final class MarkerTransform {
      *
      * @param screen coordinate in logical screen pixels
      * @return coordinate in the marker's toolkit-neutral local path space
+     * @throws IllegalArgumentException if an argument violates the documented constraints
+     * @throws IllegalStateException if the operation is not valid in the current state or thread
      */
     public Coordinate screenToLocal(Coordinate screen) {
         Objects.requireNonNull(screen, "screen");
