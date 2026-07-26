@@ -1,6 +1,6 @@
 # G10-044 — SQLite adapter hardening and Linux evidence
 
-Status: Proposed
+Status: Complete
 Depends on: G10-042, G10-043
 Gate: G10
 Type: HITL

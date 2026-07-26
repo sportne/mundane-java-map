@@ -283,7 +283,7 @@ follow their recorded dependencies, and broader follow-up still requires a new c
 | [G10-041 — GeoPackage feature completion](closed/G10-041-geopackage-feature-completion.md) | Complete | AFK | G10-040 | Completed geometry, attributes, CRS, query, viewer, and feature hardening. |
 | [G10-042 — GeoPackage tiles and hardening](closed/G10-042-geopackage-tiles-and-hardening.md) | Complete | HITL | G10-041, G10-039 | Render bounded sparse tile matrices and approve independent container evidence. |
 | [G10-043 — MBTiles raster slice](closed/G10-043-mbtiles-raster-slice.md) | Complete | AFK | G10-039, G11-004 | Read and render bounded TMS PNG/JPEG MBTiles through a staged adapter. |
-| [G10-044 — SQLite adapter hardening and Linux evidence](G10-044-sqlite-adapter-hardening-and-linux-evidence.md) | Proposed | HITL | G10-042, G10-043 | Close MBTiles hardening and approve exact Linux JVM support for both adapters. |
+| [G10-044 — SQLite adapter hardening and Linux evidence](closed/G10-044-sqlite-adapter-hardening-and-linux-evidence.md) | Complete | HITL | G10-042, G10-043 | Harden MBTiles and record exact Linux JVM support evidence for both adapters. |
 | [G10-050 — GPX waypoint first slice](closed/G10-050-gpx-waypoint-first-slice.md) | Complete | AFK | G10-005 | Read, query, render, publish, and consume bounded GPX waypoints. |
 | [G10-051 — GPX track rendering slice](closed/G10-051-gpx-track-rendering-slice.md) | Complete | AFK | G10-050 | Render bounded track segments with fixed attributes and warned omissions. |
 | [G10-052 — GPX hardening and fixtures](closed/G10-052-gpx-hardening-and-fixtures.md) | Complete | HITL | G10-051 | Close grammar and hostile-input behavior and approve fixture provenance. |

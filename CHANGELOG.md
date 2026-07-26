@@ -35,7 +35,11 @@ First useful Level 1 release candidate.
 - An optional Linux JVM-only Xerial adapter for strict read-only MBTiles 1.3 raster tilesets, with
   bounded detached metadata, explicit zoom selection, exact TMS-to-XYZ conversion, sparse PNG/JPEG
   windows, optional transactional decoded caching, a runnable viewer, publication staging, and a
-  clean offline Java 21 consumer.
+  clean offline Java 21 consumer. Independent fixtures, exact/one-over limits, hostile SQLite
+  inputs, mutation, cancellation, cache rollback, and fresh-process deployment failures are
+  covered. The bounded support statement is Java 21 Linux x86-64 with glibc 2.35 or newer, evidenced
+  on pinned Ubuntu 22.04 and 24.04; Alpine/musl is rejected and both Xerial adapters are Native Image
+  `not-targeted`.
 - Runnable examples for the implemented map, symbol, interaction, format, editing, styling, and
   workspace slices, plus independent corpus, rendering-regression, performance, Native Image,
   publication, and downstream-consumer verification lanes.

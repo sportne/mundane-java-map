@@ -41,6 +41,8 @@ public record MbTilesLimits(
         int maximumParts,
         int maximumCacheEntries,
         long maximumCacheBytes) {
+    private static final long TILE_BYTES = 256L * 256L * Integer.BYTES;
+
     /** Conservative defaults for local read-only containers. */
     public static final MbTilesLimits DEFAULTS =
             new MbTilesLimits(
@@ -85,7 +87,7 @@ public record MbTilesLimits(
                 || maximumRows > 100_000_000L
                 || maximumVmOpcodes < 1_000
                 || maximumVmOpcodes > 500_000_000L
-                || maximumOwnedBytes < 2L * maximumBlobBytes
+                || maximumOwnedBytes < 2L * maximumBlobBytes + TILE_BYTES
                 || maximumOwnedBytes > Integer.MAX_VALUE
                 || maximumZoomLevels <= 0
                 || maximumZoomLevels > 23
@@ -99,7 +101,7 @@ public record MbTilesLimits(
                 || maximumParts > 1_000_000
                 || maximumCacheEntries <= 0
                 || maximumCacheEntries > 4_096
-                || maximumCacheBytes <= 0
+                || maximumCacheBytes < TILE_BYTES
                 || maximumCacheBytes > 536_870_912L) {
             throw new IllegalArgumentException("MbTiles limits are outside the approved range");
         }

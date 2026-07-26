@@ -51,8 +51,23 @@ final class MbTilesFile {
                     Files.readAttributes(
                             path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
             long size = attributes.size();
-            if (size < HEADER_BYTES || size > limits.maximumInputBytes()) {
-                throw invalid(sourceId, size < HEADER_BYTES ? "header" : "pageLayout");
+            if (size < HEADER_BYTES) {
+                throw invalid(sourceId, "header");
+            }
+            if (size > limits.maximumInputBytes()) {
+                throw MbTilesFailures.failure(
+                        sourceId,
+                        "SOURCE_LIMIT_EXCEEDED",
+                        "MBTiles input exceeds its byte limit",
+                        Map.of(
+                                "scope",
+                                "sqliteOpen",
+                                "limit",
+                                "inputBytes",
+                                "requested",
+                                Long.toString(size),
+                                "maximum",
+                                Long.toString(limits.maximumInputBytes())));
             }
             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.BIG_ENDIAN);
             try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {

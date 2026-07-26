@@ -1,0 +1,199 @@
+name: SQLite adapter evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sqlite-adapter-evidence.yml'
+      - 'build-logic/**'
+      - 'gradle/**'
+      - 'modules/mundane-map-api/**'
+      - 'modules/mundane-map-core/**'
+      - 'modules/mundane-map-awt/**'
+      - 'modules/mundane-map-io-image/**'
+      - 'modules/mundane-map-io-geopackage-xerial/**'
+      - 'modules/mundane-map-io-mbtiles-xerial/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+  pull_request:
+    paths:
+      - '.github/workflows/sqlite-adapter-evidence.yml'
+      - 'build-logic/**'
+      - 'gradle/**'
+      - 'modules/mundane-map-api/**'
+      - 'modules/mundane-map-core/**'
+      - 'modules/mundane-map-awt/**'
+      - 'modules/mundane-map-io-image/**'
+      - 'modules/mundane-map-io-geopackage-xerial/**'
+      - 'modules/mundane-map-io-mbtiles-xerial/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  glibc:
+    name: Java 21 / ${{ matrix.image }} / ${{ matrix.glibc }}
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ubuntu-22.04
+            glibc: 'glibc 2.35'
+          - image: ubuntu-24.04
+            glibc: 'glibc 2.39'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Record reviewed environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/sqlite-adapter-evidence-logs
+          {
+            echo "reviewed-sha=${GITHUB_SHA}"
+            echo "runner-image=${{ matrix.image }}"
+            java -version
+            uname -a
+            uname -m
+            getconf GNU_LIBC_VERSION
+          } 2>&1 | tee build/sqlite-adapter-evidence-logs/environment.txt
+          test "$(getconf GNU_LIBC_VERSION)" = "${{ matrix.glibc }}"
+          test "$(uname -m)" = "x86_64"
+      - name: Check and stage both adapters
+        run: >-
+          ./gradlew
+          :modules:mundane-map-io-geopackage-xerial:check
+          :modules:mundane-map-io-mbtiles-xerial:check
+          :modules:mundane-map-io-geopackage-xerial:stageDeploymentEvidence
+          :modules:mundane-map-io-mbtiles-xerial:stageDeploymentEvidence
+          --console=plain
+      - name: Exercise isolated failure and success processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gpkg="$PWD/modules/mundane-map-io-geopackage-xerial/build/sqlite-adapter-evidence/geopackage"
+          mbtiles="$PWD/modules/mundane-map-io-mbtiles-xerial/build/sqlite-adapter-evidence/mbtiles"
+          for adapter in geopackage mbtiles; do
+            if [[ "$adapter" = geopackage ]]; then
+              stage="$gpkg"
+              probe="io.github.mundanej.map.io.geopackage.GeoPackageDeploymentProbe"
+              fixture="$stage/fixtures/consumer.gpkg"
+            else
+              stage="$mbtiles"
+              probe="io.github.mundanej.map.io.mbtiles.MbTilesDeploymentProbe"
+              fixture="$stage/fixtures/consumer.mbtiles"
+            fi
+            java -Djava.awt.headless=true -Dos.name='Not Linux' -Dos.arch=x86_64 \
+              -cp "$stage/classes:$stage/lib/*" "$probe" "$fixture" \
+              | tee "build/sqlite-adapter-evidence-logs/${adapter}-non-linux.txt"
+            grep -Fx 'SQLITE_ADAPTER_UNAVAILABLE|unsupportedPlatform' \
+              "build/sqlite-adapter-evidence-logs/${adapter}-non-linux.txt"
+
+            java -Djava.awt.headless=true -Dos.name=Linux -Dos.arch=not-x86 \
+              -cp "$stage/classes:$stage/lib/*" "$probe" "$fixture" \
+              | tee "build/sqlite-adapter-evidence-logs/${adapter}-non-x86.txt"
+            grep -Fx 'SQLITE_ADAPTER_UNAVAILABLE|unsupportedPlatform' \
+              "build/sqlite-adapter-evidence-logs/${adapter}-non-x86.txt"
+
+            code_cp="$stage/classes"
+            for jar in "$stage"/lib/*.jar; do
+              if [[ "$jar" != *-natives-linux.jar ]]; then
+                code_cp="$code_cp:$jar"
+              fi
+            done
+            java -Djava.awt.headless=true -cp "$code_cp" "$probe" "$fixture" \
+              | tee "build/sqlite-adapter-evidence-logs/${adapter}-code-only.txt"
+            grep -Fx 'SQLITE_ADAPTER_UNAVAILABLE|nativeLoad' \
+              "build/sqlite-adapter-evidence-logs/${adapter}-code-only.txt"
+
+            unusable="$RUNNER_TEMP/${adapter}-not-a-directory"
+            printf occupied > "$unusable"
+            java -Djava.awt.headless=true -Dorg.sqlite.tmpdir="$unusable" \
+              -cp "$stage/classes:$stage/lib/*" "$probe" "$fixture" \
+              | tee "build/sqlite-adapter-evidence-logs/${adapter}-temp.txt"
+            grep -Fx 'SQLITE_ADAPTER_UNAVAILABLE|temporaryDirectory' \
+              "build/sqlite-adapter-evidence-logs/${adapter}-temp.txt"
+
+            java -Djava.awt.headless=true -cp "$stage/classes:$stage/lib/*" \
+              "$probe" "$fixture" \
+              | tee "build/sqlite-adapter-evidence-logs/${adapter}-success.txt"
+            grep -Fx SUCCESS \
+              "build/sqlite-adapter-evidence-logs/${adapter}-success.txt"
+          done
+      - name: Upload glibc evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-adapter-${{ matrix.image }}-${{ github.sha }}
+          path: build/sqlite-adapter-evidence-logs
+          if-no-files-found: error
+          retention-days: 14
+
+  musl:
+    name: Java 21 / Alpine 3.20 / musl rejection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Stage both adapters
+        run: >-
+          ./gradlew
+          :modules:mundane-map-io-geopackage-xerial:stageDeploymentEvidence
+          :modules:mundane-map-io-mbtiles-xerial:stageDeploymentEvidence
+          --console=plain
+      - name: Exercise Alpine musl rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/sqlite-adapter-evidence-logs
+          docker run --rm -e GITHUB_SHA -v "$PWD:/work" -w /work alpine:3.20 sh -euxc '
+            apk add --no-cache openjdk21-jre-headless
+            {
+              echo "reviewed-sha=$GITHUB_SHA"
+              cat /etc/alpine-release
+              java -version
+              uname -a
+              uname -m
+              ldd --version
+            } 2>&1 | tee build/sqlite-adapter-evidence-logs/alpine-environment.txt
+            for adapter in geopackage mbtiles; do
+              if [ "$adapter" = geopackage ]; then
+                stage="$PWD/modules/mundane-map-io-geopackage-xerial/build/sqlite-adapter-evidence/geopackage"
+                probe="io.github.mundanej.map.io.geopackage.GeoPackageDeploymentProbe"
+                fixture="$stage/fixtures/consumer.gpkg"
+              else
+                stage="$PWD/modules/mundane-map-io-mbtiles-xerial/build/sqlite-adapter-evidence/mbtiles"
+                probe="io.github.mundanej.map.io.mbtiles.MbTilesDeploymentProbe"
+                fixture="$stage/fixtures/consumer.mbtiles"
+              fi
+              java -Djava.awt.headless=true -cp "$stage/classes:$stage/lib/*" \
+                "$probe" "$fixture" \
+                | tee "build/sqlite-adapter-evidence-logs/${adapter}-musl.txt"
+              grep -Fx "SQLITE_ADAPTER_UNAVAILABLE|unsupportedPlatform" \
+                "build/sqlite-adapter-evidence-logs/${adapter}-musl.txt"
+            done
+          '
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+      - name: Upload musl evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-adapter-alpine-3.20-${{ github.sha }}
+          path: build/sqlite-adapter-evidence-logs
+          if-no-files-found: error
+          retention-days: 14

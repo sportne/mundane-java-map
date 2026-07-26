@@ -272,7 +272,11 @@ final class MbTilesSession implements AutoCloseable {
 
     private static void applyLimits(JDBC4Connection connection, MbTilesLimits limits)
             throws SQLException {
-        connection.setLimit(SQLiteLimits.SQLITE_LIMIT_LENGTH, limits.maximumBlobBytes());
+        int rowLengthLimit =
+                Math.addExact(
+                        Math.max(limits.maximumBlobBytes(), limits.maximumTextValueCharacters()),
+                        4_096);
+        connection.setLimit(SQLiteLimits.SQLITE_LIMIT_LENGTH, rowLengthLimit);
         connection.setLimit(SQLiteLimits.SQLITE_LIMIT_SQL_LENGTH, 32_768);
         connection.setLimit(SQLiteLimits.SQLITE_LIMIT_COLUMN, 512);
         connection.setLimit(SQLiteLimits.SQLITE_LIMIT_EXPR_DEPTH, 64);

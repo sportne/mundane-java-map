@@ -83,10 +83,15 @@ final class MbTilesCatalogReader {
                 String type = rows.getString(1);
                 String name = rows.getString(2);
                 String table = rows.getString(3);
-                if (name == null
-                        || name.length() > session.limits().maximumIdentifierCharacters()
-                        || name.indexOf('\0') >= 0) {
+                if (name == null || name.indexOf('\0') >= 0) {
                     throw schema(sourceId, "metadata", "name", "value");
+                }
+                if (name.length() > session.limits().maximumIdentifierCharacters()) {
+                    throw limit(
+                            sourceId,
+                            "identifierCharacters",
+                            name.length(),
+                            session.limits().maximumIdentifierCharacters());
                 }
                 if (name.startsWith("sqlite_")) {
                     continue;
@@ -230,8 +235,11 @@ final class MbTilesCatalogReader {
                 int zoom = exactInteger(sourceId, rows, 1, 4, "zoom");
                 int x = exactInteger(sourceId, rows, 2, 5, "x");
                 int tmsY = exactInteger(sourceId, rows, 3, 6, "y");
-                if (zoom < 0 || zoom > session.limits().maximumZoom()) {
+                if (zoom < 0) {
                     throw tile(sourceId, "zoom", "range");
+                }
+                if (zoom > session.limits().maximumZoom()) {
+                    throw limit(sourceId, "zoom", zoom, session.limits().maximumZoom());
                 }
                 int axis = 1 << zoom;
                 if (x < 0 || x >= axis || tmsY < 0 || tmsY >= axis) {

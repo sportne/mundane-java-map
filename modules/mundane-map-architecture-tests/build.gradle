@@ -256,6 +256,7 @@ tasks.named('test') {
     inputs.file(rootProject.file('build.gradle'))
     inputs.file(rootProject.file('settings.gradle'))
     inputs.file(rootProject.file('.github/workflows/native-image.yml'))
+    inputs.file(rootProject.file('.github/workflows/sqlite-adapter-evidence.yml'))
     systemProperty 'map.architecture.modules', moduleDescriptors
     systemProperty 'map.architecture.supportProjects',
             inventory.findAll { it.category == 'SUPPORT' }
@@ -289,6 +290,8 @@ tasks.named('test') {
     systemProperty 'map.architecture.settings', rootProject.file('settings.gradle').absolutePath
     systemProperty 'map.architecture.nativeWorkflow',
             rootProject.file('.github/workflows/native-image.yml').absolutePath
+    systemProperty 'map.architecture.sqliteAdapterWorkflow',
+            rootProject.file('.github/workflows/sqlite-adapter-evidence.yml').absolutePath
 }
 
 tasks.named('check') {

@@ -1866,7 +1866,8 @@ fingerprint, plan/limits, fixed query, rows in declared order, BLOB decoding, ou
 fingerprint/cancellation, cache commit, and publication. A native corrupt/I/O result already
 established before the next cancellation checkpoint remains primary.
 
-Future tests use small checked-in, legally redistributable databases with manifests, generator source,
+The completed adapter tests use small checked-in, legally redistributable databases with manifests,
+generator recipes,
 tool/driver versions, licenses, and SHA-256 values plus independently generated real-producer samples
 where redistribution is explicit. They cover both byte orders in geometry BLOBs, all six geometry
 types, attributes, both recognized and retained-unknown CRSs, sparse PNG/JPEG tiles, GeoPackage matrix
@@ -1877,7 +1878,7 @@ tests prove external-type isolation, direct construction, the exact classifier g
 no AWT, the two I/O-codec allowlist edges, absence of project discovery/native-loading calls, and the
 closed third-party reflection/host/resource/process/JNI inventory above.
 
-Each created module joins publication staging and the standalone consumer with its exact classified
+Each module joins publication staging and the standalone consumer with its exact classified
 runtime dependencies, artifact/license/checksum verification, and the pinned Java 21 Ubuntu
 22.04/glibc 2.35 and Ubuntu 24.04/glibc 2.39 JVM scenarios. The project repository contains only
 MundaneJ artifacts; G8's post-Level-1 Optional-adapter
@@ -1915,6 +1916,14 @@ and G10-044 follows G10-042 and G10-043. G10-039 is also a prerequisite of G10-0
 branches are logically independent after the shared decoder, but dependency
 verification, settings/inventory, publication, consumer, task-index, and roadmap changes remain under
 one integration owner. No module is created by the profile decision or shared helper card.
+
+Completion record (2026-07-25): G10-040 through G10-044 implement this approved graph. The final
+G10-044 evidence retains independent GeoPackage and MBTiles container digests, the exact Xerial
+artifact and third-party mechanism inventory, full MBTiles hostile-input coverage, and fresh staged
+JVM probes. CI pins Java 21 on Ubuntu 22.04/glibc 2.35 and Ubuntu 24.04/glibc 2.39 and records the
+reviewed commit SHA, image, JDK, kernel, architecture, and libc facts. Alpine 3.20 records the closed
+musl rejection. Accordingly, the support statement is limited to Java 21 Linux x86-64 with glibc
+2.35 or newer; Native Image remains `not-targeted` for both adapters.
 
 ## GPX and KML source profiles (G10-005)
 

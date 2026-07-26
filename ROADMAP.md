@@ -425,8 +425,15 @@ module, and broader follow-up remains separately decomposed.
   opens one explicit zoom over its smallest populated EPSG:3857 extent. Sparse PNG/JPEG reads use the
   explicit decoder boundary, coalesced missing-tile warnings, transactional optional caching, fixed
   immutable-file sessions, and a runnable owned-source viewer. Publication and a clean offline Java
-  21 consumer resolve the same approved split Xerial classifiers. G10-044 owns final hostile-input,
-  independent-corpus, and combined Linux deployment evidence.
+  21 consumer resolve the same approved split Xerial classifiers. G10-044 completes its
+  hostile-input, independent-corpus, and combined Linux deployment evidence.
+- G10-044 is complete. MBTiles now has direct exact/one-over, corrupt/truncated, mutation/sidecar,
+  cancellation/progress, transactional-cache, lifecycle, cleanup, stable-diagnostic, and
+  independently generated fixture evidence. A dedicated workflow stages both adapters and proves
+  fresh-JVM open/query/read/render behavior on Java 21 Ubuntu 22.04/glibc 2.35 and Ubuntu
+  24.04/glibc 2.39, plus deterministic code-only, unusable-temporary-directory, and Alpine 3.20/musl
+  rejection outcomes. The resulting support statement is only Java 21 Linux x86-64 with glibc 2.35
+  or newer; both adapters remain Native Image `not-targeted`.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly

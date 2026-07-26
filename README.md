@@ -208,8 +208,10 @@ implemented Level 2 capabilities and do not broaden Level 1. GeoPackage provides
 approved two-dimensional feature geometry families, typed attribute projection, retained/recognized
 CRS metadata, and explicit-zoom sparse PNG/JPEG tile-matrix raster sources. MBTiles provides strict
 single-tileset metadata, explicit-zoom TMS-to-XYZ conversion, and sparse PNG/JPEG raster windows.
-Both tile adapters offer transactional optional decoded caching and runnable viewers; final combined
-Linux deployment evidence remains a separate task.
+Both tile adapters offer transactional optional decoded caching and runnable viewers. Their exact
+supported deployment is Java 21 on Linux x86-64 with glibc 2.35 or newer; pinned Ubuntu 22.04 and
+24.04 fresh-JVM lanes record open/query/read/render evidence, while Alpine/musl is explicitly
+rejected. Both adapters are Native Image `not-targeted`.
 
 ## MIL-STD-2525 point-symbol profile
 

@@ -19,6 +19,18 @@ public record MbTilesOpenOptions(
         Objects.requireNonNull(limits, "limits");
         Objects.requireNonNull(rasterSourceLimits, "rasterSourceLimits");
         Objects.requireNonNull(cachePolicy, "cachePolicy");
+        long requestAllowance =
+                Math.max(
+                        rasterSourceLimits.requestLimits().decodedIntermediateBytes(),
+                        rasterSourceLimits.requestLimits().ownedPayloadBytes());
+        long requiredOwnedBytes =
+                Math.addExact(
+                        Math.addExact(2L * limits.maximumBlobBytes(), 256L * 256L * Integer.BYTES),
+                        requestAllowance);
+        if (limits.maximumOwnedBytes() < requiredOwnedBytes) {
+            throw new IllegalArgumentException(
+                    "MBTiles owned-byte limit cannot cover configured raster requests");
+        }
         if (cachePolicy.enabled()
                 && (cachePolicy.maximumEntries().orElseThrow() > limits.maximumCacheEntries()
                         || cachePolicy.maximumPixelBytes().orElseThrow()

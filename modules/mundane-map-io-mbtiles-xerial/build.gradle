@@ -279,4 +279,33 @@ tasks.register('generateConsumerMbTilesFixture', JavaExec) {
     outputs.file consumerFixture
 }
 
+def deploymentEvidenceDirectory =
+        layout.buildDirectory.dir('sqlite-adapter-evidence/mbtiles')
+tasks.register('stageDeploymentEvidence', Sync) {
+    group = 'verification'
+    description = 'Stages the exact MBTiles deployment probe, runtime, and fixture.'
+    dependsOn tasks.named('testClasses')
+    dependsOn tasks.named('jar')
+    dependsOn tasks.named('generateConsumerMbTilesFixture')
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    into deploymentEvidenceDirectory
+    from(sourceSets.test.output.classesDirs) {
+        into 'classes'
+        include '**/MbTilesDeploymentProbe.class'
+    }
+    from(configurations.runtimeClasspath) {
+        into 'lib'
+    }
+    from(project(':modules:mundane-map-awt').tasks.named('jar').flatMap { it.archiveFile }) {
+        into 'lib'
+    }
+    from(tasks.named('jar').flatMap { it.archiveFile }) {
+        into 'lib'
+    }
+    from(consumerFixture) {
+        into 'fixtures'
+        rename { 'consumer.mbtiles' }
+    }
+}
+
 description = 'Optional bounded MBTiles support using Xerial SQLite JDBC.'

@@ -12,7 +12,9 @@ import io.github.mundanej.map.api.EncodedRasterFormat;
 import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.RasterRead;
 import io.github.mundanej.map.api.RasterRequest;
+import io.github.mundanej.map.api.RasterRequestLimits;
 import io.github.mundanej.map.api.RasterSource;
+import io.github.mundanej.map.api.RasterSourceLimits;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.api.RgbaPixelBuffer;
 import io.github.mundanej.map.api.SourceException;
@@ -326,7 +328,16 @@ class GeoPackageTileSourceTest {
 
     @Test
     void enforcesExactContainerOwnedBudgetAndCleansUpAfterDecoderError() throws Exception {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> GeoPackageTileCachePolicy.bounded(1, 262_143));
+        assertEquals(
+                262_144,
+                GeoPackageTileCachePolicy.bounded(1, 262_144).maximumPixelBytes().orElseThrow());
         Path path = fixture("owned-budget.gpkg");
+        int encodedBytes = png(256, 256, Color.RED).length;
+        int maximumBlobBytes = Math.max(encodedBytes, jpeg(256, 256, Color.BLUE).length);
+        long minimumReachableBudget = 786_432L + 2L * maximumBlobBytes;
         RasterRequest missing =
                 new RasterRequest(
                         new RasterWindow(0, 256, 256, 256),
@@ -340,7 +351,7 @@ class GeoPackageTileSourceTest {
                         new SourceIdentity("exact-owned-budget", ""),
                         "tiles",
                         1,
-                        optionsWithOwnedBudget(262_148),
+                        optionsWithOwnedBudget(minimumReachableBudget, maximumBlobBytes),
                         AwtRasterDecoders.level1(),
                         CancellationToken.none())) {
             assertEquals(
@@ -351,23 +362,9 @@ class GeoPackageTileSourceTest {
                             .getFirst()
                             .code());
         }
-        try (RasterSource source =
-                GeoPackages.openTiles(
-                        path,
-                        new SourceIdentity("exceeded-owned-budget", ""),
-                        "tiles",
-                        1,
-                        optionsWithOwnedBudget(262_147),
-                        AwtRasterDecoders.level1(),
-                        CancellationToken.none())) {
-            SourceException failure =
-                    assertThrows(
-                            SourceException.class,
-                            () -> source.read(missing, CancellationToken.none()));
-            assertEquals("SOURCE_LIMIT_EXCEEDED", failure.terminal().code());
-            assertEquals("ownedBytes", failure.terminal().context().get("limit"));
-            assertEquals("262148", failure.terminal().context().get("requested"));
-        }
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> optionsWithOwnedBudget(minimumReachableBudget - 1, maximumBlobBytes));
 
         RasterRequest present =
                 new RasterRequest(
@@ -377,14 +374,14 @@ class GeoPackageTileSourceTest {
                         RasterInterpolation.NEAREST,
                         java.util.Optional.empty());
         long tileBytes = 256L * 256 * Integer.BYTES;
-        long exactPresentBudget = 262_148L + 3L * png(256, 256, Color.RED).length + 4L * tileBytes;
+        long exactPresentBudget = 262_148L + 3L * encodedBytes + 4L * tileBytes;
         try (RasterSource source =
                 GeoPackages.openTiles(
                         path,
                         new SourceIdentity("exact-present-owned-budget", ""),
                         "tiles",
                         1,
-                        optionsWithOwnedBudget(exactPresentBudget),
+                        optionsWithOwnedBudget(exactPresentBudget, maximumBlobBytes),
                         AwtRasterDecoders.level1(),
                         CancellationToken.none())) {
             assertEquals(
@@ -397,7 +394,7 @@ class GeoPackageTileSourceTest {
                         new SourceIdentity("exceeded-present-owned-budget", ""),
                         "tiles",
                         1,
-                        optionsWithOwnedBudget(exactPresentBudget - 1),
+                        optionsWithOwnedBudget(exactPresentBudget - 1, maximumBlobBytes),
                         AwtRasterDecoders.level1(),
                         CancellationToken.none())) {
             SourceException failure =
@@ -687,7 +684,8 @@ class GeoPackageTileSourceTest {
         assertEquals(field, failure.terminal().context().get("field"));
     }
 
-    private static GeoPackageTileOptions optionsWithOwnedBudget(long maximumOwnedBytes) {
+    private static GeoPackageTileOptions optionsWithOwnedBudget(
+            long maximumOwnedBytes, int maximumBlobBytes) {
         GeoPackageLimits defaults = GeoPackageLimits.DEFAULTS;
         GeoPackageLimits limits =
                 new GeoPackageLimits(
@@ -698,7 +696,7 @@ class GeoPackageTileSourceTest {
                         defaults.maximumMetadataRows(),
                         defaults.maximumTextValueCharacters(),
                         defaults.maximumTextCharacters(),
-                        131_072,
+                        maximumBlobBytes,
                         defaults.maximumRows(),
                         defaults.maximumVmOpcodes(),
                         maximumOwnedBytes,
@@ -711,7 +709,8 @@ class GeoPackageTileSourceTest {
                         defaults.maximumCacheBytes());
         return new GeoPackageTileOptions(
                 limits,
-                io.github.mundanej.map.api.RasterSourceLimits.LEVEL_1,
+                new RasterSourceLimits(
+                        new RasterRequestLimits(65_536, 256, 65_536, 524_288, 262_144, 256)),
                 GeoPackageTileCachePolicy.disabled());
     }
 

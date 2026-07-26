@@ -187,7 +187,7 @@ class GeoPackagesTest {
     }
 
     @Test
-    void rejectsHeaderAndPlatformBeforeNativeConnection() throws Exception {
+    void rejectsInvalidHeaderBeforeNativeConnection() throws Exception {
         Path fixture = fixture("header.gpkg");
         try (var channel =
                 java.nio.channels.FileChannel.open(
@@ -199,18 +199,6 @@ class GeoPackagesTest {
                 "reason",
                 "header",
                 () -> inspect(fixture, GeoPackageInspectOptions.defaults()));
-
-        String original = System.getProperty("os.name");
-        try {
-            System.setProperty("os.name", "Not Linux");
-            assertFailure(
-                    "SQLITE_ADAPTER_UNAVAILABLE",
-                    "reason",
-                    "unsupportedPlatform",
-                    () -> inspect(fixture("platform.gpkg"), GeoPackageInspectOptions.defaults()));
-        } finally {
-            System.setProperty("os.name", original);
-        }
     }
 
     @Test
@@ -224,6 +212,13 @@ class GeoPackagesTest {
         assertEquals(
                 "SQLITE_ADAPTER_UNAVAILABLE|temporaryDirectory",
                 runDeploymentProbe(fixture, true, unusableTemporary));
+        assertEquals(
+                "SQLITE_ADAPTER_UNAVAILABLE|unsupportedPlatform",
+                runDeploymentProbe(fixture, true, temporary, "Not Linux", "x86_64"));
+        assertEquals(
+                "SQLITE_ADAPTER_UNAVAILABLE|unsupportedPlatform",
+                runDeploymentProbe(fixture, true, temporary, "Linux", "not-x86"));
+        assertEquals("SUCCESS", runDeploymentProbe(fixture, true, temporary));
     }
 
     @Test
@@ -694,11 +689,22 @@ class GeoPackagesTest {
 
     private static String runDeploymentProbe(
             Path fixture, boolean includeNative, Path temporaryDirectory) throws Exception {
+        return runDeploymentProbe(fixture, includeNative, temporaryDirectory, null, null);
+    }
+
+    private static String runDeploymentProbe(
+            Path fixture,
+            boolean includeNative,
+            Path temporaryDirectory,
+            String osName,
+            String architecture)
+            throws Exception {
         List<Path> entries = new ArrayList<>();
         entries.add(codeSource(GeoPackageDeploymentProbe.class));
         entries.add(codeSource(GeoPackages.class));
         entries.add(codeSource(SourceIdentity.class));
         entries.add(codeSource(CrsRegistry.class));
+        entries.add(codeSource(MapView.class));
         entries.add(codeSource(JDBC4Connection.class));
         if (includeNative) {
             var resource =
@@ -715,6 +721,13 @@ class GeoPackagesTest {
         }
         List<String> command = new ArrayList<>();
         command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+        command.add("-Djava.awt.headless=true");
+        if (osName != null) {
+            command.add("-Dos.name=" + osName);
+        }
+        if (architecture != null) {
+            command.add("-Dos.arch=" + architecture);
+        }
         if (temporaryDirectory != null) {
             command.add("-Dorg.sqlite.tmpdir=" + temporaryDirectory);
         }

@@ -10,6 +10,7 @@ import java.util.OptionalLong;
  * tiles and commit access-order changes only after a complete successful raster read.
  */
 public final class GeoPackageTileCachePolicy {
+    private static final long TILE_BYTES = 256L * 256L * Integer.BYTES;
     private static final GeoPackageTileCachePolicy DISABLED = new GeoPackageTileCachePolicy(0, 0);
 
     private final int maximumEntries;
@@ -37,8 +38,9 @@ public final class GeoPackageTileCachePolicy {
      * @return enabled cache policy
      */
     public static GeoPackageTileCachePolicy bounded(int maximumEntries, long maximumPixelBytes) {
-        if (maximumEntries <= 0 || maximumPixelBytes <= 0) {
-            throw new IllegalArgumentException("GeoPackage tile-cache limits must be positive");
+        if (maximumEntries <= 0 || maximumPixelBytes < TILE_BYTES) {
+            throw new IllegalArgumentException(
+                    "GeoPackage tile-cache limits must retain at least one decoded tile");
         }
         return new GeoPackageTileCachePolicy(maximumEntries, maximumPixelBytes);
     }
