@@ -33,6 +33,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
 | `mundane-map-io-maplibre-style-jackson` | Optional bounded Level 2 MapLibre v8 vector-style reader using Jackson Core. |
 | `mundane-map-io-geopackage-xerial` | Optional Linux JVM-only bounded Level 2 GeoPackage 1.4.0 feature and PNG/JPEG tile reader using pinned Xerial SQLite JDBC classifiers. |
+| `mundane-map-io-mbtiles-xerial` | Optional Linux JVM-only bounded Level 2 MBTiles 1.3 PNG/JPEG tile reader using pinned Xerial SQLite JDBC classifiers. |
 | `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |
 
 The format modules contain no AWT types and do not discover implementations. Applications explicitly
@@ -200,15 +201,15 @@ and bounded decode/resample caching. `ImageIO` and packed-pixel conversion remai
 decoder implementation.
 
 Level 1 recognizes only explicitly registered EPSG:4326 and EPSG:3857 definitions and operations.
-Unknown definitions are retained when available but are not guessed or transformed. GeoTIFF,
-MBTiles, remote tiles, additional projections, and optional JTS/PROJ/GDAL adapters remain Level 2
-work. DTED, the static SVG subset, and the optional
-Jackson Core GeoJSON and Xerial GeoPackage profiles are implemented Level 2 capabilities and do not
-broaden Level 1. GeoPackage provides catalog, all six approved two-dimensional feature geometry
-families, typed attribute projection, retained/recognized CRS metadata, and explicit-zoom sparse
-PNG/JPEG tile-matrix raster sources with optional transactional decoded caching. Its runnable viewer
-accepts either a feature table or a tile table plus zoom; final Linux deployment evidence remains a
-separate task.
+Unknown definitions are retained when available but are not guessed or transformed. Remote tiles,
+additional projections, and optional JTS/PROJ/GDAL adapters remain Level 2 work. DTED, GeoTIFF, the
+static SVG subset, and the optional Jackson Core GeoJSON and Xerial GeoPackage/MBTiles profiles are
+implemented Level 2 capabilities and do not broaden Level 1. GeoPackage provides catalog, all six
+approved two-dimensional feature geometry families, typed attribute projection, retained/recognized
+CRS metadata, and explicit-zoom sparse PNG/JPEG tile-matrix raster sources. MBTiles provides strict
+single-tileset metadata, explicit-zoom TMS-to-XYZ conversion, and sparse PNG/JPEG raster windows.
+Both tile adapters offer transactional optional decoded caching and runnable viewers; final combined
+Linux deployment evidence remains a separate task.
 
 ## MIL-STD-2525 point-symbol profile
 
@@ -266,7 +267,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Nineteen independent examples consume the published APIs without copying parsers or renderers:
+Twenty independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -281,6 +282,7 @@ Nineteen independent examples consume the published APIs without copying parsers
 ./gradlew :examples:geotiff-viewer:run
 ./gradlew :examples:geopackage-viewer:run --args='/absolute/path/data.gpkg feature_table'
 ./gradlew :examples:geopackage-viewer:run --args='/absolute/path/data.gpkg tile_table 4'
+./gradlew :examples:mbtiles-viewer:run --args='/absolute/path/data.mbtiles 4'
 ./gradlew :examples:http-tile-viewer:run
 ./gradlew :examples:point-edit-viewer:run
 ./gradlew :examples:styling-label-viewer:run

@@ -72,6 +72,9 @@ import io.github.mundanej.map.io.gpx.GpxFiles;
 import io.github.mundanej.map.io.gpx.GpxOpenOptions;
 import io.github.mundanej.map.io.kml.KmlFiles;
 import io.github.mundanej.map.io.kml.KmlOpenOptions;
+import io.github.mundanej.map.io.mbtiles.MbTiles;
+import io.github.mundanej.map.io.mbtiles.MbTilesInspectOptions;
+import io.github.mundanej.map.io.mbtiles.MbTilesOpenOptions;
 import io.github.mundanej.map.io.maplibre.style.MapLibreBoundLayer;
 import io.github.mundanej.map.io.maplibre.style.MapLibreSourceRegistry;
 import io.github.mundanej.map.io.maplibre.style.MapLibreStyleBinder;
@@ -147,6 +150,7 @@ public final class MundaneMapConsumerSmoke {
             testDted(directory);
             testGeoTiff();
             testGeoPackage(directory, registry, renderers);
+            testMbTiles(directory);
             testWorkspace(directory);
         } finally {
             try (var paths = Files.walk(directory)) {
@@ -1285,6 +1289,49 @@ public final class MundaneMapConsumerSmoke {
                     view.close();
                     require(source.isClosed(), "GeoPackage staged source was not closed");
                 });
+    }
+
+    private static void testMbTiles(Path directory) throws Exception {
+        Path path = directory.resolve("consumer.mbtiles");
+        try (var input =
+                MundaneMapConsumerSmoke.class.getResourceAsStream("/consumer.mbtiles")) {
+            require(input != null, "MBTiles staged fixture is missing");
+            Files.copy(input, path);
+        }
+        var metadata =
+                MbTiles.inspect(
+                        path,
+                        new SourceIdentity("consumer-mbtiles", "Consumer MBTiles"),
+                        MbTilesInspectOptions.defaults(),
+                        CancellationToken.none());
+        require(
+                metadata.name().equals("Consumer tiles")
+                        && metadata.zoomLevels().equals(List.of(0)),
+                "MBTiles staged metadata changed");
+        RasterSource source =
+                MbTiles.open(
+                        path,
+                        new SourceIdentity("consumer-mbtiles", "Consumer MBTiles"),
+                        0,
+                        MbTilesOpenOptions.defaults(),
+                        AwtRasterDecoders.level1(),
+                        CancellationToken.none());
+        try {
+            var read =
+                    source.read(
+                            new RasterRequest(
+                                    new RasterWindow(0, 0, 256, 256),
+                                    8,
+                                    8,
+                                    Optional.empty()),
+                            CancellationToken.none());
+            require(
+                    read.pixels().rgbaAt(0, 0) == 0x1e6ed2ff,
+                    "MBTiles staged raster changed");
+        } finally {
+            source.close();
+        }
+        require(source.isClosed(), "MBTiles staged source was not closed");
     }
 
     private static void testWorkspace(Path directory) throws IOException {

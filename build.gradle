@@ -186,6 +186,7 @@ def publicationContract = [
     'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
     'mundane-map-io-maplibre-style-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/maplibre/style/',
     'mundane-map-io-geopackage-xerial|mundane-map-api|mundane-map-core,mundane-map-io-image|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/geopackage/',
+    'mundane-map-io-mbtiles-xerial|mundane-map-api|mundane-map-core,mundane-map-io-image|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/mbtiles/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'
 ].asImmutable()
 def releaseProjectByArtifact = publishedProjects.collectEntries { path ->
@@ -246,10 +247,17 @@ def generateConsumerGeoPackageFixture =
         ':modules:mundane-map-io-geopackage-xerial:generateConsumerGeoPackageFixture'
 def consumerGeoPackageFixture = layout.projectDirectory.file(
         'modules/mundane-map-io-geopackage-xerial/build/generated/consumer-fixture/consumer.gpkg')
+def generateConsumerMbTilesFixture =
+        ':modules:mundane-map-io-mbtiles-xerial:generateConsumerMbTilesFixture'
+def consumerMbTilesFixture = layout.projectDirectory.file(
+        'modules/mundane-map-io-mbtiles-xerial/build/generated/consumer-fixture/consumer.mbtiles')
 def prepareConsumerSmoke = tasks.register('prepareConsumerSmoke', Sync) {
-    dependsOn generateConsumerGeoPackageFixture
+    dependsOn generateConsumerGeoPackageFixture, generateConsumerMbTilesFixture
     from layout.projectDirectory.dir('consumer-smoke')
     from(consumerGeoPackageFixture) {
+        into 'src/main/resources'
+    }
+    from(consumerMbTilesFixture) {
         into 'src/main/resources'
     }
     into consumerRoot.map { it.dir('project') }

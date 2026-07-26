@@ -32,6 +32,10 @@ First useful Level 1 release candidate.
   transactional optional decoded caching, and independent-container evidence. Classified dependency
   verification, immutable-file checks, bounded SQLite policy, stable diagnostics, and no JDBC types
   in public contracts remain enforced.
+- An optional Linux JVM-only Xerial adapter for strict read-only MBTiles 1.3 raster tilesets, with
+  bounded detached metadata, explicit zoom selection, exact TMS-to-XYZ conversion, sparse PNG/JPEG
+  windows, optional transactional decoded caching, a runnable viewer, publication staging, and a
+  clean offline Java 21 consumer.
 - Runnable examples for the implemented map, symbol, interaction, format, editing, styling, and
   workspace slices, plus independent corpus, rendering-regression, performance, Native Image,
   publication, and downstream-consumer verification lanes.
@@ -56,8 +60,8 @@ First useful Level 1 release candidate.
 - PNG/JPEG decoding uses the explicitly registered JDK `ImageIO` boundary in `mundane-map-awt`.
   DTED, GeoTIFF, the static SVG subset, the optional Jackson Core GeoJSON adapter, editing/styling,
   and local workspace persistence are implemented Level 2 capabilities and do not broaden Level 1.
-  MBTiles and optional JTS/PROJ/GDAL adapters remain future work. The GeoPackage adapter is JVM-only
-  and does not broaden Native Image claims.
+  Optional JTS/PROJ/GDAL adapters remain future work. The GeoPackage and MBTiles adapters are
+  Linux JVM-only and do not broaden Native Image claims.
 - Performance evidence is scenario- and environment-specific. It establishes correctness and the
   retained Level 1 optimization decisions, not portable latency or throughput guarantees.
 - The intended Native Image claim is limited to the separately recorded Ubuntu 24.04 Linux x86_64

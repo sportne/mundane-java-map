@@ -367,8 +367,13 @@ class ArchitectureRulesTest {
     }
 
     @Test
-    void geoPackageAdapterKeepsXerialPrivateAndAvoidsProjectOwnedLoading() {
-        ModuleDescriptor module = moduleEndingWith("mundane-map-io-geopackage-xerial");
+    void sqliteAdaptersKeepXerialPrivateAndAvoidProjectOwnedLoading() {
+        verifySQLiteAdapter("mundane-map-io-geopackage-xerial");
+        verifySQLiteAdapter("mundane-map-io-mbtiles-xerial");
+    }
+
+    private void verifySQLiteAdapter(String moduleName) {
+        ModuleDescriptor module = moduleEndingWith(moduleName);
         var classes = classesByModule.get(module);
         List<String> forbidden =
                 classes.stream()
@@ -452,7 +457,7 @@ class ArchitectureRulesTest {
         assertTrue(reflectionDependencies.isEmpty(), reflectionDependencies::toString);
         assertTrue(nativeMethods.isEmpty(), nativeMethods::toString);
         assertTrue(publicXerialLeaks.isEmpty(), publicXerialLeaks::toString);
-        assertTrue(directConnection, "GeoPackage adapter must construct JDBC4Connection directly");
+        assertTrue(directConnection, () -> moduleName + " must construct JDBC4Connection directly");
     }
 
     @Test

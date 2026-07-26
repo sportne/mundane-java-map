@@ -1,0 +1,16 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-awt')
+    implementation project(':modules:mundane-map-io-mbtiles-xerial')
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.mbtiles.MbTilesViewer'
+}
+
+description = 'Runnable bounded MBTiles raster viewer example.'

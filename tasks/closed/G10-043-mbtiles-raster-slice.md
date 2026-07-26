@@ -1,6 +1,6 @@
 # G10-043 — MBTiles raster slice
 
-Status: Proposed
+Status: Complete
 Depends on: G10-039, G11-004
 Gate: G10
 Type: AFK

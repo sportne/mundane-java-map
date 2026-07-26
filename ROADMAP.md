@@ -419,8 +419,14 @@ module, and broader follow-up remains separately decomposed.
   mixed PNG/JPEG BLOBs use the explicit G10-039 decoder registry, and optional decoded LRU changes
   commit only after successful reads. Generated hostile fixtures plus an independently generated,
   digest-pinned Python/SQLite container cover matrix math, decode translation, rendering, lifecycle,
-  and provenance. The viewer accepts either a feature table or a tile table plus zoom. G10-043 and
-  G10-044 own MBTiles and final Linux deployment evidence.
+  and provenance. The viewer accepts either a feature table or a tile table plus zoom.
+- G10-043 is complete. The optional `mundane-map-io-mbtiles-xerial` module reads strict real-table
+  MBTiles 1.3 raster containers, exposes bounded detached metadata, converts TMS rows exactly, and
+  opens one explicit zoom over its smallest populated EPSG:3857 extent. Sparse PNG/JPEG reads use the
+  explicit decoder boundary, coalesced missing-tile warnings, transactional optional caching, fixed
+  immutable-file sessions, and a runnable owned-source viewer. Publication and a clean offline Java
+  21 consumer resolve the same approved split Xerial classifiers. G10-044 owns final hostile-input,
+  independent-corpus, and combined Linux deployment evidence.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly

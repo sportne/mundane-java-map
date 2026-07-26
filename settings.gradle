@@ -120,6 +120,11 @@ def projectInventory = [
         allowedRuntimeProjects: [
             ':modules:mundane-map-api', ':modules:mundane-map-core',
             ':modules:mundane-map-io-image']],
+    [path: ':modules:mundane-map-io-mbtiles-xerial', category: 'OPTIONAL_ADAPTER',
+        releaseLevel: 2, published: true, nativeTarget: false,
+        allowedRuntimeProjects: [
+            ':modules:mundane-map-api', ':modules:mundane-map-core',
+            ':modules:mundane-map-io-image']],
     [path: ':modules:mundane-map-workspace', category: 'JDK_RUNTIME', releaseLevel: 2,
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [
@@ -159,6 +164,8 @@ def projectInventory = [
     [path: ':examples:geotiff-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:geopackage-viewer', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false, allowedRuntimeProjects: []],
+    [path: ':examples:mbtiles-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:point-edit-viewer', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
