@@ -1,6 +1,7 @@
 plugins {
     id 'groovy-gradle-plugin'
     id 'checkstyle'
+    id 'jacoco'
 }
 
 def testJavaVersion =
@@ -30,6 +31,13 @@ checkstyle {
     toolVersion = libs.versions.checkstyle.get()
     configDirectory = rootProject.file('../config/checkstyle')
     sourceSets = [sourceSets.main, sourceSets.test]
+}
+
+configurations {
+    functionalJacocoAgent {
+        canBeConsumed = false
+        transitive = false
+    }
 }
 
 tasks.named('checkstyleMain') {
@@ -65,13 +73,18 @@ def buildLogicPluginMarkers = [
 
 dependencies {
     buildLogicPluginMarkers.each { marker ->
-        implementation "${marker.id}:${marker.id}.gradle.plugin:${marker.version}"
+    implementation "${marker.id}:${marker.id}.gradle.plugin:${marker.version}"
     }
+    implementation "org.jacoco:org.jacoco.core:${libs.versions.jacoco.get()}"
     testImplementation gradleTestKit()
     testImplementation platform(libs.junit.bom)
     testImplementation libs.junit.jupiter
     testRuntimeOnly libs.junit.platform.launcher
+    functionalJacocoAgent(
+            "org.jacoco:org.jacoco.agent:${libs.versions.jacoco.get()}:runtime")
 }
+
+def functionalJacocoAgentFiles = configurations.functionalJacocoAgent
 
 tasks.withType(Test).configureEach {
     javaLauncher = javaToolchains.launcherFor {
@@ -79,10 +92,119 @@ tasks.withType(Test).configureEach {
     }
     useJUnitPlatform()
     systemProperty 'map.rootDir', rootDir.parentFile.absolutePath
+    systemProperty 'map.functionalJacocoDestination',
+            layout.buildDirectory.file('jacoco/functional.exec').get().asFile.absolutePath
+    inputs.files(functionalJacocoAgentFiles)
+    doFirst {
+        systemProperty 'map.functionalJacocoAgent',
+                functionalJacocoAgentFiles.singleFile.absolutePath
+    }
     testLogging {
         events 'failed'
         exceptionFormat = 'full'
     }
+}
+
+jacoco {
+    toolVersion = libs.versions.jacoco.get()
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
+    executionData.from(
+            layout.buildDirectory.file('jacoco/test.exec'),
+            layout.buildDirectory.file('jacoco/functional.exec'))
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+    dependsOn tasks.named('test')
+    executionData.from(
+            layout.buildDirectory.file('jacoco/test.exec'),
+            layout.buildDirectory.file('jacoco/functional.exec'))
+    violationRules {
+        rule {
+            limit {
+                minimum = 0.80
+            }
+        }
+    }
+}
+
+def generatedCoverageSources = [
+    'MundaneMapArchitectureTestConventionsPlugin.java',
+    'MundaneMapJavaApplicationConventionsPlugin.java',
+    'MundaneMapJavaLibraryConventionsPlugin.java',
+    'MundaneMapNativeImageConventionsPlugin.java',
+    'MundaneMapPublishingConventionsPlugin.java',
+    'MundaneMapRootConventionsPlugin.java'
+]
+def buildLogicCoverageAliases = [:]
+[
+    'ArchitectureTest',
+    'JavaApplication',
+    'JavaLibrary',
+    'NativeImage',
+    'Publishing',
+    'Root'
+].each { name ->
+    String physical = "mundane-map.${name.replaceAll(/([A-Z])/, '-$1').toLowerCase().substring(1)}-conventions.gradle"
+    buildLogicCoverageAliases["precompiled_MundaneMap${name}Conventions"] = physical
+    buildLogicCoverageAliases["cp_precompiled_MundaneMap${name}Conventions"] = physical
+}
+def buildLogicClassDirectories = files(
+        sourceSets.main.output.classesDirs,
+        layout.buildDirectory.dir('groovy-dsl-plugins/output/plugin-classes'),
+        layout.buildDirectory.dir('groovy-dsl-plugins/output/plugin-requests'))
+def buildLogicCoverageArguments = [
+    projectDir.absolutePath,
+    layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml')
+            .get().asFile.absolutePath,
+    '0.80',
+    ':build-logic',
+    layout.buildDirectory.file('reports/jacoco/test/source-coverage.csv')
+            .get().asFile.absolutePath,
+    layout.buildDirectory.file('reports/jacoco/test/source-coverage.md')
+            .get().asFile.absolutePath,
+    generatedCoverageSources.size().toString()
+] + generatedCoverageSources + [
+    buildLogicCoverageAliases.size().toString()
+] + buildLogicCoverageAliases.collectMany { key, value -> [key, value] } + [
+    '1',
+    layout.buildDirectory.dir('groovy-dsl-plugins/output/adapter-src')
+            .get().asFile.absolutePath,
+    buildLogicClassDirectories.files.size().toString()
+] + buildLogicClassDirectories.files.collect { it.absolutePath } + [
+    file('src/main/java').absolutePath,
+    file('src/main/groovy').absolutePath
+]
+
+def verifyBuildLogicSourceCoverage = tasks.register(
+        'verifyBuildLogicSourceCoverage',
+        JavaExec) {
+    group = 'verification'
+    description = 'Verifies and reports per-source coverage for hand-authored build logic.'
+    dependsOn tasks.named('jacocoTestReport')
+    classpath = sourceSets.main.runtimeClasspath + configurations.compileClasspath
+    mainClass = 'io.github.mundanej.map.buildlogic.VerifySourceFileCoverage'
+    inputs.files(
+            fileTree('src/main/java'),
+            fileTree('src/main/groovy'),
+            buildLogicClassDirectories,
+            layout.buildDirectory.dir('groovy-dsl-plugins/output/adapter-src'),
+            layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml'))
+    outputs.files(
+            layout.buildDirectory.file('reports/jacoco/test/source-coverage.csv'),
+            layout.buildDirectory.file('reports/jacoco/test/source-coverage.md'))
+    args buildLogicCoverageArguments
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('jacocoTestCoverageVerification')
+    dependsOn verifyBuildLogicSourceCoverage
 }
 
 def resolvedCoordinates = providers.provider {

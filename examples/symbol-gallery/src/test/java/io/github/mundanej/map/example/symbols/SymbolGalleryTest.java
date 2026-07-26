@@ -158,6 +158,25 @@ class SymbolGalleryTest {
                 UnsupportedOperationException.class,
                 () -> section.cases().add(section.cases().get(0)));
         GalleryCase galleryCase = section.cases().get(0);
+        ArrayList<Feature> mutableFeatures = new ArrayList<>(galleryCase.features());
+        GalleryCase copied =
+                new GalleryCase("copy", "Copy", mutableFeatures, GalleryCoverage.none());
+        mutableFeatures.clear();
+        assertFalse(copied.features().isEmpty());
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new GalleryCase(
+                                "Invalid", "Title", copied.features(), GalleryCoverage.none()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new GalleryCase("valid", " ", copied.features(), GalleryCoverage.none()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new GalleryCase("valid", "Title", List.of(), GalleryCoverage.none()));
+        assertThrows(
+                NullPointerException.class,
+                () -> new GalleryCase(null, "Title", copied.features(), GalleryCoverage.none()));
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> galleryCase.features().add(galleryCase.features().get(0)));

@@ -127,6 +127,13 @@ final class NaturalEarthChart {
             throw new IllegalStateException("Natural Earth loading must run off the event thread");
         }
         MaterializedDataset dataset = openDataset();
+        return startHeadless(dataset, diagnosticSink);
+    }
+
+    private static ChartSession startHeadless(
+            MaterializedDataset dataset, Consumer<String> diagnosticSink) {
+        Objects.requireNonNull(dataset, "dataset");
+        Objects.requireNonNull(diagnosticSink, "diagnosticSink");
         try {
             ChartSession[] result = new ChartSession[1];
             EventQueue.invokeAndWait(() -> result[0] = start(dataset, false, diagnosticSink));

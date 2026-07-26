@@ -26,6 +26,8 @@ import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.SourceIdentity;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -34,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -42,6 +45,96 @@ class GeoJsonFilesTest {
             new SourceIdentity("geojson-test", "GeoJSON test");
 
     @TempDir Path temporaryDirectory;
+
+    @Test
+    void localFileOpenSnapshotsRegularFilesAndReportsStableIoFailures() throws Exception {
+        Path path = temporaryDirectory.resolve("point.geojson");
+        Files.writeString(
+                path, "{\"type\":\"Point\",\"coordinates\":[1,2]}", StandardCharsets.UTF_8);
+        try (FeatureSource source =
+                GeoJsonFiles.open(
+                        path, IDENTITY, GeoJsonOpenOptions.defaults(), CancellationToken.none())) {
+            assertEquals(
+                    new Coordinate(1, 2),
+                    ((PointGeometry) only(source, FeatureQuery.all()).geometry()).coordinate());
+        }
+
+        SourceException missing =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoJsonFiles.open(
+                                        temporaryDirectory.resolve("missing.geojson"),
+                                        IDENTITY,
+                                        GeoJsonOpenOptions.defaults(),
+                                        CancellationToken.none()));
+        assertEquals("notFound", missing.terminal().context().get("reason"));
+        SourceException directory =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoJsonFiles.open(
+                                        temporaryDirectory,
+                                        IDENTITY,
+                                        GeoJsonOpenOptions.defaults(),
+                                        CancellationToken.none()));
+        assertEquals("other", directory.terminal().context().get("reason"));
+        SourceException cancelled =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoJsonFiles.open(
+                                        path, IDENTITY, GeoJsonOpenOptions.defaults(), () -> true));
+        assertEquals("SOURCE_CANCELLED", cancelled.terminal().code());
+
+        Path oversized = temporaryDirectory.resolve("oversized.geojson");
+        try (RandomAccessFile output = new RandomAccessFile(oversized.toFile(), "rw")) {
+            output.setLength(GeoJsonLimits.defaults().maximumInputBytes() + 1L);
+        }
+        SourceException limit =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoJsonFiles.open(
+                                        oversized,
+                                        IDENTITY,
+                                        GeoJsonOpenOptions.defaults(),
+                                        CancellationToken.none()));
+        assertEquals("inputBytes", limit.terminal().context().get("limit"));
+
+        Path truncated = temporaryDirectory.resolve("truncated.geojson");
+        Files.writeString(
+                truncated, "{\"type\":\"Point\",\"coordinates\":[1,2]}", StandardCharsets.UTF_8);
+        AtomicInteger truncateChecks = new AtomicInteger();
+        SourceException shortRead =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoJsonFiles.open(
+                                        truncated,
+                                        IDENTITY,
+                                        GeoJsonOpenOptions.defaults(),
+                                        () ->
+                                                mutateOnSecondCheck(
+                                                        truncateChecks, truncated, false)));
+        assertEquals("read", shortRead.terminal().context().get("operation"));
+
+        Path growing = temporaryDirectory.resolve("growing.geojson");
+        try (RandomAccessFile output = new RandomAccessFile(growing.toFile(), "rw")) {
+            output.setLength(GeoJsonLimits.defaults().maximumInputBytes());
+        }
+        AtomicInteger growChecks = new AtomicInteger();
+        SourceException grown =
+                assertThrows(
+                        SourceException.class,
+                        () ->
+                                GeoJsonFiles.open(
+                                        growing,
+                                        IDENTITY,
+                                        GeoJsonOpenOptions.defaults(),
+                                        () -> mutateOnSecondCheck(growChecks, growing, true)));
+        assertEquals("inputBytes", grown.terminal().context().get("limit"));
+    }
 
     @Test
     void opensBarePointFromDefensiveByteSnapshot() {
@@ -501,6 +594,24 @@ class GeoJsonFilesTest {
     private static FeatureSource open(byte[] bytes) {
         return GeoJsonFiles.open(
                 bytes, IDENTITY, GeoJsonOpenOptions.defaults(), CancellationToken.none());
+    }
+
+    private static boolean mutateOnSecondCheck(AtomicInteger checks, Path path, boolean append) {
+        if (checks.incrementAndGet() == 2) {
+            try {
+                if (append) {
+                    Files.write(path, new byte[] {0}, java.nio.file.StandardOpenOption.APPEND);
+                } else {
+                    try (var channel =
+                            Files.newByteChannel(path, java.nio.file.StandardOpenOption.WRITE)) {
+                        channel.truncate(0);
+                    }
+                }
+            } catch (IOException exception) {
+                throw new IllegalStateException(exception);
+            }
+        }
+        return false;
     }
 
     private static FeatureRecord only(FeatureSource source, FeatureQuery query) {

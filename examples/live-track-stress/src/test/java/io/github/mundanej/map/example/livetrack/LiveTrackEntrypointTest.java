@@ -81,4 +81,21 @@ class LiveTrackEntrypointTest {
         assertTrue(report.contains("frames=2"));
         assertTrue(report.contains("coloredPixels="));
     }
+
+    @Test
+    void presentationAndHeadlessEntrypointsCompleteTheirBoundedProfiles() throws Exception {
+        PrintStream original = System.out;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            LiveTrackStress.main(new String[] {"--headless"});
+            LiveTrackPresentationProbe.main(new String[] {"10k"});
+        } finally {
+            System.setOut(original);
+        }
+        String report = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(report.contains("Live-track slice: population=10000"));
+        assertTrue(report.contains("Live-track presentation: population=10000"));
+        assertTrue(report.contains("EDT-paint-p95="));
+    }
 }

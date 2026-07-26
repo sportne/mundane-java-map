@@ -636,19 +636,77 @@ class EvidenceHarnessTest {
         RuntimeSettings settings = RuntimeSettings.install();
         String previousOutput = System.getProperty("performanceOutput");
         String previousProfile = System.getProperty("performanceProfile");
+        String previousScenario = System.getProperty("performanceScenario");
+        String previousProbe = System.getProperty("performanceDtedProbe");
         try {
             System.setProperty("performanceProfile", "SMOKE");
             assertThrows(
                     IllegalArgumentException.class,
                     () -> PerformanceEvidenceMain.main(new String[] {"unexpected"}));
+            System.clearProperty("performanceOutput");
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> PerformanceEvidenceMain.main(new String[0]));
             System.setProperty("performanceOutput", "relative");
             assertThrows(
                     IllegalArgumentException.class,
                     () -> PerformanceEvidenceMain.main(new String[0]));
+            System.setProperty("performanceProfile", "BASELINE");
+            System.clearProperty("performanceScenario");
+            System.clearProperty("performanceDtedProbe");
+            assertThrows(
+                    IllegalStateException.class, () -> PerformanceEvidenceMain.main(new String[0]));
         } finally {
             restore("performanceOutput", previousOutput);
             restore("performanceProfile", previousProfile);
+            restore("performanceScenario", previousScenario);
+            restore("performanceDtedProbe", previousProbe);
             settings.restore();
+        }
+    }
+
+    @Test
+    @Tag("java21-evidence")
+    void mainWritesSelectedEvidenceAndReplacesExistingWorkspace() throws Exception {
+        String previousOutput = System.getProperty("performanceOutput");
+        String previousProfile = System.getProperty("performanceProfile");
+        String previousScenario = System.getProperty("performanceScenario");
+        String previousWarmups = System.getProperty("performanceWarmups");
+        String previousMeasurements = System.getProperty("performanceMeasurements");
+        Path output = temporary.resolve("main-evidence").toAbsolutePath().normalize();
+        try {
+            System.setProperty("performanceOutput", output.toString());
+            System.setProperty("performanceProfile", "SMOKE");
+            System.setProperty("performanceScenario", "memory-query-full");
+            System.setProperty("performanceWarmups", "0");
+            System.setProperty("performanceMeasurements", "1");
+
+            PerformanceEvidenceMain.main(new String[0]);
+            assertTrue(Files.isRegularFile(output.resolve("evidence-v1.json")));
+            assertTrue(Files.isRegularFile(output.resolve("evidence-v1.md")));
+            Files.createDirectories(output.resolve("fixtures/stale"));
+            Files.writeString(output.resolve("fixtures/stale/input"), "stale");
+            PerformanceEvidenceMain.main(new String[0]);
+        } finally {
+            restore("performanceOutput", previousOutput);
+            restore("performanceProfile", previousProfile);
+            restore("performanceScenario", previousScenario);
+            restore("performanceWarmups", previousWarmups);
+            restore("performanceMeasurements", previousMeasurements);
+        }
+    }
+
+    @Test
+    @Tag("java21-evidence")
+    void mainWritesAndValidatesDtedMemoryProbe() throws Exception {
+        String previousOutput = System.getProperty("performanceOutput");
+        Path output = temporary.resolve("dted-probe").toAbsolutePath().normalize();
+        try {
+            System.setProperty("performanceOutput", output.toString());
+            PerformanceEvidenceMain.main(new String[] {"--dted-memory-probe"});
+            DtedMemoryProbe.validate(output.resolve("dted-memory-probe-v1.json"));
+        } finally {
+            restore("performanceOutput", previousOutput);
         }
     }
 

@@ -1,6 +1,7 @@
 package io.github.mundanej.map.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -51,6 +52,12 @@ class VectorExportSnapshotTest {
                         List.of(label));
 
         assertEquals(1, snapshot.primitives().size());
+        assertEquals(100, snapshot.widthPixels());
+        assertEquals(80, snapshot.heightPixels());
+        assertEquals(Rgba.rgb(255, 255, 255), snapshot.background());
+        assertEquals(FRAME, snapshot.viewFrame());
+        assertEquals(1, snapshot.layerCount());
+        assertEquals(List.of(label), snapshot.labels());
         assertEquals(0.0, snapshot.viewFrame().mapXAxisScreenBearingDegrees());
         assertEquals(0.0, snapshot.labels().getFirst().baselineX());
         assertEquals(snapshot, equal);
@@ -122,6 +129,31 @@ class VectorExportSnapshotTest {
                                         VectorExportSnapshotLimits.defaults(),
                                         () -> true));
         assertEquals("VECTOR_EXPORT_SNAPSHOT_CANCELLED", cancelled.problem().code());
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        VectorExportSnapshot.of(
+                                10, 10, Rgba.TRANSPARENT, FRAME, -1, List.of(), List.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        VectorExportSnapshot.of(
+                                10, 10, Rgba.TRANSPARENT, FRAME, 0, List.of(first), List.of()));
+        VectorExportSnapshot.Label firstLabel =
+                new VectorExportSnapshot.Label(
+                        "a",
+                        new LabelTextStyle(Rgba.rgb(1, 2, 3), LabelWeight.NORMAL, 10),
+                        1,
+                        2,
+                        0,
+                        1);
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        snapshot(
+                                List.of(),
+                                List.of(firstLabel, firstLabel),
+                                VectorExportSnapshotLimits.defaults()));
     }
 
     @Test
@@ -263,6 +295,141 @@ class VectorExportSnapshotTest {
                                         VectorExportSnapshotLimits.defaults(),
                                         () -> polls.incrementAndGet() == 7));
         assertEquals("VECTOR_EXPORT_SNAPSHOT_CANCELLED", cancelled.problem().code());
+    }
+
+    @Test
+    void normalizesAndInventoriesEverySupportedGeometryAndNestedOutline() {
+        CoordinateSequence lineCoordinates = CoordinateSequence.of(-0.0, 0, 1, 1);
+        CoordinateSequence ring = CoordinateSequence.of(-0.0, 0, 2, 0, 0, 2, -0.0, 0);
+        LineStringGeometry line = new LineStringGeometry(lineCoordinates);
+        PolygonGeometry polygon = new PolygonGeometry(ring);
+        SolidLineSymbol outline = SolidLineSymbol.of(stroke(), 1);
+        SolidFillSymbol solid = SolidFillSymbol.of(Rgba.rgb(1, 2, 3), Optional.of(outline), 1);
+        HatchFillSymbol hatch =
+                HatchFillSymbol.of(
+                        HatchPattern.FORWARD_DIAGONAL,
+                        stroke(),
+                        new SymbolLength(4, SymbolUnit.SCREEN_PIXEL),
+                        SymbolRotationMode.SCREEN_RELATIVE,
+                        Optional.of(outline),
+                        1,
+                        10);
+        List<VectorExportSnapshot.Primitive> primitives =
+                List.of(
+                        new VectorExportSnapshot.Primitive(
+                                0, 0, new PointGeometry(new Coordinate(-0.0, -0.0)), MARKER),
+                        new VectorExportSnapshot.Primitive(
+                                0,
+                                1,
+                                new MultiPointGeometry(CoordinateSequence.of(-0.0, 0, 1, 1)),
+                                MARKER),
+                        new VectorExportSnapshot.Primitive(0, 2, line, outline),
+                        new VectorExportSnapshot.Primitive(
+                                0,
+                                3,
+                                MultiLineStringGeometry.ofParts(List.of(lineCoordinates)),
+                                outline),
+                        new VectorExportSnapshot.Primitive(0, 4, polygon, solid),
+                        new VectorExportSnapshot.Primitive(
+                                0, 5, MultiPolygonGeometry.ofPolygons(List.of(polygon)), hatch));
+
+        VectorExportSnapshot snapshot =
+                VectorExportSnapshot.of(
+                        20,
+                        20,
+                        Rgba.TRANSPARENT,
+                        new VectorExportSnapshot.ViewFrame(1, -90, new Coordinate(-0.0, -0.0)),
+                        1,
+                        primitives,
+                        List.of());
+
+        assertEquals(6, snapshot.primitives().size());
+        assertEquals(270, snapshot.viewFrame().mapXAxisScreenBearingDegrees());
+        assertEquals(
+                0L,
+                Double.doubleToRawLongBits(
+                        ((PointGeometry) snapshot.primitives().getFirst().screenGeometry())
+                                .coordinate()
+                                .x()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new VectorExportSnapshot.ViewFrame(0, 0, new Coordinate(0, 0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new VectorExportSnapshot.ViewFrame(1, Double.NaN, new Coordinate(0, 0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new VectorExportSnapshot.Primitive(-1, 0, line, outline));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new VectorExportSnapshot.Label(
+                                "x",
+                                new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 10),
+                                Double.NaN,
+                                0,
+                                0,
+                                0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new VectorExportSnapshot.Label(
+                                "x",
+                                new LabelTextStyle(Rgba.rgb(0, 0, 0), LabelWeight.NORMAL, 10),
+                                0,
+                                0,
+                                0,
+                                -1));
+    }
+
+    @Test
+    void limitCopiesExerciseEveryIndependentHardFence() {
+        VectorExportSnapshotLimits defaults = VectorExportSnapshotLimits.defaults();
+        assertEquals(10, defaults.withMaximumPageAxis(10).maximumPageAxis());
+        assertEquals(10, defaults.withMaximumLayers(10).maximumLayers());
+        assertEquals(10, defaults.withMaximumFeatures(10).maximumFeatures());
+        assertEquals(10, defaults.withMaximumCoordinates(10).maximumCoordinates());
+        assertEquals(10, defaults.withMaximumCompositeDepth(10).maximumCompositeDepth());
+        assertEquals(10, defaults.withMaximumSymbolNodes(10).maximumSymbolNodes());
+        assertEquals(10, defaults.withMaximumLabels(10).maximumLabels());
+        assertEquals(10, defaults.withMaximumLabelCodePoints(10).maximumLabelCodePoints());
+        assertEquals(10, defaults.withMaximumOwnedBytes(10).maximumOwnedBytes());
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumPageAxis(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        assertNotNull(
+                                defaults.withMaximumLayers(
+                                        VectorExportSnapshotLimits.LAYERS_HARD_MAXIMUM + 1)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumFeatures(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumCoordinates(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumCompositeDepth(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumSymbolNodes(0)));
+        assertThrows(
+                IllegalArgumentException.class, () -> assertNotNull(defaults.withMaximumLabels(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumLabelCodePoints(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> assertNotNull(defaults.withMaximumOwnedBytes(0)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        assertNotNull(
+                                defaults.withMaximumOwnedBytes(
+                                        VectorExportSnapshotLimits.OWNED_BYTES_HARD_MAXIMUM + 1)));
     }
 
     private static void assertOwnedBoundary(

@@ -140,6 +140,26 @@ tasks.named('jacocoTestCoverageVerification') {
     }
 }
 
+def verifySourceFileCoverage = tasks.register(
+        'verifySourceFileCoverage',
+        io.github.mundanej.map.buildlogic.VerifySourceFileCoverage) {
+    group = 'verification'
+    description = 'Verifies and reports instruction coverage for every production source file.'
+    dependsOn tasks.named('jacocoTestReport')
+    projectDirectory = layout.projectDirectory
+    sourceDirectories.from(sourceSets.main.java.srcDirs)
+    compiledClassDirectories.from(sourceSets.main.output.classesDirs)
+    generatedSourceDirectories.from(layout.buildDirectory.dir('generated'))
+    xmlReport = layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml')
+    generatedSourceKeys = []
+    sourceAliases = [:]
+    minimum = 0.80
+    projectIdentity = project.path
+    csvReport = layout.buildDirectory.file('reports/jacoco/test/source-coverage.csv')
+    markdownReport = layout.buildDirectory.file('reports/jacoco/test/source-coverage.md')
+}
+
 tasks.named('check') {
     dependsOn tasks.named('jacocoTestCoverageVerification')
+    dependsOn verifySourceFileCoverage
 }

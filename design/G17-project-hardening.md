@@ -218,3 +218,36 @@ instructions and proves that the 80% boundary succeeds, XML and HTML reports are
 coverage verification remains in the `check` graph. A second fixture covers six of ten instructions
 and proves that the standard failure identifies the bundle, instruction ratio, actual `0.60`, and
 required `0.80`. Full-project verification then proves every executable bundle meets the same rule.
+
+## G17-005 per-source-file code coverage
+
+The shared Java convention now inventories every hand-authored production Java, Groovy, and Gradle
+source and requires each executable physical file to reach the same exact `0.80`
+`INSTRUCTION/COVEREDRATIO` floor. This rule is additive to the G17-004 bundle threshold: aggregate
+coverage can no longer conceal an untested adapter, value type, example entry point, native smoke
+scenario, performance launcher, or build-support task.
+
+`VerifySourceFileCoverage` reads the JaCoCo XML with secure parser settings, maps every reported
+class—including nested, record, enum, and lambda classes—back to a physical source, and compares
+that population with the source-tree inventory. It emits all violations together with stable
+project-relative paths and six-decimal actual and required ratios. Files without executable
+instructions remain visible with `NO_INSTRUCTIONS` status. Generated build-logic adapters are
+accepted only through an exact checked key inventory; the six precompiled convention plugins use
+explicit aliases to their hand-authored Groovy scripts.
+
+Every governed project writes deterministic sorted reports at
+`build/reports/jacoco/test/source-coverage.csv` and
+`build/reports/jacoco/test/source-coverage.md`, alongside the authoritative JaCoCo XML. Build
+logic combines its ordinary tests with JaCoCo-instrumented TestKit child builds so convention
+plugins and task implementations are governed rather than exempted. Functional fixtures prove the
+exact 80% boundary, below-threshold diagnostics, uncovered-source detection, no-instruction
+handling, deterministic output, class/source mappings, generated provenance, and attachment to
+`check`.
+
+The behavioral expansion closes the previously hidden gaps through assertions over resource
+limits, UTF-8 encoding, filesystem races and cleanup, immutable values, database lifecycle,
+MapLibre filter compilation, raster sampling, GUI failure propagation, native scenarios, maximum
+DTED publication, and performance/example entry points. No production file, package, example,
+adapter, record, exception, or build-support source is excluded, and specialized corpus,
+rendering-regression, performance, native, publication, SQLite, and offline lanes retain their
+independent evidence roles.

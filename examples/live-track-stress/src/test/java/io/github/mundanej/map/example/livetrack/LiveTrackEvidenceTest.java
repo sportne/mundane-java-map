@@ -89,6 +89,25 @@ class LiveTrackEvidenceTest {
     }
 
     @Test
+    void boundedSuccessfulEvidenceRunPublishesTelemetryAndCleansUp(@TempDir Path directory)
+            throws IOException {
+        LiveTrackEvidenceReport report =
+                LiveTrackEvidence.execute(
+                        Profile.TEN_THOUSAND,
+                        "success",
+                        directory.resolve("work"),
+                        0,
+                        1,
+                        ONE_GIBIBYTE);
+        assertEquals(Status.SUCCESS, report.status());
+        assertTrue(Double.isFinite(report.telemetry().achievedFps()));
+        assertTrue(report.cleanup().workersTerminated());
+        assertTrue(report.cleanup().resourcesClosed());
+        assertTrue(report.cleanup().workspaceRemoved());
+        assertFalse(Files.exists(directory.resolve("work/success")));
+    }
+
+    @Test
     void interruptionProducesTerminalCancellationAndCleansResources(@TempDir Path directory)
             throws IOException {
         Semaphore producerGate = new Semaphore(0);

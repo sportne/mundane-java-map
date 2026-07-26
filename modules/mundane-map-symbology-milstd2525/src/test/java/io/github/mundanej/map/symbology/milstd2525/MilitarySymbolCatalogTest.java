@@ -95,6 +95,24 @@ class MilitarySymbolCatalogTest {
         MilitarySymbolCatalogEntry infantry = MilitarySymbolCatalog.entries().getFirst();
         assertThrows(
                 IllegalArgumentException.class,
+                () -> new MilitarySymbolCatalogEntry(-1, 1, "Invalid"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MilitarySymbolCatalogEntry(0x100, 1, "Invalid"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MilitarySymbolCatalogEntry(1, -1, "Invalid"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MilitarySymbolCatalogEntry(1, 0x1000000, "Invalid"));
+        assertThrows(
+                IllegalArgumentException.class, () -> new MilitarySymbolCatalogEntry(1, 1, " "));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new MilitarySymbolCatalogEntry(1, 1, "x".repeat(129)));
+        assertThrows(NullPointerException.class, () -> new MilitarySymbolCatalogEntry(1, 1, null));
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> MilitarySymbolCatalog.validateCatalog(List.of(infantry, infantry)));
         ArrayList<MilitarySymbolCatalogEntry> unreachable =
                 new ArrayList<>(MilitarySymbolCatalog.entries());

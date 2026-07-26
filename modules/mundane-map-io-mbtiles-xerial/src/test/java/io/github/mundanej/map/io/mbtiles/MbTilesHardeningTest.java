@@ -149,23 +149,25 @@ class MbTilesHardeningTest {
         MbTilesLimits limited = limits("vmOpcodes", 50_000);
         MbTilesFile.Fingerprint fingerprint =
                 MbTilesFile.preflight("progress", path, limited, CancellationToken.none());
-        try (MbTilesSession session =
-                MbTilesSession.open("progress", fingerprint, limited, CancellationToken.none())) {
-            assertPragma(session, "query_only", "1");
-            assertPragma(session, "trusted_schema", "0");
-            assertPragma(session, "foreign_keys", "1");
-            assertPragma(session, "cell_size_check", "1");
-            assertPragma(session, "temp_store", "2");
-            assertPragma(session, "mmap_size", "0");
-            assertPragma(session, "automatic_index", "0");
-            assertPragma(session, "cache_size", "-8192");
-            session.beforeOperation(CancellationToken.none(), "inspect");
+        MbTilesSession closedSession =
+                MbTilesSession.open("progress", fingerprint, limited, CancellationToken.none());
+        try (closedSession) {
+            assertPragma(closedSession, "query_only", "1");
+            assertPragma(closedSession, "trusted_schema", "0");
+            assertPragma(closedSession, "foreign_keys", "1");
+            assertPragma(closedSession, "cell_size_check", "1");
+            assertPragma(closedSession, "temp_store", "2");
+            assertPragma(closedSession, "mmap_size", "0");
+            assertPragma(closedSession, "automatic_index", "0");
+            assertPragma(closedSession, "cache_size", "-8192");
+            closedSession.beforeOperation(CancellationToken.none(), "inspect");
             SourceException limit =
-                    assertThrows(SourceException.class, () -> executeExpensiveQuery(session));
+                    assertThrows(SourceException.class, () -> executeExpensiveQuery(closedSession));
             assertEquals("SOURCE_LIMIT_EXCEEDED", limit.terminal().code());
             assertEquals("vmOpcodes", limit.terminal().context().get("limit"));
-            session.suppressOperationCleanup(limit, CancellationToken.none(), "inspect");
+            closedSession.suppressOperationCleanup(limit, CancellationToken.none(), "inspect");
         }
+        assertThrows(IllegalStateException.class, closedSession::connection);
 
         fingerprint =
                 MbTilesFile.preflight(

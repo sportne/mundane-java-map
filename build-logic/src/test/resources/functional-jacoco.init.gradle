@@ -1,0 +1,14 @@
+gradle.projectsLoaded {
+    gradle.rootProject {
+        tasks.register('__dumpFunctionalCoverage') {
+            doLast {
+                def server = java.lang.management.ManagementFactory.platformMBeanServer
+                server.invoke(
+                        new javax.management.ObjectName('org.jacoco:type=Runtime'),
+                        'dump',
+                        [false] as Object[],
+                        ['boolean'] as String[])
+            }
+        }
+    }
+}

@@ -797,7 +797,7 @@ unchanged.
 - [G17-004](tasks/closed/G17-004-raise-aggregate-code-coverage-to-80-percent.md) raises the existing
   per-project JaCoCo bundle instruction floor from 60% to 80% through meaningful behavioral tests,
   without exclusions or metric changes.
-- [G17-005](tasks/G17-005-per-source-file-code-coverage.md) adds an 80% instruction floor for each
+- [G17-005](tasks/closed/G17-005-per-source-file-code-coverage.md) adds an 80% instruction floor for each
   hand-authored production source file, deterministic violation reporting, and an authoritative
   inventory so aggregate coverage cannot conceal untested files.
 - Documentation and build profiling may begin in parallel with separate file ownership. Javadocs

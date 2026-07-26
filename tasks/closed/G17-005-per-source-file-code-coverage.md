@@ -1,6 +1,6 @@
 # G17-005 — Enforce 80 percent coverage per source file
 
-Status: Proposed
+Status: Complete
 Depends on: G17-004
 Gate: G17
 Type: AFK
@@ -74,3 +74,11 @@ git diff --check
 Keep the per-file rule additive to the G17-004 bundle rule. If JaCoCo's built-in `SOURCEFILE` failure
 message cannot provide stable project-relative paths and ratios, add a small report reader over the
 generated XML rather than replacing JaCoCo instrumentation or introducing a coverage service.
+
+Implemented with the cacheable `VerifySourceFileCoverage` task because JaCoCo's built-in
+`SOURCEFILE` diagnostics do not provide the complete physical-source inventory or stable
+project-relative output required here. Every governed project writes sorted CSV and Markdown
+summaries beside its JaCoCo XML report. The included build uses exact generated adapter provenance
+and explicit source aliases for its precompiled convention plugins. Functional fixtures cover the
+threshold boundary, uncovered and no-instruction sources, nested and generated mappings,
+deterministic reports, and `check` wiring.

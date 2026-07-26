@@ -108,6 +108,12 @@ class HorizontalWrapTest {
 
     @Test
     void rejectsInvalidProfilesAndArguments() {
+        assertThrows(IllegalArgumentException.class, () -> new HorizontalInterval(Double.NaN, 1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new HorizontalInterval(0, Double.POSITIVE_INFINITY));
+        assertThrows(IllegalArgumentException.class, () -> new HorizontalInterval(1, 1));
+        assertThrows(IllegalArgumentException.class, () -> new WrappedX(Double.NaN, 0));
         assertThrows(IllegalArgumentException.class, () -> new HorizontalWrap(0, 0, 1, 1));
         assertThrows(IllegalArgumentException.class, () -> new HorizontalWrap(0, 1, 65, 1));
         assertThrows(IllegalArgumentException.class, () -> new HorizontalWrap(0, 1, 1, 1_048_577));

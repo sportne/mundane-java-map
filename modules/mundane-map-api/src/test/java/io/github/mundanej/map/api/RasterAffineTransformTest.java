@@ -97,6 +97,12 @@ class RasterAffineTransformTest {
         assertEquals(RasterGridPlacement.Kind.AXIS_ALIGNED, axis.kind());
         assertEquals(Optional.of(bounds), axis.axisAlignedBounds());
         assertTrue(axis.affineTransform().isEmpty());
+        assertEquals(axis, axis);
+        assertEquals(axis, RasterGridPlacement.axisAligned(bounds));
+        assertEquals(axis.hashCode(), RasterGridPlacement.axisAligned(bounds).hashCode());
+        assertEquals(
+                "RasterGridPlacement[kind=AXIS_ALIGNED, axisAlignedBounds=" + bounds + ']',
+                axis.toString());
 
         RasterAffineTransform transform = RasterAffineTransform.of(1, 0, 0, -1, 0, 0);
         RasterGridPlacement affine = RasterGridPlacement.affine(transform);
@@ -104,11 +110,13 @@ class RasterAffineTransformTest {
         assertTrue(affine.axisAlignedBounds().isEmpty());
         assertEquals(Optional.of(transform), affine.affineTransform());
         assertEquals(affine, RasterGridPlacement.affine(transform));
+        assertTrue(affine.toString().contains("AFFINE"));
         assertFalse(axis.equals(affine));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> RasterGridPlacement.axisAligned(new Envelope(1, 1, 1, 2)));
         assertThrows(NullPointerException.class, () -> RasterGridPlacement.affine(null));
+        assertThrows(NullPointerException.class, () -> RasterGridPlacement.axisAligned(null));
     }
 
     @Test

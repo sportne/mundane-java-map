@@ -191,6 +191,39 @@ class GeoPackageFeatureCompletionTest {
     }
 
     @Test
+    void rejectsInvalidGeometryStorageAndClosedCursorAccess() throws Exception {
+        Path closedFixture = fixture("closed-cursor.gpkg");
+        try (FeatureSource source =
+                GeoPackages.openFeatures(
+                        closedFixture,
+                        new SourceIdentity("closed-cursor", ""),
+                        "features",
+                        GeoPackageFeatureOptions.defaults(),
+                        CancellationToken.none())) {
+            FeatureCursor cursor = source.openCursor(FeatureQuery.all(), CancellationToken.none());
+            assertThrows(IllegalStateException.class, cursor::current);
+            cursor.close();
+            assertThrows(IllegalStateException.class, cursor::advance);
+        }
+
+        Path ownedFixture = fixture("source-owned-cursor.gpkg");
+        FeatureSource owningSource =
+                GeoPackages.openFeatures(
+                        ownedFixture,
+                        new SourceIdentity("source-owned-cursor", ""),
+                        "features",
+                        GeoPackageFeatureOptions.defaults(),
+                        CancellationToken.none());
+        FeatureCursor ownedCursor =
+                owningSource.openCursor(FeatureQuery.all(), CancellationToken.none());
+        owningSource.close();
+        assertTrue(ownedCursor.isClosed());
+
+        assertInvalidGeometry("text-geometry.gpkg", "'not-a-blob'", "storageClass");
+        assertInvalidGeometry("empty-geometry.gpkg", "X''", "range");
+    }
+
+    @Test
     void rendersEverySupportedGeometryFamilyThroughMapView() throws Exception {
         Path fixture = fixture("render-complete.gpkg");
         SwingUtilities.invokeAndWait(
@@ -577,6 +610,25 @@ class GeoPackageFeatureCompletionTest {
             records.add(cursor.current());
         }
         return records;
+    }
+
+    private void assertInvalidGeometry(String name, String value, String reason) throws Exception {
+        Path path = fixture(name);
+        execute(path, "UPDATE features SET geom=" + value + " WHERE fid=1");
+        try (FeatureSource source =
+                        GeoPackages.openFeatures(
+                                path,
+                                new SourceIdentity(name, ""),
+                                "features",
+                                GeoPackageFeatureOptions.defaults(),
+                                CancellationToken.none());
+                FeatureCursor cursor =
+                        source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+            SourceException invalid = assertThrows(SourceException.class, cursor::advance);
+            assertEquals("GEOPACKAGE_RECORD_INVALID", invalid.terminal().code());
+            assertEquals("geometry", invalid.terminal().context().get("field"));
+            assertEquals(reason, invalid.terminal().context().get("reason"));
+        }
     }
 
     private static void execute(Path path, String sql) throws Exception {

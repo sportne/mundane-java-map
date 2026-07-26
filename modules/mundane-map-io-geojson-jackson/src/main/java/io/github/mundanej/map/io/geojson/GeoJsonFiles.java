@@ -99,13 +99,6 @@ public final class GeoJsonFiles {
                     bytes.length,
                     options.formatLimits().maximumInputBytes());
         }
-        if (bytes.length > options.formatLimits().maximumOwnedBytes()) {
-            throw GeoJsonReader.limit(
-                    identity.id(),
-                    "ownedBytes",
-                    bytes.length,
-                    options.formatLimits().maximumOwnedBytes());
-        }
         return openOwned(Arrays.copyOf(bytes, bytes.length), identity, options, cancellation);
     }
 

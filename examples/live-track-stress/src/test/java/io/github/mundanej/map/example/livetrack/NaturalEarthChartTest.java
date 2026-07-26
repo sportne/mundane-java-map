@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
@@ -21,17 +22,25 @@ import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.WebMercatorProjection;
 import java.awt.EventQueue;
 import java.awt.Graphics2D;
+import java.awt.HeadlessException;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
 import org.junit.jupiter.api.Test;
 
 class NaturalEarthChartTest {
@@ -112,6 +121,208 @@ class NaturalEarthChartTest {
                                         }));
         assertEquals("NATURAL_EARTH_RESOURCE_HASH_MISMATCH", corrupt.code());
         assertEquals("ne_110m_land.shp", corrupt.context().get("resource"));
+
+        NaturalEarthChart.NaturalEarthResourceException shortResource =
+                assertThrows(
+                        NaturalEarthChart.NaturalEarthResourceException.class,
+                        () ->
+                                NaturalEarthChart.openDataset(
+                                        name ->
+                                                name.equals("ne_110m_land.shp")
+                                                        ? new ByteArrayInputStream(new byte[1])
+                                                        : classpath(name)));
+        assertEquals("NATURAL_EARTH_RESOURCE_SIZE_MISMATCH", shortResource.code());
+
+        NaturalEarthChart.NaturalEarthResourceException longResource =
+                assertThrows(
+                        NaturalEarthChart.NaturalEarthResourceException.class,
+                        () ->
+                                NaturalEarthChart.openDataset(
+                                        name ->
+                                                name.equals("ne_110m_land.cpg")
+                                                        ? new ByteArrayInputStream(new byte[6])
+                                                        : classpath(name)));
+        assertEquals("NATURAL_EARTH_RESOURCE_SIZE_MISMATCH", longResource.code());
+    }
+
+    @Test
+    void guiLaunchersFailOnTheEventThreadWithoutLeakingHeadlessResources() throws Exception {
+        AtomicReference<Throwable> uncaught = new AtomicReference<>();
+        CountDownLatch failures = new CountDownLatch(2);
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(
+                (thread, failure) -> {
+                    uncaught.set(failure);
+                    failures.countDown();
+                });
+        try {
+            NaturalEarthChart.launch();
+            LiveTrackViewer.launch(
+                    new LiveTrackViewer.ViewerConfiguration(
+                            TrackSimulationConfig.reference(10_000, 1), 0, "reference", false));
+            assertTrue(failures.await(30, TimeUnit.SECONDS));
+            assertInstanceOf(HeadlessException.class, uncaught.get());
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previous);
+        }
+
+        EventQueue.invokeAndWait(
+                () -> {
+                    assertThrows(IllegalStateException.class, NaturalEarthChart::startHeadless);
+                    assertThrows(IllegalStateException.class, LiveTrackViewer::startHeadless);
+                    assertThrows(IllegalStateException.class, () -> LiveTrackViewer.launch(10_000));
+                });
+    }
+
+    @Test
+    void viewerControlsAndEdtCloseExerciseInteractiveActions() throws Exception {
+        LiveTrackViewer.ViewerSession session =
+                LiveTrackViewer.startHeadless(
+                        new LiveTrackViewer.ViewerConfiguration(
+                                TrackSimulationConfig.reference(10_000, 1), 0, "reference", true));
+        try {
+            EventQueue.invokeAndWait(
+                    () -> {
+                        session.stack().setSize(900, 500);
+                        session.stack().doLayout();
+                        session.map().setSize(900, 500);
+                        for (var component : session.toolbar().getComponents()) {
+                            if (component instanceof JComboBox<?> choices) {
+                                choices.setSelectedItem("30");
+                            } else if (component instanceof JButton button) {
+                                if (button.getText().equals("Pause")
+                                        || button.getText().equals("Resume")
+                                        || button.getText().equals("Reset")
+                                        || button.getText().equals("Fit world")) {
+                                    button.doClick();
+                                }
+                            }
+                        }
+                        session.refreshNow();
+                        assertEquals(30, session.fpsCap());
+                        assertTrue(session.configurationText().contains("Population"));
+                        assertTrue(session.telemetryText().contains("State"));
+                    });
+        } finally {
+            session.close();
+        }
+
+        LiveTrackViewer.ViewerSession edtClosed = LiveTrackViewer.startHeadless();
+        try {
+            EventQueue.invokeAndWait(
+                    () -> assertThrows(IllegalStateException.class, edtClosed::close));
+        } finally {
+            edtClosed.close();
+        }
+        assertTrue(edtClosed.chartClosed());
+    }
+
+    @Test
+    void diagnosticAndCleanupHelpersPreserveSuppressedFailures() throws Exception {
+        List<String> diagnostics = new java.util.ArrayList<>();
+        invokePrivate(
+                NaturalEarthChart.class,
+                "report",
+                new Class<?>[] {
+                    String.class, DiagnosticReport.class, java.util.function.Consumer.class
+                },
+                "coverage",
+                new DiagnosticReport(List.of(), 2),
+                (java.util.function.Consumer<String>) diagnostics::add);
+        assertEquals(List.of("natural-earth coverage WARNING OMITTED: 2"), diagnostics);
+
+        Throwable runtimePrimary = new Throwable("primary");
+        invokePrivate(
+                NaturalEarthChart.class,
+                "closeSuppressing",
+                new Class<?>[] {AutoCloseable.class, Throwable.class},
+                (AutoCloseable)
+                        () -> {
+                            throw new IllegalStateException("close");
+                        },
+                runtimePrimary);
+        Throwable checkedPrimary = new Throwable("primary");
+        invokePrivate(
+                NaturalEarthChart.class,
+                "closeSuppressing",
+                new Class<?>[] {AutoCloseable.class, Throwable.class},
+                (AutoCloseable)
+                        () -> {
+                            throw new IOException("close");
+                        },
+                checkedPrimary);
+        invokePrivate(
+                NaturalEarthChart.class,
+                "closeSuppressing",
+                new Class<?>[] {AutoCloseable.class, Throwable.class},
+                null,
+                new Throwable("ignored"));
+        assertEquals(1, runtimePrimary.getSuppressed().length);
+        assertEquals(1, checkedPrimary.getSuppressed().length);
+
+        Path nonempty = Files.createTempDirectory("natural-earth-cleanup-");
+        Path manifestDirectory = Files.createDirectory(nonempty.resolve("ne_110m_land.cpg"));
+        Files.writeString(manifestDirectory.resolve("child"), "retained");
+        NaturalEarthChart.NaturalEarthResourceException cleanup =
+                assertThrows(
+                        NaturalEarthChart.NaturalEarthResourceException.class,
+                        () ->
+                                invokePrivate(
+                                        NaturalEarthChart.class,
+                                        "deleteTree",
+                                        new Class<?>[] {Path.class},
+                                        nonempty));
+        assertEquals("NATURAL_EARTH_CLEANUP_FAILED", cleanup.code());
+        Files.delete(manifestDirectory.resolve("child"));
+        Files.delete(manifestDirectory);
+        Files.delete(nonempty);
+    }
+
+    @Test
+    void mercatorClipperRetainsCrossingPolygonsAndDropsOutsidePolygons() {
+        PolygonGeometry crossing =
+                new PolygonGeometry(
+                        CoordinateSequence.of(-200, -90, 200, -90, 200, 90, -200, 90, -200, -90),
+                        List.of());
+        PolygonGeometry outside =
+                new PolygonGeometry(
+                        CoordinateSequence.of(181, 86, 182, 86, 182, 87, 181, 87, 181, 86),
+                        List.of());
+        assertTrue(
+                ((java.util.Optional<?>)
+                                invokePrivate(
+                                        MercatorDomainFeatureSource.class,
+                                        "clipGeometry",
+                                        new Class<?>[] {Geometry.class},
+                                        crossing))
+                        .isPresent());
+        assertTrue(
+                ((java.util.Optional<?>)
+                                invokePrivate(
+                                        MercatorDomainFeatureSource.class,
+                                        "clipGeometry",
+                                        new Class<?>[] {Geometry.class},
+                                        outside))
+                        .isEmpty());
+
+        MultiPolygonGeometry mixed =
+                MultiPolygonGeometry.of(
+                        CoordinateSequence.of(
+                                -10, -10, 10, -10, 10, 10, -10, 10, -10, -10, 181, 86, 182, 86, 182,
+                                87, 181, 87, 181, 86),
+                        new int[] {0, 5, 10},
+                        new int[] {0, 1, 2});
+        PolygonGeometry retained =
+                assertInstanceOf(
+                        PolygonGeometry.class,
+                        ((java.util.Optional<?>)
+                                        invokePrivate(
+                                                MercatorDomainFeatureSource.class,
+                                                "clipGeometry",
+                                                new Class<?>[] {Geometry.class},
+                                                mixed))
+                                .orElseThrow());
+        assertEquals(5, retained.exterior().size());
     }
 
     @Test
@@ -129,6 +340,32 @@ class NaturalEarthChartTest {
         } finally {
             dataset.source().close();
         }
+    }
+
+    @Test
+    void interruptedStartAndCloseRestoreTheInterruptAndAllowCleanup() throws Exception {
+        NaturalEarthChart.MaterializedDataset dataset = NaturalEarthChart.openDataset();
+        Throwable start =
+                interruptWhileEdtBlocked(
+                        () ->
+                                invokePrivate(
+                                        NaturalEarthChart.class,
+                                        "startHeadless",
+                                        new Class<?>[] {
+                                            NaturalEarthChart.MaterializedDataset.class,
+                                            java.util.function.Consumer.class
+                                        },
+                                        dataset,
+                                        (java.util.function.Consumer<String>) ignored -> {}));
+        assertInstanceOf(IllegalStateException.class, start);
+        assertTrue(start.getMessage().contains("START_INTERRUPTED"));
+
+        NaturalEarthChart.ChartSession session = NaturalEarthChart.startHeadless();
+        Throwable close = interruptWhileEdtBlocked(session::close);
+        assertInstanceOf(IllegalStateException.class, close);
+        assertTrue(close.getMessage().contains("CLOSE_INTERRUPTED"));
+        session.close();
+        assertTrue(session.sourceClosed());
     }
 
     @Test
@@ -309,6 +546,47 @@ class NaturalEarthChartTest {
         }
     }
 
+    private static Throwable interruptWhileEdtBlocked(ThrowingRunnable action) throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        EventQueue.invokeLater(
+                () -> {
+                    entered.countDown();
+                    try {
+                        release.await();
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread worker =
+                new Thread(
+                        () -> {
+                            try {
+                                action.run();
+                            } catch (Throwable thrown) {
+                                failure.set(thrown);
+                            }
+                        },
+                        "natural-earth-interruption-test");
+        worker.start();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (worker.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        worker.interrupt();
+        worker.join(10_000);
+        release.countDown();
+        assertFalse(worker.isAlive());
+        return failure.get();
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
     private static void assertWithinProjectedMercatorDomain(Geometry geometry) {
         if (geometry instanceof PolygonGeometry polygon) {
             assertWithinProjectedMercatorDomain(polygon.exterior());
@@ -354,5 +632,24 @@ class NaturalEarthChartTest {
             }
         }
         return count;
+    }
+
+    private static Object invokePrivate(
+            Class<?> owner, String name, Class<?>[] parameterTypes, Object... arguments) {
+        try {
+            Method method = owner.getDeclaredMethod(name, parameterTypes);
+            method.setAccessible(true);
+            return method.invoke(null, arguments);
+        } catch (InvocationTargetException exception) {
+            if (exception.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (exception.getCause() instanceof Error error) {
+                throw error;
+            }
+            throw new AssertionError(exception.getCause());
+        } catch (ReflectiveOperationException exception) {
+            throw new LinkageError(exception.getMessage(), exception);
+        }
     }
 }

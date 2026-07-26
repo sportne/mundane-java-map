@@ -1,6 +1,7 @@
 package io.github.mundanej.map.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
@@ -30,7 +31,45 @@ class GraduatedSymbolSelectorTest {
         mutable.clear();
 
         assertEquals(2, selector.steps().size());
+        assertEquals("value", selector.attribute());
+        assertEquals(Optional.of(MARKER), selector.fallback());
+        assertEquals(Optional.of(MARKER), selector.invalidFallback());
+        assertEquals(InterpolationInput.ATTRIBUTE, selector.input());
+        assertEquals(AttributeValueConversion.IDENTITY, selector.conversion());
         assertEquals(SymbolRole.MARKER, selector.role());
+        GraduatedSymbolSelector equal =
+                new GraduatedSymbolSelector(
+                        "value",
+                        List.of(step("0", MARKER), step("10", OTHER_MARKER)),
+                        Optional.of(MARKER));
+        assertEquals(selector, equal);
+        assertEquals(selector.hashCode(), equal.hashCode());
+        assertEquals(
+                "GraduatedSymbolSelector[attribute=value, steps="
+                        + selector.steps()
+                        + ", fallback=Optional["
+                        + MARKER
+                        + "]]",
+                selector.toString());
+
+        AttributeValueConversion conversion =
+                AttributeValueConversion.toNumber(
+                        List.of(new AttributeValueCandidate.Attribute("value")));
+        GraduatedSymbolSelector expression =
+                GraduatedSymbolSelector.expressionInput(
+                        "value",
+                        List.of(step("0", MARKER)),
+                        Optional.empty(),
+                        Optional.of(MARKER),
+                        conversion);
+        assertEquals(conversion, expression.conversion());
+        assertEquals(Optional.of(MARKER), expression.invalidFallback());
+        assertNotEquals(selector, expression);
+        GraduatedSymbolSelector zoom =
+                GraduatedSymbolSelector.zoom(
+                        List.of(step("0", MARKER)), Optional.empty(), Optional.of(MARKER));
+        assertEquals("", zoom.attribute());
+        assertEquals(InterpolationInput.ZOOM, zoom.input());
     }
 
     @Test
@@ -45,6 +84,14 @@ class GraduatedSymbolSelectorTest {
                                 "value",
                                 List.of(step("10", MARKER), step("0", OTHER_MARKER)),
                                 Optional.empty()));
+        List<GraduatedSymbolStep> nullStep = new ArrayList<>();
+        nullStep.add(null);
+        assertThrows(
+                NullPointerException.class,
+                () -> new GraduatedSymbolSelector("value", nullStep, Optional.empty()));
+        assertThrows(
+                NullPointerException.class,
+                () -> new GraduatedSymbolSelector("value", List.of(step("0", MARKER)), null));
         assertThrows(
                 IllegalArgumentException.class,
                 () ->

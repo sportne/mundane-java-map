@@ -82,12 +82,34 @@ class LineFillSymbolTest {
                         17);
 
         assertEquals(SymbolRole.FILL, solid.role());
+        assertEquals(Rgba.rgb(70, 80, 90), solid.fill());
         assertEquals(Optional.of(outline), solid.outline());
+        assertEquals(0.6, solid.opacity());
+        assertEquals(SolidFillSymbol.RENDERER_KEY, solid.rendererKey());
+        assertEquals(solid, SolidFillSymbol.of(Rgba.rgb(70, 80, 90), Optional.of(outline), 0.6));
+        assertEquals(
+                solid.hashCode(),
+                SolidFillSymbol.of(Rgba.rgb(70, 80, 90), Optional.of(outline), 0.6).hashCode());
+        assertTrue(solid.toString().contains("70"));
         assertEquals(HatchPattern.CROSS_DIAGONAL, hatch.pattern());
+        assertEquals(STROKE, hatch.stroke());
         assertEquals(SymbolUnit.MAP_UNIT, hatch.spacing().unit());
         assertEquals(SymbolRotationMode.MAP_RELATIVE, hatch.rotationMode());
         assertEquals(Optional.of(outline), hatch.outline());
+        assertEquals(0.5, hatch.opacity());
         assertEquals(17, hatch.maxSegments());
+        assertEquals(HatchFillSymbol.RENDERER_KEY, hatch.rendererKey());
+        HatchFillSymbol equalHatch =
+                HatchFillSymbol.of(
+                        HatchPattern.CROSS_DIAGONAL,
+                        STROKE,
+                        new SymbolLength(6.0, SymbolUnit.MAP_UNIT),
+                        SymbolRotationMode.MAP_RELATIVE,
+                        Optional.of(outline),
+                        0.5,
+                        17);
+        assertEquals(hatch, equalHatch);
+        assertEquals(hatch.hashCode(), equalHatch.hashCode());
         assertEquals(
                 HatchFillSymbol.DEFAULT_MAX_SEGMENTS,
                 HatchFillSymbol.of(
@@ -116,5 +138,24 @@ class LineFillSymbolTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> SolidFillSymbol.of(Rgba.rgb(0, 0, 0), Double.NaN));
+        assertThrows(
+                IllegalArgumentException.class, () -> SolidFillSymbol.of(Rgba.rgb(0, 0, 0), -0.1));
+        assertThrows(
+                IllegalArgumentException.class, () -> SolidFillSymbol.of(Rgba.rgb(0, 0, 0), 1.1));
+        assertThrows(
+                NullPointerException.class, () -> SolidFillSymbol.of(null, Optional.empty(), 1.0));
+        assertThrows(
+                NullPointerException.class, () -> SolidFillSymbol.of(Rgba.rgb(0, 0, 0), null, 1.0));
+        assertThrows(
+                NullPointerException.class,
+                () ->
+                        HatchFillSymbol.of(
+                                null,
+                                STROKE,
+                                new SymbolLength(4.0, SymbolUnit.SCREEN_PIXEL),
+                                SymbolRotationMode.SCREEN_RELATIVE,
+                                Optional.empty(),
+                                1.0,
+                                1));
     }
 }

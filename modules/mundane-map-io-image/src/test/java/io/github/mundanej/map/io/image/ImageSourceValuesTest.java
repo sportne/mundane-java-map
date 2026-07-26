@@ -7,12 +7,101 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.EncodedRasterDecodeContext;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.RasterSourceLimits;
 import io.github.mundanej.map.core.CrsDefinitions;
+import java.lang.reflect.Proxy;
+import java.nio.ByteBuffer;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ImageSourceValuesTest {
+    @Test
+    void boundedChannelStreamEnforcesLengthAndSupportsInputStreamOperations() throws Exception {
+        byte[] source = {1, 2, 3, 4, 5};
+        AtomicInteger reads = new AtomicInteger();
+        ImageChannel channel =
+                new ImageChannel() {
+                    @Override
+                    public long size() {
+                        return source.length;
+                    }
+
+                    @Override
+                    public int read(ByteBuffer target, long position) {
+                        if (reads.getAndIncrement() == 0) {
+                            return 0;
+                        }
+                        int count = Math.min(target.remaining(), source.length - (int) position);
+                        target.put(source, (int) position, count);
+                        return count;
+                    }
+
+                    @Override
+                    public void close() {}
+                };
+        AtomicInteger checkpoints = new AtomicInteger();
+        EncodedRasterDecodeContext context =
+                (EncodedRasterDecodeContext)
+                        Proxy.newProxyInstance(
+                                getClass().getClassLoader(),
+                                new Class<?>[] {EncodedRasterDecodeContext.class},
+                                (proxy, method, arguments) -> {
+                                    if (method.getName().equals("checkpoint")) {
+                                        checkpoints.incrementAndGet();
+                                    }
+                                    return primitiveDefault(method.getReturnType());
+                                });
+        BoundedChannelInputStream input = new BoundedChannelInputStream(channel, 5, context);
+        assertEquals(5, input.available());
+        assertEquals(1, input.read());
+        byte[] target = new byte[5];
+        assertEquals(2, input.read(target, 1, 2));
+        assertEquals(0, input.read(target, 0, 0));
+        assertEquals(1, input.skip(1));
+        assertEquals(1, input.available());
+        assertEquals(1, input.read(target, 0, target.length));
+        assertEquals(-1, input.read());
+        assertEquals(0, input.skip(-1));
+        input.close();
+        assertTrue(checkpoints.get() >= 6);
+        assertThrows(
+                IndexOutOfBoundsException.class, () -> assertEquals(0, input.read(target, -1, 1)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> {
+                    try (BoundedChannelInputStream invalid =
+                            new BoundedChannelInputStream(channel, -1, context)) {
+                        assertEquals(0, invalid.available());
+                    }
+                });
+    }
+
+    @Test
+    void imagePlacementFactoriesPreserveKindBoundsCrsAndValueSemantics() {
+        CrsMetadata crs = webMercator();
+        Envelope bounds = new Envelope(0, 0, 2, 3);
+        ImagePlacement axis = ImagePlacement.axisAligned(bounds, crs);
+        assertEquals(ImagePlacement.Kind.AXIS_ALIGNED, axis.kind());
+        assertEquals(Optional.of(bounds), axis.mapBounds());
+        assertEquals(Optional.of(crs), axis.crs());
+        assertEquals(axis, new ImagePlacement(Optional.of(bounds), Optional.of(crs)));
+        assertEquals(axis.hashCode(), ImagePlacement.axisAligned(bounds, crs).hashCode());
+        assertTrue(axis.toString().contains("AXIS_ALIGNED"));
+        assertEquals(
+                ImagePlacement.unplaced(), new ImagePlacement(Optional.empty(), Optional.empty()));
+        assertEquals(ImagePlacement.Kind.WORLD_FILE, ImagePlacement.worldFile(crs).kind());
+        assertEquals(Optional.of(crs), ImagePlacement.worldFile(Optional.of(crs)).crs());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ImagePlacement(Optional.empty(), Optional.of(crs)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ImagePlacement.axisAligned(new Envelope(0, 0, 0, 1), Optional.empty()));
+    }
+
     @Test
     void defaultsAndWithersAreImmutableAndBounded() {
         ImageSourceLimits defaults = ImageSourceLimits.defaults();
@@ -42,6 +131,19 @@ class ImageSourceValuesTest {
                         defaults.maximumPixels(),
                         defaults.maximumLogicalChannels()));
         assertThrows(IllegalArgumentException.class, () -> new ImageSourceLimits(0, 1, 1, 1, 1, 1));
+    }
+
+    private static Object primitiveDefault(Class<?> type) {
+        if (type == boolean.class) {
+            return false;
+        }
+        if (type == int.class) {
+            return 0;
+        }
+        if (type == long.class) {
+            return 0L;
+        }
+        return null;
     }
 
     @Test

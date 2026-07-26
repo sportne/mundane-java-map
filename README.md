@@ -57,11 +57,15 @@ Javadocs for every module, example, and hand-authored build-support source set. 
 runs exhaustive public/protected declaration checks and the same Javadoc aggregate.
 
 Every Java project with executable production instructions enforces at least 80% JaCoCo
-bundle-level instruction coverage. Its normal `test` task produces XML at
+instruction coverage both for its aggregate bundle and for every hand-authored production source
+file. Its normal `test` task produces XML at
 `PROJECT/build/reports/jacoco/test/jacocoTestReport.xml` and browsable HTML at
-`PROJECT/build/reports/jacoco/test/html/index.html`; `check` and `qualityGate` run the matching
-verification task. The [pre-change coverage baseline](verification/G17-004-coverage-baseline.tsv)
-records the complete governed inventory and the behavior risks used to select the added tests.
+`PROJECT/build/reports/jacoco/test/html/index.html`. Deterministic per-source CSV and Markdown
+summaries are written beside them as `source-coverage.csv` and `source-coverage.md`;
+files without executable instructions remain visible separately. `check` and `qualityGate` run
+both matching verification tasks. The
+[pre-change coverage baseline](verification/G17-004-coverage-baseline.tsv) records the complete
+governed inventory and the behavior risks used to select the added tests.
 
 Specialized evidence remains independent so normal development does not silently require platform
 raster evidence, a corpus, profiling, publication staging, or a native toolchain:

@@ -47,7 +47,39 @@ class FeaturePortrayalTest {
         mutable.clear();
 
         assertEquals(1, selector.rules().size());
+        assertEquals("kind", selector.attribute());
+        assertEquals(Optional.of(OTHER_MARKER), selector.fallback());
+        assertEquals(AttributeValueConversion.IDENTITY, selector.conversion());
+        assertEquals(false, selector.missingAsNull());
         assertEquals(SymbolRole.MARKER, selector.role());
+        assertEquals(
+                selector,
+                new CategoricalSymbolSelector(
+                        "kind",
+                        List.of(rule(ThematicValue.text("a"), MARKER)),
+                        Optional.of(OTHER_MARKER)));
+        assertEquals(
+                selector.hashCode(),
+                new CategoricalSymbolSelector(
+                                "kind",
+                                List.of(rule(ThematicValue.text("a"), MARKER)),
+                                Optional.of(OTHER_MARKER))
+                        .hashCode());
+        assertEquals(
+                "CategoricalSymbolSelector[attribute=kind, rules="
+                        + selector.rules()
+                        + ", fallback=Optional["
+                        + OTHER_MARKER
+                        + "]]",
+                selector.toString());
+        CategoricalSymbolSelector converted =
+                CategoricalSymbolSelector.expressionInput(
+                        "kind",
+                        List.of(rule(ThematicValue.nullValue(), MARKER)),
+                        Optional.empty(),
+                        AttributeValueConversion.TO_STRING);
+        assertEquals(true, converted.missingAsNull());
+        assertNotEquals(selector, converted);
         assertThrows(
                 IllegalArgumentException.class,
                 () ->
@@ -57,6 +89,14 @@ class FeaturePortrayalTest {
                                         rule(ThematicValue.numeric(1), MARKER),
                                         rule(ThematicValue.numeric(1.0), OTHER_MARKER)),
                                 Optional.empty()));
+        List<CategoricalSymbolRule> nullRule = new ArrayList<>();
+        nullRule.add(null);
+        assertThrows(
+                NullPointerException.class,
+                () -> new CategoricalSymbolSelector("kind", nullRule, Optional.empty()));
+        assertThrows(
+                NullPointerException.class,
+                () -> new CategoricalSymbolSelector("kind", mutable, null));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new CategoricalSymbolSelector("kind", List.of(), Optional.of(MARKER)));

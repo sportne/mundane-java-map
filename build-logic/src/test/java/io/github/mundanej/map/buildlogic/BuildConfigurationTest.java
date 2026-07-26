@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
@@ -168,22 +171,45 @@ class BuildConfigurationTest {
     }
 
     @Test
+    void everyPrecompiledConventionConfiguresItsOwnedPluginSurface() throws Exception {
+        for (String plugin :
+                List.of(
+                        "architecture-test",
+                        "java-application",
+                        "native-image",
+                        "publishing",
+                        "root")) {
+            Path project = createConventionProbeFixture(plugin);
+
+            BuildResult result = pluginRunner(project, "probeConvention").build();
+
+            assertTrue(result.getOutput().contains("CONVENTION_APPLIED=" + plugin));
+        }
+    }
+
+    @Test
     void coveragePolicyAcceptsExactThresholdAndProducesReportsFromCheck() throws Exception {
         Path project = createCoverageFixture(true);
 
         BuildResult result =
                 pluginRunner(
                                 project,
-                                "jacocoTestCoverageVerification",
-                                "jacocoTestReport",
+                                "verifySourceFileCoverage",
                                 "printCoveragePolicy")
                         .build();
         BuildResult checkPlan = pluginRunner(project, "check", "--dry-run").build();
 
         assertTrue(result.getOutput().contains("COVERAGE_MINIMUM=0.80"));
         assertTrue(checkPlan.getOutput().contains(":jacocoTestCoverageVerification"));
+        assertTrue(checkPlan.getOutput().contains(":verifySourceFileCoverage"));
         assertTrue(Files.isRegularFile(project.resolve("build/reports/jacoco/test/jacocoTestReport.xml")));
         assertTrue(Files.isRegularFile(project.resolve("build/reports/jacoco/test/html/index.html")));
+        Path csv = project.resolve("build/reports/jacoco/test/source-coverage.csv");
+        Path markdown = project.resolve("build/reports/jacoco/test/source-coverage.md");
+        assertTrue(Files.isRegularFile(csv));
+        assertTrue(Files.isRegularFile(markdown));
+        assertTrue(Files.readString(csv).contains(",0.800000,PASS"));
+        assertTrue(Files.readString(markdown).contains("| 0.800000 | PASS |"));
         String report =
                 Files.readString(
                         project.resolve("build/reports/jacoco/test/jacocoTestReport.xml"));
@@ -204,6 +230,229 @@ class BuildConfigurationTest {
         assertTrue(failure.getMessage().contains("bundle java-coverage-fixture"));
         assertTrue(failure.getMessage().contains("instructions covered ratio is 0.60"));
         assertTrue(failure.getMessage().contains("expected minimum is 0.80"));
+    }
+
+    @Test
+    void sourceCoverageRejectsEveryUncoveredOrBelowThresholdFileWithStablePaths()
+            throws Exception {
+        Path project = createCoverageFixture(false);
+        Path source = project.resolve("src/main/java/example");
+        Files.writeString(
+                source.resolve("Uncovered.java"),
+                """
+                package example;
+
+                public final class Uncovered {
+                    public int value() { return 1; }
+                }
+                """);
+
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () -> pluginRunner(project, "verifySourceFileCoverage").build());
+
+        assertTrue(
+                failure.getMessage()
+                        .contains(
+                                "src/main/java/example/Sample.java"
+                                        + " INSTRUCTION/COVEREDRATIO actual=0.600000"
+                                        + " required=0.800000"));
+        assertTrue(
+                failure.getMessage()
+                        .contains(
+                                "src/main/java/example/Uncovered.java"
+                                        + " INSTRUCTION/COVEREDRATIO actual=0.000000"
+                                        + " required=0.800000"));
+    }
+
+    @Test
+    void sourceCoverageReportsNoInstructionFilesAndWritesDeterministicSortedReports()
+            throws Exception {
+        Path project = createCoverageFixture(true);
+        Files.writeString(
+                project.resolve("src/main/java/example/Marker.java"),
+                "package example;\n\npublic interface Marker {}\n");
+        Files.writeString(
+                project.resolve("src/main/java/example/MultiClass.java"),
+                """
+                package example;
+
+                public final class MultiClass {
+                    public record Nested(int value) {}
+                    public enum Kind {
+                        ONE;
+                        int value() { return 0; }
+                    }
+                    public int mapped() {
+                        java.util.function.IntSupplier supplier = () -> 1;
+                        return new Nested(supplier.getAsInt()).value() + Kind.ONE.value();
+                    }
+                }
+                """);
+        Files.writeString(
+                project.resolve("src/test/java/example/MultiClassTest.java"),
+                """
+                package example;
+
+                import static org.junit.jupiter.api.Assertions.assertEquals;
+                import org.junit.jupiter.api.Test;
+
+                class MultiClassTest {
+                    @Test
+                    void coversPhysicalSourceMappings() {
+                        assertEquals(1, new MultiClass().mapped());
+                    }
+                }
+                """);
+
+        pluginRunner(project, "verifySourceFileCoverage").build();
+        Path csv = project.resolve("build/reports/jacoco/test/source-coverage.csv");
+        Path markdown = project.resolve("build/reports/jacoco/test/source-coverage.md");
+        String firstCsv = Files.readString(csv);
+        String firstMarkdown = Files.readString(markdown);
+        pluginRunner(project, "verifySourceFileCoverage", "--rerun-tasks").build();
+
+        assertEquals(firstCsv, Files.readString(csv));
+        assertEquals(firstMarkdown, Files.readString(markdown));
+        assertTrue(
+                firstCsv.contains(
+                        "\"src/main/java/example/Marker.java\",\"example.Marker\",0,0,,"
+                                + "NO_INSTRUCTIONS"));
+        assertTrue(firstCsv.contains("example.MultiClass$Kind"));
+        assertTrue(firstCsv.contains("example.MultiClass$Nested"));
+        assertTrue(
+                firstCsv.indexOf("Marker.java") < firstCsv.indexOf("Sample.java"),
+                "rows must be sorted by project-relative path");
+    }
+
+    @Test
+    void sourceCoverageRejectsExecutableClassMissingFromJacocoXml() throws Exception {
+        Path project = createCoverageFixture(true);
+        Files.writeString(
+                project.resolve("build.gradle"),
+                Files.readString(project.resolve("build.gradle"))
+                        + """
+
+                        tasks.named('jacocoTestReport') {
+                            classDirectories.setFrom(files())
+                        }
+                        """);
+
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () -> pluginRunner(project, "verifySourceFileCoverage").build());
+
+        assertTrue(
+                failure.getMessage()
+                        .contains(
+                                "src/main/java/example/Sample.java"
+                                        + " INSTRUCTION/COVEREDRATIO actual=missing"
+                                        + " required=0.800000"));
+    }
+
+    @Test
+    void generatedSourceExclusionRequiresExactSourceKeyProvenance() throws Exception {
+        Path project = createCoverageFixture(true);
+        Path generated =
+                Files.createDirectories(
+                        project.resolve("build/generated/sources/probe/java/generated"));
+        Files.writeString(
+                generated.resolve("GeneratedAdapter.java"),
+                """
+                package generated;
+
+                public final class GeneratedAdapter {
+                    public int value() { return 1; }
+                }
+                """);
+        String build = Files.readString(project.resolve("build.gradle"));
+        Files.writeString(
+                project.resolve("build.gradle"),
+                build
+                        + """
+
+                        sourceSets.main.java.srcDir(
+                                layout.buildDirectory.dir('generated/sources/probe/java'))
+                        tasks.named('verifySourceFileCoverage') {
+                            generatedSourceKeys = ['generated/GeneratedAdapter.java']
+                        }
+                        """);
+
+        pluginRunner(project, "verifySourceFileCoverage").build();
+
+        Files.writeString(
+                project.resolve("build.gradle"),
+                Files.readString(project.resolve("build.gradle"))
+                        .replace(
+                                "generated/GeneratedAdapter.java",
+                                "generated/*.java"));
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () ->
+                                pluginRunner(
+                                                project,
+                                                "verifySourceFileCoverage",
+                                                "--rerun-tasks")
+                                        .build());
+        assertTrue(
+                failure.getMessage()
+                        .contains(
+                                "Configured generated sources lacked exact build-output provenance"));
+        assertTrue(failure.getMessage().contains("generated/*.java"));
+    }
+
+    @Test
+    void generatedSourceExclusionRejectsAHandAuthoredInventorySource() throws Exception {
+        Path project = createCoverageFixture(true);
+        Files.writeString(
+                project.resolve("build.gradle"),
+                Files.readString(project.resolve("build.gradle"))
+                        + """
+
+                        tasks.named('verifySourceFileCoverage') {
+                            generatedSourceKeys = ['example/Sample.java']
+                        }
+                        """);
+
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () -> pluginRunner(project, "verifySourceFileCoverage").build());
+
+        assertTrue(
+                failure.getMessage()
+                        .contains(
+                                "Configured generated sources lacked exact build-output provenance"));
+        assertTrue(failure.getMessage().contains("example/Sample.java"));
+    }
+
+    @Test
+    void sourceAliasesRejectInventoryToInventoryMappings() throws Exception {
+        Path project = createCoverageFixture(true);
+        Files.writeString(
+                project.resolve("build.gradle"),
+                Files.readString(project.resolve("build.gradle"))
+                        + """
+
+                        tasks.named('verifySourceFileCoverage') {
+                            sourceAliases = ['example/Sample.java': 'example/Sample.java']
+                        }
+                        """);
+
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () -> pluginRunner(project, "verifySourceFileCoverage").build());
+
+        assertTrue(
+                failure.getMessage()
+                        .contains(
+                                "JaCoCo source aliases must be compiler artifacts,"
+                                        + " not physical inventory sources"));
+        assertTrue(failure.getMessage().contains("example/Sample.java"));
     }
 
     @Test
@@ -714,6 +963,38 @@ class BuildConfigurationTest {
         return project;
     }
 
+    private Path createConventionProbeFixture(String convention) throws IOException {
+        Path project =
+                Files.createDirectory(
+                        temporaryDirectory.resolve(convention + "-convention-fixture"));
+        Files.writeString(
+                project.resolve("settings.gradle"),
+                """
+                dependencyResolutionManagement {
+                    repositories { mavenCentral() }
+                    versionCatalogs { libs { from(files('%s')) } }
+                }
+                rootProject.name = '%s-convention-fixture'
+                """
+                        .formatted(
+                                ROOT.resolve("gradle/libs.versions.toml").toUri(),
+                                convention));
+        Files.writeString(project.resolve("LICENSE"), "fixture license\n");
+        Files.writeString(
+                project.resolve("build.gradle"),
+                """
+                plugins {
+                    id 'java'
+                    id 'mundane-map.%s-conventions'
+                }
+                tasks.register('probeConvention') {
+                    doLast { println 'CONVENTION_APPLIED=%s' }
+                }
+                """
+                        .formatted(convention, convention));
+        return project;
+    }
+
     private static String repositorySettings(boolean applyFoojayPlugin) {
         String pluginBlock =
                 applyFoojayPlugin
@@ -797,6 +1078,24 @@ class BuildConfigurationTest {
     }
 
     private static GradleRunner pluginRunner(Path project, String... arguments) {
-        return runner(project, arguments).withPluginClasspath();
+        List<String> instrumented = new ArrayList<>(Arrays.asList(arguments));
+        String agent = System.getProperty("map.functionalJacocoAgent");
+        String destination = System.getProperty("map.functionalJacocoDestination");
+        if (agent != null && destination != null) {
+            instrumented.add(
+                    0,
+                    "-Dorg.gradle.jvmargs=-javaagent:"
+                            + agent
+                            + "=destfile="
+                            + destination
+                            + ",append=true,dumponexit=false,jmx=true");
+            instrumented.add(1, "--init-script");
+            instrumented.add(
+                    2,
+                    ROOT.resolve("build-logic/src/test/resources/functional-jacoco.init.gradle")
+                            .toString());
+            instrumented.add("__dumpFunctionalCoverage");
+        }
+        return runner(project, instrumented.toArray(String[]::new)).withPluginClasspath();
     }
 }

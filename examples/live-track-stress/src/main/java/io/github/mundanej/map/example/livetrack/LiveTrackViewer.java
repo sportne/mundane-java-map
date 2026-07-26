@@ -331,6 +331,10 @@ final class LiveTrackViewer {
             return controls.telemetryLabel();
         }
 
+        JPanel toolbar() {
+            return controls.toolbar();
+        }
+
         String configurationText() {
             return controls.configurationText();
         }

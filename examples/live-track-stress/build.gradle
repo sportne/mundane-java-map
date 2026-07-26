@@ -15,6 +15,10 @@ dependencies {
     implementation project(':modules:mundane-map-io-shapefile')
 }
 
+tasks.named('test') {
+    jvmArgs '-Djava.awt.headless=true'
+}
+
 tasks.register('naturalEarthRenderRegression', Test) {
     group = 'verification'
     description = 'Runs the Natural Earth full-world offscreen rendering contract.'
