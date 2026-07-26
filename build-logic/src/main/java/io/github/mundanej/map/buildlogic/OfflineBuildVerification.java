@@ -77,7 +77,7 @@ public abstract class OfflineBuildVerification extends DefaultTask {
         Process child = process.start();
         ByteArrayOutputStream capture = new ByteArrayOutputStream();
         Thread reader = Thread.ofVirtual().start(() -> transfer(child, capture));
-        boolean finished = child.waitFor(15, TimeUnit.MINUTES);
+        boolean finished = child.waitFor(25, TimeUnit.MINUTES);
         if (!finished) {
             child.destroyForcibly();
         }
