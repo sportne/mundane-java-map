@@ -120,23 +120,17 @@ public final class MbTilesViewer {
     }
 
     static void launchWindow(RasterSource source, Consumer<String> failureSink) {
+        launchWindow(source, failureSink, MbTilesViewer::showWindow);
+    }
+
+    static void launchWindow(
+            RasterSource source, Consumer<String> failureSink, Consumer<MapView> installer) {
+        Objects.requireNonNull(installer, "installer");
         try {
             MapView view = createView(source);
             boolean installed = false;
             try {
-                JFrame frame = new JFrame("mundane-java-map — MBTiles viewer");
-                frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-                frame.add(view, BorderLayout.CENTER);
-                frame.setSize(900, 640);
-                frame.addWindowListener(
-                        new WindowAdapter() {
-                            @Override
-                            public void windowClosed(WindowEvent event) {
-                                view.close();
-                            }
-                        });
-                frame.setLocationByPlatform(true);
-                frame.setVisible(true);
+                installer.accept(view);
                 installed = true;
             } finally {
                 if (!installed) {
@@ -149,6 +143,22 @@ public final class MbTilesViewer {
             }
             failureSink.accept(summary(failure));
         }
+    }
+
+    private static void showWindow(MapView view) {
+        JFrame frame = new JFrame("mundane-java-map — MBTiles viewer");
+        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        frame.add(view, BorderLayout.CENTER);
+        frame.setSize(900, 640);
+        frame.addWindowListener(
+                new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent event) {
+                        view.close();
+                    }
+                });
+        frame.setLocationByPlatform(true);
+        frame.setVisible(true);
     }
 
     private static String summary(RuntimeException failure) {

@@ -1,0 +1,42 @@
+project	missed	covered	ratio	uncovered_behavior_risk
+examples/basic-viewer	87	298	0.774026	window composition and pointer-status updates
+examples/elevation-viewer	80	368	0.821429	viewer startup and failure-boundary branches
+examples/geojson-viewer	138	290	0.677570	async view installation, ownership transfer, and malformed entry-point diagnostics
+examples/geopackage-viewer	189	445	0.701893	feature/raster dispatch, rejected installation cleanup, and closed-source failures
+examples/geotiff-viewer	167	308	0.648421	raster/elevation dispatch, EDT boundaries, and acquired-resource cleanup
+examples/gpx-viewer	143	216	0.601671	async view completion, interruption, exceptional propagation, and ownership
+examples/http-tile-viewer	123	421	0.773897	EDT confinement and cleanup when UI installation is rejected
+examples/kml-viewer	138	219	0.613445	async view completion, interruption, exceptional propagation, and ownership
+examples/live-track-stress	3735	12240	0.766197	bounded command entry points, invalid profiling arguments, and scale lifecycle
+examples/maplibre-style-viewer	88	441	0.833648	viewer startup and failure-boundary branches
+examples/measurement-viewer	26	109	0.807407	remaining UI event and exceptional branches
+examples/mbtiles-viewer	108	211	0.661442	SQLite integration, zoom bounds, EDT loading, and rejected-window cleanup
+examples/point-edit-viewer	114	1232	0.915305	remaining UI event and exceptional branches
+examples/raster-viewer	152	571	0.789765	command-line validation and stable failure diagnostics
+examples/se-viewer	121	275	0.694444	scale-dependent layer controls and window composition
+examples/shapefile-viewer	215	1247	0.852941	remaining startup and malformed-input branches
+examples/styling-label-viewer	58	258	0.816456	remaining UI event and exceptional branches
+examples/symbol-gallery	73	2412	0.970624	remaining UI event and exceptional branches
+examples/vector-export	75	457	0.859023	remaining exporter failure branches
+examples/workspace-viewer	165	495	0.750000	EDT result propagation and command-line diagnostics
+modules/mundane-map-api	4033	13138	0.765127	portrayal selection, interpolation, rule ordering, and rendering contexts
+modules/mundane-map-architecture-tests	0	0	n/a	no executable production instructions; architecture rules remain test-only
+modules/mundane-map-awt	3187	24353	0.884277	residual renderer and platform-error branches
+modules/mundane-map-core	2700	27789	0.911443	residual algorithmic and invalid-state branches
+modules/mundane-map-io-dted	119	3661	0.968519	residual malformed-corpus branches
+modules/mundane-map-io-geojson-jackson	1079	6196	0.851684	residual malformed-document branches
+modules/mundane-map-io-geopackage-xerial	1615	8177	0.835069	residual SQLite error and schema-variant branches
+modules/mundane-map-io-geotiff	482	7113	0.936537	residual malformed-tag and unsupported-layout branches
+modules/mundane-map-io-gpx	683	4276	0.862271	residual malformed-document branches
+modules/mundane-map-io-http-tiles	564	4077	0.878474	residual transport, cancellation, and cache-error branches
+modules/mundane-map-io-image	839	7725	0.902032	residual decoder and malformed-world-file branches
+modules/mundane-map-io-kml	587	4105	0.874893	residual malformed-document branches
+modules/mundane-map-io-maplibre-style-jackson	1988	8942	0.818115	residual style-expression and malformed-document branches
+modules/mundane-map-io-mbtiles-xerial	914	4538	0.832355	residual SQLite metadata and schema-error branches
+modules/mundane-map-io-se	826	3971	0.827809	residual symbolizer and malformed-document branches
+modules/mundane-map-io-shapefile	1103	14398	0.928843	residual malformed-record and unsupported-shape branches
+modules/mundane-map-io-svg	1621	9870	0.858933	residual SVG grammar and unsupported-paint branches
+modules/mundane-map-native-tests	931	11175	0.923096	residual native-contract failure branches
+modules/mundane-map-performance-tests	1560	19254	0.925050	residual oracle and evidence-validation branches
+modules/mundane-map-symbology-milstd2525	73	2902	0.975462	residual symbol lookup and invalid-code branches
+modules/mundane-map-workspace	417	5990	0.934915	residual persistence and invalid-workspace branches

@@ -1,6 +1,6 @@
 # G17-004 — Raise aggregate code coverage to 80 percent
 
-Status: Proposed
+Status: Complete
 Depends on: G17-002, G17-003
 Gate: G17
 Type: AFK

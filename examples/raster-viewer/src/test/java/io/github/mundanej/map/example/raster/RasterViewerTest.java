@@ -17,8 +17,11 @@ import java.awt.Container;
 import java.awt.EventQueue;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -212,6 +215,21 @@ class RasterViewerTest {
                             throw new RuntimeException();
                         }));
         assertEquals("raster-viewer: IMAGE_VIEWER_STARTUP_FAILED", failures.getLast());
+    }
+
+    @Test
+    void commandEntryPointPrintsOnlyTheStableUsageDiagnostic() {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            RasterViewer.main(new String[0]);
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(
+                "raster-viewer: IMAGE_VIEWER_ARGUMENT_INVALID" + System.lineSeparator(),
+                captured.toString(StandardCharsets.UTF_8));
     }
 
     @Test

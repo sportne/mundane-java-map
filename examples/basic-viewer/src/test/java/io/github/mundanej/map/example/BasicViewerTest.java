@@ -16,6 +16,8 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
@@ -125,6 +127,38 @@ class BasicViewerTest {
                     }
                     assertTrue(countNonWhite(image) > 20);
                     map.close();
+                });
+    }
+
+    @Test
+    void contentReportsPointerCoordinatesAndOutsideDomain() throws Exception {
+        AtomicReference<MapView> map = new AtomicReference<>();
+        AtomicReference<JPanel> content = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    MapView created = BasicViewer.createMapView();
+                    created.setSize(320, 200);
+                    created.fitToData(24);
+                    map.set(created);
+                    content.set(BasicViewer.createContent(created));
+                });
+        JLabel coordinates = (JLabel) content.get().getComponent(1);
+
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    map.get()
+                            .dispatchEvent(
+                                    new MouseEvent(
+                                            map.get(),
+                                            MouseEvent.MOUSE_MOVED,
+                                            1L,
+                                            0,
+                                            160,
+                                            100,
+                                            0,
+                                            false));
+                    assertTrue(coordinates.getText().startsWith("longitude "));
+                    map.get().close();
                 });
     }
 

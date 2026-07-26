@@ -311,7 +311,7 @@ public final class WorkspaceViewer {
         return "workspace-viewer: WORKSPACE_VIEWER_STARTUP_FAILED";
     }
 
-    private static <T> T onEdt(Callable<T> work) {
+    static <T> T onEdt(Callable<T> work) {
         if (EventQueue.isDispatchThread()) {
             try {
                 return work.call();

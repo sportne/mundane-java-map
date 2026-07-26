@@ -31,9 +31,11 @@ import java.awt.BorderLayout;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
@@ -106,6 +108,16 @@ public final class BasicViewer {
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
         MapView map = worldWrap ? createWrappedMapView() : createMapView();
+        frame.add(createContent(map), BorderLayout.CENTER);
+        frame.pack();
+        frame.setLocationByPlatform(true);
+        map.fitToData(48.0);
+        frame.setVisible(true);
+    }
+
+    static JPanel createContent(MapView map) {
+        Objects.requireNonNull(map, "map");
+        JPanel content = new JPanel(new BorderLayout());
         JLabel coordinates = new JLabel("Move the pointer over the map");
         map.addMapPointerListener(
                 event ->
@@ -120,12 +132,9 @@ public final class BasicViewer {
                                                                 coordinate.y()))
                                         .orElse("Pointer is outside the map CRS domain")));
 
-        frame.add(map, BorderLayout.CENTER);
-        frame.add(coordinates, BorderLayout.SOUTH);
-        frame.pack();
-        frame.setLocationByPlatform(true);
-        map.fitToData(48.0);
-        frame.setVisible(true);
+        content.add(map, BorderLayout.CENTER);
+        content.add(coordinates, BorderLayout.SOUTH);
+        return content;
     }
 
     private static InMemoryLayer sampleLayer() {

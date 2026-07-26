@@ -10,8 +10,11 @@ import io.github.mundanej.map.api.ElevationUnit;
 import io.github.mundanej.map.api.RasterGridPlacement;
 import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.awt.MapView;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -165,6 +168,90 @@ class GeoTiffViewerTest {
                         }));
         assertTrue(rejected.get().isClosed());
         assertTrue(failures.getLast().contains("launcher rejected source"));
+    }
+
+    @Test
+    void commandEntryPointCoversBothModesWithStableDiagnostics(@TempDir Path directory) {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            GeoTiffViewer.main(new String[0]);
+            GeoTiffViewer.main(
+                    new String[] {
+                        "--elevation-unit", "METRE", directory.resolve("missing.tif").toString()
+                    });
+        } finally {
+            System.setErr(original);
+        }
+        String diagnostics = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(diagnostics.contains("Usage: geotiff-viewer <image.tif>"));
+        assertTrue(diagnostics.contains("GEOTIFF_IO_FAILED"));
+    }
+
+    @Test
+    void threadBoundariesRejectedLaunchesAndClosedSourcesReleaseOwnership(@TempDir Path directory)
+            throws Exception {
+        Path rasterPath = directory.resolve("raster.tif");
+        Files.write(rasterPath, fixture());
+        AtomicReference<RasterSource> rejected = new AtomicReference<>();
+        ArrayList<String> failures = new ArrayList<>();
+        assertFalse(
+                GeoTiffViewer.runMain(
+                        new String[] {rasterPath.toString()},
+                        failures::add,
+                        source -> {
+                            rejected.set(source);
+                            throw new IllegalStateException("rejected");
+                        }));
+        assertTrue(rejected.get().isClosed());
+
+        Path elevationPath = directory.resolve("elevation.tif");
+        Files.write(elevationPath, elevationFixture());
+        AtomicReference<Throwable> rasterThreadFailure = new AtomicReference<>();
+        AtomicReference<Throwable> elevationThreadFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        GeoTiffViewer.load(rasterPath);
+                    } catch (Throwable failure) {
+                        rasterThreadFailure.set(failure);
+                    }
+                    try {
+                        GeoTiffViewer.loadElevation(
+                                new String[] {
+                                    "--elevation-unit", "METRE", elevationPath.toString()
+                                });
+                    } catch (Throwable failure) {
+                        elevationThreadFailure.set(failure);
+                    }
+                });
+        assertTrue(rasterThreadFailure.get() instanceof IllegalStateException);
+        assertTrue(elevationThreadFailure.get() instanceof IllegalStateException);
+
+        RasterSource closedRaster = GeoTiffViewer.load(rasterPath);
+        closedRaster.close();
+        ElevationSource closedElevation =
+                GeoTiffViewer.loadElevation(
+                        new String[] {"--elevation-unit", "METRE", elevationPath.toString()});
+        closedElevation.close();
+        AtomicReference<Throwable> rasterViewFailure = new AtomicReference<>();
+        AtomicReference<Throwable> elevationViewFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        GeoTiffViewer.createView(closedRaster);
+                    } catch (Throwable failure) {
+                        rasterViewFailure.set(failure);
+                    }
+                    try {
+                        GeoTiffViewer.createElevationView(closedElevation);
+                    } catch (Throwable failure) {
+                        elevationViewFailure.set(failure);
+                    }
+                });
+        assertTrue(rasterViewFailure.get() instanceof IllegalStateException);
+        assertTrue(elevationViewFailure.get() instanceof IllegalStateException);
     }
 
     private static byte[] elevationFixture() {

@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.geojson;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,7 +16,9 @@ import io.github.mundanej.map.awt.MapView;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +26,7 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -118,6 +122,19 @@ class GeoJsonViewerTest {
                 summaries);
         assertFalse(String.join("", summaries).contains("SECRET_CANARY"));
         assertFalse(String.join("", summaries).contains("Jackson"));
+
+        Path valid = temporaryDirectory.resolve("valid.geojson");
+        Files.write(valid, resource("python-json.geojson"));
+        AtomicReference<FeatureSource> opened = new AtomicReference<>();
+        assertTrue(
+                GeoJsonViewer.runMain(
+                        new String[] {valid.toString()},
+                        summaries::add,
+                        source -> {
+                            opened.set(source);
+                            source.close();
+                        }));
+        assertTrue(opened.get().isClosed());
     }
 
     @Test
@@ -233,6 +250,10 @@ class GeoJsonViewerTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> GeoJsonViewer.openResource(ROOT + "missing.geojson", "missing"));
+        assertThrows(NullPointerException.class, () -> GeoJsonViewer.openResource(null, "missing"));
+        assertThrows(
+                NullPointerException.class,
+                () -> GeoJsonViewer.openResource(ROOT + "python-json.geojson", null));
 
         FeatureSource closed = GeoJsonViewer.openResource(ROOT + "python-json.geojson", "closed");
         closed.close();
@@ -240,6 +261,85 @@ class GeoJsonViewerTest {
         assertThrows(
                 NullPointerException.class,
                 () -> GeoJsonViewer.createMapView((FeatureSource) null));
+    }
+
+    @Test
+    void entryPointAndAsynchronousFactoryPreserveDiagnosticsAndFailureCauses() {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            GeoJsonViewer.main(new String[] {"one", "two"});
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(
+                "geojson-viewer: ERROR INPUT_INVALID" + System.lineSeparator(),
+                captured.toString(StandardCharsets.UTF_8));
+
+        AssertionError error = new AssertionError("error");
+        FeatureSource errorSource =
+                GeoJsonViewer.openResource(ROOT + "python-json.geojson", "error");
+        assertSame(
+                error,
+                assertThrows(
+                        AssertionError.class,
+                        () -> GeoJsonViewer.awaitMapView(errorSource, failedTask(error))));
+        assertTrue(errorSource.isClosed());
+
+        Exception checked = new Exception("checked");
+        FeatureSource checkedSource =
+                GeoJsonViewer.openResource(ROOT + "python-json.geojson", "checked");
+        IllegalStateException wrapped =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> GeoJsonViewer.awaitMapView(checkedSource, failedTask(checked)));
+        assertSame(checked, wrapped.getCause());
+        assertTrue(checkedSource.isClosed());
+
+        FeatureSource interruptedSource =
+                GeoJsonViewer.openResource(ROOT + "python-json.geojson", "interrupted");
+        Thread.currentThread().interrupt();
+        try {
+            IllegalStateException interrupted =
+                    assertThrows(
+                            IllegalStateException.class,
+                            () ->
+                                    GeoJsonViewer.awaitMapView(
+                                            interruptedSource, new FutureTask<>(() -> null)));
+            assertTrue(interrupted.getMessage().contains("Interrupted"));
+        } finally {
+            Thread.interrupted();
+        }
+        assertTrue(interruptedSource.isClosed());
+    }
+
+    @Test
+    void successfulWindowInstallerReceivesTheOwningConfiguredView() throws Exception {
+        FeatureSource source =
+                GeoJsonViewer.openResource(ROOT + "python-json.geojson", "installed");
+        SwingUtilities.invokeAndWait(
+                () ->
+                        GeoJsonViewer.installWindow(
+                                source,
+                                view -> {
+                                    assertEquals(1, view.layerBindings().size());
+                                    view.close();
+                                }));
+        assertTrue(source.isClosed());
+    }
+
+    private static FutureTask<MapView> failedTask(Throwable failure) {
+        FutureTask<MapView> task =
+                new FutureTask<>(
+                        () -> {
+                            if (failure instanceof Exception exception) {
+                                throw exception;
+                            }
+                            throw (Error) failure;
+                        });
+        task.run();
+        return task;
     }
 
     private static int count(FeatureSource source) {

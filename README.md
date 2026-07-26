@@ -56,6 +56,13 @@ For documentation-only feedback, `./gradlew javadocAll --console=plain` generate
 Javadocs for every module, example, and hand-authored build-support source set. The normal gate also
 runs exhaustive public/protected declaration checks and the same Javadoc aggregate.
 
+Every Java project with executable production instructions enforces at least 80% JaCoCo
+bundle-level instruction coverage. Its normal `test` task produces XML at
+`PROJECT/build/reports/jacoco/test/jacocoTestReport.xml` and browsable HTML at
+`PROJECT/build/reports/jacoco/test/html/index.html`; `check` and `qualityGate` run the matching
+verification task. The [pre-change coverage baseline](verification/G17-004-coverage-baseline.tsv)
+records the complete governed inventory and the behavior risks used to select the added tests.
+
 Specialized evidence remains independent so normal development does not silently require platform
 raster evidence, a corpus, profiling, publication staging, or a native toolchain:
 

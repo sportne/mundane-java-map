@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.workspace;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,7 +22,10 @@ import io.github.mundanej.map.workspace.WorkspaceSourceRegistry;
 import io.github.mundanej.map.workspace.WorkspaceSymbolCatalogRegistry;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -135,6 +139,77 @@ class WorkspaceViewerTest {
         assertTrue(failures.isEmpty());
         assertFalse(WorkspaceViewer.runMain(new String[] {"a", "b"}, failures::add, ignored -> {}));
         assertEquals("workspace-viewer: WORKSPACE_VIEWER_ARGUMENT_INVALID", failures.getLast());
+    }
+
+    @Test
+    void commandEntryPointAndEdtBridgePreserveStableFailureSemantics() throws Exception {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            WorkspaceViewer.main(new String[] {"a", "b"});
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(
+                "workspace-viewer: WORKSPACE_VIEWER_ARGUMENT_INVALID" + System.lineSeparator(),
+                captured.toString(StandardCharsets.UTF_8));
+
+        IllegalArgumentException runtime = new IllegalArgumentException("runtime");
+        assertSame(
+                runtime,
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () ->
+                                WorkspaceViewer.onEdt(
+                                        () -> {
+                                            throw runtime;
+                                        })));
+        AssertionError error = new AssertionError("error");
+        assertSame(
+                error,
+                assertThrows(
+                        AssertionError.class,
+                        () ->
+                                WorkspaceViewer.onEdt(
+                                        () -> {
+                                            throw error;
+                                        })));
+        Exception checked = new Exception("checked");
+        IllegalStateException wrapped =
+                assertThrows(
+                        IllegalStateException.class,
+                        () ->
+                                WorkspaceViewer.onEdt(
+                                        () -> {
+                                            throw checked;
+                                        }));
+        assertSame(checked, wrapped.getCause());
+
+        AtomicReference<Throwable> edtRuntime = new AtomicReference<>();
+        AtomicReference<Throwable> edtChecked = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        WorkspaceViewer.onEdt(
+                                () -> {
+                                    throw runtime;
+                                });
+                    } catch (Throwable failure) {
+                        edtRuntime.set(failure);
+                    }
+                    try {
+                        WorkspaceViewer.onEdt(
+                                () -> {
+                                    throw checked;
+                                });
+                    } catch (Throwable failure) {
+                        edtChecked.set(failure);
+                    }
+                });
+        assertSame(runtime, edtRuntime.get());
+        assertTrue(edtChecked.get() instanceof IllegalStateException);
+        assertSame(checked, edtChecked.get().getCause());
     }
 
     @Test

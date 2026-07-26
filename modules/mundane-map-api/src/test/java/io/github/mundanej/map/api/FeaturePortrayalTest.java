@@ -2,6 +2,7 @@ package io.github.mundanej.map.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
@@ -9,6 +10,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import org.junit.jupiter.api.Test;
 
 class FeaturePortrayalTest {
@@ -115,6 +117,147 @@ class FeaturePortrayalTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new FeaturePortrayal(Optional.empty(), Optional.empty(), Optional.empty()));
+    }
+
+    @Test
+    void rulePlansExposeRolesScaleAndStableValueSemantics() {
+        PortrayalRule markerRule =
+                new PortrayalRule(
+                        Optional.of("primary"),
+                        new ScaleInterval(OptionalDouble.of(10), OptionalDouble.of(20)),
+                        Optional.of(new PortrayalPredicate.Constant(true)),
+                        false,
+                        List.of(MARKER),
+                        List.of(),
+                        List.of());
+        PortrayalRule lineElse =
+                new PortrayalRule(
+                        Optional.empty(),
+                        new ScaleInterval(OptionalDouble.of(20), OptionalDouble.empty()),
+                        Optional.empty(),
+                        true,
+                        List.of(),
+                        List.of(LINE),
+                        List.of());
+        RulePortrayalPlan plan = new RulePortrayalPlan(List.of(markerRule, lineElse));
+        RulePortrayalPlan equal = new RulePortrayalPlan(List.of(markerRule, lineElse));
+
+        assertEquals(List.of(markerRule, lineElse), plan.rules());
+        assertEquals(
+                List.of(SymbolRole.MARKER, SymbolRole.LINE),
+                plan.portrayal().selectors().stream().map(SymbolSelector::role).toList());
+        assertEquals(plan, equal);
+        assertEquals(plan.hashCode(), equal.hashCode());
+        assertEquals("RulePortrayalPlan[rules=" + plan.rules() + ']', plan.toString());
+        assertEquals(true, plan.requiresScaleContext());
+
+        PortrayalRule overlappingElse =
+                new PortrayalRule(
+                        Optional.empty(),
+                        new ScaleInterval(OptionalDouble.of(19), OptionalDouble.of(30)),
+                        Optional.empty(),
+                        true,
+                        List.of(),
+                        List.of(),
+                        List.of(FILL));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new RulePortrayalPlan(List.of(lineElse, overlappingElse)));
+        assertThrows(IllegalArgumentException.class, () -> new RulePortrayalPlan(List.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new PortrayalRule(
+                                Optional.empty(),
+                                ScaleInterval.ALL,
+                                Optional.of(new PortrayalPredicate.Constant(true)),
+                                true,
+                                List.of(MARKER),
+                                List.of(),
+                                List.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new PortrayalRule(
+                                Optional.of(" invalid "),
+                                ScaleInterval.ALL,
+                                Optional.empty(),
+                                false,
+                                List.of(MARKER),
+                                List.of(),
+                                List.of()));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new PortrayalRule(
+                                Optional.empty(),
+                                ScaleInterval.ALL,
+                                Optional.empty(),
+                                false,
+                                List.of(LINE),
+                                List.of(),
+                                List.of()));
+    }
+
+    @Test
+    void interpolationSelectorsValidateAndDescribeTheirExactInputs() {
+        InterpolatedSymbolStop low = new InterpolatedSymbolStop(BigDecimal.ZERO, LINE);
+        InterpolatedSymbolStop high = new InterpolatedSymbolStop(BigDecimal.TEN, LINE);
+        AttributeValueConversion conversion =
+                AttributeValueConversion.toNumber(
+                        List.of(new AttributeValueCandidate.Attribute("actual")));
+        InterpolatedSymbolSelector attribute =
+                InterpolatedSymbolSelector.expressionInput(
+                        "nominal", List.of(low, high), LINE, conversion);
+        InterpolatedSymbolSelector equal =
+                InterpolatedSymbolSelector.expressionInput(
+                        "nominal", List.of(low, high), LINE, conversion);
+        InterpolatedSymbolSelector zoom = InterpolatedSymbolSelector.zoom(List.of(low, high), LINE);
+
+        assertEquals(InterpolationInput.ATTRIBUTE, attribute.input());
+        assertEquals(Optional.of("nominal"), attribute.attribute());
+        assertEquals(List.of(low, high), attribute.stops());
+        assertEquals(LINE, attribute.fallback());
+        assertEquals(conversion, attribute.conversion());
+        assertEquals(SymbolRole.LINE, attribute.role());
+        assertEquals(attribute, equal);
+        assertEquals(attribute.hashCode(), equal.hashCode());
+        assertNotEquals(attribute, zoom);
+        assertEquals(InterpolationInput.ZOOM, zoom.input());
+        assertEquals(Optional.empty(), zoom.attribute());
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> InterpolatedSymbolSelector.attribute("x", List.of(low), LINE));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> InterpolatedSymbolSelector.attribute("x", List.of(high, low), LINE));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> InterpolatedSymbolSelector.attribute("x", List.of(low, high), MARKER));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> InterpolatedSymbolSelector.zoom(List.of(low, high), FILL));
+    }
+
+    @Test
+    void portrayalContextsRetainOnlyValidatedExplicitDimensions() {
+        PortrayalEvaluationContext context =
+                PortrayalEvaluationContext.atScaleAndZoom(1_000, 4.5)
+                        .withGeometryType(PortrayalGeometryType.POLYGON);
+        assertEquals(1_000, context.scaleDenominator().orElseThrow());
+        assertEquals(4.5, context.zoomLevel().orElseThrow());
+        assertEquals(PortrayalGeometryType.POLYGON, context.geometryType().orElseThrow());
+        assertEquals(
+                PortrayalEvaluationContext.atScale(25),
+                new PortrayalEvaluationContext(OptionalDouble.of(25)));
+        assertThrows(IllegalArgumentException.class, () -> PortrayalEvaluationContext.atScale(-1));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PortrayalEvaluationContext.atScaleAndZoom(1, Double.NaN));
+        assertThrows(
+                NullPointerException.class,
+                () -> assertNotNull(PortrayalEvaluationContext.UNSCALED.withGeometryType(null)));
     }
 
     private static CategoricalSymbolRule rule(ThematicValue value, Symbol symbol) {

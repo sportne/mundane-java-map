@@ -17,6 +17,9 @@ import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.SyntheticRasterSource;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +51,11 @@ class GeoPackageViewerTest {
                 () ->
                         GeoPackageViewer.parseTileArguments(
                                 new String[] {"map.gpkg", "tiles", "automatic"}));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        GeoPackageViewer.parseTileArguments(
+                                new String[] {"map.gpkg", "tiles", "23"}));
     }
 
     @Test
@@ -193,5 +201,110 @@ class GeoPackageViewerTest {
         assertEquals(
                 List.of("IllegalArgumentException: GeoPackage tile table CRS is not recognized"),
                 failures);
+    }
+
+    @Test
+    void commandEntryPointAndInjectedWindowBoundariesPreserveOwnership(@TempDir Path directory)
+            throws Exception {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            GeoPackageViewer.main(new String[0]);
+            GeoPackageViewer.main(
+                    new String[] {directory.resolve("missing.gpkg").toString(), "tiles", "0"});
+        } finally {
+            System.setErr(original);
+        }
+        String diagnostics = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(diagnostics.contains("Usage: geopackage-viewer"));
+        assertTrue(diagnostics.contains("SQLITE_INPUT_INVALID"));
+
+        FeatureSource acceptedFeature = featureSource("accepted-feature");
+        SwingUtilities.invokeAndWait(
+                () ->
+                        GeoPackageViewer.launchWindow(
+                                acceptedFeature,
+                                ignored -> {
+                                    throw new AssertionError("unexpected feature failure");
+                                },
+                                view -> {
+                                    assertEquals(1, view.layerBindings().size());
+                                    view.close();
+                                }));
+        assertTrue(acceptedFeature.isClosed());
+
+        RasterSource rejectedRaster = rasterSource("rejected-raster");
+        List<String> failures = new ArrayList<>();
+        SwingUtilities.invokeAndWait(
+                () ->
+                        GeoPackageViewer.launchRasterWindow(
+                                rejectedRaster,
+                                failures::add,
+                                ignored -> {
+                                    throw new IllegalStateException("injected");
+                                }));
+        assertTrue(rejectedRaster.isClosed());
+        assertEquals(List.of("IllegalStateException: injected"), failures);
+
+        AtomicReference<Throwable> tileThreadFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        GeoPackageViewer.openTiles(
+                                new GeoPackageViewer.TileArguments(
+                                        directory.resolve("missing.gpkg"), "tiles", 0));
+                    } catch (Throwable failure) {
+                        tileThreadFailure.set(failure);
+                    }
+                });
+        assertTrue(tileThreadFailure.get() instanceof IllegalStateException);
+
+        FeatureSource closedFeature = featureSource("closed-feature");
+        closedFeature.close();
+        RasterSource closedRaster = rasterSource("closed-raster");
+        closedRaster.close();
+        AtomicReference<Throwable> featureViewFailure = new AtomicReference<>();
+        AtomicReference<Throwable> rasterViewFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        GeoPackageViewer.createView(closedFeature);
+                    } catch (Throwable failure) {
+                        featureViewFailure.set(failure);
+                    }
+                    try {
+                        GeoPackageViewer.createRasterView(closedRaster);
+                    } catch (Throwable failure) {
+                        rasterViewFailure.set(failure);
+                    }
+                });
+        assertTrue(featureViewFailure.get() instanceof IllegalStateException);
+        assertTrue(rasterViewFailure.get() instanceof IllegalStateException);
+    }
+
+    private static FeatureSource featureSource(String id) {
+        return InMemoryFeatureSource.open(
+                new SourceIdentity(id, ""),
+                List.of(
+                        new FeatureRecord(
+                                "1", "", new PointGeometry(new Coordinate(0, 0)), Map.of())),
+                Optional.empty(),
+                Optional.of(
+                        CrsMetadata.recognized(
+                                CrsDefinitions.EPSG_4326,
+                                Optional.of("EPSG:4326"),
+                                Optional.empty())),
+                io.github.mundanej.map.api.FeatureSourceLimits.LEVEL_1);
+    }
+
+    private static RasterSource rasterSource(String id) {
+        return SyntheticRasterSource.open(
+                new SourceIdentity(id, ""),
+                2,
+                2,
+                new Envelope(0, 0, 2, 2),
+                CrsMetadata.recognized(
+                        CrsDefinitions.EPSG_3857, Optional.of("EPSG:3857"), Optional.empty()));
     }
 }

@@ -128,25 +128,15 @@ public final class GeoTiffViewer {
     }
 
     private static void show(RasterSource source) {
-        MapView view = createView(source);
-        JFrame frame = new JFrame("mundane-java-map — GeoTIFF viewer");
-        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        frame.add(view, BorderLayout.CENTER);
-        frame.setSize(900, 640);
-        frame.addWindowListener(
-                new WindowAdapter() {
-                    @Override
-                    public void windowClosed(WindowEvent event) {
-                        view.close();
-                    }
-                });
-        frame.setLocationByPlatform(true);
-        frame.setVisible(true);
+        showWindow(createView(source), "mundane-java-map — GeoTIFF viewer");
     }
 
     private static void show(ElevationSource source) {
-        MapView view = createElevationView(source);
-        JFrame frame = new JFrame("mundane-java-map — GeoTIFF elevation viewer");
+        showWindow(createElevationView(source), "mundane-java-map — GeoTIFF elevation viewer");
+    }
+
+    private static void showWindow(MapView view, String title) {
+        JFrame frame = new JFrame(title);
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         frame.add(view, BorderLayout.CENTER);
         frame.setSize(900, 640);

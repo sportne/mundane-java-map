@@ -11,6 +11,7 @@ import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.RasterWindow;
 import io.github.mundanej.map.awt.MapView;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.util.Optional;
@@ -86,5 +87,29 @@ class HttpTileViewerTest {
         SwingUtilities.invokeAndWait(session.get()::close);
         assertTrue(session.get().installedView() == null);
         assertThrows(IllegalStateException.class, () -> HttpTileViewer.startLoading(panel, status));
+    }
+
+    @Test
+    void viewThreadBoundaryAndRejectedInstallationCloseAcquiredSources() throws Exception {
+        RasterSource source = HttpTileViewer.acquireDemo();
+        assertThrows(IllegalStateException.class, () -> HttpTileViewer.createView(source));
+        assertFalse(source.isClosed());
+        source.close();
+
+        JPanel panel =
+                new JPanel(new java.awt.BorderLayout()) {
+                    @Override
+                    protected void addImpl(Component component, Object constraints, int index) {
+                        throw new IllegalStateException("injected installation failure");
+                    }
+                };
+        JLabel status = new JLabel();
+        AtomicReference<HttpTileViewer.ViewerSession> session = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> session.set(HttpTileViewer.startLoading(panel, status)));
+        assertTrue(session.get().await(30, TimeUnit.SECONDS));
+        SwingUtilities.invokeAndWait(() -> {});
+        assertTrue(session.get().installedView() == null);
+        assertEquals(0, panel.getComponentCount());
+        assertTrue(status.getText().startsWith("Load failed:"));
     }
 }

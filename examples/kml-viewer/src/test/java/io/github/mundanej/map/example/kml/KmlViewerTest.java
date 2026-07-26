@@ -2,6 +2,7 @@ package io.github.mundanej.map.example.kml;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,8 +18,10 @@ import io.github.mundanej.map.core.CrsRegistry;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,6 +29,8 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -143,6 +148,142 @@ class KmlViewerTest {
                         }));
         assertTrue(opened.get().isClosed());
         assertEquals(List.of("kml-viewer: ERROR INPUT_INVALID"), summaries);
+    }
+
+    @Test
+    void commandEntryPointAndInterruptedFactoryReportStableFailures() throws Exception {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            KmlViewer.main(new String[0]);
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(
+                "kml-viewer: ERROR INPUT_INVALID" + System.lineSeparator(),
+                captured.toString(StandardCharsets.UTF_8));
+
+        Path path = writeFixture();
+        CountDownLatch eventThreadBlocked = new CountDownLatch(1);
+        CountDownLatch releaseEventThread = new CountDownLatch(1);
+        SwingUtilities.invokeLater(
+                () -> {
+                    eventThreadBlocked.countDown();
+                    try {
+                        releaseEventThread.await();
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+        eventThreadBlocked.await();
+        AtomicReference<Throwable> interrupted = new AtomicReference<>();
+        Thread worker =
+                new Thread(
+                        () -> {
+                            try {
+                                KmlViewer.createMapView(path);
+                            } catch (Throwable failure) {
+                                interrupted.set(failure);
+                            }
+                        });
+        try {
+            worker.start();
+            awaitWaiting(worker);
+            worker.interrupt();
+            worker.join(5_000);
+        } finally {
+            releaseEventThread.countDown();
+        }
+        SwingUtilities.invokeAndWait(() -> {});
+        assertTrue(interrupted.get() instanceof IllegalStateException);
+        assertTrue(interrupted.get().getMessage().contains("Interrupted"));
+    }
+
+    @Test
+    void closedSourceTransferFailsAndSuccessfulInstallerRetainsOwnershipRules() throws Exception {
+        Path path = writeFixture();
+        FeatureSource closed = KmlViewer.open(path);
+        closed.close();
+        AtomicReference<Throwable> transferFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        KmlViewer.createMapView(closed);
+                    } catch (Throwable failure) {
+                        transferFailure.set(failure);
+                    }
+                });
+        assertTrue(transferFailure.get() instanceof IllegalStateException);
+
+        FeatureSource installed = KmlViewer.open(path);
+        SwingUtilities.invokeAndWait(
+                () ->
+                        KmlViewer.installWindow(
+                                installed,
+                                view -> {
+                                    assertEquals(1, view.layerBindings().size());
+                                    view.close();
+                                }));
+        assertTrue(installed.isClosed());
+    }
+
+    @Test
+    void asynchronousFactoryPropagatesRuntimeErrorAndCheckedCausesAfterClosing() throws Exception {
+        Path path = writeFixture();
+        RuntimeException runtime = new IllegalArgumentException("runtime");
+        FeatureSource runtimeSource = KmlViewer.open(path);
+        FutureTask<MapView> runtimeTask = failedTask(runtime);
+        assertSame(
+                runtime,
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> KmlViewer.awaitMapView(runtimeSource, runtimeTask)));
+        assertTrue(runtimeSource.isClosed());
+
+        AssertionError error = new AssertionError("error");
+        FeatureSource errorSource = KmlViewer.open(path);
+        FutureTask<MapView> errorTask = failedTask(error);
+        assertSame(
+                error,
+                assertThrows(
+                        AssertionError.class,
+                        () -> KmlViewer.awaitMapView(errorSource, errorTask)));
+        assertTrue(errorSource.isClosed());
+
+        Exception checked = new Exception("checked");
+        FeatureSource checkedSource = KmlViewer.open(path);
+        FutureTask<MapView> checkedTask = failedTask(checked);
+        IllegalStateException wrapped =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> KmlViewer.awaitMapView(checkedSource, checkedTask));
+        assertSame(checked, wrapped.getCause());
+        assertTrue(checkedSource.isClosed());
+    }
+
+    private static FutureTask<MapView> failedTask(Throwable failure) {
+        FutureTask<MapView> task =
+                new FutureTask<>(
+                        () -> {
+                            if (failure instanceof Exception exception) {
+                                throw exception;
+                            }
+                            throw (Error) failure;
+                        });
+        task.run();
+        return task;
+    }
+
+    private static void awaitWaiting(Thread thread) throws InterruptedException {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (thread.getState() == Thread.State.WAITING) {
+                return;
+            }
+            Thread.sleep(1);
+        }
+        throw new AssertionError("factory thread did not reach its wait state");
     }
 
     @Test

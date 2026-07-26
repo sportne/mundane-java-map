@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -88,6 +89,16 @@ public final class SeViewer {
         JFrame frame = new JFrame("mundane-java-map — OGC SE vector gallery");
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         MapView view = createMapView();
+        frame.add(createContent(view), BorderLayout.CENTER);
+        frame.pack();
+        frame.setLocationByPlatform(true);
+        view.setViewport(new MapViewport(view.getWidth(), view.getHeight(), 0, 0, 1));
+        frame.setVisible(true);
+    }
+
+    static JPanel createContent(MapView view) {
+        Objects.requireNonNull(view, "view");
+        JPanel content = new JPanel(new BorderLayout());
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEADING));
         JButton inRange = new JButton("Scale rule visible");
         inRange.addActionListener(
@@ -105,12 +116,9 @@ public final class SeViewer {
                 new JLabel(
                         "Top: ordered point, catalog marker, scale-filtered star. "
                                 + "Middle: ordered line. Bottom: atomic polygon outlines."));
-        frame.add(controls, BorderLayout.NORTH);
-        frame.add(view, BorderLayout.CENTER);
-        frame.pack();
-        frame.setLocationByPlatform(true);
-        view.setViewport(new MapViewport(view.getWidth(), view.getHeight(), 0, 0, 1));
-        frame.setVisible(true);
+        content.add(controls, BorderLayout.NORTH);
+        content.add(view, BorderLayout.CENTER);
+        return content;
     }
 
     @SuppressWarnings("deprecation")

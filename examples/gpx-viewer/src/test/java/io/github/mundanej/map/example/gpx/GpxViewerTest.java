@@ -2,6 +2,8 @@ package io.github.mundanej.map.example.gpx;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Coordinate;
@@ -11,6 +13,8 @@ import java.awt.Color;
 import java.awt.EventQueue;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +22,8 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -126,6 +132,140 @@ class GpxViewerTest {
                         }));
         assertTrue(opened.get().isClosed());
         assertTrue(summaries.isEmpty());
+    }
+
+    @Test
+    void commandEntryPointAndInterruptedFactoryReportStableFailures() throws Exception {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            GpxViewer.main(new String[0]);
+        } finally {
+            System.setErr(original);
+        }
+        assertEquals(
+                "gpx-viewer: ERROR INPUT_INVALID" + System.lineSeparator(),
+                captured.toString(StandardCharsets.UTF_8));
+
+        Path path = write("interrupted.gpx", validDocument());
+        CountDownLatch eventThreadBlocked = new CountDownLatch(1);
+        CountDownLatch releaseEventThread = new CountDownLatch(1);
+        EventQueue.invokeLater(
+                () -> {
+                    eventThreadBlocked.countDown();
+                    try {
+                        releaseEventThread.await();
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+        eventThreadBlocked.await();
+        AtomicReference<Throwable> interrupted = new AtomicReference<>();
+        Thread worker =
+                new Thread(
+                        () -> {
+                            try {
+                                GpxViewer.createMapView(path);
+                            } catch (Throwable failure) {
+                                interrupted.set(failure);
+                            }
+                        });
+        try {
+            worker.start();
+            awaitWaiting(worker);
+            worker.interrupt();
+            worker.join(5_000);
+        } finally {
+            releaseEventThread.countDown();
+        }
+        EventQueue.invokeAndWait(() -> {});
+        assertTrue(interrupted.get() instanceof IllegalStateException);
+        assertTrue(interrupted.get().getMessage().contains("Interrupted"));
+    }
+
+    @Test
+    void closedSourceTransferFailsAndSuccessfulInstallerRetainsOwnershipRules() throws Exception {
+        FeatureSource closed = GpxViewer.open(write("closed.gpx", validDocument()));
+        closed.close();
+        AtomicReference<Throwable> transferFailure = new AtomicReference<>();
+        EventQueue.invokeAndWait(
+                () -> {
+                    try {
+                        GpxViewer.createMapView(closed);
+                    } catch (Throwable failure) {
+                        transferFailure.set(failure);
+                    }
+                });
+        assertTrue(transferFailure.get() instanceof IllegalStateException);
+
+        FeatureSource installed = GpxViewer.open(write("installed.gpx", validDocument()));
+        EventQueue.invokeAndWait(
+                () ->
+                        GpxViewer.installWindow(
+                                installed,
+                                view -> {
+                                    assertEquals(1, view.layerBindings().size());
+                                    view.close();
+                                }));
+        assertTrue(installed.isClosed());
+    }
+
+    @Test
+    void asynchronousFactoryPropagatesRuntimeErrorAndCheckedCausesAfterClosing() throws Exception {
+        RuntimeException runtime = new IllegalArgumentException("runtime");
+        FeatureSource runtimeSource = GpxViewer.open(write("runtime.gpx", validDocument()));
+        FutureTask<MapView> runtimeTask = failedTask(runtime);
+        assertSame(
+                runtime,
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> GpxViewer.awaitMapView(runtimeSource, runtimeTask)));
+        assertTrue(runtimeSource.isClosed());
+
+        AssertionError error = new AssertionError("error");
+        FeatureSource errorSource = GpxViewer.open(write("error.gpx", validDocument()));
+        FutureTask<MapView> errorTask = failedTask(error);
+        assertSame(
+                error,
+                assertThrows(
+                        AssertionError.class,
+                        () -> GpxViewer.awaitMapView(errorSource, errorTask)));
+        assertTrue(errorSource.isClosed());
+
+        Exception checked = new Exception("checked");
+        FeatureSource checkedSource = GpxViewer.open(write("checked.gpx", validDocument()));
+        FutureTask<MapView> checkedTask = failedTask(checked);
+        IllegalStateException wrapped =
+                assertThrows(
+                        IllegalStateException.class,
+                        () -> GpxViewer.awaitMapView(checkedSource, checkedTask));
+        assertSame(checked, wrapped.getCause());
+        assertTrue(checkedSource.isClosed());
+    }
+
+    private static FutureTask<MapView> failedTask(Throwable failure) {
+        FutureTask<MapView> task =
+                new FutureTask<>(
+                        () -> {
+                            if (failure instanceof Exception exception) {
+                                throw exception;
+                            }
+                            throw (Error) failure;
+                        });
+        task.run();
+        return task;
+    }
+
+    private static void awaitWaiting(Thread thread) throws InterruptedException {
+        long deadline = System.nanoTime() + 5_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (thread.getState() == Thread.State.WAITING) {
+                return;
+            }
+            Thread.sleep(1);
+        }
+        throw new AssertionError("factory thread did not reach its wait state");
     }
 
     @Test

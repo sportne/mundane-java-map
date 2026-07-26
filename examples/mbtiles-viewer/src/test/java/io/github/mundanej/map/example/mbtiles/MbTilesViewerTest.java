@@ -12,11 +12,20 @@ import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.SyntheticRasterSource;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.imageio.ImageIO;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -98,5 +107,113 @@ class MbTilesViewerTest {
                         failures::add,
                         ignored -> {}));
         assertTrue(failures.getFirst().startsWith("SQLITE_INPUT_INVALID [reason=path]:"));
+    }
+
+    @Test
+    void validDatabaseTransfersOwnershipAndLoadingRejectsTheEventThread(@TempDir Path directory)
+            throws Exception {
+        Path path = directory.resolve("valid.mbtiles");
+        createMbTiles(path);
+        AtomicReference<RasterSource> opened = new AtomicReference<>();
+        List<String> failures = new ArrayList<>();
+        assertTrue(
+                MbTilesViewer.runMain(
+                        new String[] {path.toString(), "0"},
+                        failures::add,
+                        source -> {
+                            opened.set(source);
+                            source.close();
+                        }));
+        assertTrue(opened.get().isClosed());
+        assertTrue(failures.isEmpty());
+
+        AtomicReference<Throwable> threadFailure = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(
+                () -> {
+                    try {
+                        MbTilesViewer.open(
+                                MbTilesViewer.parseArguments(new String[] {path.toString(), "0"}));
+                    } catch (Throwable failure) {
+                        threadFailure.set(failure);
+                    }
+                });
+        assertTrue(threadFailure.get() instanceof IllegalStateException);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> MbTilesViewer.parseArguments(new String[] {path.toString(), "23"}));
+    }
+
+    @Test
+    void commandEntryPointAndInjectedWindowBoundaryRetainStableOwnership() throws Exception {
+        PrintStream original = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        try {
+            System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            MbTilesViewer.main(new String[0]);
+        } finally {
+            System.setErr(original);
+        }
+        assertTrue(captured.toString(StandardCharsets.UTF_8).contains("Usage: mbtiles-viewer"));
+
+        RasterSource accepted = recognized("accepted");
+        SwingUtilities.invokeAndWait(
+                () ->
+                        MbTilesViewer.launchWindow(
+                                accepted,
+                                ignored -> {
+                                    throw new AssertionError("unexpected failure");
+                                },
+                                view -> {
+                                    assertEquals(1, view.layerBindings().size());
+                                    view.close();
+                                }));
+        assertTrue(accepted.isClosed());
+
+        RasterSource rejected = recognized("rejected");
+        List<String> failures = new ArrayList<>();
+        SwingUtilities.invokeAndWait(
+                () ->
+                        MbTilesViewer.launchWindow(
+                                rejected,
+                                failures::add,
+                                ignored -> {
+                                    throw new IllegalStateException("injected");
+                                }));
+        assertTrue(rejected.isClosed());
+        assertEquals(List.of("IllegalStateException: injected"), failures);
+    }
+
+    private static RasterSource recognized(String id) {
+        return SyntheticRasterSource.open(
+                new SourceIdentity(id, ""),
+                2,
+                2,
+                new Envelope(0, 0, 2, 2),
+                CrsMetadata.recognized(
+                        CrsDefinitions.EPSG_3857, Optional.of("EPSG:3857"), Optional.empty()));
+    }
+
+    private static void createMbTiles(Path path) throws Exception {
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        assertTrue(
+                ImageIO.write(
+                        new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB), "png", encoded));
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + path);
+                Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE metadata (name TEXT NOT NULL, value TEXT NOT NULL)");
+            statement.execute(
+                    "CREATE TABLE tiles (zoom_level INTEGER NOT NULL,"
+                            + " tile_column INTEGER NOT NULL, tile_row INTEGER NOT NULL,"
+                            + " tile_data BLOB NOT NULL)");
+            statement.execute(
+                    "INSERT INTO metadata VALUES"
+                            + " ('name','Viewer test'),('format','png'),"
+                            + " ('bounds','-180,-85,180,85'),('minzoom','0'),('maxzoom','0')");
+            try (PreparedStatement insert =
+                    connection.prepareStatement("INSERT INTO tiles VALUES (0,0,0,?)")) {
+                insert.setBytes(1, encoded.toByteArray());
+                insert.executeUpdate();
+            }
+        }
     }
 }

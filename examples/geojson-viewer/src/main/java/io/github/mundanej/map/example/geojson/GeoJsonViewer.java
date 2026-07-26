@@ -95,6 +95,12 @@ public final class GeoJsonViewer {
         } else {
             SwingUtilities.invokeLater(task);
         }
+        return awaitMapView(source, task);
+    }
+
+    static MapView awaitMapView(FeatureSource source, FutureTask<MapView> task) {
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(task, "task");
         try {
             return task.get();
         } catch (InterruptedException failure) {

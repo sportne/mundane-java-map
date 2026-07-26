@@ -168,6 +168,45 @@ class BuildConfigurationTest {
     }
 
     @Test
+    void coveragePolicyAcceptsExactThresholdAndProducesReportsFromCheck() throws Exception {
+        Path project = createCoverageFixture(true);
+
+        BuildResult result =
+                pluginRunner(
+                                project,
+                                "jacocoTestCoverageVerification",
+                                "jacocoTestReport",
+                                "printCoveragePolicy")
+                        .build();
+        BuildResult checkPlan = pluginRunner(project, "check", "--dry-run").build();
+
+        assertTrue(result.getOutput().contains("COVERAGE_MINIMUM=0.80"));
+        assertTrue(checkPlan.getOutput().contains(":jacocoTestCoverageVerification"));
+        assertTrue(Files.isRegularFile(project.resolve("build/reports/jacoco/test/jacocoTestReport.xml")));
+        assertTrue(Files.isRegularFile(project.resolve("build/reports/jacoco/test/html/index.html")));
+        String report =
+                Files.readString(
+                        project.resolve("build/reports/jacoco/test/jacocoTestReport.xml"));
+        assertTrue(
+                report.contains(
+                        "<counter type=\"INSTRUCTION\" missed=\"2\" covered=\"8\"/>"));
+    }
+
+    @Test
+    void coveragePolicyRejectsBelowThresholdWithActionableBundleDiagnostic() throws Exception {
+        Path project = createCoverageFixture(false);
+
+        UnexpectedBuildFailure failure =
+                assertThrows(
+                        UnexpectedBuildFailure.class,
+                        () -> pluginRunner(project, "jacocoTestCoverageVerification").build());
+
+        assertTrue(failure.getMessage().contains("bundle java-coverage-fixture"));
+        assertTrue(failure.getMessage().contains("instructions covered ratio is 0.60"));
+        assertTrue(failure.getMessage().contains("expected minimum is 0.80"));
+    }
+
+    @Test
     void supportedJdkAggregateContainsOnlyNormalInventoryTests() throws Exception {
         String rootBuild = Files.readString(ROOT.resolve("build.gradle"));
         int start = rootBuild.indexOf("tasks.register('supportedJdkTests')");
@@ -598,6 +637,80 @@ class BuildConfigurationTest {
         Files.writeString(
                 source.resolve("Sample.java"),
                 "package example;\n\npublic final class Sample { private Sample() {} }\n");
+        return project;
+    }
+
+    private Path createCoverageFixture(boolean exactThreshold) throws IOException {
+        Path project = Files.createDirectory(temporaryDirectory.resolve("java-coverage-fixture"));
+        Files.writeString(
+                project.resolve("settings.gradle"),
+                """
+                dependencyResolutionManagement {
+                    repositories { mavenCentral() }
+                    versionCatalogs { libs { from(files('%s')) } }
+                }
+                rootProject.name = 'java-coverage-fixture'
+                """
+                        .formatted(ROOT.resolve("gradle/libs.versions.toml").toUri()));
+        Files.writeString(
+                project.resolve("build.gradle"),
+                """
+                plugins { id 'mundane-map.java-library-conventions' }
+                dependencies {
+                    testImplementation platform(libs.junit.bom)
+                    testImplementation libs.junit.jupiter
+                    testRuntimeOnly libs.junit.platform.launcher
+                }
+                tasks.test { useJUnitPlatform() }
+                tasks.register('printCoveragePolicy') {
+                    doLast {
+                        def rules = tasks.jacocoTestCoverageVerification.violationRules.rules
+                        println "COVERAGE_MINIMUM=" + rules[0].limits[0].minimum
+                        println "CHECK_DEPENDENCIES=" \
+                                + tasks.check.taskDependencies.getDependencies(tasks.check)*.path.sort().join(',')
+                    }
+                }
+                """);
+        Path source = Files.createDirectories(project.resolve("src/main/java/example"));
+        Files.writeString(
+                source.resolve("Sample.java"),
+                """
+                package example;
+
+                public final class Sample {
+                    private Sample() {}
+
+                    public static int one() { return 1; }
+                    public static int two() { return 2; }
+                    public static int three() { return 3; }
+                    public static int four() { return 4; }
+                    public static int five() { return 5; }
+                }
+                """);
+        Path testSource = Files.createDirectories(project.resolve("src/test/java/example"));
+        Files.writeString(
+                testSource.resolve("SampleTest.java"),
+                """
+                package example;
+
+                import static org.junit.jupiter.api.Assertions.assertEquals;
+
+                import org.junit.jupiter.api.Test;
+
+                class SampleTest {
+                    @Test
+                    void coversExpectedMethods() {
+                        assertEquals(1, Sample.one());
+                        assertEquals(2, Sample.two());
+                        assertEquals(3, Sample.three());
+                        %s
+                    }
+                }
+                """
+                        .formatted(
+                                exactThreshold
+                                        ? "assertEquals(4, Sample.four());"
+                                        : ""));
         return project;
     }
 

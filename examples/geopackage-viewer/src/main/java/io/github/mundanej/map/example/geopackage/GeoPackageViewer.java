@@ -231,10 +231,16 @@ public final class GeoPackageViewer {
     }
 
     static void launchWindow(FeatureSource source, Consumer<String> failureSink) {
+        launchWindow(source, failureSink, GeoPackageViewer::showWindow);
+    }
+
+    static void launchWindow(
+            FeatureSource source, Consumer<String> failureSink, Consumer<MapView> installer) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(failureSink, "failureSink");
+        Objects.requireNonNull(installer, "installer");
         try {
-            installWindow(source);
+            installWindow(createView(source), installer);
         } catch (RuntimeException failure) {
             closeAfterLaunchFailure(source, failure);
             failureSink.accept(summary(failure));
@@ -245,10 +251,16 @@ public final class GeoPackageViewer {
     }
 
     static void launchRasterWindow(RasterSource source, Consumer<String> failureSink) {
+        launchRasterWindow(source, failureSink, GeoPackageViewer::showWindow);
+    }
+
+    static void launchRasterWindow(
+            RasterSource source, Consumer<String> failureSink, Consumer<MapView> installer) {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(failureSink, "failureSink");
+        Objects.requireNonNull(installer, "installer");
         try {
-            installWindow(createRasterView(source));
+            installWindow(createRasterView(source), installer);
         } catch (RuntimeException failure) {
             closeAfterLaunchFailure(source, failure);
             failureSink.accept(summary(failure));
@@ -258,32 +270,32 @@ public final class GeoPackageViewer {
         }
     }
 
-    private static void installWindow(FeatureSource source) {
-        installWindow(createView(source));
-    }
-
-    private static void installWindow(MapView view) {
+    private static void installWindow(MapView view, Consumer<MapView> installer) {
         boolean installed = false;
         try {
-            JFrame frame = new JFrame("mundane-java-map — GeoPackage viewer");
-            frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-            frame.add(view, BorderLayout.CENTER);
-            frame.setSize(900, 640);
-            frame.addWindowListener(
-                    new WindowAdapter() {
-                        @Override
-                        public void windowClosed(WindowEvent event) {
-                            view.close();
-                        }
-                    });
-            frame.setLocationByPlatform(true);
-            frame.setVisible(true);
+            installer.accept(view);
             installed = true;
         } finally {
             if (!installed) {
                 view.close();
             }
         }
+    }
+
+    private static void showWindow(MapView view) {
+        JFrame frame = new JFrame("mundane-java-map — GeoPackage viewer");
+        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        frame.add(view, BorderLayout.CENTER);
+        frame.setSize(900, 640);
+        frame.addWindowListener(
+                new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent event) {
+                        view.close();
+                    }
+                });
+        frame.setLocationByPlatform(true);
+        frame.setVisible(true);
     }
 
     private static void closeAfterLaunchFailure(FeatureSource source, Throwable failure) {

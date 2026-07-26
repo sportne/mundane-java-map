@@ -192,3 +192,29 @@ compares every staged binary top-level type with its source entry and every exte
 top-level or nested type with its generated Javadoc page; corruption tests remove each artifact in
 turn. `javadocAll`, the all-project public-API scan, publication staging, consumer resolution, and
 `qualityGate` provide the executable documentation and artifact evidence.
+
+## G17-004 aggregate code coverage
+
+The shared Java convention now enforces an exact `0.80` minimum for JaCoCo's existing
+`INSTRUCTION/COVEREDRATIO` metric at `BUNDLE` scope. No source, class, package, generated pattern,
+or low-coverage project was removed from the governed population. The architecture-test project
+remains in the inventory but has no executable production instructions and therefore no numeric
+ratio. Each normal Java 21 test run produces XML and HTML reports before the aggregate verification
+attached to `check`; Java 25 remains a supported-runtime test lane without duplicate instrumentation.
+
+The checked
+[`G17-004-coverage-baseline.tsv`](../verification/G17-004-coverage-baseline.tsv) records the
+pre-change missed and covered instruction counts for all 41 governed projects and identifies the
+uncovered behavior by risk. Thirteen projects began below the target. Their new deterministic tests
+exercise portrayal rule selection and interpolation, viewer entry-point diagnostics, EDT
+confinement, asynchronous success/interruption/error propagation, ownership transfer and rejected
+installation cleanup, real bounded SQLite loading, scale and zoom limits, pointer/status updates,
+and bounded live-track command lifecycles. Small package-private seams separate UI installation or
+future completion from window construction so those public behaviors can be asserted without
+display-dependent tests; they do not alter the public API or exclude bytecode from coverage.
+
+`BuildConfigurationTest` constructs one five-method fixture at exactly eight of ten covered
+instructions and proves that the 80% boundary succeeds, XML and HTML reports are generated, and
+coverage verification remains in the `check` graph. A second fixture covers six of ten instructions
+and proves that the standard failure identifies the bundle, instruction ratio, actual `0.60`, and
+required `0.80`. Full-project verification then proves every executable bundle meets the same rule.
