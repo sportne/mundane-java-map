@@ -777,3 +777,32 @@ module, and broader follow-up remains separately decomposed.
 G16 is complete. The gate-level review retained one core planner plus explicit AWT view/binding
 configuration; source identity, strict CRS domains, local layers, and non-wrapped defaults remain
 unchanged.
+
+## Project hardening
+
+### G17 — Documentation, build efficiency, and verification depth
+
+- G17 improves the completed project without adding a map capability or widening any supported
+  format, platform, projection, symbology, Native Image, or release claim.
+- [G17-001](tasks/G17-001-documentation-currency-and-consistency-audit.md) reconciles user,
+  developer, design, roadmap, task, example, provenance, support, and verification documentation
+  against current source and executable evidence.
+- [G17-002](tasks/G17-002-build-and-ci-duration-reduction.md) profiles controlled cold/warm local
+  builds and exact GitHub jobs, then removes measured bottlenecks while mechanically retaining every
+  existing verification lane and isolation guarantee. Wall-clock observations remain evidence, not
+  portable quality thresholds.
+- [G17-003](tasks/G17-003-comprehensive-public-javadocs.md) expands strict Java 21 doclint and
+  missing-Javadoc enforcement from the original Level 1 public modules to every hand-authored
+  public/protected production declaration in modules, examples, and build support.
+- [G17-004](tasks/G17-004-raise-aggregate-code-coverage-to-80-percent.md) raises the existing
+  per-project JaCoCo bundle instruction floor from 60% to 80% through meaningful behavioral tests,
+  without exclusions or metric changes.
+- [G17-005](tasks/G17-005-per-source-file-code-coverage.md) adds an 80% instruction floor for each
+  hand-authored production source file, deterministic violation reporting, and an authoritative
+  inventory so aggregate coverage cannot conceal untested files.
+- Documentation and build profiling may begin in parallel with separate file ownership. Javadocs
+  follow both; aggregate coverage follows Javadocs; per-file coverage is the final additive rule.
+  G17 does not fold corpus, rendering, performance, Native Image, publication, SQLite deployment, or
+  offline evidence into ordinary unit coverage.
+- The [G17 task index](tasks/README.md#g17--documentation-build-efficiency-and-verification-depth)
+  is authoritative for status and dependencies.

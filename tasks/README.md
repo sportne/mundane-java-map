@@ -133,6 +133,11 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
   G16-003, G16-004 vector geometry/export and G16-006 raster behavior may proceed in parallel if one
   owner serializes shared `MapView`, architecture, rendering-regression, and task documentation.
   G16-005 waits for G16-004; G16-007 is the single integration and closeout owner.
+- G17-001 documentation work and G17-002 build/CI profiling are logically parallel, but G17-002 owns
+  root Gradle and workflow files. G17-003 follows both so its project-wide Javadoc enforcement uses
+  the settled documentation inventory and build wiring. G17-004 then owns the shared JaCoCo
+  convention and project-wide test expansion; G17-005 follows it with the additive per-source-file
+  rule. These tasks are not path-safe in parallel once they converge on build logic or tests.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -385,3 +390,15 @@ strict CRS/source coordinates and adds bounded periodic display behavior above t
 | [G16-005 — Wrapped interaction, measurement, and editing](closed/G16-005-wrapped-interaction-measurement-and-editing.md) | Complete | AFK | G16-004, G11-013 | Resolves copied features through copy-scoped hover, logical selection, continuous measurement, canonical snapping, and replayable point edits. |
 | [G16-006 — Explicit global raster wrap](closed/G16-006-explicit-global-raster-wrap.md) | Complete | AFK | G16-003, G6-004 | Reuses bounded canonical raster reads across compatible explicitly repeated global copies. |
 | [G16-007 — World-wrap hardening and closeout](closed/G16-007-world-wrap-hardening-and-closeout.md) | Complete | HITL | G16-002, G16-004, G16-005, G16-006 | Closed limits, rendering/performance/native/consumer evidence, documentation, and approved support wording. |
+
+## Project hardening
+
+### G17 — Documentation, build efficiency, and verification depth
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G17-001 — Documentation currency and consistency audit](G17-001-documentation-currency-and-consistency-audit.md) | Proposed | AFK | G10-044, G16-007 | Reconcile all user, design, roadmap, task, example, support, and verification documentation with current evidence. |
+| [G17-002 — Build and CI duration reduction](G17-002-build-and-ci-duration-reduction.md) | Proposed | HITL | G10-044, G16-007 | Measure and shorten local/CI critical paths while mechanically preserving every verification lane. |
+| [G17-003 — Comprehensive public Javadocs](G17-003-comprehensive-public-javadocs.md) | Proposed | AFK | G17-001, G17-002 | Document every public/protected production declaration and enforce strict project-wide doclint. |
+| [G17-004 — Raise aggregate code coverage to 80 percent](G17-004-raise-aggregate-code-coverage-to-80-percent.md) | Proposed | AFK | G17-002, G17-003 | Raise every governed project's existing bundle instruction floor from 60% to 80% through behavioral tests. |
+| [G17-005 — Enforce 80 percent coverage per source file](G17-005-per-source-file-code-coverage.md) | Proposed | AFK | G17-004 | Add deterministic 80% instruction coverage enforcement and reports for every production source file. |
