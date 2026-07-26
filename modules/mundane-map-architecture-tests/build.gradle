@@ -227,6 +227,16 @@ def moduleDescriptors = productionInventory.collect { entry ->
         entry.allowedRuntimeProjects.join(','),
     ].join('\t')
 }.join('\n')
+def rootTaskContainer = rootProject.tasks
+def documentedTaskProjects = inventory.collect { entry -> project(entry.path) }
+def configuredTaskInventory = providers.provider {
+    ([
+        ":\t${rootTaskContainer.names.sort().join(',')}"
+    ]
+    + documentedTaskProjects.collect { candidate ->
+        "${candidate.getPath()}\t${candidate.tasks.names.sort().join(',')}"
+    }).join('\n')
+}
 
 tasks.named('test') {
     dependsOn verifyRuntimeArchitecture
@@ -255,6 +265,10 @@ tasks.named('test') {
     inputs.file(performanceProject.file('build.gradle'))
     inputs.file(rootProject.file('build.gradle'))
     inputs.file(rootProject.file('settings.gradle'))
+    inputs.files(rootProject.fileTree(rootProject.projectDir) {
+        include '**/*.md'
+        exclude '.gradle/**', '**/build/**'
+    })
     inputs.file(rootProject.file('.github/workflows/native-image.yml'))
     inputs.file(rootProject.file('.github/workflows/sqlite-adapter-evidence.yml'))
     systemProperty 'map.architecture.modules', moduleDescriptors
@@ -288,10 +302,21 @@ tasks.named('test') {
             performanceProject.file('build.gradle').absolutePath
     systemProperty 'map.architecture.rootBuild', rootProject.file('build.gradle').absolutePath
     systemProperty 'map.architecture.settings', rootProject.file('settings.gradle').absolutePath
+    systemProperty 'map.documentation.repositoryRoot', rootProject.projectDir.absolutePath
+    systemProperty 'map.documentation.inventory',
+            inventory.collect { entry ->
+                "${entry.path}\t${entry.published}"
+            }.join('\n')
     systemProperty 'map.architecture.nativeWorkflow',
             rootProject.file('.github/workflows/native-image.yml').absolutePath
     systemProperty 'map.architecture.sqliteAdapterWorkflow',
             rootProject.file('.github/workflows/sqlite-adapter-evidence.yml').absolutePath
+}
+
+gradle.projectsEvaluated {
+    tasks.named('test') {
+        systemProperty 'map.documentation.tasks', configuredTaskInventory.get()
+    }
 }
 
 tasks.named('check') {

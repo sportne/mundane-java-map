@@ -397,7 +397,7 @@ strict CRS/source coordinates and adds bounded periodic display behavior above t
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G17-001 — Documentation currency and consistency audit](G17-001-documentation-currency-and-consistency-audit.md) | Proposed | AFK | G10-044, G16-007 | Reconcile all user, design, roadmap, task, example, support, and verification documentation with current evidence. |
+| [G17-001 — Documentation currency and consistency audit](closed/G17-001-documentation-currency-and-consistency-audit.md) | Complete | AFK | G10-044, G16-007 | Reconciled user, design, roadmap, task, example, support, and verification documentation with current evidence. |
 | [G17-002 — Build and CI duration reduction](G17-002-build-and-ci-duration-reduction.md) | Proposed | HITL | G10-044, G16-007 | Measure and shorten local/CI critical paths while mechanically preserving every verification lane. |
 | [G17-003 — Comprehensive public Javadocs](G17-003-comprehensive-public-javadocs.md) | Proposed | AFK | G17-001, G17-002 | Document every public/protected production declaration and enforce strict project-wide doclint. |
 | [G17-004 — Raise aggregate code coverage to 80 percent](G17-004-raise-aggregate-code-coverage-to-80-percent.md) | Proposed | AFK | G17-002, G17-003 | Raise every governed project's existing bundle instruction floor from 60% to 80% through behavioral tests. |

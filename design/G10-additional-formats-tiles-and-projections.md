@@ -2110,8 +2110,9 @@ The fixed ordered schema is:
 The GPX `name` becomes `FeatureRecord.name()` and is not duplicated as an attribute. Optional
 elevation is a bounded decimal that must convert to a finite `double`; GPX metric units make the
 attribute metres. Optional time is the strict RFC 3339 subset
-`YYYY-MM-DDTHH:MM:SS[.fraction](Z|+HH:MM|-HH:MM)`, with one through nine digits when the fraction is
-present; it must parse to an instant and is retained in canonical `Instant.toString()` UTC form.
+`YYYY-MM-DDTHH:MM:SS`, an optional fractional part, and `Z|+HH:MM|-HH:MM`, with one through nine
+digits when the fraction is present; it must parse to an instant and is retained in canonical
+`Instant.toString()` UTC form.
 Missing nullable fields use `AttributeNull` so every record satisfies the fixed schema.
 
 The reader recognizes GPX's remaining standard scalar/link/quality children only well enough to

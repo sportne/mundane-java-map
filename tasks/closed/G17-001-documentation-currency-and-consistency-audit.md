@@ -1,6 +1,6 @@
 # G17-001 — Documentation currency and consistency audit
 
-Status: Proposed
+Status: Complete
 Depends on: G10-044, G16-007
 Gate: G17
 Type: AFK

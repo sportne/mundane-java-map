@@ -24,7 +24,9 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-awt` | Swing `MapView`, Java2D renderers, explicit symbol/decoder registries, interaction routing, and measurement UI. |
 | `mundane-map-io-shapefile` | Bounded read-only SHP/SHX/DBF/CPG/PRJ feature sources. |
 | `mundane-map-io-image` | Bounded PNG/JPEG metadata, world-file placement, requests, lifecycle, and caches through an explicit decoder boundary. |
+| `mundane-map-io-http-tiles` | Bounded JVM-only fixed-host HTTP XYZ acquisition into detached PNG/JPEG raster snapshots. |
 | `mundane-map-io-dted` | Bounded Level 2 DTED elevation sources. |
+| `mundane-map-io-geotiff` | Bounded JDK-only Classic GeoTIFF raster and elevation sources. |
 | `mundane-map-io-svg` | Secure Level 2 static SVG-symbol subset import. |
 | `mundane-map-io-se` | Secure Level 2 OGC SE 1.1 feature-style subset import. |
 | `mundane-map-io-gpx` | Bounded Level 2 GPX 1.1 waypoint and track feature sources. |
@@ -57,8 +59,10 @@ raster evidence, a corpus, profiling, publication staging, or a native toolchain
 ./gradlew offlineRepositoryVerification --console=plain
 ./gradlew renderRegression --console=plain
 ./gradlew shapefileCorpus --console=plain
+./gradlew dtedCorpus --console=plain
 ./gradlew performanceQuick --console=plain
 ./gradlew performanceEvidence --console=plain
+./gradlew liveTrackSmoke --console=plain
 ./gradlew nativeSmoke --console=plain
 ./gradlew publicationDryRun consumerSmoke --console=plain
 ```
@@ -66,7 +70,13 @@ raster evidence, a corpus, profiling, publication staging, or a native toolchain
 `renderRegression` uses bounds, topology, tolerant color regions, ordering, clipping, and
 interpolation invariants rather than byte-identical whole images. `performanceQuick` is a
 noncanonical iteration lane; only `performanceEvidence` produces canonical performance evidence.
-The offline lane verifies the complete normal gate from one isolated Maven-layout repository.
+The opt-in `liveTrackEvidence` task runs one explicitly selected 10k, 100k, or 1m profile and is not
+part of the normal gate. The offline lane verifies the complete normal gate from one isolated
+Maven-layout repository. GitHub Actions separately runs Java 21/25 quality jobs, rendering,
+Shapefile/DTED corpus and performance jobs, a Linux x86-64 Native Image job, isolated offline
+repository verification, and the exact glibc/musl SQLite-adapter platform matrix. These specialized
+lanes remain separate because they require cold homes, corpus data, external tools, containers,
+platform-specific behavior, or deliberately expensive evidence.
 
 ## Level 1 support statement
 
@@ -201,12 +211,14 @@ and bounded decode/resample caching. `ImageIO` and packed-pixel conversion remai
 decoder implementation.
 
 Level 1 recognizes only explicitly registered EPSG:4326 and EPSG:3857 definitions and operations.
-Unknown definitions are retained when available but are not guessed or transformed. Remote tiles,
-additional projections, and optional JTS/PROJ/GDAL adapters remain Level 2 work. DTED, GeoTIFF, the
-static SVG subset, and the optional Jackson Core GeoJSON and Xerial GeoPackage/MBTiles profiles are
-implemented Level 2 capabilities and do not broaden Level 1. GeoPackage provides catalog, all six
-approved two-dimensional feature geometry families, typed attribute projection, retained/recognized
-CRS metadata, and explicit-zoom sparse PNG/JPEG tile-matrix raster sources. MBTiles provides strict
+Unknown definitions are retained when available but are not guessed or transformed. Additional
+projections and optional JTS/PROJ/GDAL adapters remain deferred. DTED, GeoTIFF, fixed-host HTTP XYZ,
+the static SVG subset, and the optional Jackson Core GeoJSON and Xerial GeoPackage/MBTiles profiles
+are implemented Level 2 capabilities and do not broaden Level 1. The HTTP adapter is a JVM-only
+explicit acquisition client and has no Native Image support claim. GeoPackage provides catalog, all
+six approved two-dimensional feature geometry families, typed attribute projection,
+retained/recognized CRS metadata, and explicit-zoom sparse PNG/JPEG tile-matrix raster sources.
+MBTiles provides strict
 single-tileset metadata, explicit-zoom TMS-to-XYZ conversion, and sparse PNG/JPEG raster windows.
 Both tile adapters offer transactional optional decoded caching and runnable viewers. Their exact
 supported deployment is Java 21 on Linux x86-64 with glibc 2.35 or newer; pinned Ubuntu 22.04 and
@@ -304,9 +316,29 @@ ordered rules, an explicit catalog marker, lines, polygon fills/outlines, and a 
 [live-track stress example](examples/live-track-stress/README.md) is a JVM-only packed simulation,
 estimation, rendering, and evidence workload rather than a public tracking API.
 
+## Licenses and fixture provenance
+
+The project code is licensed under [Apache License 2.0](LICENSE). Optional adapters retain their
+dependency notices in their published resources:
+[GeoJSON/Jackson](modules/mundane-map-io-geojson-jackson/src/main/resources/META-INF/NOTICE),
+[MapLibre/Jackson](modules/mundane-map-io-maplibre-style-jackson/src/main/resources/META-INF/NOTICE),
+[GeoPackage/Xerial](modules/mundane-map-io-geopackage-xerial/src/main/resources/META-INF/NOTICE), and
+[MBTiles/Xerial](modules/mundane-map-io-mbtiles-xerial/src/main/resources/META-INF/NOTICE).
+
+Independently sourced or tool-generated fixtures retain exact provenance beside the data. The main
+entry points are the [Natural Earth chart](examples/live-track-stress/NATURAL_EARTH_PROVENANCE.md),
+[GeoTIFF corpus](modules/mundane-map-io-geotiff/src/test/resources/geotiff-corpus/PROVENANCE.md),
+[MapLibre fixtures](modules/mundane-map-io-maplibre-style-jackson/src/test/resources/io/github/mundanej/map/io/maplibre/style/fixtures/PROVENANCE.md),
+[SE fixtures](modules/mundane-map-io-se/src/test/resources/se-fixtures/PROVENANCE.md), and
+[native raster fixtures](modules/mundane-map-native-tests/src/test/resources/io/github/mundanej/map/nativeimage/raster/PROVENANCE.md).
+Those notices define fixture rights and evidence scope; they do not widen the runtime support
+statements above.
+
 ## Design and roadmap
 
 - [DESIGN.md](DESIGN.md) indexes the compact architecture and approved decisions.
 - [CHANGELOG.md](CHANGELOG.md) records release capabilities, migrations, limits, and non-claims.
 - [ROADMAP.md](ROADMAP.md) separates the Level 1 release gates from Level 2 work.
 - [tasks/](tasks/) contains implementation-sized vertical slices and exact validation commands.
+- [Project-hardening design](design/G17-project-hardening.md) records the current documentation,
+  build-efficiency, Javadoc, and coverage evidence.

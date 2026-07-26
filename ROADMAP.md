@@ -784,7 +784,7 @@ unchanged.
 
 - G17 improves the completed project without adding a map capability or widening any supported
   format, platform, projection, symbology, Native Image, or release claim.
-- [G17-001](tasks/G17-001-documentation-currency-and-consistency-audit.md) reconciles user,
+- [G17-001](tasks/closed/G17-001-documentation-currency-and-consistency-audit.md) reconciles user,
   developer, design, roadmap, task, example, provenance, support, and verification documentation
   against current source and executable evidence.
 - [G17-002](tasks/G17-002-build-and-ci-duration-reduction.md) profiles controlled cold/warm local

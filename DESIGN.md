@@ -58,13 +58,14 @@ design task; there are no empty speculative design files.
 | G7 | [Performance and indexing](design/G7-performance-and-indexing.md) | G7-001 through G7-004 approved |
 | G8 | [Native and release readiness](design/G8-release-readiness.md) | G8-001 through G8-004 approved |
 | G9 | [Elevation and DTED](design/G9-elevation-and-dted.md) | G9-001 through G9-008 and holistic closeout approved |
-| G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | G10-001 through G10-007 approved; implementation slices remain separately gated |
-| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | G11-001 through G11-005 approved; implementation remains separately gated |
+| G10 | [Additional formats, tiles, and projections](design/G10-additional-formats-tiles-and-projections.md) | Complete |
+| G11 | [Editing, styling, persistence, adapters, and export](design/G11-editing-styling-persistence-adapters-export.md) | Complete |
 | G12 | [MIL-STD-2525 symbology](design/G12-milstd2525-symbology.md) | Complete |
 | G13 | [OGC Symbology Encoding](design/G13-ogc-symbology-encoding.md) | Complete |
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | Complete |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
-| G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | G16-001 through G16-004 complete; G16-005 through G16-007 draft |
+| G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | Complete |
+| G17 | [Project hardening](design/G17-project-hardening.md) | G17-001 complete; later tasks separately gated |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -96,12 +97,11 @@ evidence lane, and lifecycle/replay/soak closeout. The profile deliberately sepa
 sub-five-minute 10k smoke from opt-in `/tmp` evidence and does not approve a public tracker/live-layer
 API, proprietary-equivalence claim, operational claim, or portable FPS threshold.
 
-World-wrap planning record (2026-07-21): draft G16-001 through G16-007 separate strict canonical CRS
-and source coordinates from an explicitly configured periodic display policy. The proposed sequence
-first repeats G15 Natural Earth/tracks, then adds bounded point/vector query/rendering, dateline
-geometry, interaction/editing, compatible global rasters, and closeout evidence. The draft does not
-approve public API names or numeric limits, automatic wrap inference, topology repair, a globe,
-external dependencies, or implementation of open tile/container tasks.
+World-wrap completion record (2026-07-25): G16-001 through G16-007 separate strict canonical CRS and
+source coordinates from an explicitly configured periodic display policy. The completed sequence
+repeats G15 Natural Earth/tracks, adds bounded point/vector query/rendering, dateline geometry,
+interaction/editing, compatible global rasters, and closeout evidence. It does not approve automatic
+wrap inference, topology repair, a globe, external dependencies, or vertical/polar wrapping.
 
 ## Decisions
 
@@ -291,6 +291,7 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G16-002 | Repeated G15 Natural Earth/tracks, continuous overscan coordinates, multi-world presentation evidence, and lifecycle | Approved |
 | G16-003 | Binding-opted periodic display, canonical query planning/deduplication, point/label copies, and compatibility | Approved |
 | G16-004 | Geographic seam unwrapping/splitting, packed line/polygon parts, portrayal/labels, diagnostics, and vector export | Approved |
-| G16-005 | Copy-aware hit/hover/selection, canonical measurement/snapping/edit commands, navigation, and undo/redo | Draft |
-| G16-006 | Explicit compatible global raster repetition, canonical request reuse, tile-column math, and local-layer isolation | Draft |
-| G16-007 | Boundary/hostile hardening, rendering/performance/native/consumer evidence, documentation, visual approval, and closeout | Draft |
+| G16-005 | Copy-aware hit/hover/selection, canonical measurement/snapping/edit commands, navigation, and undo/redo | Approved |
+| G16-006 | Explicit compatible global raster repetition, canonical request reuse, tile-column math, and local-layer isolation | Approved |
+| G16-007 | Boundary/hostile hardening, rendering/performance/native/consumer evidence, documentation, visual approval, and closeout | Approved |
+| G17-001 | Repository-wide documentation inventory, support reconciliation, provenance links, and deterministic fact checks | Approved |
