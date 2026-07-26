@@ -413,7 +413,14 @@ module, and broader follow-up remains separately decomposed.
   LineString, MultiLineString, Polygon, and MultiPolygon values; validates multipart rings and
   optional header envelopes; exposes the approved typed attribute schema/projection; and retains
   explicitly recognized or unknown CRS metadata. The runnable GeoPackage viewer exercises the real
-  feature stack. G10-042 through G10-044 own tiles, MBTiles, and final Linux deployment evidence.
+  feature stack.
+- G10-042 is complete. GeoPackage catalogs strict 256-pixel tile matrices and opens one explicit
+  zoom as a placed `RasterSource`; sparse positions are transparent with coalesced diagnostics,
+  mixed PNG/JPEG BLOBs use the explicit G10-039 decoder registry, and optional decoded LRU changes
+  commit only after successful reads. Generated hostile fixtures plus an independently generated,
+  digest-pinned Python/SQLite container cover matrix math, decode translation, rendering, lifecycle,
+  and provenance. The viewer accepts either a feature table or a tile table plus zoom. G10-043 and
+  G10-044 own MBTiles and final Linux deployment evidence.
 - GeoTIFF remains Level 2, keeps cell-area imagery distinct from sample-post terrain, and routes only
   its approved elevation profile through the G9 model. BigTIFF and GDAL remain deferred.
 - The approved GPX and KML designs keep their future modules independent even though both use directly

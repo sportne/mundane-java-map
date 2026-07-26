@@ -118,7 +118,8 @@ def projectInventory = [
     [path: ':modules:mundane-map-io-geopackage-xerial', category: 'OPTIONAL_ADAPTER',
         releaseLevel: 2, published: true, nativeTarget: false,
         allowedRuntimeProjects: [
-            ':modules:mundane-map-api', ':modules:mundane-map-core']],
+            ':modules:mundane-map-api', ':modules:mundane-map-core',
+            ':modules:mundane-map-io-image']],
     [path: ':modules:mundane-map-workspace', category: 'JDK_RUNTIME', releaseLevel: 2,
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [

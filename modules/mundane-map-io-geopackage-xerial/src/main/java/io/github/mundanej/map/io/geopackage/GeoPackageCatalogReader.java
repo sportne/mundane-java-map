@@ -115,11 +115,15 @@ final class GeoPackageCatalogReader {
                     }
                 }
             }
-            validateContentsProfile(sourceId, session, contentTables);
-            validateObjectInventory(sourceId, session, contentTables);
+            TileCatalog tiles =
+                    readTiles(sourceId, session, cancellation, crs, metadataBudget, contentTables);
+            validateContentsProfile(sourceId, session, contentTables, tiles.tableNames());
+            validateObjectInventory(sourceId, session, contentTables, !tiles.profiles().isEmpty());
             session.afterOperation(cancellation, "publish");
             return new GeoPackageCatalogSnapshot(
-                    new GeoPackageCatalog(tables, List.of(), DiagnosticReport.empty()), profiles);
+                    new GeoPackageCatalog(tables, tiles.tables(), DiagnosticReport.empty()),
+                    profiles,
+                    tiles.profiles());
         } catch (SQLException exception) {
             throw session.queryFailure(exception, "catalog");
         }
@@ -384,6 +388,334 @@ final class GeoPackageCatalogReader {
         metadataBudget.text(lastChange);
     }
 
+    private static TileCatalog readTiles(
+            String sourceId,
+            GeoPackageSession session,
+            CancellationToken cancellation,
+            Map<Integer, CrsMetadata> crs,
+            MetadataBudget metadataBudget,
+            java.util.Set<String> featureTables)
+            throws SQLException {
+        if (!hasTileContents(session)) {
+            return new TileCatalog(List.of(), List.of(), java.util.Set.of());
+        }
+        validateTileCore(sourceId, session);
+        String sql =
+                """
+                SELECT c.table_name, s.srs_id, s.min_x, s.min_y, s.max_x, s.max_y,
+                       c.srs_id, c.min_x, c.min_y, c.max_x, c.max_y,
+                       c.identifier, c.description, c.last_change,
+                       typeof(s.srs_id),
+                       typeof(s.min_x), typeof(s.min_y), typeof(s.max_x), typeof(s.max_y),
+                       typeof(c.srs_id),
+                       typeof(c.min_x), typeof(c.min_y), typeof(c.max_x), typeof(c.max_y)
+                  FROM gpkg_contents c
+                  JOIN gpkg_tile_matrix_set s ON s.table_name = c.table_name
+                 WHERE c.data_type = 'tiles'
+                 ORDER BY c.table_name
+                """;
+        List<GeoPackageTileTable> tables = new ArrayList<>();
+        List<GeoPackageTileProfile> profiles = new ArrayList<>();
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        try (Statement statement = session.connection().createStatement();
+                ResultSet rows = statement.executeQuery(sql)) {
+            while (rows.next()) {
+                checkpoint(sourceId, cancellation);
+                metadataBudget.row();
+                String table = identifier(sourceId, rows.getString(1), session.limits());
+                metadataBudget.text(table);
+                if (featureTables.contains(table) || !names.add(table)) {
+                    throw schema(sourceId, "tileMatrixSet", "tableName", "duplicate");
+                }
+                int srsId = sqliteInteger(sourceId, rows, 2, 15, "tileMatrixSet", "srsId");
+                int contentSrsId = sqliteInteger(sourceId, rows, 7, 20, "contents", "srsId");
+                if (contentSrsId != srsId) {
+                    throw schema(sourceId, "tileMatrixSet", "srsId", "reference");
+                }
+                CrsMetadata metadata = crs.get(srsId);
+                if (metadata == null) {
+                    throw schema(sourceId, "tileMatrixSet", "srsId", "reference");
+                }
+                Envelope bounds = envelope(sourceId, rows, 3, 16, "tileMatrixSet");
+                Optional<Envelope> contentBounds =
+                        optionalEnvelope(sourceId, rows, 8, 21, "contents");
+                if (contentBounds.isPresent() && !contains(bounds, contentBounds.orElseThrow())) {
+                    throw schema(sourceId, "contents", "minX", "value");
+                }
+                validateContentMetadata(sourceId, rows, session.limits(), metadataBudget);
+                validateTileColumns(sourceId, session, table);
+                List<GeoPackageTileMatrix> matrices =
+                        readMatrices(
+                                sourceId, session, cancellation, metadataBudget, table, bounds);
+                GeoPackageTileTable descriptor =
+                        new GeoPackageTileTable(
+                                table,
+                                bounds,
+                                metadata,
+                                matrices.stream().map(GeoPackageTileMatrix::zoom).toList());
+                tables.add(descriptor);
+                profiles.add(new GeoPackageTileProfile(descriptor, matrices));
+            }
+        }
+        return new TileCatalog(tables, profiles, names);
+    }
+
+    private static boolean hasTileContents(GeoPackageSession session) throws SQLException {
+        try (Statement statement = session.connection().createStatement();
+                ResultSet rows =
+                        statement.executeQuery(
+                                "SELECT 1 FROM gpkg_contents WHERE data_type='tiles' LIMIT 1")) {
+            return rows.next();
+        }
+    }
+
+    private static void validateTileCore(String sourceId, GeoPackageSession session)
+            throws SQLException {
+        validateColumns(
+                sourceId,
+                session,
+                "gpkg_tile_matrix_set",
+                "tileMatrixSet",
+                List.of(
+                        new Column("table_name", "TEXT", true, 1),
+                        new Column("srs_id", "INTEGER", true, 0),
+                        new Column("min_x", "DOUBLE", true, 0),
+                        new Column("min_y", "DOUBLE", true, 0),
+                        new Column("max_x", "DOUBLE", true, 0),
+                        new Column("max_y", "DOUBLE", true, 0)));
+        validateColumns(
+                sourceId,
+                session,
+                "gpkg_tile_matrix",
+                "tileMatrix",
+                List.of(
+                        new Column("table_name", "TEXT", true, 1),
+                        new Column("zoom_level", "INTEGER", true, 2),
+                        new Column("matrix_width", "INTEGER", true, 0),
+                        new Column("matrix_height", "INTEGER", true, 0),
+                        new Column("tile_width", "INTEGER", true, 0),
+                        new Column("tile_height", "INTEGER", true, 0),
+                        new Column("pixel_x_size", "DOUBLE", true, 0),
+                        new Column("pixel_y_size", "DOUBLE", true, 0)));
+        requireForeignKey(
+                sourceId,
+                session,
+                "gpkg_tile_matrix_set",
+                "tileMatrixSet",
+                "tableName",
+                "table_name",
+                "gpkg_contents",
+                "table_name");
+        requireForeignKey(
+                sourceId,
+                session,
+                "gpkg_tile_matrix_set",
+                "tileMatrixSet",
+                "srsId",
+                "srs_id",
+                "gpkg_spatial_ref_sys",
+                "srs_id");
+        requireForeignKey(
+                sourceId,
+                session,
+                "gpkg_tile_matrix",
+                "tileMatrix",
+                "tableName",
+                "table_name",
+                "gpkg_contents",
+                "table_name");
+    }
+
+    private static void validateTileColumns(
+            String sourceId, GeoPackageSession session, String table) throws SQLException {
+        validateColumns(
+                sourceId,
+                session,
+                table,
+                "selectedTable",
+                List.of(
+                        new Column("id", "INTEGER", false, 1),
+                        new Column("zoom_level", "INTEGER", true, 0),
+                        new Column("tile_column", "INTEGER", true, 0),
+                        new Column("tile_row", "INTEGER", true, 0),
+                        new Column("tile_data", "BLOB", true, 0)));
+    }
+
+    private static List<GeoPackageTileMatrix> readMatrices(
+            String sourceId,
+            GeoPackageSession session,
+            CancellationToken cancellation,
+            MetadataBudget metadataBudget,
+            String table,
+            Envelope bounds)
+            throws SQLException {
+        List<GeoPackageTileMatrix> matrices = new ArrayList<>();
+        try (PreparedStatement statement =
+                session.connection()
+                        .prepareStatement(
+                                """
+                                SELECT zoom_level,matrix_width,matrix_height,tile_width,tile_height,
+                                       pixel_x_size,pixel_y_size,
+                                       typeof(zoom_level),typeof(matrix_width),
+                                       typeof(matrix_height),typeof(tile_width),typeof(tile_height),
+                                       typeof(pixel_x_size),typeof(pixel_y_size)
+                                  FROM gpkg_tile_matrix
+                                 WHERE table_name=?
+                                 ORDER BY zoom_level
+                                """)) {
+            statement.setString(1, table);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    checkpoint(sourceId, cancellation);
+                    metadataBudget.row();
+                    int zoom = sqliteInteger(sourceId, rows, 1, 8, "tileMatrix", "zoom");
+                    int matrixWidth =
+                            sqliteInteger(sourceId, rows, 2, 9, "tileMatrix", "matrixWidth");
+                    int matrixHeight =
+                            sqliteInteger(sourceId, rows, 3, 10, "tileMatrix", "matrixHeight");
+                    int tileWidth = sqliteInteger(sourceId, rows, 4, 11, "tileMatrix", "tileWidth");
+                    int tileHeight =
+                            sqliteInteger(sourceId, rows, 5, 12, "tileMatrix", "tileHeight");
+                    double pixelX = sqliteDouble(sourceId, rows, 6, 13, "tileMatrix", "pixelXSize");
+                    double pixelY = sqliteDouble(sourceId, rows, 7, 14, "tileMatrix", "pixelYSize");
+                    if (zoom < 0 || zoom > session.limits().maximumZoom()) {
+                        throw unsupported(sourceId, "zoom");
+                    }
+                    if (matrixWidth <= 0
+                            || matrixHeight <= 0
+                            || matrixWidth > session.limits().maximumMatrixAxis()
+                            || matrixHeight > session.limits().maximumMatrixAxis()
+                            || tileWidth != 256
+                            || tileHeight != 256) {
+                        throw schema(sourceId, "tileMatrix", "matrixWidth", "value");
+                    }
+                    int rasterWidth;
+                    int rasterHeight;
+                    try {
+                        rasterWidth = Math.multiplyExact(matrixWidth, tileWidth);
+                        rasterHeight = Math.multiplyExact(matrixHeight, tileHeight);
+                    } catch (ArithmeticException exception) {
+                        throw schema(sourceId, "tileMatrix", "matrixWidth", "value");
+                    }
+                    double expectedX = bounds.width() / rasterWidth;
+                    double expectedY = bounds.height() / rasterHeight;
+                    if (!finitePositive(pixelX)
+                            || !finitePositive(pixelY)
+                            || !closeUlps(pixelX, expectedX, 8)
+                            || !closeUlps(pixelY, expectedY, 8)) {
+                        throw schema(sourceId, "tileMatrix", "pixelXSize", "value");
+                    }
+                    matrices.add(
+                            new GeoPackageTileMatrix(
+                                    zoom, matrixWidth, matrixHeight, pixelX, pixelY));
+                    if (matrices.size() > session.limits().maximumZoomLevels()) {
+                        throw limit(
+                                sourceId,
+                                "zoomLevels",
+                                matrices.size(),
+                                session.limits().maximumZoomLevels());
+                    }
+                }
+            }
+        }
+        if (matrices.isEmpty()) {
+            throw schema(sourceId, "tileMatrix", "zoom", "missing");
+        }
+        return List.copyOf(matrices);
+    }
+
+    private static Envelope envelope(
+            String sourceId, ResultSet rows, int firstIndex, int firstTypeIndex, String object)
+            throws SQLException {
+        double minX = sqliteDouble(sourceId, rows, firstIndex, firstTypeIndex, object, "minX");
+        double minY =
+                sqliteDouble(sourceId, rows, firstIndex + 1, firstTypeIndex + 1, object, "minY");
+        double maxX =
+                sqliteDouble(sourceId, rows, firstIndex + 2, firstTypeIndex + 2, object, "maxX");
+        double maxY =
+                sqliteDouble(sourceId, rows, firstIndex + 3, firstTypeIndex + 3, object, "maxY");
+        try {
+            return new Envelope(minX, minY, maxX, maxY);
+        } catch (IllegalArgumentException exception) {
+            throw schema(sourceId, object, "minX", "value");
+        }
+    }
+
+    private static Optional<Envelope> optionalEnvelope(
+            String sourceId, ResultSet rows, int firstIndex, int firstTypeIndex, String object)
+            throws SQLException {
+        boolean allNull = true;
+        boolean anyNull = false;
+        for (int offset = 0; offset < 4; offset++) {
+            boolean isNull = "null".equals(rows.getString(firstTypeIndex + offset));
+            allNull &= isNull;
+            anyNull |= isNull;
+        }
+        if (allNull) {
+            return Optional.empty();
+        }
+        if (anyNull) {
+            throw schema(sourceId, object, "minX", "nullability");
+        }
+        return Optional.of(envelope(sourceId, rows, firstIndex, firstTypeIndex, object));
+    }
+
+    private static boolean contains(Envelope outer, Envelope inner) {
+        return inner.minX() >= outer.minX()
+                && inner.minY() >= outer.minY()
+                && inner.maxX() <= outer.maxX()
+                && inner.maxY() <= outer.maxY();
+    }
+
+    private static int sqliteInteger(
+            String sourceId,
+            ResultSet rows,
+            int valueIndex,
+            int typeIndex,
+            String object,
+            String field)
+            throws SQLException {
+        if (!"integer".equals(rows.getString(typeIndex))) {
+            throw schema(sourceId, object, field, "value");
+        }
+        long value = rows.getLong(valueIndex);
+        if (rows.wasNull() || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw schema(sourceId, object, field, "value");
+        }
+        return Math.toIntExact(value);
+    }
+
+    private static double sqliteDouble(
+            String sourceId,
+            ResultSet rows,
+            int valueIndex,
+            int typeIndex,
+            String object,
+            String field)
+            throws SQLException {
+        String storage = rows.getString(typeIndex);
+        if (!"integer".equals(storage) && !"real".equals(storage)) {
+            throw schema(sourceId, object, field, "value");
+        }
+        double value = rows.getDouble(valueIndex);
+        if (rows.wasNull() || !Double.isFinite(value)) {
+            throw schema(sourceId, object, field, "value");
+        }
+        return value;
+    }
+
+    private static boolean finitePositive(double value) {
+        return Double.isFinite(value) && value > 0;
+    }
+
+    private static boolean closeUlps(double actual, double expected, int ulps) {
+        if (!finitePositive(expected)) {
+            return false;
+        }
+        double tolerance = Math.ulp(expected) * ulps;
+        return Math.abs(actual - expected) <= tolerance;
+    }
+
     private static Optional<Envelope> extent(String sourceId, ResultSet rows) throws SQLException {
         Double minX = nullableDouble(rows, 7);
         Double minY = nullableDouble(rows, 8);
@@ -485,7 +817,10 @@ final class GeoPackageCatalogReader {
     }
 
     private static void validateContentsProfile(
-            String sourceId, GeoPackageSession session, java.util.Set<String> featureTables)
+            String sourceId,
+            GeoPackageSession session,
+            java.util.Set<String> featureTables,
+            java.util.Set<String> tileTables)
             throws SQLException {
         try (Statement statement = session.connection().createStatement();
                 ResultSet rows =
@@ -496,7 +831,10 @@ final class GeoPackageCatalogReader {
                 count++;
                 String table = identifier(sourceId, rows.getString(1), session.limits());
                 String type = rows.getString(2);
-                if (!"features".equals(type) || !featureTables.contains(table)) {
+                boolean supported =
+                        ("features".equals(type) && featureTables.contains(table))
+                                || ("tiles".equals(type) && tileTables.contains(table));
+                if (!supported) {
                     throw unsupported(sourceId, "contentType");
                 }
                 if (count > session.limits().maximumSchemaObjects()) {
@@ -511,13 +849,28 @@ final class GeoPackageCatalogReader {
     }
 
     private static void validateObjectInventory(
-            String sourceId, GeoPackageSession session, java.util.Set<String> contentTables)
+            String sourceId,
+            GeoPackageSession session,
+            java.util.Set<String> featureTables,
+            boolean hasTiles)
             throws SQLException {
-        java.util.Set<String> allowedTables = new java.util.HashSet<>(contentTables);
+        java.util.Set<String> allowedTables = new java.util.HashSet<>(featureTables);
         allowedTables.add("gpkg_spatial_ref_sys");
         allowedTables.add("gpkg_contents");
         allowedTables.add("gpkg_geometry_columns");
         allowedTables.add("gpkg_extensions");
+        if (hasTiles) {
+            allowedTables.add("gpkg_tile_matrix_set");
+            allowedTables.add("gpkg_tile_matrix");
+            try (Statement statement = session.connection().createStatement();
+                    ResultSet rows =
+                            statement.executeQuery(
+                                    "SELECT table_name FROM gpkg_contents WHERE data_type='tiles'")) {
+                while (rows.next()) {
+                    allowedTables.add(identifier(sourceId, rows.getString(1), session.limits()));
+                }
+            }
+        }
         try (Statement statement = session.connection().createStatement();
                 ResultSet rows =
                         statement.executeQuery(
@@ -657,6 +1010,17 @@ final class GeoPackageCatalogReader {
     private record TableColumns(String primaryKey, List<GeoPackageAttributeColumn> attributes) {
         private TableColumns {
             attributes = List.copyOf(attributes);
+        }
+    }
+
+    private record TileCatalog(
+            List<GeoPackageTileTable> tables,
+            List<GeoPackageTileProfile> profiles,
+            java.util.Set<String> tableNames) {
+        private TileCatalog {
+            tables = List.copyOf(tables);
+            profiles = List.copyOf(profiles);
+            tableNames = java.util.Set.copyOf(tableNames);
         }
     }
 

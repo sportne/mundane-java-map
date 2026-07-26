@@ -12,6 +12,7 @@ def xerialProvenance = configurations.create('xerialProvenance') {
 dependencies {
     api project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-io-image')
     implementation('org.xerial:sqlite-jdbc:3.53.2.0:without-natives') {
         transitive = false
     }

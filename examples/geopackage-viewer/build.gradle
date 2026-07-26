@@ -13,4 +13,4 @@ application {
     mainClass = 'io.github.mundanej.map.example.geopackage.GeoPackageViewer'
 }
 
-description = 'Runnable bounded GeoPackage feature viewer example.'
+description = 'Runnable bounded GeoPackage feature and tile viewer example.'

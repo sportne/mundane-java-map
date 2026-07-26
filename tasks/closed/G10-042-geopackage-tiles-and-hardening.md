@@ -1,6 +1,6 @@
 # G10-042 — GeoPackage tiles and hardening
 
-Status: Proposed
+Status: Complete
 Depends on: G10-041, G10-039
 Gate: G10
 Type: HITL
@@ -58,3 +58,10 @@ git diff --check
 HITL checkpoint: **G10 GeoPackage interoperability review**. This checkpoint occurs only after
 G10-004 and G11-004 approve execution; a maintainer then approves independent-fixture provenance and
 manually reviews both viewer modes. It does not create a broader SQLite or platform claim.
+
+Completed with strict tile-matrix catalog validation, explicit-zoom sparse `RasterSource` reads,
+mixed PNG/JPEG decoding through the explicit image registry, transparent missing tiles with
+coalesced warnings, and a disabled-by-default transactional decoded LRU. Matrix math, decode
+translation, cache rollback, tolerant MapView rendering, viewer modes, hostile rows, and an
+independently generated digest-pinned Python/SQLite fixture provide direct evidence. The approval
+does not broaden the existing Linux x86-64 glibc JVM-only claim.

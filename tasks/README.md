@@ -281,7 +281,7 @@ follow their recorded dependencies, and broader follow-up still requires a new c
 | [G10-039 — Encoded raster byte decoder](closed/G10-039-encoded-raster-byte-decoder.md) | Complete | AFK | G6-004, G10-006 | Decode bounded detached PNG/JPEG bytes through the explicit image registry. |
 | [G10-040 — GeoPackage catalog and point features](closed/G10-040-geopackage-catalog-and-point-features.md) | Complete | AFK | G10-004, G11-004 | Qualified Xerial and delivered bounded GeoPackage catalog/point feature behavior. |
 | [G10-041 — GeoPackage feature completion](closed/G10-041-geopackage-feature-completion.md) | Complete | AFK | G10-040 | Completed geometry, attributes, CRS, query, viewer, and feature hardening. |
-| [G10-042 — GeoPackage tiles and hardening](G10-042-geopackage-tiles-and-hardening.md) | Proposed | HITL | G10-041, G10-039 | Render bounded sparse tile matrices and approve independent container evidence. |
+| [G10-042 — GeoPackage tiles and hardening](closed/G10-042-geopackage-tiles-and-hardening.md) | Complete | HITL | G10-041, G10-039 | Render bounded sparse tile matrices and approve independent container evidence. |
 | [G10-043 — MBTiles raster slice](G10-043-mbtiles-raster-slice.md) | Proposed | AFK | G10-039, G11-004 | Read and render bounded TMS PNG/JPEG MBTiles through a staged adapter. |
 | [G10-044 — SQLite adapter hardening and Linux evidence](G10-044-sqlite-adapter-hardening-and-linux-evidence.md) | Proposed | HITL | G10-042, G10-043 | Close MBTiles hardening and approve exact Linux JVM support for both adapters. |
 | [G10-050 — GPX waypoint first slice](closed/G10-050-gpx-waypoint-first-slice.md) | Complete | AFK | G10-005 | Read, query, render, publish, and consume bounded GPX waypoints. |

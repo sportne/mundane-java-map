@@ -32,7 +32,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-symbology-milstd2525` | Bounded Level 2 MIL-STD-2525E Change 1 icon-based point symbology. |
 | `mundane-map-io-geojson-jackson` | Optional bounded Level 2 RFC 7946 feature-source reader/writer using Jackson Core. |
 | `mundane-map-io-maplibre-style-jackson` | Optional bounded Level 2 MapLibre v8 vector-style reader using Jackson Core. |
-| `mundane-map-io-geopackage-xerial` | Optional Linux JVM-only bounded Level 2 GeoPackage 1.4.0 reader using pinned Xerial SQLite JDBC classifiers. |
+| `mundane-map-io-geopackage-xerial` | Optional Linux JVM-only bounded Level 2 GeoPackage 1.4.0 feature and PNG/JPEG tile reader using pinned Xerial SQLite JDBC classifiers. |
 | `mundane-map-workspace` | Immutable workspace values plus bounded secure read, canonical atomic write, explicit local openers, and owning sessions for `.mmap.xml` version 1. |
 
 The format modules contain no AWT types and do not discover implementations. Applications explicitly
@@ -204,9 +204,11 @@ Unknown definitions are retained when available but are not guessed or transform
 MBTiles, remote tiles, additional projections, and optional JTS/PROJ/GDAL adapters remain Level 2
 work. DTED, the static SVG subset, and the optional
 Jackson Core GeoJSON and Xerial GeoPackage profiles are implemented Level 2 capabilities and do not
-broaden Level 1. GeoPackage provides catalog and all six approved two-dimensional feature geometry
-families, typed attribute projection, retained/recognized CRS metadata, and a runnable feature
-viewer; tiles and final Linux deployment evidence remain separate tasks.
+broaden Level 1. GeoPackage provides catalog, all six approved two-dimensional feature geometry
+families, typed attribute projection, retained/recognized CRS metadata, and explicit-zoom sparse
+PNG/JPEG tile-matrix raster sources with optional transactional decoded caching. Its runnable viewer
+accepts either a feature table or a tile table plus zoom; final Linux deployment evidence remains a
+separate task.
 
 ## MIL-STD-2525 point-symbol profile
 
@@ -278,6 +280,7 @@ Nineteen independent examples consume the published APIs without copying parsers
 ./gradlew :examples:kml-viewer:run --args='<path.kml>'
 ./gradlew :examples:geotiff-viewer:run
 ./gradlew :examples:geopackage-viewer:run --args='/absolute/path/data.gpkg feature_table'
+./gradlew :examples:geopackage-viewer:run --args='/absolute/path/data.gpkg tile_table 4'
 ./gradlew :examples:http-tile-viewer:run
 ./gradlew :examples:point-edit-viewer:run
 ./gradlew :examples:styling-label-viewer:run

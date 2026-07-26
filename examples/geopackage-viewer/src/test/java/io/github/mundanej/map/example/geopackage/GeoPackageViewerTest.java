@@ -7,13 +7,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsMetadata;
+import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.RasterSource;
 import io.github.mundanej.map.api.SourceIdentity;
 import io.github.mundanej.map.awt.MapView;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
+import io.github.mundanej.map.core.SyntheticRasterSource;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +40,33 @@ class GeoPackageViewerTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> GeoPackageViewer.parseArguments(new String[] {"map.gpkg", " "}));
+        GeoPackageViewer.TileArguments tiles =
+                GeoPackageViewer.parseTileArguments(new String[] {"map.gpkg", "tiles", "3"});
+        assertEquals(3, tiles.zoom());
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        GeoPackageViewer.parseTileArguments(
+                                new String[] {"map.gpkg", "tiles", "automatic"}));
+    }
+
+    @Test
+    void createsFittedOwnedRasterViewForRecognizedTileSource() throws Exception {
+        RasterSource source =
+                SyntheticRasterSource.open(
+                        new SourceIdentity("tile-viewer-test", ""),
+                        4,
+                        4,
+                        new Envelope(0, 0, 4, 4),
+                        CrsMetadata.recognized(
+                                CrsDefinitions.EPSG_3857,
+                                Optional.of("EPSG:3857"),
+                                Optional.empty()));
+        AtomicReference<MapView> view = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> view.set(GeoPackageViewer.createRasterView(source)));
+        assertEquals(1, view.get().layerBindings().size());
+        SwingUtilities.invokeAndWait(view.get()::close);
+        assertTrue(source.isClosed());
     }
 
     @Test
@@ -92,6 +122,14 @@ class GeoPackageViewerTest {
                         failures::add,
                         ignored -> {}));
         assertTrue(failures.getFirst().startsWith("SQLITE_INPUT_INVALID [reason=path]:"));
+
+        failures.clear();
+        assertFalse(
+                GeoPackageViewer.runTileMain(
+                        new String[] {directory.resolve("missing.gpkg").toString(), "tiles", "1"},
+                        failures::add,
+                        ignored -> {}));
+        assertTrue(failures.getFirst().startsWith("SQLITE_INPUT_INVALID [reason=path]:"));
     }
 
     @Test
@@ -135,6 +173,25 @@ class GeoPackageViewerTest {
         assertTrue(unknown.isClosed());
         assertEquals(
                 List.of("IllegalArgumentException: GeoPackage feature table CRS is not recognized"),
+                failures);
+
+        RasterSource unknownRaster =
+                SyntheticRasterSource.open(
+                        new SourceIdentity("unknown-raster", ""),
+                        2,
+                        2,
+                        Optional.of(new Envelope(0, 0, 2, 2)),
+                        Optional.empty(),
+                        io.github.mundanej.map.api.RasterSourceLimits.LEVEL_1);
+        assertThrows(
+                IllegalStateException.class,
+                () -> GeoPackageViewer.createRasterView(unknownRaster));
+        failures.clear();
+        SwingUtilities.invokeAndWait(
+                () -> GeoPackageViewer.launchRasterWindow(unknownRaster, failures::add));
+        assertTrue(unknownRaster.isClosed());
+        assertEquals(
+                List.of("IllegalArgumentException: GeoPackage tile table CRS is not recognized"),
                 failures);
     }
 }

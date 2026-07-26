@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Detached catalog descriptor for a future bounded tile source.
+ * Detached catalog descriptor for a bounded tile source.
  *
  * @param tableName exact bounded table name
  * @param bounds declared tile matrix-set bounds
@@ -24,6 +24,7 @@ public record GeoPackageTileTable(
         if (tableName.isBlank()
                 || tableName.length() > 256
                 || tableName.indexOf('\0') >= 0
+                || zoomLevels.isEmpty()
                 || !zoomLevels.equals(zoomLevels.stream().sorted().distinct().toList())) {
             throw new IllegalArgumentException("Invalid GeoPackage tile-table descriptor");
         }
