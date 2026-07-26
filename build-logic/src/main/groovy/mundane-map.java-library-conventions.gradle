@@ -149,7 +149,7 @@ def verifySourceFileCoverage = tasks.register(
     projectDirectory = layout.projectDirectory
     sourceDirectories.from(sourceSets.main.java.srcDirs)
     compiledClassDirectories.from(sourceSets.main.output.classesDirs)
-    generatedSourceDirectories.from(layout.buildDirectory.dir('generated'))
+    generatedSourceDirectories.from(layout.buildDirectory.dir('generated/sources'))
     xmlReport = layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml')
     generatedSourceKeys = []
     sourceAliases = [:]
