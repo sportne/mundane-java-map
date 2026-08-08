@@ -101,8 +101,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Prime performance test classes
-        run: ./gradlew :modules:mundane-map-performance-tests:testClasses --console=plain
+      - name: Prime performance dependencies
+        run: ./gradlew primePerformanceEvidenceDependencies --console=plain
       - name: Run performance evidence offline
         run: ./gradlew --offline performanceEvidence --rerun-tasks --console=plain
       - name: Upload performance evidence

@@ -19,6 +19,19 @@ description = 'Non-published deterministic performance-evidence support.'
 def java21Launcher = javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(21)
 }
+
+tasks.register('primePerformanceEvidenceDependenciesInternal') {
+    group = 'build setup'
+    description = 'Resolves the dependency closure used by the offline performance lane.'
+    dependsOn tasks.named('testClasses')
+    inputs.files([
+        configurations.named('testCompileClasspath'),
+        configurations.named('testRuntimeClasspath'),
+        configurations.named('testAnnotationProcessor'),
+        configurations.named('jacocoAgent')
+    ])
+}
+
 def evidenceJvmArguments = [
     '-Xms512m',
     '-Xmx512m',

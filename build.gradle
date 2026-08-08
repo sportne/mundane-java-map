@@ -119,6 +119,12 @@ tasks.register('performanceEvidence') {
     dependsOn ':modules:mundane-map-performance-tests:runPerformanceEvidence'
 }
 
+tasks.register('primePerformanceEvidenceDependencies') {
+    group = 'build setup'
+    description = 'Resolves every dependency needed by the offline performance-evidence lane.'
+    dependsOn ':modules:mundane-map-performance-tests:primePerformanceEvidenceDependenciesInternal'
+}
+
 tasks.register('liveTrackSmoke') {
     group = 'verification'
     description = 'Runs the bounded deterministic 10k live-track smoke lane.'

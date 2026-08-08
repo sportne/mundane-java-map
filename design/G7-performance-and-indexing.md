@@ -52,7 +52,8 @@ under five minutes on the reference WSL workspace, not a portable duration gate 
 canonical evidence.
 
 A separate Ubuntu 24.04/Java 21 performance-evidence CI job first runs
-`:modules:mundane-map-performance-tests:testClasses` with ordinary dependency resolution, then runs
+`primePerformanceEvidenceDependencies` to compile the test classes and resolve their runtime
+dependency closure, then runs
 `./gradlew --offline performanceEvidence --rerun-tasks --console=plain` and uploads the two reports.
 G9-007's bounded intermediate probe output is deliberately not uploaded; its reviewed interpretation
 and hash enter the G9 decision record instead.
