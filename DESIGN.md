@@ -66,7 +66,7 @@ design task; there are no empty speculative design files.
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | Complete |
 | G17 | [Project hardening](design/G17-project-hardening.md) | Complete |
-| G18 | [Vaadin browser frontend](design/G18-vaadin-browser-frontend.md) | Draft plan; G18-001 through G18-061 proposed |
+| G18 | [Vaadin browser frontend](design/G18-vaadin-browser-frontend.md) | Profile approved; G18-001 complete and later slices proposed |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -306,14 +306,18 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G16-006 | Explicit compatible global raster repetition, canonical request reuse, tile-column math, and local-layer isolation | Approved |
 | G16-007 | Boundary/hostile hardening, rendering/performance/native/consumer evidence, documentation, visual approval, and closeout | Approved |
 | G17-001 | Repository-wide documentation inventory, support reconciliation, provenance links, and deterministic fact checks | Approved |
-| G18-001 | Exact open Vaadin dependency/license inventory, component boundary, private protocol, limits, support profile, verification, and graph | Draft |
+| G18-001 | Exact open Vaadin dependency/license inventory, component boundary, private protocol, limits, support profile, verification, and graph | Approved |
 | G18-010 | Optional adapter creation, bundled Canvas custom element, snapshot vector scene, local viewport gestures, resize, and lifecycle | Draft |
 | G18-011 | Feature-source bindings, explicit CRS operations, multipart identity, query generations, cancellation, reports, and ownership | Draft |
-| G18-020 | Existing symbol/portrayal parity, bounded catalog resources, browser text measurement, and label placement | Draft |
+| G18-020 | Existing built-in vector symbol drawing parity and unsupported-symbol diagnostics | Draft |
+| G18-021 | Existing portrayal parity and bounded explicit-catalog icon resources | Draft |
+| G18-022 | Bounded browser text measurement, label placement, and vector snapshot capture | Draft |
 | G18-030 | Validated client events, hits, hover/selection, accessible navigation, pointer capture, and toolkit-neutral tool host | Draft |
 | G18-031 | Existing measurement, snap, immutable point edit, history, canonical coordinate, and browser overlay integration | Draft |
 | G18-040 | Same-origin bounded RGBA transport, raster/elevation requests, Canvas ImageData, caching, diagnostics, and lifecycle | Draft |
 | G18-041 | Explicit bounded horizontal repetition across browser vector, raster, labels, interaction, measurement, and edits | Draft |
-| G18-050 | Offline-by-default Spring Boot/Vaadin example, responsive controls, guarded uploads, workspace, diagnostics, tools, and export | Draft |
+| G18-050 | Offline-by-default Spring Boot/Vaadin application shell, responsive controls, diagnostics, and tools | Draft |
+| G18-051 | Representative feature, raster/elevation, and workspace viewer workflows | Draft |
+| G18-052 | Guarded uploads, SVG download, production instructions, and complete viewer review | Draft |
 | G18-060 | Separate open Playwright Chromium/Firefox lane, hostile-client, tolerant rendering, accessibility, lifecycle, and performance evidence | Draft |
 | G18-061 | Published adapter resources/metadata, staged consumer, isolated offline frontend build, support wording, and simplicity closeout | Draft |

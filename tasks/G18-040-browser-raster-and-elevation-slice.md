@@ -1,7 +1,7 @@
 # G18-040 — Browser raster and elevation slice
 
 Status: Proposed
-Depends on: G18-020, G9-002
+Depends on: G18-022, G9-002
 Gate: G18
 Type: AFK
 

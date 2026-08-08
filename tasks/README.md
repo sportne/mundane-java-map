@@ -139,11 +139,11 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
   convention and project-wide test expansion; G17-005 follows it with the additive per-source-file
   rule. These tasks are not path-safe in parallel once they converge on build logic or tests.
 - G18 follows the completed API/core/source/tool/world-wrap and G17 hardening foundations. G18-010
-  through G18-020 are serial because they establish one optional adapter, private protocol, bundled
-  client, source bindings, and portrayal path. After G18-020, interaction/editing and
+  through G18-022 are serial because they establish one optional adapter, private protocol, bundled
+  client, source bindings, symbols, portrayal/resources, labels, and export capture. After G18-022, interaction/editing and
   raster/elevation/world-wrap work are logically parallel, but one integration owner serializes the
-  shared Flow component, protocol, and frontend module. G18-050 converges the branches in the
-  runnable example; G18-060 owns the separate browser lane; G18-061 alone owns publication,
+  shared Flow component, protocol, and frontend module. G18-050 through G18-052 converge the branches
+  in reviewable application slices; G18-060 owns the separate browser lane; G18-061 alone owns publication,
   offline-frontend integration, support wording, and closeout.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
@@ -420,14 +420,18 @@ project-authored Canvas custom element packaged with one optional adapter.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
-| [G18-001 — Open-source Vaadin browser profile decision](G18-001-open-source-vaadin-browser-profile.md) | Proposed | HITL | G16-007, G17-005 | Approve exact open dependencies, adapter/client boundary, protocol, limits, supported surface, evidence, and task graph. |
+| [G18-001 — Open-source Vaadin browser profile decision](closed/G18-001-open-source-vaadin-browser-profile.md) | Complete | HITL | G16-007, G17-005 | Approved Vaadin BOM 25.2.3, Flow plugin 25.2.4, the exact open graphs, adapter/client boundary, protocol limits, supported surface, evidence, and task graph. |
 | [G18-010 — First Vaadin Canvas vector slice](G18-010-first-vaadin-canvas-vector-slice.md) | Proposed | AFK | G18-001 | Create the reusable optional adapter and display a real point/line/polygon snapshot with local navigation. |
 | [G18-011 — Feature-source and CRS browser bindings](G18-011-feature-source-and-crs-bindings.md) | Proposed | AFK | G18-010, G4-003 | Query and render all feature geometry families with explicit CRS, cancellation, diagnostics, and ownership. |
-| [G18-020 — Browser symbol, portrayal, and label completion](G18-020-symbol-portrayal-and-label-completion.md) | Proposed | AFK | G18-011, G14-007 | Complete existing vector symbols, portrayals, catalog icons, and bounded browser-measured labels. |
-| [G18-030 — Browser interaction and tool routing](G18-030-browser-interaction-and-tool-routing.md) | Proposed | AFK | G18-020, G3-003 | Add validated browser events, hits, hover/selection, navigation, and the toolkit-neutral tool host. |
+| [G18-020 — Browser built-in vector symbol completion](G18-020-browser-built-in-vector-symbols.md) | Proposed | AFK | G18-011, G14-007 | Complete the existing built-in vector drawing vocabulary and stable unsupported-symbol behavior. |
+| [G18-021 — Browser portrayal and catalog icon resources](G18-021-browser-portrayal-and-icon-resources.md) | Proposed | AFK | G18-020, G14-007 | Resolve every current portrayal family and serve bounded explicit-catalog icons. |
+| [G18-022 — Browser labels and vector snapshot capture](G18-022-browser-labels-and-vector-snapshot.md) | Proposed | AFK | G18-021, G11-043 | Place bounded browser-measured labels and capture the accepted vector scene for existing SVG export. |
+| [G18-030 — Browser interaction and tool routing](G18-030-browser-interaction-and-tool-routing.md) | Proposed | AFK | G18-022, G3-003 | Add validated browser events, hits, hover/selection, navigation, and the toolkit-neutral tool host. |
 | [G18-031 — Browser measurement and point editing](G18-031-browser-measurement-and-point-editing.md) | Proposed | AFK | G18-030, G11-013 | Reuse measurement, snapping, immutable point edits, bounded history, and canonical coordinates. |
-| [G18-040 — Browser raster and elevation slice](G18-040-browser-raster-and-elevation-slice.md) | Proposed | AFK | G18-020, G9-002 | Transport detached RGBA windows securely and render raster/elevation content without AWT or image encoding. |
-| [G18-041 — Browser horizontal world wrap](G18-041-browser-horizontal-world-wrap.md) | Proposed | AFK | G18-040, G16-006 | Carry explicit bounded continuous-world vector, raster, label, interaction, measurement, and edit behavior into the browser. |
-| [G18-050 — Complete Vaadin viewer example](G18-050-complete-vaadin-viewer-example.md) | Proposed | HITL | G18-031, G18-041, G11-034 | Deliver the offline-by-default responsive example with layers, diagnostics, uploads, tools, workspace, and export. |
-| [G18-060 — Vaadin browser hardening and evidence](G18-060-vaadin-browser-hardening-and-evidence.md) | Proposed | HITL | G18-050 | Create open-source Chromium/Firefox automation and close hostile-client, rendering, accessibility, lifecycle, and performance evidence. |
+| [G18-040 — Browser raster and elevation slice](G18-040-browser-raster-and-elevation-slice.md) | Proposed | AFK | G18-022, G9-002 | Transport detached RGBA windows securely and render raster/elevation content without AWT or image encoding. |
+| [G18-041 — Browser horizontal world wrap](G18-041-browser-horizontal-world-wrap.md) | Proposed | AFK | G18-031, G18-040, G16-006 | Carry explicit bounded continuous-world vector, raster, label, interaction, measurement, and edit behavior into the browser. |
+| [G18-050 — Vaadin viewer application shell](G18-050-complete-vaadin-viewer-example.md) | Proposed | HITL | G18-031, G18-041 | Deliver the offline in-memory responsive application shell, controls, diagnostics, and tools. |
+| [G18-051 — Vaadin viewer source workflows](G18-051-vaadin-viewer-source-workflows.md) | Proposed | AFK | G18-050, G11-034 | Add representative feature, raster/elevation, and workspace workflows through public APIs. |
+| [G18-052 — Vaadin viewer upload and export closeout](G18-052-vaadin-viewer-upload-export-closeout.md) | Proposed | HITL | G18-051 | Add guarded uploads, SVG download, production instructions, and complete viewer review. |
+| [G18-060 — Vaadin browser hardening and evidence](G18-060-vaadin-browser-hardening-and-evidence.md) | Proposed | HITL | G18-052 | Create open-source Chromium/Firefox automation and close hostile-client, rendering, accessibility, lifecycle, and performance evidence. |
 | [G18-061 — Vaadin publication and offline closeout](G18-061-vaadin-publication-and-offline-closeout.md) | Proposed | HITL | G18-060 | Stage and consume the adapter, prove offline Maven/frontend builds, and approve exact support and simplicity wording. |

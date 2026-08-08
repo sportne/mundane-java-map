@@ -1,0 +1,34 @@
+{
+  "name": "g18-frontend-inventory",
+  "version": "1.0.0",
+  "private": true,
+  "vaadin": {
+    "disableUsageStatistics": true
+  },
+  "dependencies": {
+    "@polymer/polymer": "3.5.2",
+    "@vaadin/common-frontend": "0.0.23",
+    "@vaadin/router": "2.0.1",
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/plugin-transform-react-jsx-development": "7.29.7",
+    "@babel/preset-react": "7.29.7",
+    "@babel/types": "7.29.7",
+    "@preact/signals-react-transform": "0.8.1",
+    "@rolldown/plugin-babel": "0.2.3",
+    "@rollup/plugin-replace": "6.0.3",
+    "@rollup/pluginutils": "5.4.0",
+    "@types/node": "25.9.5",
+    "@vitejs/plugin-react": "6.0.3",
+    "magic-string": "0.30.21",
+    "rollup-plugin-brotli": "3.1.0",
+    "rollup-plugin-visualizer": "7.0.1",
+    "strip-css-comments": "5.0.0",
+    "transform-ast": "2.4.4",
+    "typescript": "6.0.3",
+    "vite": "8.0.16",
+    "vite-plugin-checker": "0.14.4"
+  }
+}

@@ -1,7 +1,7 @@
 # G18-030 — Browser interaction and tool routing
 
 Status: Proposed
-Depends on: G18-020, G3-003
+Depends on: G18-022, G3-003
 Gate: G18
 Type: AFK
 
@@ -61,4 +61,3 @@ git diff --check
 
 High-frequency pointer feedback may remain client-local, but any state visible through the public
 Java component must be reconciled to one accepted scene generation.
-

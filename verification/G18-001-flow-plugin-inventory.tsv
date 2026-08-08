@@ -1,0 +1,28 @@
+# Resolved through Gradle Plugin Portal with plugin id com.vaadin.flow version 25.2.4 on 2026-08-08.
+# All entries are build-only and absent from the adapter publication/runtime graph.
+coordinate	sha256	license	role
+com.fasterxml.jackson.core:jackson-annotations:2.21	53ca085f4a150f703f49e1aabd935bd03b43e1ea3d55d135438292af22cef56b	Apache-2.0	build-tool metadata annotations
+com.nimbusds:nimbus-jose-jwt:10.3.1	d7919520ae9702ea06a23cc669c9ed1daa543d12a33a1be214a85b47dfc1c7c8	Apache-2.0	license-checker token support; no project token or entitlement
+com.vaadin.external.atmosphere:atmosphere-runtime:3.0.5.slf4jvaadin1	4dfa763a8c284bff0e1577969f98d976fdc76ad8876094a5c43d94baada41d98	Apache-2.0 OR CDDL-1.0	Flow build classpath transport classes
+com.vaadin.external:gentyref:1.2.0.vaadin1	7fbb7aaa015944f08c0fcf394e4e4e6854ee5a4714c10835adab8d0e4c15c46a	Apache-2.0	Flow generic-type inspection
+com.vaadin:flow-build-tools:25.2.4	320305750e585f673cf5e833a10c69f9dfefcf4e6db2f2dd2d8d2ddc231bc7bf	Apache-2.0	shaded frontend preparation and bundle tooling
+com.vaadin:flow-gradle-plugin:25.2.4	a50e6eedd6c7baac405f9ce49128cbb4be3a2e61bc086ba19a4f116227d6410d	Apache-2.0	approved Gradle plugin implementation
+com.vaadin:flow-plugin-base:25.2.4	9250586c2b81c8f4426e52e292da5a880ee22ac5af31f558bf75dfb63be2d1c1	Apache-2.0	shared Flow build tasks
+com.vaadin:flow-polymer2lit:25.2.4	6e5ea00596893b6682054317ea944b62b43830eee2e907ad33516c6fae6a3ada	Apache-2.0	Flow source migration helper; project sources do not invoke it
+com.vaadin:flow-push:25.2.4	ca44d7d4a27e819708643c65ecfc133c12afeefbe679a6d4f6a312543b26c48b	Apache-2.0	Flow build classpath push resources
+com.vaadin:flow-server:25.2.4	0bc39676491e2c5e32e752b89c4491ad7a3e00be08ec6aa460538f372e042ebb	Apache-2.0	Flow component metadata and frontend manifests
+com.vaadin:license-checker:3.1.0	07a9ce419166effc5ac3dc7a63f1c9568597eefad7f9ec9203b5d1afd84f0650	Apache-2.0	build-classpath license API; no commercial artifact is configured
+com.vaadin:open:8.5.0.5	893c5a11b7667145a0d5fdb2ddfb1827c25e52208997d071e6462a91bb204876	Apache-2.0	optional development browser launcher
+commons-io:commons-io:2.22.0	2b9a7b1f726fb86216dbd2c8321eabe0221dbd5b1be81c18e1cb53811b104758	Apache-2.0	build file operations
+io.github.classgraph:classgraph:4.8.184	6e564e29cec95a392268a609f09071d56199383d906ac70e91753a7998d1a3e8	MIT	build-time explicit classpath scan
+org.apache.commons:commons-lang3:3.20.0	69e5c9fa35da7a51a5fd2099dfe56a2d8d32cf233e2f6d770e796146440263f4	Apache-2.0	build utility
+org.apache.commons:commons-text:1.15.0	58d2da30f058512a1e7f914e39241deca4dff5c27a085b4ed2faa9e7208067f6	Apache-2.0	build text utility
+org.jboss.forge.roaster:roaster-api:2.31.1.Final	0534e48c85aa81b55fe00ec5ed77f8af2cac0af87cff2846575972c064b42498	EPL-1.0	build-time Java source model
+org.jboss.forge.roaster:roaster-jdt:2.31.1.Final	9883a9ac3f0a47ef74c0b1dad79995ba5b9ffdbd9cb79605a48019c919e8388f	EPL-1.0	build-time Java parser and formatter providers
+org.jetbrains.kotlin:kotlin-stdlib:2.4.0	ccb14ff83fabcb11458b798dbc9824748ccdffeec79c9aba789e6ed1cda86b1c	Apache-2.0	Gradle plugin implementation runtime
+org.jetbrains:annotations:13.0	ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478	Apache-2.0	Kotlin/build annotations
+org.jsoup:jsoup:1.22.2	596785996d3c6df16f544c232d10a9a1d88783b2a4740cf5251cb616f2be704d	MIT	Flow build HTML handling
+org.jspecify:jspecify:1.0.0	1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab	Apache-2.0	build nullness annotations
+org.slf4j:slf4j-api:2.0.18	44508fd1576500688c790b190acdd16fec4f8c79a3e0b900afd70503cf055f55	MIT	build logging facade
+tools.jackson.core:jackson-core:3.1.4	3bda1cd6eff0a8d47bdfcaeae7c2bd5311d6c8ed494ef5f3e51029bb44aa9bdf	Apache-2.0	build metadata parsing
+tools.jackson.core:jackson-databind:3.1.4	14034bfdf392b6ebec1b4bb6c1de29d604f0aa97251259a19d5f19af8719bb20	Apache-2.0	build metadata binding

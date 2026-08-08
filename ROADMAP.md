@@ -832,8 +832,8 @@ unchanged.
 - Finish with staged Maven consumption and an isolated offline Maven/frontend build. G18 remains
   non-native and makes no production map-data, authentication, cloud, cross-platform pixel, or
   portable latency/FPS claim.
-- The sequence is G18-001, G18-010, G18-011, G18-020; interaction/editing and
-  raster/elevation/wrap then form two logical branches that converge at G18-050. G18-060 owns
+- The sequence is G18-001, G18-010, G18-011, G18-020, G18-021, G18-022; interaction/editing and
+  raster/elevation/wrap then form two logical branches that converge through G18-050 to G18-052. G18-060 owns
   browser evidence and G18-061 owns publication/offline closeout.
 - See the [G18 detailed design](design/G18-vaadin-browser-frontend.md) and the
   [G18 task set](tasks/README.md#g18--open-source-vaadin-browser-component).

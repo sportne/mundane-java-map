@@ -1,7 +1,7 @@
 # G18-041 — Browser horizontal world wrap
 
 Status: Proposed
-Depends on: G18-040, G16-006
+Depends on: G18-031, G18-040, G16-006
 Gate: G18
 Type: AFK
 
@@ -60,4 +60,3 @@ git diff --check
 
 The client draws checked copies supplied by Java. It does not decide whether a source is global or
 apply modulo arithmetic to source geometry.
-

@@ -1,6 +1,6 @@
 # G18-001 — Open-source Vaadin browser profile decision
 
-Status: Proposed
+Status: Complete
 Depends on: G16-007, G17-005
 Gate: G18
 Type: HITL
@@ -64,3 +64,8 @@ git diff --check
 HITL checkpoint: **open-source Vaadin dependency, browser component profile, private protocol,
 supported surface, and task graph approval**.
 
+Approved on 2026-08-08 by the maintainer's directive to complete G18-001 through G18-031. The
+profile pins Vaadin BOM 25.2.3 and Flow Gradle plugin 25.2.4, resolves the minimal Flow Server 25.2.4 production
+graph, freezes protocol version 1 and its limits/diagnostic precedence, and records exact dependency,
+license, checksum, service, frontend, build-tool, offline, and ownership decisions in
+`verification/G18-001-open-dependency-profile.md` and the G18 design.

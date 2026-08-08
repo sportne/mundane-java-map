@@ -2,7 +2,7 @@
 
 ## Status and objective
 
-This document is a draft implementation plan for a reusable browser map component and a runnable
+This document is the approved implementation profile for a reusable browser map component and a runnable
 Vaadin example. It records the user's decision that a commercial map component is unacceptable.
 G18 therefore uses Vaadin Flow's open component-integration surface but does not use Vaadin Map,
 Vaadin TestBench, or another commercial Vaadin artifact.
@@ -17,7 +17,7 @@ existing Linux Native Image support statement.
 
 ## Selected direction
 
-The proposed runtime is:
+The approved runtime is:
 
 ```text
 browser
@@ -50,12 +50,16 @@ contracts.
 
 ## Dependency and license boundary
 
-`G18-001` must resolve and approve one exact Vaadin 25 BOM and Gradle plugin version compatible with
-Java 21 and the repository wrapper. The production dependency inventory must contain only the
-minimum open Vaadin Flow artifacts needed by the adapter. The Spring Boot/Vaadin application
+The approved platform BOM is `com.vaadin:vaadin-bom:25.2.3` and the approved application build
+plugin is `com.vaadin.flow` version `25.2.4`. With that BOM, the reusable adapter has exactly one direct
+external dependency, `com.vaadin:flow-server`, resolved to `25.2.4`; it does not depend on the
+`com.vaadin:vaadin` aggregate. The complete resolved production graph, artifact SHA-256 values,
+licenses, service-provider entries, and roles are frozen in
+`verification/G18-001-open-dependency-profile.md`. The Gradle plugin is application build tooling
+and is not applied to or published by the reusable adapter. The Spring Boot/Vaadin application
 runtime belongs to the example, not the reusable component's public implementation graph.
 
-The dependency review must inventory Maven and frontend packages, licenses, checksums, service
+The dependency review inventories Maven and frontend packages, licenses, checksums, service
 providers, reflection/resource scanning, build-time Node requirements, and offline behavior. It
 must mechanically reject `com.vaadin:vaadin-map-flow`, `@vaadin/map`, TestBench, and any other
 commercial artifact. The project does not inherit a map-data subscription, remote tile source, API
@@ -115,6 +119,33 @@ starts a new bounded Java query generation. Clicks, semantic tool commands, edit
 explicitly throttled hover events cross the Flow boundary. High-rate live-track frames remain out of
 scope; ordinary Flow push is suitable for low-rate state and telemetry, not a 60 Hz frame stream.
 
+## Approved support surface
+
+The Java baseline is 21. Browser support follows Vaadin 25's evergreen Chrome, Edge, and Firefox
+policy plus Safari 17 or newer. G18-060 automates the then-current Playwright Chromium and Firefox
+binaries on Linux; Edge and Safari remain compatibility claims backed by the closed standards used
+by the component, not automated operating-system coverage. Canvas 2D, `ResizeObserver`, Pointer
+Events, `devicePixelRatio`, `requestAnimationFrame`, `AbortController`, `fetch`, typed arrays, and
+ES modules are required. A missing required API produces `BROWSER_CAPABILITY_UNSUPPORTED` before a
+scene is accepted.
+
+The approved geometry surface is point, multipoint, line string, multiline string, polygon, and
+multipolygon with holes. The approved CRS surface is explicit EPSG:4326 and EPSG:3857 operations
+already registered by core. The approved vector surface is the existing built-in immutable marker,
+line, fill, composite, endpoint, hatch, raster-catalog icon, portrayal, and point-label profiles.
+Interaction is single hover and single selection, pointer/touch navigation, wheel/pinch zoom,
+keyboard pan/zoom, one toolkit-neutral tool router, measurement, and immutable point-only editing.
+Raster/elevation support is detached bounded RGBA windows; horizontal repetition is explicit and
+opt-in. Workspace, upload, and SVG export support is limited to the guarded workflows named in the
+runnable-example section.
+
+Excluded are remote basemaps, remote sprites/glyphs/fonts, credentials, analytics, telemetry,
+JavaScript projection or style engines, executable expressions, arbitrary SVG/HTML/CSS/URLs,
+custom renderer code, 3D/WebGL, rotation or pitch of the map viewport, geocoding, routing, lasso or
+box selection, multi-selection, line/polygon editing, source write-back, collaboration, offline
+service workers, mobile-native packaging, Native Image, pixel-identical fonts, and portable
+latency/FPS claims.
+
 ## Private scene protocol
 
 The adapter and its bundled web component use one private, versioned protocol. It supports a full
@@ -127,10 +158,61 @@ and closed enum tokens. JavaScript, HTML, CSS, URLs, callbacks, and executable e
 accepted from source attributes. Server calls pass structured arguments through Vaadin's supported
 element-function mechanism rather than interpolating script text.
 
-The approved profile must define byte/character, layer, feature, coordinate, path-command, label,
-raster-pixel, event-rate, pending-generation, and browser-owned allocation limits. Malformed,
+Protocol version `1` uses structured Flow element-function calls. Each complete scene starts with a
+header and is validated into detached Java values before the current scene changes. Client events
+carry the component generation, accepted scene generation, viewport generation, and a strictly
+increasing unsigned sequence represented within JavaScript's safe-integer range. No source value is
+ever used as a JavaScript property name.
+
+The closed limits are:
+
+| Resource | Limit |
+| --- | ---: |
+| Canonical logical wire size per scene or event | 64 MiB |
+| Layers / logical features / browser primitives per scene | 64 / 50,000 / 200,000 |
+| Coordinate pairs / path commands per scene | 2,000,000 / 2,000,000 |
+| ID / attribute name / attribute string / diagnostic detail | 256 / 128 / 4,096 / 512 UTF-16 code units |
+| Attributes per feature / aggregate attribute characters | 64 / 8,000,000 |
+| Label candidates / accepted labels | 20,000 / 5,000 |
+| Catalog icons / one icon encoded bytes / aggregate icon bytes | 2,048 / 1 MiB / 32 MiB |
+| Raster width or height / pixels / decoded bytes per window | 16,384 / 16,777,216 / 64 MiB |
+| Aggregate live scene resources | 128 MiB |
+| CSS canvas side / device-pixel ratio / backing pixels | 16,384 / 4 / 67,108,864 |
+| Visible source bindings / query records / live cursors per source | 64 / 50,000 / 1 |
+| Pending generations | one active and one newest queued |
+| Settled viewport / hover / tool pointer events | 10 / 20 / 120 per second |
+| Query deadline after dispatch | 30 seconds |
+| Edit history / snap candidates | 256 revisions / 4,096 candidates |
+
+Counts are checked before multiplication and allocation. The first exceeded aggregate wins; limits
+are applied in the table's order and then layer, feature, role, and coordinate order. Malformed,
 oversized, stale, duplicate, and out-of-order client events are rejected predictably. No partial
 scene becomes current after failure or cancellation.
+
+Canonical logical wire size is counted without materializing a second message: each number or
+generation is eight bytes, each boolean or closed enum is one byte, each string is four bytes plus
+its strict UTF-8 byte length, each array is four bytes plus its elements, and each fixed-schema
+record is the sum of its values in protocol field order (field names and transport framing count as
+zero). Null and absent values are forbidden. Both Java and JavaScript use this formula with checked
+integer addition before handing a structured value to Flow; actual transport size may be larger but
+can never expand an accepted collection or string beyond its separate count limit.
+
+Event rates use one token bucket per event class and component generation, measured by the server's
+monotonic clock. Capacity and refill per elapsed second are respectively 10/10 for settled viewport,
+20/20 for hover, and 120/120 for tool-pointer events; buckets start full and cap at capacity. The
+browser mirrors the buckets for traffic reduction, but the server is authoritative. An empty
+settled or hover bucket retains only the newest event and submits it when one token refills; replaced
+events are silently coalesced. The first tool-pointer event without a token cancels capture and the
+active gesture and reports `EVENT_RATE_EXCEEDED`; subsequent events are ignored until cancellation
+is acknowledged. Test clocks advance in nanoseconds, and detach/reattach creates fresh buckets.
+
+Stable diagnostic precedence is `CLOSED`, `DISABLED`, `PROTOCOL_VERSION_UNSUPPORTED`,
+`STALE_GENERATION`, `EVENT_SEQUENCE_INVALID`, `EVENT_RATE_EXCEEDED`, `LIMIT_EXCEEDED`, `NON_FINITE_VALUE`,
+`DUPLICATE_ID`, `CRS_OPERATION_UNAVAILABLE`, `SOURCE_FAILURE`, `SYMBOL_UNSUPPORTED`,
+`BROWSER_CAPABILITY_UNSUPPORTED`, and `CLIENT_FAILURE`. Validation never includes source values,
+paths, URLs, stack traces, or message bodies in public detail. A newer successful generation clears
+only the transient component diagnostic; per-source reports retain their own latest accepted
+outcome.
 
 The protocol remains package-private and frontend-private for G18. A public renderer-neutral scene
 model is considered only if a third independent consumer demonstrates the need.
@@ -150,7 +232,10 @@ Each component owns an externally serialized query coordinator. A settled viewpo
 supersedes the prior generation, queries every visible binding using only required attributes,
 projects records, resolves portrayal, and publishes one complete accepted generation. Cursor and
 source ownership follows the existing owned/borrowed distinction. Detach, route removal, session
-close, and explicit component close cancel work and close only owned resources.
+close, and explicit component close cancel work, invalidate tokens, remove listeners and pointer
+capture, revoke adapter resources, clear queued paints and measured labels, and close only owned
+resources. Reattach creates a new component generation and never revives a prior token, event
+sequence, query, or resource URL.
 
 ## Vector, symbol, and label profile
 
@@ -261,20 +346,21 @@ isolated-resolution policy.
 
 ```text
 G18-001
-   -> G18-010 -> G18-011 -> G18-020 -> G18-030 -> G18-031
-                                   \-> G18-040 -> G18-041
-G18-031 + G18-041 -> G18-050 -> G18-060 -> G18-061
+   -> G18-010 -> G18-011 -> G18-020 -> G18-021 -> G18-022 -> G18-030 -> G18-031
+                                                           \-> G18-040
+G18-031 + G18-040 -> G18-041 -> G18-050 -> G18-051 -> G18-052 -> G18-060 -> G18-061
 ```
 
-The serial vector path establishes the shared component, protocol, bindings, portrayal, and event
-host. After `G18-020`, interaction and raster work are logically parallel, but both touch the
+The serial vector path establishes the shared component, protocol, bindings, symbols, portrayal,
+resources, labels, export capture, and event host. After `G18-022`, interaction and raster work are logically parallel, but both touch the
 component protocol and frontend module; one integration owner must serialize those files.
-`G18-050` is the convergence owner for the complete example, `G18-060` owns browser evidence, and
+`G18-050` through `G18-052` converge and complete the example, `G18-060` owns browser evidence, and
 `G18-061` owns publication/offline closeout.
 
-The named G18-001 HITL checkpoint is **open-source Vaadin dependency, browser component profile,
-private protocol, supported surface, and task graph approval**. No dependency, production module,
-or example is added before that approval.
+The named G18-001 HITL checkpoint—**open-source Vaadin dependency, browser component profile,
+private protocol, supported surface, and task graph approval**—was accepted by the maintainer's
+2026-08-08 directive to complete G18-001 through G18-031. No dependency, production module, or
+example preceded that approval.
 
 ## Reference material
 

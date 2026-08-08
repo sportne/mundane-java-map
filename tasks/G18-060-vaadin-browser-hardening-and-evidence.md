@@ -1,7 +1,7 @@
 # G18-060 — Vaadin browser hardening and evidence
 
 Status: Proposed
-Depends on: G18-050
+Depends on: G18-052
 Gate: G18
 Type: HITL
 
@@ -69,4 +69,3 @@ git diff --check
 HITL checkpoint: **Chromium/Firefox map behavior, tolerant rendering, keyboard/accessibility,
 lifecycle, and evidence interpretation review**. Browser setup remains explicit and separate from
 normal offline/JVM verification.
-
