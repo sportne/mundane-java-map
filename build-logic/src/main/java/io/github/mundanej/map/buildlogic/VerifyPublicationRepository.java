@@ -360,10 +360,9 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 "Missing BSD-3-Clause POM license: " + pom);
 
         Map<String, Set<String>> dependencies = new HashMap<>();
+        Set<String> externalCompile = new TreeSet<>();
         Set<String> externalRuntime = new TreeSet<>();
-        var nodes = project.getElementsByTagName("dependency");
-        for (int index = 0; index < nodes.getLength(); index++) {
-            Element dependency = (Element) nodes.item(index);
+        for (Element dependency : dependencyElements(project)) {
             String group = childText(dependency, "groupId");
             String artifact = childText(dependency, "artifactId");
             String dependencyVersion = childText(dependency, "version");
@@ -372,16 +371,17 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 dependencies.computeIfAbsent(scope, ignored -> new TreeSet<>()).add(artifact);
             } else {
                 require(
-                        "runtime".equals(scope),
-                        "External dependency must be runtime scoped in " + pom);
+                        "compile".equals(scope) || "runtime".equals(scope),
+                        "External dependency must be compile or runtime scoped in " + pom);
                 String classifier = childText(dependency, "classifier");
-                externalRuntime.add(
+                String coordinate =
                         group
                                 + ":"
                                 + artifact
                                 + ":"
                                 + dependencyVersion
-                                + (classifier.isBlank() ? "" : "@" + classifier));
+                                + (classifier.isBlank() ? "" : "@" + classifier);
+                ("compile".equals(scope) ? externalCompile : externalRuntime).add(coordinate);
             }
         }
         require(
@@ -394,8 +394,14 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 dependencies.keySet().stream().allMatch(scope -> scope.equals("compile") || scope.equals("runtime")),
                 "Unexpected dependency scope in " + pom + ": " + dependencies);
         require(
+                externalCompile.equals(contract.externalCompileDependencies()),
+                "External compile dependency mismatch in " + pom + ": " + externalCompile);
+        require(
                 externalRuntime.equals(contract.externalRuntimeDependencies()),
                 "External runtime dependency mismatch in " + pom + ": " + externalRuntime);
+        require(
+                managedImports(project).equals(contract.managedImports()),
+                "Managed import mismatch in " + pom + ": " + managedImports(project));
     }
 
     private static void verifyArchive(
@@ -481,6 +487,61 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         return "";
     }
 
+    private static Element childElement(Element parent, String name) {
+        var children = parent.getChildNodes();
+        for (int index = 0; index < children.getLength(); index++) {
+            if (children.item(index) instanceof Element element && element.getTagName().equals(name)) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    private static List<Element> dependencyElements(Element project) {
+        Element dependencies = childElement(project, "dependencies");
+        if (dependencies == null) {
+            return List.of();
+        }
+        List<Element> result = new ArrayList<>();
+        var children = dependencies.getChildNodes();
+        for (int index = 0; index < children.getLength(); index++) {
+            if (children.item(index) instanceof Element element
+                    && element.getTagName().equals("dependency")) {
+                result.add(element);
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static Set<String> managedImports(Element project) {
+        Element management = childElement(project, "dependencyManagement");
+        if (management == null) {
+            return Set.of();
+        }
+        Element dependencies = childElement(management, "dependencies");
+        if (dependencies == null) {
+            return Set.of();
+        }
+        Set<String> result = new TreeSet<>();
+        var children = dependencies.getChildNodes();
+        for (int index = 0; index < children.getLength(); index++) {
+            if (children.item(index) instanceof Element dependency
+                    && dependency.getTagName().equals("dependency")) {
+                require(
+                        "pom".equals(childText(dependency, "type"))
+                                && "import".equals(childText(dependency, "scope")),
+                        "Managed dependency must be a POM import");
+                result.add(
+                        childText(dependency, "groupId")
+                                + ":"
+                                + childText(dependency, "artifactId")
+                                + ":"
+                                + childText(dependency, "version"));
+            }
+        }
+        return Set.copyOf(result);
+    }
+
     private static Path exactlyOne(List<Path> paths, Predicate<String> match, String description) {
         List<Path> matches =
                 paths.stream().filter(path -> match.test(path.getFileName().toString())).toList();
@@ -512,7 +573,7 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         for (String row : rows) {
             String[] fields = row.split("\\|", -1);
             require(
-                    fields.length == 5 || fields.length == 6,
+                    fields.length >= 5 && fields.length <= 8,
                     "Invalid publication contract row: " + row);
             Contract previous =
                     result.put(
@@ -522,7 +583,9 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                                     set(fields[2]),
                                     set(fields[3]),
                                     fields[4],
-                                    fields.length == 6 ? set(fields[5]) : Set.of()));
+                                    fields.length >= 6 ? set(fields[5]) : Set.of(),
+                                    fields.length >= 7 ? set(fields[6]) : Set.of(),
+                                    fields.length == 8 ? set(fields[7]) : Set.of()));
             require(previous == null, "Duplicate publication contract: " + fields[0]);
         }
         return result;
@@ -558,5 +621,7 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
             Set<String> runtimeDependencies,
             Set<String> externalRuntimeDependencies,
             String packageRoot,
-            Set<String> exactBinaryEntries) {}
+            Set<String> exactBinaryEntries,
+            Set<String> externalCompileDependencies,
+            Set<String> managedImports) {}
 }

@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
     <!-- Keep exclusions explicit and narrow as the project grows. -->
+    <!--
+      Flow components are Serializable, while toolkit-neutral immutable map values intentionally
+      are not Java-serialization contracts. This component remains UI/session owned and returns an
+      immutable List.copyOf snapshot; SpotBugs cannot infer either property.
+    -->
+    <Match>
+        <Class name="io.github.mundanej.map.vaadin.MundaneMap" />
+        <Bug pattern="EI_EXPOSE_REP,SE_BAD_FIELD" />
+    </Match>
 </FindBugsFilter>
-

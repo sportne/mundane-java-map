@@ -1,6 +1,6 @@
 # G18-010 — First Vaadin Canvas vector slice
 
-Status: Proposed
+Status: Complete
 Depends on: G18-001
 Gate: G18
 Type: AFK
@@ -65,4 +65,3 @@ git diff --check
 
 Keep the wire model private. Full-scene replacement is sufficient until G18-011 evidence justifies
 stable-ID patches.
-

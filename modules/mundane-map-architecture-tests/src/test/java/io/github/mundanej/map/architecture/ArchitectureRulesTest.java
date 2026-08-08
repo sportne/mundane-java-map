@@ -1801,6 +1801,69 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void vaadinAdapterIsFlowOnlyAwtFreeAndIsolatedFromExistingModules() throws IOException {
+        ModuleDescriptor vaadin = moduleEndingWith("mundane-map-vaadin");
+        JavaClasses vaadinClasses = classesByModule.get(vaadin);
+        List<String> adapterViolations =
+                vaadinClasses.stream()
+                        .flatMap(type -> type.getDirectDependenciesFromSelf().stream())
+                        .map(dependency -> dependency.getTargetClass().getName())
+                        .filter(
+                                name ->
+                                        name.startsWith("java.awt.")
+                                                || name.startsWith("javax.swing.")
+                                                || name.startsWith("javax.imageio.")
+                                                || name.startsWith("io.github.mundanej.map.awt.")
+                                                || name.startsWith("com.vaadin.flow.component.map.")
+                                                || name.startsWith("com.vaadin.testbench."))
+                        .sorted()
+                        .toList();
+        List<String> existingModuleLeaks =
+                classesByModule.entrySet().stream()
+                        .filter(entry -> !entry.getKey().equals(vaadin))
+                        .flatMap(
+                                entry ->
+                                        entry.getValue().stream()
+                                                .flatMap(
+                                                        type ->
+                                                                type
+                                                                        .getDirectDependenciesFromSelf()
+                                                                        .stream())
+                                                .map(
+                                                        dependency ->
+                                                                entry.getKey().path()
+                                                                        + " -> "
+                                                                        + dependency
+                                                                                .getTargetClass()
+                                                                                .getName()))
+                        .filter(value -> value.contains(" -> com.vaadin."))
+                        .sorted()
+                        .toList();
+        Path frontend =
+                vaadin.resourcesDirectories().stream()
+                        .map(path -> path.resolve("META-INF/frontend/mundane-map-canvas.js"))
+                        .filter(Files::isRegularFile)
+                        .findFirst()
+                        .orElseThrow();
+        String frontendSource = Files.readString(frontend);
+
+        assertEquals("OPTIONAL_ADAPTER", vaadin.category());
+        assertEquals(2, vaadin.releaseLevel());
+        assertFalse(vaadin.nativeTarget());
+        assertEquals(
+                Set.of(":modules:mundane-map-api", ":modules:mundane-map-core"),
+                vaadin.allowedRuntimeProjects());
+        assertFalse(vaadinClasses.isEmpty(), "Expected a working Vaadin adapter");
+        assertTrue(adapterViolations.isEmpty(), adapterViolations::toString);
+        assertTrue(existingModuleLeaks.isEmpty(), existingModuleLeaks::toString);
+        assertFalse(frontendSource.contains("fetch("));
+        assertFalse(frontendSource.contains("http://"));
+        assertFalse(frontendSource.contains("https://"));
+        assertFalse(frontendSource.toLowerCase(java.util.Locale.ROOT).contains("maplibre"));
+        assertFalse(frontendSource.toLowerCase(java.util.Locale.ROOT).contains("leaflet"));
+    }
+
+    @Test
     void nativeSmokeHasTheExactFifteenExplicitProductionDependencies() throws IOException {
         Set<String> expected =
                 Set.of(

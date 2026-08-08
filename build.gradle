@@ -193,6 +193,7 @@ def publicationContract = [
     'mundane-map-api||||io/github/mundanej/map/api/',
     'mundane-map-core|mundane-map-api|||io/github/mundanej/map/core/',
     'mundane-map-awt|mundane-map-api,mundane-map-core|||io/github/mundanej/map/awt/',
+    'mundane-map-vaadin|mundane-map-api,mundane-map-core|||io/github/mundanej/map/vaadin/||com.vaadin:flow-server:25.2.4|com.vaadin:vaadin-bom:25.2.3',
     'mundane-map-io-shapefile|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/shapefile/',
     'mundane-map-io-image|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/image/',
     'mundane-map-io-http-tiles|mundane-map-api,mundane-map-io-image|mundane-map-core||io/github/mundanej/map/io/http/tiles/',

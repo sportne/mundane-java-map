@@ -133,6 +133,10 @@ def projectInventory = [
         published: true, nativeTarget: true,
         allowedRuntimeProjects: [
             ':modules:mundane-map-api', ':modules:mundane-map-core']],
+    [path: ':modules:mundane-map-vaadin', category: 'OPTIONAL_ADAPTER', releaseLevel: 2,
+        published: true, nativeTarget: false,
+        allowedRuntimeProjects: [
+            ':modules:mundane-map-api', ':modules:mundane-map-core']],
     [path: ':modules:mundane-map-architecture-tests', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':modules:mundane-map-native-tests', category: 'SUPPORT', releaseLevel: 0,

@@ -421,7 +421,7 @@ project-authored Canvas custom element packaged with one optional adapter.
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
 | [G18-001 — Open-source Vaadin browser profile decision](closed/G18-001-open-source-vaadin-browser-profile.md) | Complete | HITL | G16-007, G17-005 | Approved Vaadin BOM 25.2.3, Flow plugin 25.2.4, the exact open graphs, adapter/client boundary, protocol limits, supported surface, evidence, and task graph. |
-| [G18-010 — First Vaadin Canvas vector slice](G18-010-first-vaadin-canvas-vector-slice.md) | Proposed | AFK | G18-001 | Create the reusable optional adapter and display a real point/line/polygon snapshot with local navigation. |
+| [G18-010 — First Vaadin Canvas vector slice](closed/G18-010-first-vaadin-canvas-vector-slice.md) | Complete | AFK | G18-001 | Created the reusable optional adapter and a real point/line/polygon Canvas snapshot with local navigation. |
 | [G18-011 — Feature-source and CRS browser bindings](G18-011-feature-source-and-crs-bindings.md) | Proposed | AFK | G18-010, G4-003 | Query and render all feature geometry families with explicit CRS, cancellation, diagnostics, and ownership. |
 | [G18-020 — Browser built-in vector symbol completion](G18-020-browser-built-in-vector-symbols.md) | Proposed | AFK | G18-011, G14-007 | Complete the existing built-in vector drawing vocabulary and stable unsupported-symbol behavior. |
 | [G18-021 — Browser portrayal and catalog icon resources](G18-021-browser-portrayal-and-icon-resources.md) | Proposed | AFK | G18-020, G14-007 | Resolve every current portrayal family and serve bounded explicit-catalog icons. |

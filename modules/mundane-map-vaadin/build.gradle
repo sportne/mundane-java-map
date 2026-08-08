@@ -1,0 +1,121 @@
+plugins {
+    id 'mundane-map.java-library-conventions'
+    id 'mundane-map.publishing-conventions'
+}
+
+def vaadinBomProvenance = configurations.create('vaadinBomProvenance') {
+    canBeConsumed = false
+    canBeResolved = true
+    transitive = false
+}
+
+dependencies {
+    api project(':modules:mundane-map-api')
+    api project(':modules:mundane-map-core')
+    api platform('com.vaadin:vaadin-bom:25.2.3')
+    api libs.vaadin.flow.server
+    add(vaadinBomProvenance.name, 'com.vaadin:vaadin-bom:25.2.3@pom')
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+def vaadinRuntime = configurations.runtimeClasspath.incoming.artifactView {
+    componentFilter { identifier ->
+        identifier instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
+    }
+}.files
+
+def verifyVaadinDependency = tasks.register('verifyVaadinDependency') {
+    group = 'verification'
+    description = 'Verifies the approved Flow-only runtime graph and provenance checksum.'
+    inputs.files(vaadinRuntime, vaadinBomProvenance)
+    doLast {
+        def expectedArtifacts = [
+            'atmosphere-runtime-3.0.5.slf4jvaadin1.jar':
+            '4dfa763a8c284bff0e1577969f98d976fdc76ad8876094a5c43d94baada41d98',
+            'flow-push-25.2.4.jar':
+            'ca44d7d4a27e819708643c65ecfc133c12afeefbe679a6d4f6a312543b26c48b',
+            'flow-server-25.2.4.jar':
+            '0bc39676491e2c5e32e752b89c4491ad7a3e00be08ec6aa460538f372e042ebb',
+            'gentyref-1.2.0.vaadin1.jar':
+            '7fbb7aaa015944f08c0fcf394e4e4e6854ee5a4714c10835adab8d0e4c15c46a',
+            'jackson-annotations-2.22.jar':
+            '21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0',
+            'jackson-core-3.1.5.jar':
+            '9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2',
+            'jackson-databind-3.1.5.jar':
+            '3a2338d996fd3056791df8d335fa9ba8a62a706ed4245ecf81b3e583df37d08a',
+            'jsoup-1.22.2.jar':
+            '596785996d3c6df16f544c232d10a9a1d88783b2a4740cf5251cb616f2be704d',
+            'jspecify-1.0.0.jar':
+            '1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab',
+            'slf4j-api-2.0.18.jar':
+            '44508fd1576500688c790b190acdd16fec4f8c79a3e0b900afd70503cf055f55'
+        ]
+        def filesByName = vaadinRuntime.files.collectEntries { [(it.name): it] }
+        if (filesByName.keySet() != expectedArtifacts.keySet()) {
+            throw new GradleException("Unexpected Flow runtime artifacts: ${filesByName.keySet().sort()}")
+        }
+        def sha256 = { File file ->
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance('SHA-256')
+            file.withInputStream { input ->
+                byte[] buffer = new byte[8192]
+                for (int count; (count = input.read(buffer)) >= 0;) {
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().encodeHex().toString()
+        }
+        expectedArtifacts.each { name, expected ->
+            if (sha256(filesByName.get(name)) != expected) {
+                throw new GradleException("Flow dependency checksum mismatch: ${name}")
+            }
+        }
+        def poms = vaadinBomProvenance.files
+        if (poms.size() != 1
+                || sha256(poms.iterator().next())
+                != '5180af32975d24c7d338c63d4261f4b0aa4b920e39682dc9ee083e745eb27ac9') {
+            throw new GradleException('Vaadin BOM provenance checksum mismatch')
+        }
+        def prohibited = [
+            'vaadin-map',
+            'vaadin-testbench',
+            'hilla',
+            'maplibre',
+            'leaflet'
+        ]
+        def violations = filesByName.keySet().findAll { name ->
+            prohibited.any { token -> name.toLowerCase(java.util.Locale.ROOT).contains(token) }
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException("Prohibited browser dependencies: ${violations.sort()}")
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyVaadinDependency
+}
+
+def prepareFrontendTest = tasks.register('prepareFrontendTest', Sync) {
+    from('src/main/resources/META-INF/frontend/mundane-map-canvas.js') {
+        rename { 'mundane-map-canvas.mjs' }
+    }
+    into(layout.buildDirectory.dir('frontend-test'))
+}
+
+tasks.register('frontendTest', Exec) {
+    group = 'verification'
+    description = 'Runs deterministic pure Canvas protocol and viewport tests with local Node.'
+    dependsOn prepareFrontendTest
+    inputs.file('src/frontendTest/mundane-map-canvas.test.mjs')
+    inputs.file('src/main/resources/META-INF/frontend/mundane-map-canvas.js')
+    commandLine(
+            'node',
+            file('src/frontendTest/mundane-map-canvas.test.mjs'),
+            layout.buildDirectory.file('frontend-test/mundane-map-canvas.mjs').get().asFile)
+}
+
+description = 'Optional Flow component with a bundled bounded Canvas renderer.'
