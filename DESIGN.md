@@ -65,7 +65,8 @@ design task; there are no empty speculative design files.
 | G14 | [MapLibre Style](design/G14-maplibre-style.md) | Complete |
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | Complete |
-| G17 | [Project hardening](design/G17-project-hardening.md) | G17-001 complete; later tasks separately gated |
+| G17 | [Project hardening](design/G17-project-hardening.md) | Complete |
+| G18 | [Vaadin browser frontend](design/G18-vaadin-browser-frontend.md) | Draft plan; G18-001 through G18-061 proposed |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
@@ -102,6 +103,15 @@ source coordinates from an explicitly configured periodic display policy. The co
 repeats G15 Natural Earth/tracks, adds bounded point/vector query/rendering, dateline geometry,
 interaction/editing, compatible global rasters, and closeout evidence. It does not approve automatic
 wrap inference, topology repair, a globe, external dependencies, or vertical/polar wrapping.
+
+Browser-frontend planning record (2026-08-08): G18 proposes one non-native optional Vaadin Flow
+adapter with a project-authored bundled Canvas custom element and a runnable Spring Boot/Vaadin
+example. The plan explicitly excludes Vaadin Map, TestBench, commercial artifacts, remote basemaps,
+and another browser map engine. G18-001 owns exact open dependency/license and profile approval;
+G18-010 through G18-061 deliver the vector/source/portrayal, interaction/editing,
+raster/elevation/wrap, example, open Playwright evidence, and publication/offline slices. The private
+scene protocol does not become a public renderer SPI or leak Vaadin/browser types into API, core,
+format, workspace, or AWT modules.
 
 ## Decisions
 
@@ -189,6 +199,7 @@ wrap inference, topology repair, a globe, external dependencies, or vertical/pol
 | 2026-07-23 | Approve the bounded OGC SE 1.1 feature-style profile and shared closed rule bridge. | Exact XML, filter, scalar, scale, symbol, catalog, limit, diagnostic, and fixture policies make the six vertical slices actionable without claiming full SE conformance. |
 | 2026-07-19 | Propose an isolated MapLibre Style v8 Jackson adapter after OGC SE. | Reusing the proven rule bridge for a bounded JSON layer/expression profile adds modern interoperability without network sources, sprites, glyph services, 3D, or Jackson leakage. |
 | 2026-07-19 | Propose an example-local million-track stress gate using a bounded forward IOU-Kalman Filter state estimator. | Packed deterministic state, due-work scheduling, a specialized detached overlay, and separate smoke/evidence lanes can test the real map stack at 10k/100k/1m without forcing streaming or tracking abstractions into the public API. |
+| 2026-08-08 | Propose an open-source Vaadin Flow adapter with a project-authored Canvas browser component. | A demonstrated second presentation consumer can reuse existing map contracts without a commercial component, remote basemap, third-party browser map engine, AWT server rendering, or public scene framework. |
 
 ## Task design traceability
 
@@ -295,3 +306,14 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G16-006 | Explicit compatible global raster repetition, canonical request reuse, tile-column math, and local-layer isolation | Approved |
 | G16-007 | Boundary/hostile hardening, rendering/performance/native/consumer evidence, documentation, visual approval, and closeout | Approved |
 | G17-001 | Repository-wide documentation inventory, support reconciliation, provenance links, and deterministic fact checks | Approved |
+| G18-001 | Exact open Vaadin dependency/license inventory, component boundary, private protocol, limits, support profile, verification, and graph | Draft |
+| G18-010 | Optional adapter creation, bundled Canvas custom element, snapshot vector scene, local viewport gestures, resize, and lifecycle | Draft |
+| G18-011 | Feature-source bindings, explicit CRS operations, multipart identity, query generations, cancellation, reports, and ownership | Draft |
+| G18-020 | Existing symbol/portrayal parity, bounded catalog resources, browser text measurement, and label placement | Draft |
+| G18-030 | Validated client events, hits, hover/selection, accessible navigation, pointer capture, and toolkit-neutral tool host | Draft |
+| G18-031 | Existing measurement, snap, immutable point edit, history, canonical coordinate, and browser overlay integration | Draft |
+| G18-040 | Same-origin bounded RGBA transport, raster/elevation requests, Canvas ImageData, caching, diagnostics, and lifecycle | Draft |
+| G18-041 | Explicit bounded horizontal repetition across browser vector, raster, labels, interaction, measurement, and edits | Draft |
+| G18-050 | Offline-by-default Spring Boot/Vaadin example, responsive controls, guarded uploads, workspace, diagnostics, tools, and export | Draft |
+| G18-060 | Separate open Playwright Chromium/Firefox lane, hostile-client, tolerant rendering, accessibility, lifecycle, and performance evidence | Draft |
+| G18-061 | Published adapter resources/metadata, staged consumer, isolated offline frontend build, support wording, and simplicity closeout | Draft |

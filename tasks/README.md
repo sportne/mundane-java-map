@@ -138,6 +138,13 @@ Parallel work is safe only after dependencies are satisfied and scopes remain di
   the settled documentation inventory and build wiring. G17-004 then owns the shared JaCoCo
   convention and project-wide test expansion; G17-005 follows it with the additive per-source-file
   rule. These tasks are not path-safe in parallel once they converge on build logic or tests.
+- G18 follows the completed API/core/source/tool/world-wrap and G17 hardening foundations. G18-010
+  through G18-020 are serial because they establish one optional adapter, private protocol, bundled
+  client, source bindings, and portrayal path. After G18-020, interaction/editing and
+  raster/elevation/world-wrap work are logically parallel, but one integration owner serializes the
+  shared Flow component, protocol, and frontend module. G18-050 converges the branches in the
+  runnable example; G18-060 owns the separate browser lane; G18-061 alone owns publication,
+  offline-frontend integration, support wording, and closeout.
 
 Tasks that share public API files, `MapView`, root Gradle files, this index, or the roadmap are not
 path-safe without explicit ownership, even when their dependency graph permits concurrency.
@@ -402,3 +409,25 @@ strict CRS/source coordinates and adds bounded periodic display behavior above t
 | [G17-003 — Comprehensive public Javadocs](closed/G17-003-comprehensive-public-javadocs.md) | Complete | AFK | G17-001, G17-002 | Enforced strict project-wide Javadocs and exact published binary/source/documentation surface parity. |
 | [G17-004 — Raise aggregate code coverage to 80 percent](closed/G17-004-raise-aggregate-code-coverage-to-80-percent.md) | Complete | AFK | G17-002, G17-003 | Raise every governed project's existing bundle instruction floor from 60% to 80% through behavioral tests. |
 | [G17-005 — Enforce 80 percent coverage per source file](closed/G17-005-per-source-file-code-coverage.md) | Complete | AFK | G17-004 | Enforced deterministic 80% instruction coverage and reports for every hand-authored production source file. |
+
+## Browser frontend
+
+### G18 — Open-source Vaadin browser component
+
+G18 uses Vaadin Flow's open component integration but explicitly excludes Vaadin Map, TestBench,
+commercial artifacts, remote basemaps, and another browser map engine. The planned renderer is a
+project-authored Canvas custom element packaged with one optional adapter.
+
+| Task | Status | Type | Depends on | Outcome |
+| --- | --- | --- | --- | --- |
+| [G18-001 — Open-source Vaadin browser profile decision](G18-001-open-source-vaadin-browser-profile.md) | Proposed | HITL | G16-007, G17-005 | Approve exact open dependencies, adapter/client boundary, protocol, limits, supported surface, evidence, and task graph. |
+| [G18-010 — First Vaadin Canvas vector slice](G18-010-first-vaadin-canvas-vector-slice.md) | Proposed | AFK | G18-001 | Create the reusable optional adapter and display a real point/line/polygon snapshot with local navigation. |
+| [G18-011 — Feature-source and CRS browser bindings](G18-011-feature-source-and-crs-bindings.md) | Proposed | AFK | G18-010, G4-003 | Query and render all feature geometry families with explicit CRS, cancellation, diagnostics, and ownership. |
+| [G18-020 — Browser symbol, portrayal, and label completion](G18-020-symbol-portrayal-and-label-completion.md) | Proposed | AFK | G18-011, G14-007 | Complete existing vector symbols, portrayals, catalog icons, and bounded browser-measured labels. |
+| [G18-030 — Browser interaction and tool routing](G18-030-browser-interaction-and-tool-routing.md) | Proposed | AFK | G18-020, G3-003 | Add validated browser events, hits, hover/selection, navigation, and the toolkit-neutral tool host. |
+| [G18-031 — Browser measurement and point editing](G18-031-browser-measurement-and-point-editing.md) | Proposed | AFK | G18-030, G11-013 | Reuse measurement, snapping, immutable point edits, bounded history, and canonical coordinates. |
+| [G18-040 — Browser raster and elevation slice](G18-040-browser-raster-and-elevation-slice.md) | Proposed | AFK | G18-020, G9-002 | Transport detached RGBA windows securely and render raster/elevation content without AWT or image encoding. |
+| [G18-041 — Browser horizontal world wrap](G18-041-browser-horizontal-world-wrap.md) | Proposed | AFK | G18-040, G16-006 | Carry explicit bounded continuous-world vector, raster, label, interaction, measurement, and edit behavior into the browser. |
+| [G18-050 — Complete Vaadin viewer example](G18-050-complete-vaadin-viewer-example.md) | Proposed | HITL | G18-031, G18-041, G11-034 | Deliver the offline-by-default responsive example with layers, diagnostics, uploads, tools, workspace, and export. |
+| [G18-060 — Vaadin browser hardening and evidence](G18-060-vaadin-browser-hardening-and-evidence.md) | Proposed | HITL | G18-050 | Create open-source Chromium/Firefox automation and close hostile-client, rendering, accessibility, lifecycle, and performance evidence. |
+| [G18-061 — Vaadin publication and offline closeout](G18-061-vaadin-publication-and-offline-closeout.md) | Proposed | HITL | G18-060 | Stage and consume the adapter, prove offline Maven/frontend builds, and approve exact support and simplicity wording. |
