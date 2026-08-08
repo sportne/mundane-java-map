@@ -85,6 +85,7 @@ dependencies {
 }
 
 def functionalJacocoAgentFiles = configurations.functionalJacocoAgent
+def functionalJacocoDestination = layout.buildDirectory.file('jacoco/functional.exec')
 
 tasks.withType(Test).configureEach {
     javaLauncher = javaToolchains.launcherFor {
@@ -93,9 +94,11 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
     systemProperty 'map.rootDir', rootDir.parentFile.absolutePath
     systemProperty 'map.functionalJacocoDestination',
-            layout.buildDirectory.file('jacoco/functional.exec').get().asFile.absolutePath
+            functionalJacocoDestination.get().asFile.absolutePath
     inputs.files(functionalJacocoAgentFiles)
+    outputs.file(functionalJacocoDestination)
     doFirst {
+        java.nio.file.Files.deleteIfExists(functionalJacocoDestination.get().asFile.toPath())
         systemProperty 'map.functionalJacocoAgent',
                 functionalJacocoAgentFiles.singleFile.absolutePath
     }
@@ -113,7 +116,7 @@ tasks.named('jacocoTestReport') {
     dependsOn tasks.named('test')
     executionData.from(
             layout.buildDirectory.file('jacoco/test.exec'),
-            layout.buildDirectory.file('jacoco/functional.exec'))
+            functionalJacocoDestination)
     reports {
         xml.required = true
         html.required = true
@@ -124,7 +127,7 @@ tasks.named('jacocoTestCoverageVerification') {
     dependsOn tasks.named('test')
     executionData.from(
             layout.buildDirectory.file('jacoco/test.exec'),
-            layout.buildDirectory.file('jacoco/functional.exec'))
+            functionalJacocoDestination)
     violationRules {
         rule {
             limit {
