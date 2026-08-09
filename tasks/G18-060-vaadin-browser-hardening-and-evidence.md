@@ -1,6 +1,6 @@
 # G18-060 — Vaadin browser hardening and evidence
 
-Status: Proposed
+Status: Complete
 Depends on: G18-052
 Gate: G18
 Type: HITL
@@ -69,3 +69,20 @@ git diff --check
 HITL checkpoint: **Chromium/Firefox map behavior, tolerant rendering, keyboard/accessibility,
 lifecycle, and evidence interpretation review**. Browser setup remains explicit and separate from
 normal offline/JVM verification.
+
+## Completion record
+
+- Added a separate production-mode Playwright lane with pinned Playwright Java and explicitly
+  installed, isolated Chromium and Firefox binaries. The lane consumes pre-generated frozen Vaadin
+  frontend inputs, starts the real viewer on a random loopback port, rejects external requests, and
+  writes versioned JSON, Markdown, and screenshot evidence without joining the normal JVM gate.
+- Both browsers exercise vector, label, icon, raster, elevation, wrap, selection, measurement,
+  editing, navigation, upload, export, responsive, accessibility, authorization, hostile-protocol,
+  reload, detach, and session-close behavior. Tolerant structural/color assertions cover holes,
+  endpoints, hatches, affine placement, repeated copies, overlays, and bounded binary resources.
+- Evidence records exact Java, Vaadin, Node, Playwright, browser, and OS versions together with
+  UTF-8 scene bytes, explicit full-replacement/no-patch mode, generations, paint observations,
+  query-acceptance times, total/maximum frame bytes, exact profile ceilings, repeated-upload and
+  retained-resource counts, and lifecycle cleanup. Component semantics now expose stable help,
+  shortcut, disabled, focus, and live-status information, with focused frontend/viewer checks and
+  the full quality gate green.

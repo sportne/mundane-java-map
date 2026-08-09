@@ -260,7 +260,10 @@ class DocumentationConsistencyTest {
         Path relative = repositoryRoot.relativize(path);
         for (Path part : relative) {
             String name = part.toString();
-            if (name.equals(".git") || name.equals(".gradle") || name.equals("build")) {
+            if (name.equals(".git")
+                    || name.equals(".gradle")
+                    || name.equals("build")
+                    || name.equals("node_modules")) {
                 return true;
             }
         }

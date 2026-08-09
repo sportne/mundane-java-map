@@ -441,11 +441,14 @@ final class ViewerSession implements AutoCloseable {
         if (map.sourceReports().isEmpty()) {
             return "No source diagnostics";
         }
-        long entries =
+        String codes =
                 map.sourceReports().values().stream()
-                        .mapToLong(report -> report.entries().size())
-                        .sum();
-        return entries + (entries == 1 ? " source diagnostic" : " source diagnostics");
+                        .flatMap(report -> report.entries().stream())
+                        .map(diagnostic -> diagnostic.code())
+                        .distinct()
+                        .sorted()
+                        .collect(java.util.stream.Collectors.joining(", "));
+        return codes.isEmpty() ? "No source diagnostics" : codes;
     }
 
     private int indexOf(String layerId) {

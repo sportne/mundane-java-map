@@ -4,6 +4,17 @@ plugins {
     id 'com.vaadin.flow' version '25.2.4'
 }
 
+def browserLaneRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName == 'vaadinBrowserTest' || taskName.endsWith(':vaadinBrowserTest')
+}
+
+sourceSets {
+    vaadinBrowserTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
 dependencies {
     implementation project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
@@ -21,6 +32,13 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     testRuntimeOnly 'com.vaadin:vaadin-dev-server:25.2.4'
+
+    vaadinBrowserTestImplementation 'com.microsoft.playwright:playwright:1.60.0'
+}
+
+configurations {
+    vaadinBrowserTestImplementation.extendsFrom testImplementation
+    vaadinBrowserTestRuntimeOnly.extendsFrom testRuntimeOnly
 }
 
 def viewerSourceFixtures = layout.buildDirectory.dir('source-fixtures')
@@ -38,8 +56,8 @@ def prepareViewerSourceFixtures = tasks.register('prepareViewerSourceFixtures', 
             }
     from(rootProject.file(
             'modules/mundane-map-io-geotiff/src/test/resources/geotiff-corpus/data')) {
-                include 'gdal-rgb-strip-none-4326.tif'
-                include 'gdal-int16-strip-packbits-4326.tif'
+                include 'gdal-gray-tile-deflate-3857.tif'
+                include 'gdal-float32-tile-deflate-3857.tif'
                 into 'geotiff'
             }
     from(layout.projectDirectory.dir('src/main/workspace')) {
@@ -50,6 +68,61 @@ def prepareViewerSourceFixtures = tasks.register('prepareViewerSourceFixtures', 
 tasks.withType(Test).configureEach {
     dependsOn prepareViewerSourceFixtures
     systemProperty 'mundane.viewer.fixtures', viewerSourceFixtures.get().asFile.absolutePath
+}
+
+def browserEvidence = layout.buildDirectory.dir('reports/vaadin-browser')
+def playwrightBrowserDirectory = new File(
+        gradle.gradleUserHomeDir, 'playwright/mundane-map-1.60.0')
+def installedFrontendMarker = layout.projectDirectory.file('node_modules/.vaadin/vaadin.json')
+def verifyVaadinBrowserInputs = tasks.register('verifyVaadinBrowserInputs') {
+    group = 'verification'
+    description = 'Fails closed unless the separately primed frozen frontend is installed.'
+    inputs.files(layout.projectDirectory.file('package-lock.json'),
+            layout.projectDirectory.file('package.json'))
+    doLast {
+        def marker = installedFrontendMarker.asFile
+        if (!marker.isFile()) {
+            throw new GradleException(
+            'Pinned viewer frontend inputs are absent. Prime the frozen npm cache and '
+            + 'install package-lock.json before running vaadinBrowserTest; browser '
+            + 'downloads are available only through installVaadinBrowserBinaries.')
+        }
+    }
+}
+
+def vaadinBrowserTest = tasks.register('vaadinBrowserTest', Test) {
+    group = 'verification'
+    description = 'Runs the explicit pinned Chromium and Firefox Playwright evidence lane.'
+    testClassesDirs = sourceSets.vaadinBrowserTest.output.classesDirs
+    classpath = sourceSets.vaadinBrowserTest.runtimeClasspath
+    dependsOn verifyVaadinBrowserInputs, tasks.named('vaadinBuildFrontend')
+    shouldRunAfter tasks.named('test')
+    maxParallelForks = 1
+    systemProperty 'mundane.viewer.browserEvidence', browserEvidence.get().asFile.absolutePath
+    systemProperty 'vaadin.productionMode', 'true'
+    environment 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD', '1'
+    environment 'PLAYWRIGHT_BROWSERS_PATH', playwrightBrowserDirectory.absolutePath
+    outputs.dir browserEvidence
+}
+
+vaadinBrowserTest.configure {
+    dependsOn tasks.named('checkstyleVaadinBrowserTest')
+    dependsOn tasks.named('spotbugsVaadinBrowserTest')
+}
+
+tasks.named('vaadinBuildFrontend') {
+    mustRunAfter verifyVaadinBrowserInputs
+    inputs.dir(rootProject.file(
+            'modules/mundane-map-vaadin/src/main/resources/META-INF/frontend'))
+}
+
+tasks.register('installVaadinBrowserBinaries', JavaExec) {
+    group = 'browser setup'
+    description = 'Explicitly downloads the Playwright 1.60.0 Chromium and Firefox binaries.'
+    classpath = sourceSets.vaadinBrowserTest.runtimeClasspath
+    mainClass = 'com.microsoft.playwright.CLI'
+    args 'install', 'chromium', 'firefox'
+    environment 'PLAYWRIGHT_BROWSERS_PATH', playwrightBrowserDirectory.absolutePath
 }
 
 tasks.named('bootRun') {
@@ -71,7 +144,8 @@ application {
 }
 
 vaadin {
-    productionMode = false
+    productionMode = browserLaneRequested || providers.gradleProperty('vaadin.productionMode').isPresent()
+    runNpmInstall = !browserLaneRequested
     reactEnable = false
     npmExcludeWebComponents = true
     pnpmEnable = false

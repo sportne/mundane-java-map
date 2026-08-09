@@ -18,7 +18,31 @@ Then open `http://127.0.0.1:8080/`. The initial frontend preparation needs the e
 frozen by the G18 dependency profile. Until G18-061 extends the repository's offline assembly to
 frontend inputs, a download-disabled build must use a separately and explicitly primed npm cache
 for the committed lockfile. A modern keyboard-accessible desktop or mobile browser is required.
-Complete automated browser/version coverage is intentionally deferred to G18-060.
+
+## Explicit browser evidence lane
+
+The repository pins open-source Playwright Java 1.60.0 and its Chromium 148.0.7778.96 and Firefox
+150.0.2 revisions. Browser binaries are never downloaded by normal JVM, quality, publication, or
+offline verification. They use a versioned directory under the Gradle user home so another
+Playwright installation cannot collect them. Install only when intentionally preparing the lane:
+
+```bash
+./gradlew :examples:vaadin-viewer:installVaadinBrowserBinaries --console=plain
+```
+
+The browser lane also requires the committed frontend lock to have been installed explicitly; it
+fails before the production frontend build when `node_modules/.vaadin/vaadin.json` is absent and
+does not run npm installation itself. With those two separately primed inputs, run:
+
+```bash
+./gradlew :examples:vaadin-viewer:vaadinBrowserTest --console=plain
+```
+
+The task starts the production-mode application on a random loopback port and exercises both exact
+browser revisions. Deterministic JSON and Markdown evidence plus tolerant Canvas screenshots are
+written under `examples/vaadin-viewer/build/reports/vaadin-browser/`. Timings, transfer sizes, and
+resource observations describe only the executing environment; they are not portable performance
+claims.
 
 The toolbar provides fit/zoom, navigation, measurement, point creation/movement, undo/redo, a
 compatible horizontal-wrap toggle, and server-side SVG preparation/download. The sidebar provides
@@ -28,8 +52,8 @@ own keyboard help and interaction semantics.
 
 ## Server-local source workflows
 
-The four fixture buttons open checked repository data: a shapefile, a display GeoTIFF, a signed
-integer elevation GeoTIFF interpreted as metres, and a feature-only workspace. The adjacent path
+The four fixture buttons open checked repository data: a shapefile, a display GeoTIFF, a Float32
+elevation GeoTIFF interpreted as metres, and a feature-only workspace. The adjacent path
 field opens the same supported formats from a caller-selected path on the server. It is not a
 browser upload: the value names a file readable by the application process and must therefore be
 treated as trusted administrative input. Do not expose this control to untrusted users without an

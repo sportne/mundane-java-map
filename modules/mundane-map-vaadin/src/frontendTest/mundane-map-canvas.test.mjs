@@ -20,6 +20,7 @@ class MockHTMLElement {
 
 function createCanvas() {
   const listeners = new Map();
+  const attributes = new Map();
   const captures = new Set();
   const operations = [];
   const context = {operations};
@@ -54,8 +55,9 @@ function createCanvas() {
     width: 0,
     height: 0,
     listeners,
+    attributes,
     operations,
-    setAttribute() {},
+    setAttribute: (name, value) => attributes.set(name, String(value)),
     getContext: () => context,
     addEventListener: (name, listener) => listeners.set(name, listener),
     removeEventListener: name => listeners.delete(name),
@@ -348,6 +350,11 @@ for (const primitive of invisibleScene.layers[0].features[2].primitives
 const ElementClass = registeredElements.get('mundane-map-canvas');
 assert.equal(ElementClass, canvasModule.MundaneMapCanvas);
 const element = new ElementClass();
+assert.equal(element.canvas.attributes.get('role'), 'application');
+assert.equal(element.canvas.attributes.get('aria-label'), 'Interactive map');
+assert.match(element.canvas.attributes.get('aria-description'), /Arrow keys pan/);
+assert.match(element.canvas.attributes.get('aria-keyshortcuts'), /Control\+z/);
+assert.equal(element.canvas.attributes.get('aria-disabled'), 'false');
 const settled = [];
 const failures = [];
 const emptyLabelAcks = [];
@@ -395,6 +402,7 @@ element.canvas.dispatch('pointermove', {pointerId: 1, offsetX: 120, offsetY: 110
   button: -1, buttons: 1});
 element.canvas.dispatch('pointerup', {pointerId: 1, offsetX: 120, offsetY: 110,
   button: 0, buttons: 0});
+await new Promise(resolve => setTimeout(resolve, 0));
 await element.interactionChain;
 assert.notEqual(element.viewport.centerX, beforeDefaultDrag);
 assert.equal(settled.length, 1);
@@ -568,7 +576,11 @@ assert.equal(labelElement.placedLabels[0].text, 'Alpha');
 
 labelElement.setMapEnabled(false);
 assert.deepEqual(labelElement.placedLabels, []);
+assert.equal(labelElement.canvas.attributes.get('aria-disabled'), 'true');
+assert.equal(labelElement.canvas.tabIndex, -1);
 labelElement.setMapEnabled(true);
+assert.equal(labelElement.canvas.attributes.get('aria-disabled'), 'false');
+assert.equal(labelElement.canvas.tabIndex, 0);
 labelElement.remeasureLabels(1, 12, 13, 4);
 assert.equal(labelMeasurements.length, 2);
 labelElement.setPlacedLabels(1, 12, 13, 4, [{
@@ -919,6 +931,18 @@ interactionElement.canvas.dispatch('pointermove', {offsetX: 20, offsetY: 30, but
 await interactionElement.interactionChain;
 assert.equal(routedCalls.at(-1)[5], 'MOVE');
 assert.deepEqual(routedCalls.at(-1).slice(6, 8), [20, 30]);
+interactionElement.viewportDirty = false;
+const clickViewportGeneration = interactionElement.viewportGeneration;
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 20, offsetX: 25, offsetY: 35,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointerup', {pointerId: 20, offsetX: 25, offsetY: 35,
+  button: 0, buttons: 0, detail: 1});
+interactionElement.canvas.dispatch('click', {offsetX: 25, offsetY: 35,
+  button: 0, buttons: 0, detail: 1});
+await new Promise(resolve => setTimeout(resolve, 0));
+await interactionElement.interactionChain;
+assert.deepEqual(routedCalls.slice(-3).map(call => call[5]), ['PRESS', 'RELEASE', 'CLICK']);
+assert.equal(interactionElement.viewportGeneration, clickViewportGeneration);
 interactionElement.canvas.dispatch('click', {offsetX: 20, offsetY: 30, buttons: 0,
   button: 0, detail: 1});
 await interactionElement.interactionChain;

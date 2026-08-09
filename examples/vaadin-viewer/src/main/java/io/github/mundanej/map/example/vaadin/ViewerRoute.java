@@ -150,6 +150,14 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         NativeElement upload = uploadControls();
         NativeElement status = element("section", "status");
         status.getElement().setAttribute("aria-label", "Map status");
+        coordinates.getElement().setAttribute("id", "status-coordinates");
+        selection.getElement().setAttribute("id", "status-selection");
+        diagnostics.getElement().setAttribute("id", "status-diagnostics");
+        measurement.getElement().setAttribute("id", "status-measurement");
+        coordinates.getElement().setAttribute("aria-live", "polite");
+        selection.getElement().setAttribute("aria-live", "polite");
+        diagnostics.getElement().setAttribute("aria-live", "polite");
+        measurement.getElement().setAttribute("aria-live", "polite");
         status.add(label("Coordinates", coordinates), label("Selection", selection));
         status.add(label("Diagnostics", diagnostics), label("Measurement", measurement));
         NativeElement hint = element("p", "hint");
@@ -465,8 +473,8 @@ public final class ViewerRoute extends Component implements AutoCloseable {
                 switch (kind) {
                     case SHAPEFILE ->
                             root.resolve("shapefile/generated-polygon-hole-windows1252-3857.shp");
-                    case RASTER -> root.resolve("geotiff/gdal-rgb-strip-none-4326.tif");
-                    case ELEVATION -> root.resolve("geotiff/gdal-int16-strip-packbits-4326.tif");
+                    case RASTER -> root.resolve("geotiff/gdal-gray-tile-deflate-3857.tif");
+                    case ELEVATION -> root.resolve("geotiff/gdal-float32-tile-deflate-3857.tif");
                     case WORKSPACE -> root.resolve("workspace/example.mmap.xml");
                 };
         sourcePath.getElement().setProperty("value", path.toString());

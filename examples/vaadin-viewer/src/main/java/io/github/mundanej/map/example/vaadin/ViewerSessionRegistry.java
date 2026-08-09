@@ -31,6 +31,10 @@ public final class ViewerSessionRegistry implements AutoCloseable {
         sessions.remove(session);
     }
 
+    synchronized int registeredSessionCount() {
+        return sessions.size();
+    }
+
     /** Closes every registered route session exactly once. */
     @Override
     @PreDestroy

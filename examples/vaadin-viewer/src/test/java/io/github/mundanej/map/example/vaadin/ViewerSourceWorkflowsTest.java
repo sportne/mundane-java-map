@@ -114,14 +114,14 @@ final class ViewerSourceWorkflowsTest {
 
         workflows.openShapefile(shapefile()).toCompletableFuture().join();
         workflows.openShapefile(shapefile()).toCompletableFuture().join();
-        assertEquals(1, first.get().closeCount());
+        awaitCloseCount(first.get(), 1);
         assertEquals(0, second.get().closeCount());
 
         workflows.close();
         workflows.close();
         map.close();
-        assertEquals(1, first.get().closeCount());
-        assertEquals(1, second.get().closeCount());
+        awaitCloseCount(first.get(), 1);
+        awaitCloseCount(second.get(), 1);
     }
 
     @Test
@@ -173,7 +173,7 @@ final class ViewerSourceWorkflowsTest {
         operations.remove().run();
 
         assertEquals("SOURCE_OPEN_CANCELLED", first.join().diagnosticCode());
-        assertEquals(1, stale.get().closeCount());
+        awaitCloseCount(stale.get(), 1);
         assertTrue(second.join().opened());
         workflows.close();
         map.close();
@@ -385,15 +385,28 @@ final class ViewerSourceWorkflowsTest {
     }
 
     private static Path raster() {
-        return FIXTURES.resolve("geotiff/gdal-rgb-strip-none-4326.tif");
+        return FIXTURES.resolve("geotiff/gdal-gray-tile-deflate-3857.tif");
     }
 
     private static Path elevation() {
-        return FIXTURES.resolve("geotiff/gdal-int16-strip-packbits-4326.tif");
+        return FIXTURES.resolve("geotiff/gdal-float32-tile-deflate-3857.tif");
     }
 
     private static Path workspace() {
         return FIXTURES.resolve("workspace/example.mmap.xml");
+    }
+
+    private static void awaitCloseCount(CountingFeatureSource source, int expected) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (source.closeCount() != expected && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(failure);
+            }
+        }
+        assertEquals(expected, source.closeCount());
     }
 
     private static final class CountingFeatureSource implements FeatureSource {

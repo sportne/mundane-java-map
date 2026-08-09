@@ -720,9 +720,15 @@ export class MundaneMapCanvas extends HTMLElement {
     this.canvas.setAttribute('part', 'canvas');
     this.canvas.setAttribute('role', 'application');
     this.canvas.setAttribute('aria-label', 'Interactive map');
+    this.canvas.setAttribute('aria-description',
+      'Arrow keys pan. Plus and minus zoom. Home fits. Escape cancels the active gesture.');
+    this.canvas.setAttribute('aria-keyshortcuts',
+      'ArrowUp ArrowDown ArrowLeft ArrowRight + - Home Escape Delete Control+z Control+y');
+    this.canvas.setAttribute('aria-disabled', 'false');
     const style = document.createElement('style');
     style.textContent = ':host{display:block;min-width:1px;min-height:1px;overflow:hidden}' +
-      'canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}';
+      'canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}' +
+      'canvas:focus-visible{outline:3px solid #195f9d;outline-offset:-3px}';
     this.shadowRoot.append(style, this.canvas);
     this.context = this.canvas.getContext('2d');
     this.missingCapability = [
@@ -893,6 +899,8 @@ export class MundaneMapCanvas extends HTMLElement {
     const next = Boolean(enabled);
     if (next !== this.enabled) this.interactionEpoch++;
     this.enabled = next;
+    this.canvas.setAttribute('aria-disabled', String(!next));
+    this.canvas.tabIndex = next ? 0 : -1;
     if (!this.enabled) {
       this.placedLabels = [];
       this.lastLabelMeasurementKey = null;
@@ -2047,7 +2055,14 @@ export class MundaneMapCanvas extends HTMLElement {
     }
     this.updatePinch();
     if (!this.pointers.size) {
-      this.emitSettled();
+      setTimeout(() => {
+        const settle = () => {
+          if (this.isConnected && !this.closed && !this.pointers.size && this.viewportDirty) {
+            this.emitSettled();
+          }
+        };
+        this.interactionChain.then(settle, settle);
+      }, 0);
     }
   }
 
