@@ -135,9 +135,21 @@ class BuildLogicTaskBehaviorTest {
                 implementation.resolve("hash/implementation-1.jar"),
                 "artifact");
         Path coordinateFile = temporaryDirectory.resolve("coordinates.txt");
-        Files.writeString(coordinateFile, "example:library:1|example:dependency:1\n");
+        Files.writeString(
+                coordinateFile,
+                "example:library:1|example:dependency:1\nexample:unlisted:1|\n");
         Files.createDirectories(cache.resolve("example/library/1/hash"));
-        Files.writeString(cache.resolve("example/library/1/hash/library-1.jar"), "library");
+        Files.writeString(cache.resolve("example/library/1/hash/library-1-shaded.jar"), "library");
+        Files.createDirectories(cache.resolve("example/library/1/first-pom"));
+        Files.createDirectories(cache.resolve("example/library/1/second-pom"));
+        Files.writeString(
+                cache.resolve("example/library/1/first-pom/library-1.pom"), "first source POM");
+        Files.writeString(
+                cache.resolve("example/library/1/second-pom/library-1.pom"),
+                "conflicting source POM");
+        Files.createDirectories(cache.resolve("example/unlisted/1/hash"));
+        Files.writeString(
+                cache.resolve("example/unlisted/1/hash/unlisted-1-shaded.jar"), "unlisted");
         Path output = temporaryDirectory.resolve("offline");
         AssembleOfflineRepository task =
                 task("assemble", AssembleOfflineRepository.class);
@@ -145,6 +157,7 @@ class BuildLogicTaskBehaviorTest {
         task.getCoordinateFiles().from(coordinateFile.toFile());
         task.getPluginMarkers()
                 .set(List.of("example.plugin|example.plugin.gradle.plugin|1|example|implementation"));
+        task.getShadedPrimaryAliases().set(List.of("example:library:1"));
         task.getArtifactCache().set(cache.toFile());
         task.getOutputDirectory().set(output.toFile());
 
@@ -160,6 +173,8 @@ class BuildLogicTaskBehaviorTest {
         assertTrue(
                 Files.readString(output.resolve("example/library/1/library-1.pom"))
                         .contains("<artifactId>dependency</artifactId>"));
+        assertEquals("library", Files.readString(output.resolve("example/library/1/library-1.jar")));
+        assertTrue(!Files.exists(output.resolve("example/unlisted/1/unlisted-1.jar")));
 
         task.getPluginMarkers()
                 .set(List.of("missing.plugin|missing.plugin.gradle.plugin|1|missing|implementation"));

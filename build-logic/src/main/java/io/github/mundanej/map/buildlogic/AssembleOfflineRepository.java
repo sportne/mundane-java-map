@@ -33,7 +33,9 @@ import org.gradle.work.DisableCachingByDefault;
 public abstract class AssembleOfflineRepository extends DefaultTask {
     /** Creates a task instance whose properties Gradle configures before execution. */
     @Inject
-    public AssembleOfflineRepository() {}
+    public AssembleOfflineRepository() {
+        getShadedPrimaryAliases().convention(List.of());
+    }
 
     /**
      * Provides the exact external module coordinates to stage.
@@ -50,6 +52,14 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
      */
     @Input
     public abstract ListProperty<String> getPluginMarkers();
+
+    /**
+     * Provides exact coordinates whose sole {@code -shaded.jar} is the primary runtime artifact.
+     *
+     * @return exact coordinates requiring a shaded-to-primary alias
+     */
+    @Input
+    public abstract ListProperty<String> getShadedPrimaryAliases();
 
     /**
      * Provides per-project files containing additional resolved coordinate rows.
@@ -95,6 +105,7 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
             }
         }
         Set<String> requiredPluginImplementations = new TreeSet<>();
+        Set<String> shadedPrimaryAliases = new TreeSet<>(getShadedPrimaryAliases().get());
         for (String marker : getPluginMarkers().get()) {
             String[] fields = marker.split("\\|", -1);
             require(fields.length == 5, "Invalid plugin marker row: " + marker);
@@ -117,6 +128,9 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
                             .resolve(fields[2]);
             if (Files.isDirectory(source)) {
                 copyCachedPayloads(source, destination);
+                if (shadedPrimaryAliases.contains(coordinate)) {
+                    materializeShadedPrimaryJar(destination, fields[1], fields[2]);
+                }
             } else {
                 if (requiredPluginImplementations.contains(coordinate)) {
                     missing.add(coordinate);
@@ -169,6 +183,12 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
         try (var paths = Files.walk(source, 2)) {
             for (Path artifact : paths.filter(Files::isRegularFile).sorted().toList()) {
                 String name = artifact.getFileName().toString();
+                if (name.endsWith(".pom")) {
+                    // Every component receives the deterministic resolved-dependency POM below.
+                    // Repositories can cache different source POMs for the same Gradle module,
+                    // so copying those transient inputs would create a false artifact conflict.
+                    continue;
+                }
                 Path target = destination.resolve(name);
                 if (copiedNames.add(name)) {
                     Files.copy(artifact, target, StandardCopyOption.REPLACE_EXISTING);
@@ -176,6 +196,15 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
                     throw new GradleException("Conflicting cached artifacts named " + name);
                 }
             }
+        }
+    }
+
+    private static void materializeShadedPrimaryJar(Path directory, String module, String version)
+            throws IOException {
+        Path primary = directory.resolve(module + "-" + version + ".jar");
+        Path shaded = directory.resolve(module + "-" + version + "-shaded.jar");
+        if (!Files.isRegularFile(primary) && Files.isRegularFile(shaded)) {
+            Files.copy(shaded, primary, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -197,20 +226,7 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
             if (!hasJar) {
                 additional.append("<packaging>pom</packaging>");
             }
-            if (!dependencies.isEmpty()) {
-                additional.append("<dependencies>");
-                for (String dependency : dependencies) {
-                    String[] fields = dependency.split(":", -1);
-                    additional.append("<dependency><groupId>")
-                            .append(fields[0])
-                            .append("</groupId><artifactId>")
-                            .append(fields[1])
-                            .append("</artifactId><version>")
-                            .append(fields[2])
-                            .append("</version></dependency>");
-                }
-                additional.append("</dependencies>");
-            }
+            appendDependencies(additional, dependencies);
         }
         Files.writeString(
                 pom, pom(group, module, version, additional.toString()), StandardCharsets.UTF_8);
@@ -225,6 +241,24 @@ public abstract class AssembleOfflineRepository extends DefaultTask {
         if (fields.length == 2 && !fields[1].isBlank()) {
             dependencies.addAll(List.of(fields[1].split(",")));
         }
+    }
+
+    private static void appendDependencies(StringBuilder target, Set<String> dependencies) {
+        if (dependencies.isEmpty()) {
+            return;
+        }
+        target.append("<dependencies>");
+        for (String dependency : dependencies) {
+            String[] fields = dependency.split(":", -1);
+            target.append("<dependency><groupId>")
+                    .append(fields[0])
+                    .append("</groupId><artifactId>")
+                    .append(fields[1])
+                    .append("</artifactId><version>")
+                    .append(fields[2])
+                    .append("</version></dependency>");
+        }
+        target.append("</dependencies>");
     }
 
     private static String pom(

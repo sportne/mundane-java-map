@@ -323,6 +323,10 @@ tasks.register('printPublishedArtifacts') {
 }
 
 configurations {
+    offlinePluginTooling {
+        canBeConsumed = false
+        canBeResolved = true
+    }
     offlineTooling {
         canBeConsumed = false
         canBeResolved = true
@@ -334,6 +338,13 @@ configurations {
     }
 }
 dependencies {
+    // Application plugins are resolved outside normal project configurations. Stage their
+    // complete implementation graphs alongside the explicit marker POMs below.
+    offlinePluginTooling 'com.vaadin:flow-gradle-plugin:25.2.4'
+    offlinePluginTooling('org.jetbrains.kotlin:kotlin-stdlib:2.4.0') {
+        transitive = false
+    }
+    offlinePluginTooling 'org.springframework.boot:spring-boot-gradle-plugin:4.1.0'
     // Spotless resolves the platform-specific Groovy-Eclipse launcher lazily at execution time.
     offlineTooling 'com.diffplug.durian:durian-swt.os:4.3.1'
     offlineTooling 'com.google.googlejavaformat:google-java-format:1.28.0'
@@ -352,8 +363,10 @@ def offlinePluginMarkers = [
     'org.gradle.toolchains.foojay-resolver-convention|org.gradle.toolchains.foojay-resolver-convention.gradle.plugin|1.0.0|org.gradle.toolchains|foojay-resolver',
     "com.diffplug.spotless|com.diffplug.spotless.gradle.plugin|${libs.versions.spotlessPlugin.get()}|com.diffplug.spotless|spotless-plugin-gradle",
     "com.github.spotbugs|com.github.spotbugs.gradle.plugin|${libs.versions.spotbugsPlugin.get()}|com.github.spotbugs.snom|spotbugs-gradle-plugin",
+    'com.vaadin.flow|com.vaadin.flow.gradle.plugin|25.2.4|com.vaadin|flow-gradle-plugin',
     "net.ltgt.errorprone|net.ltgt.errorprone.gradle.plugin|${libs.versions.errorpronePlugin.get()}|net.ltgt.gradle|gradle-errorprone-plugin",
-    "org.graalvm.buildtools.native|org.graalvm.buildtools.native.gradle.plugin|${libs.versions.graalvmNativePlugin.get()}|org.graalvm.buildtools|native-gradle-plugin"
+    "org.graalvm.buildtools.native|org.graalvm.buildtools.native.gradle.plugin|${libs.versions.graalvmNativePlugin.get()}|org.graalvm.buildtools|native-gradle-plugin",
+    'org.springframework.boot|org.springframework.boot.gradle.plugin|4.1.0|org.springframework.boot|spring-boot-gradle-plugin'
 ].asImmutable()
 
 def assembleOfflineRepository = tasks.register(
@@ -363,6 +376,7 @@ def assembleOfflineRepository = tasks.register(
     dependsOn writeBuildLogicCoordinates, projectCoordinateTasks
     coordinates = []
     pluginMarkers = offlinePluginMarkers
+    shadedPrimaryAliases = ['com.vaadin:flow-build-tools:25.2.4']
     coordinateFiles.from(buildLogicCoordinates, projectCoordinateManifests)
     artifactCache = layout.dir(providers.provider {
         new File(gradle.gradleUserHomeDir, 'caches/modules-2/files-2.1')

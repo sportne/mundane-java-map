@@ -27,11 +27,20 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'com.vaadin:vaadin-spring:25.2.4'
     developmentOnly 'com.vaadin:vaadin-dev-server:25.2.4'
-    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
+    compileOnly('com.github.spotbugs:spotbugs-annotations:4.9.8') {
+        exclude group: 'org.apache.logging.log4j', module: 'log4j-core'
+        exclude group: 'org.junit', module: 'junit-bom'
+    }
 
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
+    testImplementation('org.springframework.boot:spring-boot-starter-test') {
+        exclude group: 'org.objenesis', module: 'objenesis'
+    }
+    testCompileOnly('com.github.spotbugs:spotbugs-annotations:4.9.8') {
+        exclude group: 'org.apache.logging.log4j', module: 'log4j-core'
+        exclude group: 'org.junit', module: 'junit-bom'
+    }
     testRuntimeOnly 'com.vaadin:vaadin-dev-server:25.2.4'
+    testRuntimeOnly 'org.objenesis:objenesis:3.3'
 
     vaadinBrowserTestImplementation 'com.microsoft.playwright:playwright:1.60.0'
 }
@@ -174,6 +183,7 @@ def frontendInventory = rootProject.layout.projectDirectory.file(
         'verification/G18-001-frontend-build-inventory.tsv')
 def frontendPackage = layout.projectDirectory.file('package.json')
 def frontendLock = layout.projectDirectory.file('package-lock.json')
+boolean offlineRepositoryMode = providers.gradleProperty('map.offlineRepo').isPresent()
 
 def verifyViewerDependencyProfile = tasks.register('verifyViewerDependencyProfile') {
     group = 'verification'
@@ -215,6 +225,9 @@ def verifyViewerDependencyProfile = tasks.register('verifyViewerDependencyProfil
             }
             digest.digest().encodeHex().toString()
         }
+        def offlineArtifactAliases = offlineRepositoryMode
+                ? ['flow-build-tools-25.2.4.jar': 'flow-build-tools-25.2.4-shaded.jar']
+                : [:]
         def verify = { String scope, files ->
             def expectedRows = scope == 'production'
                     ? rows.findAll { row -> row.scope == 'production' }
@@ -224,7 +237,9 @@ def verifyViewerDependencyProfile = tasks.register('verifyViewerDependencyProfil
             if (expected.size() != expectedRows.size()) {
                 throw new GradleException("Duplicate ${scope} viewer inventory file")
             }
-            def actual = files.files.collectEntries { file -> [(file.name): file] }
+            def actual = files.files.collectEntries { file ->
+                [(offlineArtifactAliases.getOrDefault(file.name, file.name)): file]
+            }
             if (actual.size() != files.files.size()
                     || actual.keySet() != expected.keySet()) {
                 throw new GradleException(
