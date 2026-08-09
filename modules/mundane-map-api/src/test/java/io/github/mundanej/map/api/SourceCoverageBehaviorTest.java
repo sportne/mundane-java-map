@@ -40,10 +40,12 @@ class SourceCoverageBehaviorTest {
                 },
                 BuiltInMarker.values());
         assertEquals(BuiltInMarker.CIRCLE, BuiltInMarker.valueOf("CIRCLE"));
-        assertEquals(8, MapToolCancelReason.values().length);
+        assertEquals(9, MapToolCancelReason.values().length);
         assertEquals(
                 MapToolCancelReason.POINTER_STATE_LOST,
                 MapToolCancelReason.valueOf("POINTER_STATE_LOST"));
+        assertEquals(
+                MapToolCancelReason.SOURCE_FAILURE, MapToolCancelReason.valueOf("SOURCE_FAILURE"));
         assertArrayEquals(PortrayalComparison.values(), PortrayalComparison.values().clone());
         assertEquals(
                 PortrayalComparison.GREATER_THAN_OR_EQUAL,

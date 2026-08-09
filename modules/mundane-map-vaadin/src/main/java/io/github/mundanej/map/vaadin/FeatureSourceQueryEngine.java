@@ -254,7 +254,7 @@ final class FeatureSourceQueryEngine {
         return resolved.forRole(role);
     }
 
-    private static SymbolRole role(Geometry geometry) {
+    static SymbolRole role(Geometry geometry) {
         if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
             return SymbolRole.MARKER;
         }
@@ -264,7 +264,7 @@ final class FeatureSourceQueryEngine {
         return SymbolRole.FILL;
     }
 
-    private static PortrayalEvaluationContext portrayalContext(
+    static PortrayalEvaluationContext portrayalContext(
             MapViewport viewport, CrsDefinition displayCrs) {
         double denominator = viewport.worldUnitsPerPixel() / 0.00028;
         if (!Double.isFinite(denominator) || denominator < 0.0) {
@@ -287,7 +287,7 @@ final class FeatureSourceQueryEngine {
         return Optional.of(aggregate.map(value -> value.union(next)).orElse(next));
     }
 
-    private static Geometry transformGeometry(
+    static Geometry transformGeometry(
             Geometry geometry,
             CrsOperation sourceToMap,
             CrsOperation mapToDisplay,

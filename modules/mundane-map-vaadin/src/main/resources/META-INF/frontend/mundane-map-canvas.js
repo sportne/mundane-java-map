@@ -1853,13 +1853,24 @@ export class MundaneMapCanvas extends HTMLElement {
   }
 
   onKeyDown(event) {
-    if (!this.enabled || this.closed || event.altKey || event.ctrlKey || event.metaKey ||
-        event.shiftKey) return;
-    if (event.key === 'Backspace' && this.toolActive) {
+    if (!this.enabled || this.closed || event.altKey) return;
+    const commandModifier = Boolean(event.ctrlKey) !== Boolean(event.metaKey);
+    let command = null;
+    if (this.toolActive && commandModifier && event.key.toLowerCase() === 'z') {
+      command = event.shiftKey ? 'REDO' : 'UNDO';
+    } else if (this.toolActive && commandModifier && !event.shiftKey &&
+        event.key.toLowerCase() === 'y') {
+      command = 'REDO';
+    } else if (this.toolActive && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+        event.key === 'Backspace') {
+      command = 'DELETE_BACKWARD';
+    }
+    if (command) {
       event.preventDefault();
-      this.sendCommand('DELETE_BACKWARD').then(outcome => this.applyToolOutcome(outcome));
+      this.sendCommand(command).then(outcome => this.applyToolOutcome(outcome));
       return;
     }
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.key === 'Escape' && (this.toolActive || this.pointers.size)) {
       event.preventDefault();
       this.settleTerminatedGesture();

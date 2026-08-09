@@ -1,6 +1,6 @@
 # G18-031 — Browser measurement and point editing
 
-Status: Proposed
+Status: Complete
 Depends on: G18-030, G11-013
 Gate: G18
 Type: AFK
@@ -62,3 +62,8 @@ git diff --check
 Browser controllers are presentation adapters over existing state. Do not move Flow or DOM concepts
 into edit, snap, measurement, or tool API values.
 
+Implemented bounded browser measurement and fixed-lane point editing over the existing core
+strategies, immutable edit snapshots, snapping, history, and canonical-coordinate machinery.
+Generation-coupled overlays, visible-source availability, closed keyboard commands, wrap
+validation, and deterministic lifecycle cancellation keep previews non-authoritative and prevent
+stale or unavailable scenes from committing edits.

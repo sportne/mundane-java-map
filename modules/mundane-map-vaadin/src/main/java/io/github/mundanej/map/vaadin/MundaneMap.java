@@ -49,6 +49,7 @@ import io.github.mundanej.map.api.VectorExportSnapshotException;
 import io.github.mundanej.map.api.VectorExportSnapshotLimits;
 import io.github.mundanej.map.api.VectorExportSnapshotProblem;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapToolRouter;
@@ -114,6 +115,12 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** Latest atomically accepted transformed source layers. */
     private List<Layer> sourceLayers = List.of();
+
+    /** Visible source bindings whose latest accepted query did not terminate with an error. */
+    private Set<String> availableSourceBindings = Set.of();
+
+    /** Installed fixed-lane editable bindings in deterministic paint order. */
+    private List<FeatureEditBinding> editBindings = List.of();
 
     /** Latest non-empty source reports by binding identity. */
     private Map<String, DiagnosticReport> sourceReports = Map.of();
@@ -381,7 +388,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         viewportGeneration);
         validateSnapshotBindingIds(snapshot.layers());
         protocol.encode(
-                combine(snapshot.layers(), configuredFeatureLayers(featureSourceBindings())),
+                combine(
+                        combine(
+                                snapshot.layers(),
+                                configuredFeatureLayers(featureSourceBindings())),
+                        configuredEditLayers(editBindings)),
                 background,
                 viewport,
                 componentGeneration,
@@ -389,7 +400,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 viewportGeneration);
         StagedScene staged =
                 stageScene(
-                        combine(snapshot.layers(), this.sourceLayers), background, nextGeneration);
+                        combine(
+                                combine(snapshot.layers(), this.sourceLayers),
+                                editableLayers(editBindings)),
+                        background,
+                        nextGeneration);
         SceneProtocol.Result result = staged.result();
         layers = snapshot.layers();
         cancelPendingSettledViewport();
@@ -421,7 +436,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         List<FeatureSourceBinding> candidates = List.copyOf(bindings);
         validateFeatureBindings(candidates);
         protocol.encode(
-                combine(layers, configuredFeatureLayers(candidates)),
+                combine(
+                        combine(layers, configuredFeatureLayers(candidates)),
+                        configuredEditLayers(editBindings)),
                 background,
                 viewport,
                 componentGeneration,
@@ -459,9 +476,14 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                                 priorVisibility.getOrDefault(binding, true)))
                         .toList();
         sourceLayers = List.of();
+        availableSourceBindings = Set.of();
         releaseIconResources();
         long replacementGeneration = Math.incrementExact(sceneGeneration);
-        StagedScene replacement = stageScene(layers, background, replacementGeneration);
+        StagedScene replacement =
+                stageScene(
+                        combine(layers, editableLayers(editBindings)),
+                        background,
+                        replacementGeneration);
         sceneEnvelope = replacement.result().envelope();
         sceneGeneration = replacementGeneration;
         publishStagedScene(replacement);
@@ -493,6 +515,78 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     /**
+     * Atomically replaces the ordered adapter-owned editable bindings.
+     *
+     * <p>Every binding must use the exact map CRS. Removed bindings are detached and remain open.
+     *
+     * @param bindings unique open bindings in deterministic paint order
+     * @throws IllegalStateException if removing the active point-edit target or using a closed or
+     *     already-attached binding
+     */
+    public void setFeatureEditBindings(List<FeatureEditBinding> bindings) {
+        requireOpen();
+        List<FeatureEditBinding> candidates = List.copyOf(bindings);
+        validateEditBindings(candidates);
+        if (toolRouter.activeTool().orElse(null) instanceof BrowserPointEditController pointEditor
+                && candidates.stream().noneMatch(pointEditor::targets)) {
+            throw new IllegalStateException("Cannot remove an active point-edit target");
+        }
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        List<Layer> candidateLayers = editableLayers(candidates);
+        StagedScene staged =
+                stageSceneForEdits(
+                        combine(combine(layers, sourceLayers), candidateLayers),
+                        background,
+                        nextGeneration,
+                        candidates);
+        Set<FeatureEditBinding> retained = identityEditSet(editBindings);
+        retained.retainAll(identityEditSet(candidates));
+        List<FeatureEditBinding> attached = new ArrayList<>();
+        try {
+            for (FeatureEditBinding candidate : candidates) {
+                if (!retained.contains(candidate)) {
+                    candidate.attach(this);
+                    attached.add(candidate);
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            for (FeatureEditBinding candidate : attached.reversed()) {
+                candidate.detach(this);
+            }
+            staged.resources().close();
+            throw failure;
+        }
+        List<FeatureEditBinding> previous = editBindings;
+        editBindings = candidates;
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        diagnostic = Optional.empty();
+        try {
+            publishStagedScene(staged);
+        } catch (RuntimeException | Error failure) {
+            editBindings = previous;
+            for (FeatureEditBinding candidate : attached.reversed()) {
+                candidate.detach(this);
+            }
+            throw failure;
+        }
+        for (FeatureEditBinding old : previous) {
+            if (!retained.contains(old)) {
+                old.detach(this);
+            }
+        }
+    }
+
+    /**
+     * Returns installed fixed-lane editable bindings in paint order.
+     *
+     * @return immutable binding list
+     */
+    public List<FeatureEditBinding> featureEditBindings() {
+        return editBindings;
+    }
+
+    /**
      * Changes one installed source layer's visibility and starts a superseding query.
      *
      * @param bindingId installed binding identity
@@ -517,6 +611,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             throw new IllegalArgumentException("Unknown feature-source binding identity");
         }
         featureBindings = List.copyOf(replacement);
+        if (!visible) {
+            java.util.HashSet<String> available = new java.util.HashSet<>(availableSourceBindings);
+            available.remove(bindingId);
+            availableSourceBindings = Set.copyOf(available);
+        }
         scheduleSourceQuery();
     }
 
@@ -545,6 +644,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      * @param registry immutable explicit registry
      * @param nextMapCrs exact registered logical map CRS
      * @param nextDisplayCrs exact registered browser display CRS
+     * @throws IllegalArgumentException if an installed editable binding has another map CRS
      */
     public void setCoordinateReferenceSystems(
             CrsRegistry registry, CrsDefinition nextMapCrs, CrsDefinition nextDisplayCrs) {
@@ -554,9 +654,48 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         Objects.requireNonNull(nextDisplayCrs, "nextDisplayCrs");
         registry.operation(nextMapCrs, nextDisplayCrs);
         registry.operation(nextDisplayCrs, nextMapCrs);
+        for (FeatureEditBinding binding : editBindings) {
+            FeatureEditBinding.requireExactCrs(nextMapCrs, binding.snapshot().crs());
+        }
+        toolRouter
+                .activeTool()
+                .filter(BrowserPointEditController.class::isInstance)
+                .map(BrowserPointEditController.class::cast)
+                .ifPresent(
+                        tool -> tool.requireCoordinateReferenceSystems(nextMapCrs, nextDisplayCrs));
+        toolRouter
+                .activeTool()
+                .filter(BrowserMeasurementTool.class::isInstance)
+                .map(BrowserMeasurementTool.class::cast)
+                .ifPresent(tool -> tool.requireMapCrs(nextMapCrs));
+        CrsRegistry previousRegistry = crsRegistry;
+        CrsDefinition previousMapCrs = mapCrs;
+        CrsDefinition previousDisplayCrs = displayCrs;
         crsRegistry = registry;
         mapCrs = nextMapCrs;
         displayCrs = nextDisplayCrs;
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene staged;
+        try {
+            staged =
+                    stageScene(
+                            combine(layers, editableLayers(editBindings)),
+                            background,
+                            nextGeneration);
+        } catch (RuntimeException | Error failure) {
+            crsRegistry = previousRegistry;
+            mapCrs = previousMapCrs;
+            displayCrs = previousDisplayCrs;
+            throw failure;
+        }
+        cancelFeatureQuery();
+        sourceLayers = List.of();
+        availableSourceBindings = Set.of();
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        diagnostic = Optional.empty();
+        publishStagedScene(staged);
+        publishViewport();
         scheduleSourceQuery();
     }
 
@@ -637,11 +776,31 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         Objects.requireNonNull(nextViewport, "nextViewport");
         protocol.validateViewport(nextViewport);
         cancelPendingSettledViewport();
+        MapViewport previousViewport = viewport;
         viewport = nextViewport;
+        long previousViewportGeneration = viewportGeneration;
         viewportGeneration = Math.incrementExact(viewportGeneration);
+        StagedScene restaged = null;
+        long nextSceneGeneration = sceneGeneration;
+        try {
+            if (!editBindings.isEmpty()) {
+                nextSceneGeneration = Math.incrementExact(sceneGeneration);
+                restaged = stageScene(combinedLayers(), background, nextSceneGeneration);
+            }
+        } catch (RuntimeException | Error failure) {
+            viewport = previousViewport;
+            viewportGeneration = previousViewportGeneration;
+            throw failure;
+        }
         boolean clearedHover = hover.isPresent();
         Throwable primary = null;
         diagnostic = Optional.empty();
+        if (restaged != null) {
+            sceneEnvelope = restaged.result().envelope();
+            sceneGeneration = nextSceneGeneration;
+            StagedScene acceptedRestage = restaged;
+            primary = cleanup(primary, () -> publishStagedScene(acceptedRestage));
+        }
         primary = cleanup(primary, this::publishViewport);
         primary = cleanup(primary, () -> transitionInteraction(selection, Optional.empty()));
         if (!clearedHover) {
@@ -847,10 +1006,14 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      * Installs one toolkit-neutral active tool, replacing a distinct instance by identity.
      *
      * @param tool non-null tool to install
+     * @throws IllegalArgumentException if a browser-bound tool belongs to another component
      */
     public void setActiveTool(MapTool tool) {
         requireOpen();
         Objects.requireNonNull(tool, "tool");
+        if (tool instanceof BrowserBoundTool browserTool && !browserTool.belongsTo(this)) {
+            throw new IllegalArgumentException("Browser tool belongs to another component");
+        }
         boolean sessionChanged = toolRouter.activeTool().orElse(null) != tool;
         try {
             RouteOutcome outcome =
@@ -1701,6 +1864,13 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         sourceReportNotifications.clear();
         layers = List.of();
         sourceLayers = List.of();
+        availableSourceBindings = Set.of();
+        List<FeatureEditBinding> releasedEdits = editBindings;
+        editBindings = List.of();
+        for (FeatureEditBinding binding : releasedEdits) {
+            primary = cleanup(primary, () -> binding.detach(this));
+            primary = cleanup(primary, binding::close);
+        }
         paintedFeatures = Set.of();
         primary = cleanup(primary, this::releaseIconResources);
         primary = cleanup(primary, () -> clearBrowserLabelState(true));
@@ -1779,6 +1949,67 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         viewportGeneration,
                         iconResources)
                 .scene();
+    }
+
+    void acceptFeatureEdit(FeatureEditBinding binding) {
+        Objects.requireNonNull(binding, "binding");
+        if (closed || !hasFeatureEditBinding(binding)) {
+            return;
+        }
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene staged = stageScene(combinedLayers(), background, nextGeneration);
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        diagnostic = Optional.empty();
+        publishStagedScene(staged);
+    }
+
+    boolean hasFeatureEditBinding(FeatureEditBinding binding) {
+        return editBindings.stream().anyMatch(candidate -> candidate == binding);
+    }
+
+    CrsOperation crsOperation(CrsDefinition source, CrsDefinition target) {
+        return crsRegistry.operation(source, target);
+    }
+
+    Optional<FeatureSelection> selectionForEditing() {
+        return selection();
+    }
+
+    void selectForEditing(
+            FeatureEditBinding binding,
+            io.github.mundanej.map.api.FeatureEditSnapshot snapshot,
+            String featureId) {
+        if (!hasFeatureEditBinding(binding)
+                || binding.snapshot().revision() != snapshot.revision()
+                || snapshot.records().stream().noneMatch(record -> record.id().equals(featureId))) {
+            throw new IllegalStateException("committed edit snapshot is no longer authoritative");
+        }
+        setSelection(new FeatureSelection(binding.id(), featureId));
+    }
+
+    void clearSelectionForEditing(FeatureSelection expected) {
+        if (selection.equals(Optional.of(expected))) {
+            clearSelection();
+        }
+    }
+
+    void repaintToolOverlay() {
+        publishInteractionOverlay();
+    }
+
+    Optional<Feature> featureForEditing(String layerId, String featureId) {
+        return findFeature(layerId, featureId);
+    }
+
+    boolean isVisibleSnapLayer(String layerId) {
+        if (layers.stream().anyMatch(layer -> layer.id().equals(layerId))) {
+            return true;
+        }
+        if (availableSourceBindings.contains(layerId)) {
+            return true;
+        }
+        return editBindings.stream().anyMatch(binding -> binding.id().equals(layerId));
     }
 
     long componentGenerationForTest() {
@@ -2180,7 +2411,12 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         if (closed) {
             return;
         }
-        List<Layer> overlays = new ArrayList<>(2);
+        List<Layer> overlays = new ArrayList<>(4);
+        toolRouter
+                .activeTool()
+                .filter(BrowserBoundTool.class::isInstance)
+                .map(BrowserBoundTool.class::cast)
+                .ifPresent(tool -> overlays.addAll(tool.overlayLayers()));
         hover.ifPresent(
                 value ->
                         paintedFeature(value.layerId(), value.featureId())
@@ -2670,9 +2906,28 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private void acceptViewport(MapViewport accepted) {
+        MapViewport previousViewport = viewport;
         viewport = accepted;
+        StagedScene restaged = null;
+        long nextSceneGeneration = sceneGeneration;
+        try {
+            if (!editBindings.isEmpty()) {
+                nextSceneGeneration = Math.incrementExact(sceneGeneration);
+                restaged = stageScene(combinedLayers(), background, nextSceneGeneration);
+            }
+        } catch (RuntimeException | Error failure) {
+            viewport = previousViewport;
+            publishViewport();
+            throw failure;
+        }
         boolean clearedHover = hover.isPresent();
         Throwable primary = null;
+        if (restaged != null) {
+            sceneEnvelope = restaged.result().envelope();
+            sceneGeneration = nextSceneGeneration;
+            StagedScene acceptedRestage = restaged;
+            primary = cleanup(primary, () -> publishStagedScene(acceptedRestage));
+        }
         primary = cleanup(primary, () -> transitionInteraction(selection, Optional.empty()));
         diagnostic = Optional.empty();
         primary = cleanup(primary, this::requestCurrentLabelMeasurements);
@@ -2734,23 +2989,91 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             return;
         }
         long nextSceneGeneration = Math.incrementExact(sceneGeneration);
+        boolean terminalSourceFailure =
+                queryResult.reports().values().stream()
+                        .flatMap(report -> report.entries().stream())
+                        .anyMatch(
+                                entry ->
+                                        entry.severity()
+                                                == io.github.mundanej.map.api.DiagnosticSeverity
+                                                        .ERROR);
         try {
             StagedScene staged =
                     stageScene(
-                            combine(layers, queryResult.layers()), background, nextSceneGeneration);
+                            combine(
+                                    combine(layers, queryResult.layers()),
+                                    editableLayers(editBindings)),
+                            background,
+                            nextSceneGeneration);
             SceneProtocol.Result encoded = staged.result();
             int snapshotCount = layers.size();
             sourceLayers =
-                    List.copyOf(encoded.layers().subList(snapshotCount, encoded.layers().size()));
+                    List.copyOf(
+                            encoded.layers()
+                                    .subList(
+                                            snapshotCount,
+                                            snapshotCount + queryResult.layers().size()));
             sceneEnvelope = encoded.envelope();
             sceneGeneration = nextSceneGeneration;
             diagnostic = Optional.empty();
+            availableSourceBindings =
+                    featureBindings.stream()
+                            .filter(FeatureSourceQueryEngine.RequestBinding::visible)
+                            .filter(
+                                    binding ->
+                                            queryResult
+                                                    .reports()
+                                                    .getOrDefault(
+                                                            binding.binding().id(),
+                                                            DiagnosticReport.empty())
+                                                    .entries()
+                                                    .stream()
+                                                    .noneMatch(
+                                                            entry ->
+                                                                    entry.severity()
+                                                                            == io.github.mundanej
+                                                                                    .map.api
+                                                                                    .DiagnosticSeverity
+                                                                                    .ERROR))
+                            .map(binding -> binding.binding().id())
+                            .collect(java.util.stream.Collectors.toUnmodifiableSet());
             reconcileSourceReports(queryResult.reports());
-            publishStagedScene(staged);
-            publishViewport();
-            drainSourceReportNotifications();
-        } catch (MundaneMapException exception) {
-            diagnostic = Optional.of(exception);
+            Throwable cancellationFailure = null;
+            try {
+                publishStagedScene(staged);
+                if (terminalSourceFailure) {
+                    cancellationFailure =
+                            cleanup(
+                                    null,
+                                    () ->
+                                            cancelToolInteraction(
+                                                    MapToolCancelReason.SOURCE_FAILURE));
+                }
+                publishViewport();
+                drainSourceReportNotifications();
+            } catch (RuntimeException | Error failure) {
+                if (cancellationFailure != null && cancellationFailure != failure) {
+                    failure.addSuppressed(cancellationFailure);
+                }
+                throw failure;
+            }
+            if (cancellationFailure != null) {
+                throwUnchecked(cancellationFailure);
+            }
+        } catch (RuntimeException | Error exception) {
+            if (exception instanceof MundaneMapException mundane) {
+                diagnostic = Optional.of(mundane);
+            }
+            Throwable cancellation =
+                    cleanup(
+                            null,
+                            () -> cancelToolInteraction(MapToolCancelReason.POINTER_STATE_LOST));
+            if (cancellation != null && cancellation != exception) {
+                exception.addSuppressed(cancellation);
+            }
+            if (!(exception instanceof MundaneMapException)) {
+                throw exception;
+            }
         }
     }
 
@@ -2776,7 +3099,50 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         }
     }
 
+    private StagedScene stageSceneForEdits(
+            List<? extends Layer> stagedLayers,
+            Rgba stagedBackground,
+            long stagedGeneration,
+            List<FeatureEditBinding> candidateEdits) {
+        IconResourceBatch.Registrar registrar = iconSessionAccess.resourceRegistrar(this);
+        IconResourceBatch resources =
+                IconResourceBatch.prepare(
+                        stagedLayers,
+                        icon ->
+                                isSourceAuthorizedIcon(icon)
+                                        || candidateEdits.stream()
+                                                .anyMatch(binding -> binding.authorizes(icon)),
+                        registrar);
+        try {
+            SceneProtocol.Result result =
+                    protocol.encode(
+                            stagedLayers,
+                            stagedBackground,
+                            viewport,
+                            componentGeneration,
+                            stagedGeneration,
+                            viewportGeneration,
+                            resources);
+            return new StagedScene(result, resources);
+        } catch (RuntimeException | Error failure) {
+            resources.close();
+            throw failure;
+        }
+    }
+
     private boolean isAuthorizedIcon(RasterIconSymbol icon) {
+        if (isSourceAuthorizedIcon(icon)) {
+            return true;
+        }
+        for (FeatureEditBinding binding : editBindings) {
+            if (binding.authorizes(icon)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSourceAuthorizedIcon(RasterIconSymbol icon) {
         for (FeatureSourceQueryEngine.RequestBinding binding : featureBindings) {
             if (binding.binding().authorizes(icon)) {
                 return true;
@@ -2816,6 +3182,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         try {
             acceptIconResources(staged.resources());
             currentSceneLayers = staged.result().layers();
+            editBindings.forEach(binding -> binding.markPublished(this));
             paintedFeatures = paintedFeatures(staged.result().scene(), currentSceneLayers);
             currentLabelCandidates = staged.result().labelCandidates();
             prepareCurrentLabelState();
@@ -2927,6 +3294,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         for (Layer layer : layers) {
             ids.add(layer.id());
         }
+        for (FeatureEditBinding binding : editBindings) {
+            ids.add(binding.id());
+        }
         IdentityHashMap<io.github.mundanej.map.api.FeatureSource, FeatureSourceBinding> installed =
                 new IdentityHashMap<>();
         for (FeatureSourceBinding binding : featureSourceBindings()) {
@@ -2956,10 +3326,33 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         for (FeatureSourceQueryEngine.RequestBinding binding : featureBindings) {
             ids.add(binding.binding().id());
         }
+        for (FeatureEditBinding binding : editBindings) {
+            ids.add(binding.id());
+        }
         for (Layer snapshot : snapshots) {
             if (!ids.add(snapshot.id())) {
                 throw duplicateLayerIdentity();
             }
+        }
+    }
+
+    private void validateEditBindings(List<FeatureEditBinding> candidates) {
+        Set<String> ids = new HashSet<>();
+        for (Layer layer : layers) {
+            ids.add(layer.id());
+        }
+        for (FeatureSourceQueryEngine.RequestBinding binding : featureBindings) {
+            ids.add(binding.binding().id());
+        }
+        for (FeatureEditBinding binding : candidates) {
+            Objects.requireNonNull(binding, "binding");
+            if (binding.isClosed()) {
+                throw new IllegalStateException("editable binding is closed");
+            }
+            if (!ids.add(binding.id())) {
+                throw duplicateLayerIdentity();
+            }
+            FeatureEditBinding.requireExactCrs(mapCrs, binding.snapshot().crs());
         }
     }
 
@@ -2971,7 +3364,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private List<Layer> combinedLayers() {
-        return combine(layers, sourceLayers);
+        return combine(combine(layers, sourceLayers), editableLayers(editBindings));
     }
 
     private static List<Layer> combine(List<? extends Layer> first, List<? extends Layer> second) {
@@ -2988,10 +3381,27 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         return identities;
     }
 
+    private static Set<FeatureEditBinding> identityEditSet(List<FeatureEditBinding> values) {
+        Set<FeatureEditBinding> identities =
+                java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        identities.addAll(values);
+        return identities;
+    }
+
     private static List<Layer> configuredFeatureLayers(List<FeatureSourceBinding> bindings) {
         return bindings.stream()
                 .<Layer>map(binding -> new ConfiguredFeatureLayer(binding.id(), binding.name()))
                 .toList();
+    }
+
+    private static List<Layer> configuredEditLayers(List<FeatureEditBinding> bindings) {
+        return bindings.stream()
+                .<Layer>map(binding -> new ConfiguredFeatureLayer(binding.id(), binding.name()))
+                .toList();
+    }
+
+    private List<Layer> editableLayers(List<FeatureEditBinding> bindings) {
+        return bindings.stream().map(binding -> binding.layer(this)).toList();
     }
 
     private void resetClientEventState() {
@@ -3215,7 +3625,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
         @Override
         public void requestRepaint() {
-            getElement().callJsFunction("requestMapPaint");
+            publishInteractionOverlay();
         }
     }
 

@@ -16,6 +16,8 @@ public enum MapToolCancelReason {
     POINTER_EXITED,
     /** Host button state became inconsistent with the routed gesture. */
     POINTER_STATE_LOST,
+    /** An authoritative source required by the current scene became unavailable. */
+    SOURCE_FAILURE,
     /** The user explicitly cancelled the interaction. */
     USER_CANCEL
 }

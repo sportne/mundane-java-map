@@ -432,7 +432,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
         return identityIconSet(catalog.entries().stream().map(entry -> entry.symbol()).toList());
     }
 
-    private static Set<RasterIconSymbol> identityIconSet(List<? extends Symbol> symbols) {
+    static Set<RasterIconSymbol> identityIconSet(List<? extends Symbol> symbols) {
         Set<RasterIconSymbol> icons = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Symbol symbol : symbols) {
             collectIcons(symbol, icons, 0);
