@@ -337,6 +337,10 @@ dependencies {
     // Spotless resolves the platform-specific Groovy-Eclipse launcher lazily at execution time.
     offlineTooling 'com.diffplug.durian:durian-swt.os:4.3.1'
     offlineTooling 'com.google.googlejavaformat:google-java-format:1.28.0'
+    // Jackson 3 metadata retains this minimum while Vaadin's BOM selects annotations 2.22.
+    offlineTooling('com.fasterxml.jackson.core:jackson-annotations:2.21') {
+        transitive = false
+    }
     xerialConsumerProvenance 'org.xerial:sqlite-jdbc:3.53.2.0@pom'
 }
 

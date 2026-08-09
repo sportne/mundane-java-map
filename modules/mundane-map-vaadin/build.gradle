@@ -32,6 +32,11 @@ def vaadinRuntime = configurations.runtimeClasspath.incoming.artifactView {
     }
 }.files
 
+def expectedVaadinBomChecksum = providers.gradleProperty('map.offlineRepo').isPresent()
+        // assembleOfflineRepository writes a deterministic dependency-only BOM POM.
+        ? '56911f2f2f4e4ad191d422d62b89e7fcaa63bfdd9287033e9d72ce7a4ec25039'
+        : '5180af32975d24c7d338c63d4261f4b0aa4b920e39682dc9ee083e745eb27ac9'
+
 def verifyVaadinDependency = tasks.register('verifyVaadinDependency') {
     group = 'verification'
     description = 'Verifies the approved Flow-only runtime graph and provenance checksum.'
@@ -80,8 +85,7 @@ def verifyVaadinDependency = tasks.register('verifyVaadinDependency') {
         }
         def poms = vaadinBomProvenance.files
         if (poms.size() != 1
-                || sha256(poms.iterator().next())
-                != '5180af32975d24c7d338c63d4261f4b0aa4b920e39682dc9ee083e745eb27ac9') {
+                || sha256(poms.iterator().next()) != expectedVaadinBomChecksum) {
             throw new GradleException('Vaadin BOM provenance checksum mismatch')
         }
         def prohibited = [
