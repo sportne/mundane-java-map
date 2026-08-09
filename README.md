@@ -22,7 +22,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-api` | Immutable geometry, feature, symbol, interaction, CRS, source, diagnostic, cancellation, and limit contracts. |
 | `mundane-map-core` | JDK-only viewport/projection, source, hit-testing, measurement, indexing, clipping, simplification, and symbol algorithms. |
 | `mundane-map-awt` | Swing `MapView`, Java2D renderers, explicit symbol/decoder registries, interaction routing, and measurement UI. |
-| `mundane-map-vaadin` | Optional Flow component with a bundled local Canvas renderer, browser-local navigation, and serialized common feature-source/CRS bindings. |
+| `mundane-map-vaadin` | Optional Flow component with a bundled local Canvas renderer, browser-local navigation, server-resolved portrayals, expiring catalog-icon resources, and serialized common feature-source/CRS bindings. |
 | `mundane-map-io-shapefile` | Bounded read-only SHP/SHX/DBF/CPG/PRJ feature sources. |
 | `mundane-map-io-image` | Bounded PNG/JPEG metadata, world-file placement, requests, lifecycle, and caches through an explicit decoder boundary. |
 | `mundane-map-io-http-tiles` | Bounded JVM-only fixed-host HTTP XYZ acquisition into detached PNG/JPEG raster snapshots. |

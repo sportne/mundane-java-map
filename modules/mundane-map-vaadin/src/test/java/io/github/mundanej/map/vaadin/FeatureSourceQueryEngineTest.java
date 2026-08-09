@@ -15,19 +15,27 @@ import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.DiagnosticSeverity;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureSourceMetadata;
 import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.GraduatedSymbolSelector;
+import io.github.mundanej.map.api.GraduatedSymbolStep;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.PortrayalOperand;
+import io.github.mundanej.map.api.PortrayalPredicate;
+import io.github.mundanej.map.api.PortrayalRule;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.RulePortrayalPlan;
+import io.github.mundanej.map.api.ScaleInterval;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.SourceDiagnostic;
@@ -41,13 +49,124 @@ import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.MapViewport;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class FeatureSourceQueryEngineTest {
+    @Test
+    void evaluatesExactProjectionZoomScaleAndOmissionWithTheCoreResolver() {
+        VectorMarkerSymbol selected = marker(Rgba.rgb(210, 30, 30));
+        RecordingSource zoomSource =
+                source(
+                        "zoom",
+                        List.of(
+                                new FeatureRecord(
+                                        "zoom",
+                                        "zoom",
+                                        new PointGeometry(new Coordinate(0, 0)),
+                                        Map.of("ignored", 9L))),
+                        recognized3857());
+        FeaturePortrayal zoomPortrayal =
+                FeaturePortrayal.markers(
+                        GraduatedSymbolSelector.zoom(
+                                List.of(new GraduatedSymbolStep(BigDecimal.valueOf(5), selected)),
+                                Optional.empty(),
+                                Optional.empty()));
+        FeatureSourceBinding zoomBinding =
+                FeatureSourceBinding.borrowed(
+                        "zoom", "Zoom", zoomSource, zoomPortrayal, Optional.empty());
+        double zoomFiveUnits = CrsDefinitions.EPSG_3857.coordinateDomain().width() / (512.0 * 32.0);
+
+        FeatureSourceQueryEngine.Result visible =
+                engine().query(
+                                List.of(
+                                        new FeatureSourceQueryEngine.RequestBinding(
+                                                zoomBinding, true)),
+                                new MapViewport(100, 100, 0, 0, zoomFiveUnits),
+                                CrsRegistry.level1(),
+                                CrsDefinitions.EPSG_3857,
+                                CrsDefinitions.EPSG_3857,
+                                CancellationToken.none());
+        assertEquals(selected, visible.layers().getFirst().features().getFirst().symbol());
+        assertEquals(AttributeSelection.NONE, zoomSource.lastQuery.attributes());
+
+        FeatureSourceQueryEngine.Result omitted =
+                engine().query(
+                                List.of(
+                                        new FeatureSourceQueryEngine.RequestBinding(
+                                                zoomBinding, true)),
+                                new MapViewport(100, 100, 0, 0, zoomFiveUnits * 2),
+                                CrsRegistry.level1(),
+                                CrsDefinitions.EPSG_3857,
+                                CrsDefinitions.EPSG_3857,
+                                CancellationToken.none());
+        assertTrue(omitted.layers().getFirst().features().isEmpty());
+        assertTrue(omitted.layers().getFirst().envelope().isPresent());
+        SceneProtocol.Result omittedScene =
+                new SceneProtocol(SceneProtocol.DEFAULT_LIMITS)
+                        .encode(
+                                omitted.layers(),
+                                Rgba.rgb(255, 255, 255),
+                                new MapViewport(100, 100, 0, 0, zoomFiveUnits * 2),
+                                1,
+                                2);
+        Map<?, ?> omittedLayer =
+                (Map<?, ?>) ((List<?>) omittedScene.scene().get("layers")).getFirst();
+        assertTrue(((List<?>) omittedLayer.get("features")).isEmpty());
+        assertTrue(omittedScene.envelope().isPresent());
+
+        RecordingSource scaleSource =
+                source(
+                        "scale",
+                        List.of(
+                                new FeatureRecord(
+                                        "scale",
+                                        "scale",
+                                        new PointGeometry(new Coordinate(0, 0)),
+                                        Map.of(
+                                                "nullable",
+                                                io.github.mundanej.map.api.AttributeNull.INSTANCE,
+                                                "ignored",
+                                                "value"))),
+                        recognized3857());
+        PortrayalRule scaleRule =
+                new PortrayalRule(
+                        Optional.empty(),
+                        new ScaleInterval(OptionalDouble.of(3_000), OptionalDouble.of(4_000)),
+                        Optional.of(
+                                new PortrayalPredicate.IsNull(
+                                        new PortrayalOperand.Property("nullable"))),
+                        false,
+                        List.of(selected),
+                        List.of(),
+                        List.of());
+        FeatureSourceBinding scaleBinding =
+                FeatureSourceBinding.borrowed(
+                        "scale",
+                        "Scale",
+                        scaleSource,
+                        new RulePortrayalPlan(List.of(scaleRule)).portrayal(),
+                        Optional.empty());
+        FeatureSourceQueryEngine.Result scaleVisible =
+                engine().query(
+                                List.of(
+                                        new FeatureSourceQueryEngine.RequestBinding(
+                                                scaleBinding, true)),
+                                new MapViewport(100, 100, 0, 0, 1),
+                                CrsRegistry.level1(),
+                                CrsDefinitions.EPSG_3857,
+                                CrsDefinitions.EPSG_3857,
+                                CancellationToken.none());
+        assertEquals(selected, scaleVisible.layers().getFirst().features().getFirst().symbol());
+        assertEquals(
+                AttributeSelection.only(List.of("nullable")), scaleSource.lastQuery.attributes());
+    }
+
     @Test
     void queriesAndTransformsEveryGeometryFamilyInSourceOrder() {
         PolygonGeometry polygon = polygon(0);
@@ -412,10 +531,13 @@ final class FeatureSourceQueryEngineTest {
     }
 
     private static VectorMarkerSymbol marker() {
+        return marker(Rgba.rgb(10, 20, 30));
+    }
+
+    private static VectorMarkerSymbol marker(Rgba fill) {
         VectorPath path =
                 VectorPath.builder().moveTo(0, 0).lineTo(1, 0).lineTo(0, 1).close().build();
-        return VectorMarkerSymbol.filledScreen(
-                path, new Envelope(0, 0, 1, 1), Rgba.rgb(10, 20, 30), 8, 1);
+        return VectorMarkerSymbol.filledScreen(path, new Envelope(0, 0, 1, 1), fill, 8, 1);
     }
 
     @FunctionalInterface

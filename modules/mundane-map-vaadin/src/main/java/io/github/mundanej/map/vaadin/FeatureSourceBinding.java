@@ -1,16 +1,23 @@
 package io.github.mundanej.map.vaadin;
 
 import io.github.mundanej.map.api.AttributeSelection;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQueryLimits;
 import io.github.mundanej.map.api.FeatureSource;
+import io.github.mundanej.map.api.NamedSymbolCatalog;
+import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.core.FeaturePortrayalResolver;
+import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Explicit Vaadin binding for one synchronous feature source and one built-in vector portrayal.
+ * Explicit Vaadin binding for one synchronous feature source and one supported built-in portrayal.
  *
  * <p>A borrowed binding never closes its source. An owned binding transfers exclusive source
  * ownership and closes it exactly once when removed, when its component closes, or when the
@@ -24,9 +31,8 @@ public final class FeatureSourceBinding implements AutoCloseable {
     private final String id;
     private final String name;
     private final FeatureSource source;
-    private final Symbol marker;
-    private final Symbol line;
-    private final Symbol fill;
+    private final FeaturePortrayalResolver portrayal;
+    private final Set<RasterIconSymbol> authorizedIcons;
     private final AttributeSelection attributes;
     private final Optional<FeatureQueryLimits> tighterLimits;
     private final boolean owned;
@@ -43,16 +49,42 @@ public final class FeatureSourceBinding implements AutoCloseable {
             AttributeSelection attributes,
             Optional<FeatureQueryLimits> tighterLimits,
             boolean owned) {
+        this(
+                id,
+                name,
+                source,
+                fixedResolver(marker, line, fill),
+                attributes,
+                NamedSymbolCatalog.of(List.of()),
+                tighterLimits,
+                owned);
+    }
+
+    private FeatureSourceBinding(
+            String id,
+            String name,
+            FeatureSource source,
+            FeaturePortrayalResolver portrayal,
+            AttributeSelection attributes,
+            NamedSymbolCatalog catalog,
+            Optional<FeatureQueryLimits> tighterLimits,
+            boolean owned) {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
         this.source = Objects.requireNonNull(source, "source");
-        this.marker =
-                SceneProtocol.requireBuiltInSymbol(
-                        marker, SymbolRole.MARKER, "binding", "marker symbol");
-        this.line =
-                SceneProtocol.requireBuiltInSymbol(line, SymbolRole.LINE, "binding", "line symbol");
-        this.fill =
-                SceneProtocol.requireBuiltInSymbol(fill, SymbolRole.FILL, "binding", "fill symbol");
+        this.portrayal = Objects.requireNonNull(portrayal, "portrayal");
+        Objects.requireNonNull(catalog, "catalog");
+        if (portrayal.pointLabel().isPresent()) {
+            throw SceneProtocol.unsupportedBindingValue("point label");
+        }
+        Set<RasterIconSymbol> catalogIcons = identityIconSet(catalog);
+        for (Symbol symbol : portrayal.reachableSymbols()) {
+            SceneProtocol.requirePortrayalSymbol(
+                    symbol, symbol.role(), catalogIcons::contains, "binding");
+        }
+        Set<RasterIconSymbol> selectedIcons = identityIconSet(portrayal.reachableSymbols());
+        selectedIcons.retainAll(catalogIcons);
+        this.authorizedIcons = Collections.unmodifiableSet(selectedIcons);
         this.attributes = Objects.requireNonNull(attributes, "attributes");
         this.tighterLimits = Objects.requireNonNull(tighterLimits, "tighterLimits");
         this.owned = owned;
@@ -118,6 +150,108 @@ public final class FeatureSourceBinding implements AutoCloseable {
             Optional<FeatureQueryLimits> tighterLimits) {
         return new FeatureSourceBinding(
                 id, name, source, marker, line, fill, attributes, tighterLimits, true);
+    }
+
+    /**
+     * Creates a caller-owned source binding whose portrayal is evaluated only by the Java core.
+     *
+     * <p>The source projection is derived exactly from the portrayal. Raster icons are unsupported
+     * by this overload; use the catalog overload to authorize them explicitly.
+     *
+     * @param id stable non-blank layer identity
+     * @param name non-blank display name
+     * @param source open caller-owned source
+     * @param portrayal closed server-side portrayal without labels
+     * @param tighterLimits optional per-query limits that only tighten the source limits
+     * @return new unattached borrowed binding
+     */
+    public static FeatureSourceBinding borrowed(
+            String id,
+            String name,
+            FeatureSource source,
+            FeaturePortrayal portrayal,
+            Optional<FeatureQueryLimits> tighterLimits) {
+        return borrowed(
+                id, name, source, portrayal, NamedSymbolCatalog.of(List.of()), tighterLimits);
+    }
+
+    /**
+     * Creates a caller-owned source binding with an explicit immutable icon authorization catalog.
+     *
+     * @param id stable non-blank layer identity
+     * @param name non-blank display name
+     * @param source open caller-owned source
+     * @param portrayal closed server-side portrayal without labels
+     * @param catalog catalog whose exact raster-icon instances may be published
+     * @param tighterLimits optional per-query limits that only tighten the source limits
+     * @return new unattached borrowed binding
+     */
+    public static FeatureSourceBinding borrowed(
+            String id,
+            String name,
+            FeatureSource source,
+            FeaturePortrayal portrayal,
+            NamedSymbolCatalog catalog,
+            Optional<FeatureQueryLimits> tighterLimits) {
+        FeaturePortrayalResolver resolver = FeaturePortrayalResolver.compile(portrayal);
+        return new FeatureSourceBinding(
+                id,
+                name,
+                source,
+                resolver,
+                exactAttributes(resolver),
+                catalog,
+                tighterLimits,
+                false);
+    }
+
+    /**
+     * Creates an exclusively owned source binding whose portrayal is evaluated by the Java core.
+     *
+     * @param id stable non-blank layer identity
+     * @param name non-blank display name
+     * @param source open source whose ownership is transferred
+     * @param portrayal closed server-side portrayal without labels
+     * @param tighterLimits optional per-query limits that only tighten the source limits
+     * @return new unattached owned binding
+     */
+    public static FeatureSourceBinding owned(
+            String id,
+            String name,
+            FeatureSource source,
+            FeaturePortrayal portrayal,
+            Optional<FeatureQueryLimits> tighterLimits) {
+        return owned(id, name, source, portrayal, NamedSymbolCatalog.of(List.of()), tighterLimits);
+    }
+
+    /**
+     * Creates an exclusively owned source binding with an explicit icon authorization catalog.
+     *
+     * @param id stable non-blank layer identity
+     * @param name non-blank display name
+     * @param source open source whose ownership is transferred
+     * @param portrayal closed server-side portrayal without labels
+     * @param catalog catalog whose exact raster-icon instances may be published
+     * @param tighterLimits optional per-query limits that only tighten the source limits
+     * @return new unattached owned binding
+     */
+    public static FeatureSourceBinding owned(
+            String id,
+            String name,
+            FeatureSource source,
+            FeaturePortrayal portrayal,
+            NamedSymbolCatalog catalog,
+            Optional<FeatureQueryLimits> tighterLimits) {
+        FeaturePortrayalResolver resolver = FeaturePortrayalResolver.compile(portrayal);
+        return new FeatureSourceBinding(
+                id,
+                name,
+                source,
+                resolver,
+                exactAttributes(resolver),
+                catalog,
+                tighterLimits,
+                true);
     }
 
     /**
@@ -202,16 +336,12 @@ public final class FeatureSourceBinding implements AutoCloseable {
         }
     }
 
-    Symbol marker() {
-        return marker;
+    FeaturePortrayalResolver portrayal() {
+        return portrayal;
     }
 
-    Symbol line() {
-        return line;
-    }
-
-    Symbol fill() {
-        return fill;
+    boolean authorizes(RasterIconSymbol icon) {
+        return authorizedIcons.contains(icon);
     }
 
     synchronized void attach(MundaneMap candidate) {
@@ -271,5 +401,60 @@ public final class FeatureSourceBinding implements AutoCloseable {
             throw new IllegalArgumentException(name + " must be non-blank and at most 256 chars");
         }
         return value;
+    }
+
+    private static AttributeSelection exactAttributes(FeaturePortrayalResolver resolver) {
+        List<String> required = resolver.requiredSymbolAttributes();
+        return required.isEmpty() ? AttributeSelection.NONE : AttributeSelection.only(required);
+    }
+
+    private static FeaturePortrayalResolver fixedResolver(Symbol marker, Symbol line, Symbol fill) {
+        Symbol checkedMarker =
+                SceneProtocol.requireBuiltInSymbol(
+                        marker, SymbolRole.MARKER, "binding", "marker symbol");
+        Symbol checkedLine =
+                SceneProtocol.requireBuiltInSymbol(line, SymbolRole.LINE, "binding", "line symbol");
+        Symbol checkedFill =
+                SceneProtocol.requireBuiltInSymbol(fill, SymbolRole.FILL, "binding", "fill symbol");
+        return FeaturePortrayalResolver.compile(
+                FeaturePortrayal.fixed(checkedMarker, checkedLine, checkedFill));
+    }
+
+    private static Set<RasterIconSymbol> identityIconSet(NamedSymbolCatalog catalog) {
+        return identityIconSet(catalog.entries().stream().map(entry -> entry.symbol()).toList());
+    }
+
+    private static Set<RasterIconSymbol> identityIconSet(List<? extends Symbol> symbols) {
+        Set<RasterIconSymbol> icons = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Symbol symbol : symbols) {
+            collectIcons(symbol, icons, 0);
+        }
+        return icons;
+    }
+
+    private static void collectIcons(Symbol symbol, Set<RasterIconSymbol> icons, int depth) {
+        SceneProtocol.requireSymbolDepth(depth);
+        if (symbol instanceof RasterIconSymbol icon) {
+            icons.add(icon);
+            return;
+        }
+        if (symbol instanceof io.github.mundanej.map.api.CompositeSymbol composite) {
+            for (Symbol child : composite.children()) {
+                collectIcons(child, icons, depth + 1);
+            }
+            return;
+        }
+        if (symbol instanceof io.github.mundanej.map.api.SolidLineSymbol line) {
+            line.startMarker().ifPresent(marker -> collectIcons(marker, icons, depth + 1));
+            line.endMarker().ifPresent(marker -> collectIcons(marker, icons, depth + 1));
+            return;
+        }
+        if (symbol instanceof io.github.mundanej.map.api.SolidFillSymbol fill) {
+            fill.outline().ifPresent(line -> collectIcons(line, icons, depth + 1));
+            return;
+        }
+        if (symbol instanceof io.github.mundanej.map.api.HatchFillSymbol hatch) {
+            hatch.outline().ifPresent(line -> collectIcons(line, icons, depth + 1));
+        }
     }
 }

@@ -39,7 +39,10 @@ final class FrontendCanvasContractTest {
         assertTrue(source.contains("releasePointerCapture"));
         assertTrue(source.contains("this.resizeObserver.disconnect()"));
         assertTrue(source.contains("acceptSettledViewport"));
-        assertFalse(source.contains("fetch("));
+        assertTrue(source.contains("fetch(resource"));
+        assertTrue(source.contains("credentials: 'same-origin'"));
+        assertTrue(source.contains("redirect: 'error'"));
+        assertTrue(source.contains("RESOURCE_UNAVAILABLE"));
         assertFalse(source.contains("eval("));
         assertFalse(source.contains("innerHTML"));
         assertFalse(source.contains("http://"));

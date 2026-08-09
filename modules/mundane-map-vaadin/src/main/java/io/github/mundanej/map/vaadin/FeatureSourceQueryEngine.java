@@ -21,9 +21,14 @@ import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.PortrayalEvaluationContext;
+import io.github.mundanej.map.api.PortrayalGeometryType;
+import io.github.mundanej.map.api.ResolvedFeaturePortrayal;
 import io.github.mundanej.map.api.SourceDiagnostic;
 import io.github.mundanej.map.api.SourceException;
 import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.SymbolRole;
+import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
@@ -75,6 +80,7 @@ final class FeatureSourceQueryEngine {
                             viewport,
                             registry,
                             mapCrs,
+                            displayCrs,
                             displayToMap,
                             mapToDisplay,
                             cancellation);
@@ -95,6 +101,7 @@ final class FeatureSourceQueryEngine {
             MapViewport viewport,
             CrsRegistry registry,
             CrsDefinition mapCrs,
+            CrsDefinition displayCrs,
             CrsOperation displayToMap,
             CrsOperation mapToDisplay,
             CancellationToken cancellation) {
@@ -135,6 +142,8 @@ final class FeatureSourceQueryEngine {
                             binding.attributes(),
                             binding.tighterLimits());
             List<Feature> features = new ArrayList<>();
+            Optional<Envelope> completeEnvelope = Optional.empty();
+            PortrayalEvaluationContext portrayalContext = portrayalContext(viewport, displayCrs);
             DiagnosticReport cursorReport;
             try (FeatureCursor cursor = binding.source().openCursor(query, cancellation)) {
                 while (cursor.advance()) {
@@ -145,20 +154,27 @@ final class FeatureSourceQueryEngine {
                     Geometry transformed =
                             transformGeometry(
                                     record.geometry(), sourceToMap, mapToDisplay, cancellation);
-                    features.add(
-                            new Feature(
-                                    record.id(),
-                                    record.name(),
-                                    transformed,
-                                    record.attributes(),
-                                    symbol(binding, transformed)));
+                    completeEnvelope = union(completeEnvelope, transformed.envelope());
+                    Optional<Symbol> selected =
+                            symbol(binding, transformed, record.attributes(), portrayalContext);
+                    if (selected.isPresent()) {
+                        features.add(
+                                new Feature(
+                                        record.id(),
+                                        record.name(),
+                                        transformed,
+                                        record.attributes(),
+                                        selected.orElseThrow()));
+                    }
                 }
                 cursorReport = cursor.diagnostics();
             }
             DiagnosticReport report =
                     merge(binding.source().openingDiagnostics(), planning, cursorReport);
             return new BindingResult(
-                    new QueryLayer(binding.id(), binding.name(), features), report, false);
+                    new QueryLayer(binding.id(), binding.name(), features, completeEnvelope),
+                    report,
+                    false);
         } catch (SourceException exception) {
             if (cancellation.isCancellationRequested()
                     || exception.terminal().code().equals("SOURCE_CANCELLED")) {
@@ -195,14 +211,52 @@ final class FeatureSourceQueryEngine {
         }
     }
 
-    private static Symbol symbol(FeatureSourceBinding binding, Geometry geometry) {
+    private static Optional<Symbol> symbol(
+            FeatureSourceBinding binding,
+            Geometry geometry,
+            Map<String, Object> attributes,
+            PortrayalEvaluationContext context) {
+        SymbolRole role = role(geometry);
+        ResolvedFeaturePortrayal resolved =
+                binding.portrayal()
+                        .resolveAll(
+                                attributes,
+                                context.withGeometryType(
+                                        PortrayalGeometryType.fromGeometry(geometry)));
+        return resolved.forRole(role);
+    }
+
+    private static SymbolRole role(Geometry geometry) {
         if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
-            return binding.marker();
+            return SymbolRole.MARKER;
         }
         if (geometry instanceof LineStringGeometry || geometry instanceof MultiLineStringGeometry) {
-            return binding.line();
+            return SymbolRole.LINE;
         }
-        return binding.fill();
+        return SymbolRole.FILL;
+    }
+
+    private static PortrayalEvaluationContext portrayalContext(
+            MapViewport viewport, CrsDefinition displayCrs) {
+        double denominator = viewport.worldUnitsPerPixel() / 0.00028;
+        if (!Double.isFinite(denominator) || denominator < 0.0) {
+            throw new IllegalArgumentException("viewport cannot provide a scale denominator");
+        }
+        if (displayCrs.equals(CrsDefinitions.EPSG_3857)) {
+            double zoom =
+                    StrictMath.log(
+                                    displayCrs.coordinateDomain().width()
+                                            / (512.0 * viewport.worldUnitsPerPixel()))
+                            / StrictMath.log(2.0);
+            if (Double.isFinite(zoom)) {
+                return PortrayalEvaluationContext.atScaleAndZoom(denominator, zoom);
+            }
+        }
+        return PortrayalEvaluationContext.atScale(denominator);
+    }
+
+    private static Optional<Envelope> union(Optional<Envelope> aggregate, Envelope next) {
+        return Optional.of(aggregate.map(value -> value.union(next)).orElse(next));
     }
 
     private static Geometry transformGeometry(
@@ -346,13 +400,19 @@ final class FeatureSourceQueryEngine {
         }
     }
 
-    private record QueryLayer(String id, String name, List<Feature> features) implements Layer {
+    private record QueryLayer(
+            String id, String name, List<Feature> features, Optional<Envelope> envelope)
+            implements Layer {
         private QueryLayer {
             features = List.copyOf(features);
+            Objects.requireNonNull(envelope, "envelope");
         }
 
-        @Override
-        public Optional<Envelope> envelope() {
+        private QueryLayer(String id, String name, List<Feature> features) {
+            this(id, name, features, featureEnvelope(features));
+        }
+
+        private static Optional<Envelope> featureEnvelope(List<Feature> features) {
             Envelope aggregate = null;
             for (Feature feature : features) {
                 aggregate =

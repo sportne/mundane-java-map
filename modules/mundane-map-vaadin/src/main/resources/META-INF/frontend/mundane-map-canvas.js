@@ -5,6 +5,8 @@ const MAX_PRIMITIVES = 200000;
 const MAX_COORDINATE_PAIRS = 2000000;
 const MAX_PATH_COMMANDS = 2000000;
 const MAX_LOGICAL_BYTES = 64 * 1024 * 1024;
+const MAX_ICON_RESOURCES = 4096;
+const MAX_ICON_RESOURCE_BYTES = 64 * 1024 * 1024;
 const MAX_HATCH_SEGMENTS = 200000;
 const MAX_BACKING_PIXELS = 67108864;
 const MAX_BACKING_EDGE = 16384;
@@ -211,6 +213,25 @@ function logicalNumberArrayBytes(value) {
 }
 
 function detachPrimitive(primitive) {
+  if (primitive.kind === 'icon') {
+    return {
+      kind: 'icon',
+      coordinate: [...primitive.coordinate],
+      resource: primitive.resource,
+      intrinsicWidth: primitive.intrinsicWidth,
+      intrinsicHeight: primitive.intrinsicHeight,
+      size: [...primitive.size],
+      unit: primitive.unit,
+      anchor: primitive.anchor,
+      offset: [...primitive.offset],
+      rotationDegrees: primitive.rotationDegrees,
+      rotationMode: primitive.rotationMode,
+      interpolation: primitive.interpolation,
+      endpointBearing: primitive.endpointBearing.present ?
+        {present: true, value: primitive.endpointBearing.value} : {present: false},
+      opacity: primitive.opacity
+    };
+  }
   if (primitive.kind === 'point') {
     return {
       kind: 'point',
@@ -314,6 +335,12 @@ export function logicalSceneBytes(scene) {
           if (primitive.endpointBearing.present) {
             size += 8;
           }
+        } else if (primitive.kind === 'icon') {
+          size += logicalNumberArrayBytes(primitive.coordinate) +
+            logicalStringBytes(primitive.resource) + 2 * 8 +
+            logicalNumberArrayBytes(primitive.size) + logicalNumberArrayBytes(primitive.offset) +
+            2 * 8 + 4 + 1;
+          if (primitive.endpointBearing.present) size += 8;
         } else if (primitive.kind === 'line') {
           size += logicalNumberArrayBytes(primitive.coordinates) +
             logicalNumberArrayBytes(primitive.stroke.color) + 2 * 8 + 1;
@@ -395,7 +422,56 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
         if (!primitive || typeof primitive.kind !== 'string') {
           throw new Error('SYMBOL_UNSUPPORTED');
         }
-        if (primitive.kind === 'point') {
+        if (primitive.kind === 'icon') {
+          coordinatePairs += validateCoordinates(primitive.coordinate, 1);
+          if (primitive.coordinate.length !== 2 ||
+              typeof primitive.resource !== 'string' || !primitive.resource ||
+              primitive.resource.length > 4096 ||
+              !Number.isInteger(primitive.intrinsicWidth) || primitive.intrinsicWidth <= 0 ||
+              primitive.intrinsicWidth > 4096 ||
+              !Number.isInteger(primitive.intrinsicHeight) || primitive.intrinsicHeight <= 0 ||
+              primitive.intrinsicHeight > 4096 ||
+              primitive.intrinsicWidth * primitive.intrinsicHeight > 4194304 ||
+              !Array.isArray(primitive.size) || primitive.size.length !== 2 ||
+              !Array.isArray(primitive.offset) || primitive.offset.length !== 2 ||
+              !['SCREEN_PIXEL', 'MAP_UNIT'].includes(primitive.unit) ||
+              !['NORTH_WEST', 'NORTH', 'NORTH_EAST', 'WEST', 'CENTER', 'EAST',
+                'SOUTH_WEST', 'SOUTH', 'SOUTH_EAST'].includes(primitive.anchor) ||
+              !['SCREEN_RELATIVE', 'MAP_RELATIVE'].includes(primitive.rotationMode) ||
+              !['NEAREST', 'BILINEAR'].includes(primitive.interpolation)) {
+            throw new Error('SYMBOL_UNSUPPORTED');
+          }
+          const base = globalThis.location?.href;
+          let resolved;
+          try {
+            if (!base) throw new Error('RESOURCE_UNAVAILABLE');
+            if (!(primitive.resource.startsWith('/') || primitive.resource.startsWith('./')) ||
+                primitive.resource.startsWith('//') || primitive.resource.includes('\\')) {
+              throw new Error('RESOURCE_UNAVAILABLE');
+            }
+            resolved = new URL(primitive.resource, base);
+          } catch (_error) {
+            throw new Error('RESOURCE_UNAVAILABLE');
+          }
+          if (resolved.origin !== new URL(base).origin || resolved.hash ||
+              !['http:', 'https:'].includes(resolved.protocol)) {
+            throw new Error('RESOURCE_UNAVAILABLE');
+          }
+          if (!primitive.size.every(Number.isFinite) ||
+              !primitive.offset.every(Number.isFinite) ||
+              !Number.isFinite(primitive.rotationDegrees)) {
+            throw new Error('NON_FINITE_VALUE');
+          }
+          if (primitive.size.some(value => value <= 0) || primitive.rotationDegrees < 0 ||
+              primitive.rotationDegrees >= 360) {
+            throw new Error('SYMBOL_UNSUPPORTED');
+          }
+          validateOptionalNumber(primitive.endpointBearing);
+          if (primitive.endpointBearing.present &&
+              (primitive.endpointBearing.value < 0 || primitive.endpointBearing.value >= 360)) {
+            throw new Error('SYMBOL_UNSUPPORTED');
+          }
+        } else if (primitive.kind === 'point') {
           coordinatePairs += validateCoordinates(primitive.coordinate, 1);
           const pathClosed = validatePath(primitive.path);
           if (primitive.coordinate.length !== 2 ||
@@ -504,6 +580,11 @@ export class MundaneMapCanvas extends HTMLElement {
       ['Uint8Array', typeof Uint8Array === 'function']
     ].find(entry => !entry[1])?.[0] || null;
     this.scene = null;
+    this.iconResources = new Map();
+    this.sceneLoadAbort = null;
+    this.sceneLoadSequence = 0;
+    this.pendingSceneGeneration = -1;
+    this.pendingViewport = null;
     this.viewport = validateViewport({width: 800, height: 600, centerX: 0,
       centerY: 0, worldUnitsPerPixel: 100000});
     this.componentGeneration = 0;
@@ -545,6 +626,11 @@ export class MundaneMapCanvas extends HTMLElement {
       this.reportFailure('PROTOCOL_VERSION_UNSUPPORTED');
       return;
     }
+    this.cancelSceneLoad();
+    this.pendingSceneGeneration = -1;
+    this.pendingViewport = null;
+    this.iconResources.clear();
+    this.scene = null;
     this.componentGeneration = componentGeneration;
     this.sceneGeneration = sceneGeneration - 1;
     this.expectedSceneGeneration = sceneGeneration;
@@ -562,6 +648,11 @@ export class MundaneMapCanvas extends HTMLElement {
 
   deactivateMap(version, componentGeneration) {
     if (version === PROTOCOL_VERSION && componentGeneration === this.componentGeneration) {
+      this.cancelSceneLoad();
+      this.pendingSceneGeneration = -1;
+      this.pendingViewport = null;
+      this.iconResources.clear();
+      this.scene = null;
       this.teardown();
     }
   }
@@ -573,6 +664,10 @@ export class MundaneMapCanvas extends HTMLElement {
     this.componentGeneration = componentGeneration;
     this.closed = true;
     this.scene = null;
+    this.cancelSceneLoad();
+    this.pendingSceneGeneration = -1;
+    this.pendingViewport = null;
+    this.iconResources.clear();
     this.teardown();
     if (this.context) {
       this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -602,24 +697,138 @@ export class MundaneMapCanvas extends HTMLElement {
       this.reportFailure('BROWSER_CAPABILITY_UNSUPPORTED', generation);
       return;
     }
+    let accepted;
+    let acceptedViewport;
     try {
-      const accepted = validateScene(candidate, this.componentGeneration, this.sceneGeneration);
-      const acceptedViewport = validateViewport(accepted.viewport);
-      const previousViewport = this.viewport;
-      this.viewport = acceptedViewport;
-      try {
-        this.preflightPaint(accepted);
-      } finally {
-        this.viewport = previousViewport;
-      }
-      this.scene = accepted;
-      this.sceneGeneration = accepted.sceneGeneration;
-      this.viewportGeneration = accepted.viewportGeneration;
-      this.viewport = acceptedViewport;
-      this.schedulePaint();
+      accepted = validateScene(candidate, this.componentGeneration, this.sceneGeneration);
+      acceptedViewport = validateViewport(accepted.viewport);
     } catch (error) {
       this.reportFailure(error.message, candidate.sceneGeneration);
+      return;
     }
+    let resources;
+    try {
+      resources = this.sceneIconMetadata(accepted);
+    } catch (error) {
+      this.reportFailure(error.message, candidate.sceneGeneration);
+      return;
+    }
+    this.cancelSceneLoad();
+    this.pendingSceneGeneration = accepted.sceneGeneration;
+    this.pendingViewport = null;
+    const sequence = ++this.sceneLoadSequence;
+    if (!resources.size) {
+      this.acceptLoadedScene(accepted, acceptedViewport, new Map(), sequence);
+      return;
+    }
+    const controller = new AbortController();
+    this.sceneLoadAbort = controller;
+    this.loadSceneIcons(resources, controller.signal)
+      .then(icons => this.acceptLoadedScene(accepted, acceptedViewport, icons, sequence))
+      .catch(error => {
+        if (!controller.signal.aborted && sequence === this.sceneLoadSequence) {
+          this.pendingSceneGeneration = -1;
+          this.pendingViewport = null;
+          const code = error?.message === 'BROWSER_CAPABILITY_UNSUPPORTED' ?
+            error.message : 'RESOURCE_UNAVAILABLE';
+          this.reportFailure(code, candidate.sceneGeneration);
+        }
+      });
+  }
+
+  cancelSceneLoad() {
+    this.sceneLoadSequence++;
+    if (this.sceneLoadAbort) {
+      this.sceneLoadAbort.abort();
+      this.sceneLoadAbort = null;
+    }
+  }
+
+  sceneIconMetadata(scene) {
+    const resources = new Map();
+    let total = 0;
+    for (const layer of scene.layers) for (const feature of layer.features) {
+      for (const primitive of feature.primitives) if (primitive.kind === 'icon') {
+        const prior = resources.get(primitive.resource);
+        if (prior && (prior.width !== primitive.intrinsicWidth ||
+            prior.height !== primitive.intrinsicHeight)) {
+          throw new Error('RESOURCE_UNAVAILABLE');
+        }
+        if (!prior) {
+          const bytes = 12 + primitive.intrinsicWidth * primitive.intrinsicHeight * 4;
+          total += bytes;
+          if (resources.size >= MAX_ICON_RESOURCES || total > MAX_ICON_RESOURCE_BYTES) {
+            throw new Error('LIMIT_EXCEEDED');
+          }
+          resources.set(primitive.resource,
+            {width: primitive.intrinsicWidth, height: primitive.intrinsicHeight, bytes});
+        }
+      }
+    }
+    return resources;
+  }
+
+  async loadSceneIcons(resources, signal) {
+    const loaded = new Map();
+    for (const [resource, metadata] of resources) {
+      const response = await fetch(resource,
+        {credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal});
+      if (!response.ok) throw new Error('RESOURCE_UNAVAILABLE');
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength !== metadata.bytes) throw new Error('RESOURCE_UNAVAILABLE');
+      const bytes = new Uint8Array(buffer);
+      if (bytes[0] !== 77 || bytes[1] !== 77 || bytes[2] !== 82 || bytes[3] !== 73 ||
+          bytes[4] !== 1 || bytes[5] !== 0 || bytes[10] !== 0 || bytes[11] !== 0 ||
+          (bytes[6] << 8 | bytes[7]) !== metadata.width ||
+          (bytes[8] << 8 | bytes[9]) !== metadata.height) {
+        throw new Error('RESOURCE_UNAVAILABLE');
+      }
+      const image = document.createElement('canvas');
+      image.width = metadata.width;
+      image.height = metadata.height;
+      const context = image.getContext('2d');
+      if (!context || typeof context.createImageData !== 'function' ||
+          typeof context.putImageData !== 'function') {
+        throw new Error('BROWSER_CAPABILITY_UNSUPPORTED');
+      }
+      const pixels = context.createImageData(metadata.width, metadata.height);
+      pixels.data.set(bytes.subarray(12));
+      context.putImageData(pixels, 0, 0);
+      loaded.set(resource, image);
+    }
+    return loaded;
+  }
+
+  acceptLoadedScene(accepted, acceptedViewport, icons, sequence) {
+    if (sequence !== this.sceneLoadSequence || accepted.componentGeneration !==
+        this.componentGeneration || accepted.sceneGeneration <= this.sceneGeneration) return;
+    const queued = this.pendingSceneGeneration === accepted.sceneGeneration ?
+      this.pendingViewport : null;
+    const finalViewport = queued && queued.viewportGeneration >= accepted.viewportGeneration ?
+      queued.viewport : acceptedViewport;
+    const finalViewportGeneration = queued &&
+      queued.viewportGeneration >= accepted.viewportGeneration ?
+      queued.viewportGeneration : accepted.viewportGeneration;
+    const previousViewport = this.viewport;
+    this.viewport = finalViewport;
+    try {
+      this.preflightPaint(accepted, icons);
+    } catch (error) {
+      this.viewport = previousViewport;
+      this.pendingSceneGeneration = -1;
+      this.pendingViewport = null;
+      this.reportFailure(error.message, accepted.sceneGeneration);
+      return;
+    }
+    this.sceneLoadAbort = null;
+    this.scene = accepted;
+    this.iconResources = icons;
+    this.sceneGeneration = accepted.sceneGeneration;
+    this.viewportGeneration = finalViewportGeneration;
+    this.viewport = finalViewport;
+    this.pendingSceneGeneration = -1;
+    this.pendingViewport = null;
+    this.schedulePaint();
   }
 
   setMapViewport(version, componentGeneration, sceneGeneration, viewportGeneration,
@@ -629,8 +838,7 @@ export class MundaneMapCanvas extends HTMLElement {
       return;
     }
     if (componentGeneration !== this.componentGeneration ||
-        sceneGeneration !== this.sceneGeneration || !validateGeneration(viewportGeneration) ||
-        viewportGeneration < this.viewportGeneration) {
+        !validateGeneration(viewportGeneration)) {
       this.reportFailure('STALE_GENERATION', sceneGeneration);
       return;
     }
@@ -639,11 +847,28 @@ export class MundaneMapCanvas extends HTMLElement {
       return;
     }
     try {
-      this.viewport = validateViewport({width, height, centerX, centerY, worldUnitsPerPixel});
+      const candidate = validateViewport(
+        {width, height, centerX, centerY, worldUnitsPerPixel});
+      if (sceneGeneration === this.pendingSceneGeneration &&
+          sceneGeneration > this.sceneGeneration) {
+        if (this.pendingViewport &&
+            viewportGeneration < this.pendingViewport.viewportGeneration) {
+          this.reportFailure('STALE_GENERATION', sceneGeneration);
+          return;
+        }
+        this.pendingViewport = {viewportGeneration, viewport: candidate};
+        return;
+      }
+      if (sceneGeneration !== this.sceneGeneration ||
+          viewportGeneration < this.viewportGeneration) {
+        this.reportFailure('STALE_GENERATION', sceneGeneration);
+        return;
+      }
+      this.viewport = candidate;
       this.viewportGeneration = viewportGeneration;
       this.schedulePaint();
     } catch (error) {
-      this.reportFailure(error.message);
+      this.reportFailure(error.message, sceneGeneration);
     }
   }
 
@@ -761,6 +986,8 @@ export class MundaneMapCanvas extends HTMLElement {
     this.context.save();
     if (primitive.kind === 'point') {
       this.drawPoint(primitive);
+    } else if (primitive.kind === 'icon') {
+      this.drawIcon(primitive);
     } else if (primitive.kind === 'line') {
       this.drawLine(primitive.coordinates, primitive.stroke, primitive.opacity);
     } else if (primitive.kind === 'hatch') {
@@ -849,9 +1076,22 @@ export class MundaneMapCanvas extends HTMLElement {
     }
   }
 
+  drawIcon(primitive) {
+    if (primitive.opacity === 0) return;
+    const image = this.iconResources.get(primitive.resource);
+    if (!image) throw new Error('RESOURCE_UNAVAILABLE');
+    const matrix = this.markerTransform(primitive);
+    this.context.transform(matrix.m00, matrix.m10, matrix.m01, matrix.m11,
+      matrix.m02, matrix.m12);
+    this.context.imageSmoothingEnabled = primitive.interpolation === 'BILINEAR';
+    this.context.globalAlpha = primitive.opacity;
+    this.context.drawImage(image, 0, 0, primitive.intrinsicWidth, primitive.intrinsicHeight);
+  }
+
   markerTransform(primitive) {
     const point = this.screen(primitive.coordinate, 0);
-    const viewBox = primitive.viewBox;
+    const viewBox = primitive.kind === 'icon' ?
+      [0, 0, primitive.intrinsicWidth, primitive.intrinsicHeight] : primitive.viewBox;
     const unitScale = primitive.unit === 'SCREEN_PIXEL' ? 1 :
       1 / this.viewport.worldUnitsPerPixel;
     const width = primitive.size[0] * unitScale;
@@ -981,7 +1221,7 @@ export class MundaneMapCanvas extends HTMLElement {
     return {bounds, origin, spacing, orientations, required};
   }
 
-  preflightPaint(scene = this.scene) {
+  preflightPaint(scene = this.scene, iconResources = this.iconResources) {
     if (!scene) {
       return;
     }
@@ -989,7 +1229,10 @@ export class MundaneMapCanvas extends HTMLElement {
     for (const layer of scene.layers) {
       for (const feature of layer.features) {
         for (const primitive of feature.primitives) {
-          if (primitive.kind === 'hatch') {
+          if (primitive.kind === 'icon') {
+            this.markerTransform(primitive);
+            if (!iconResources.has(primitive.resource)) throw new Error('RESOURCE_UNAVAILABLE');
+          } else if (primitive.kind === 'hatch') {
             this.preflightRings(primitive.rings);
             if (primitive.opacity === 0 || primitive.stroke.color[3] === 0) {
               continue;

@@ -14,15 +14,22 @@ import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureQueryLimits;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureSourceMetadata;
+import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.LineSymbol;
+import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.MarkerSymbol;
+import io.github.mundanej.map.api.NamedSymbol;
+import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.RasterIconSymbol;
+import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
@@ -47,9 +54,64 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class MundaneMapFeatureSourceTest {
+    @Test
+    void ownsIconRegistrationsAcrossReplacementDetachSessionDestroyAndClose() {
+        AtomicInteger registrations = new AtomicInteger();
+        AtomicInteger removals = new AtomicInteger();
+        AtomicInteger destroyListenerRegistrations = new AtomicInteger();
+        AtomicReference<Runnable> sessionDestroy = new AtomicReference<>();
+        MundaneMap.IconSessionAccess sessionAccess =
+                new MundaneMap.IconSessionAccess() {
+                    @Override
+                    public IconResourceBatch.Registrar resourceRegistrar(MundaneMap map) {
+                        return bytes ->
+                                new IconResourceBatch.RegisteredResource(
+                                        "./resource/" + registrations.incrementAndGet(),
+                                        removals::incrementAndGet);
+                    }
+
+                    @Override
+                    public com.vaadin.flow.shared.Registration addDestroyListener(
+                            MundaneMap map, Runnable listener) {
+                        destroyListenerRegistrations.incrementAndGet();
+                        sessionDestroy.set(listener);
+                        return () -> sessionDestroy.compareAndSet(listener, null);
+                    }
+                };
+
+        MundaneMap replacement = resourceMap(sessionAccess);
+        replacement.setFeatureSourceBindings(List.of(iconBinding("replacement")));
+        assertEquals(1, registrations.get());
+        replacement.setBackground(Rgba.rgb(240, 240, 240));
+        assertEquals(2, registrations.get());
+        assertEquals(1, removals.get());
+        replacement.onDetach(new com.vaadin.flow.component.DetachEvent(replacement));
+        assertEquals(2, removals.get());
+        replacement.close();
+
+        MundaneMap session = resourceMap(sessionAccess);
+        session.setFeatureSourceBindings(List.of(iconBinding("session")));
+        assertEquals(3, registrations.get());
+        session.onAttach(new com.vaadin.flow.component.AttachEvent(session, true));
+        assertEquals(1, destroyListenerRegistrations.get());
+        assertTrue(sessionDestroy.get() != null);
+        sessionDestroy.get().run();
+        assertEquals(registrations.get(), removals.get());
+        session.close();
+
+        MundaneMap closed = resourceMap(sessionAccess);
+        closed.setFeatureSourceBindings(List.of(iconBinding("closed")));
+        int beforeClose = registrations.get();
+        closed.close();
+        closed.close();
+        assertEquals(beforeClose, removals.get());
+    }
+
     @Test
     void publishesSerializedQueriesVisibilityAndStableSourceOrder() {
         ArrayDeque<Runnable> queries = new ArrayDeque<>();
@@ -546,6 +608,49 @@ final class MundaneMapFeatureSourceTest {
                 new MundaneMap(System::nanoTime, Runnable::run, queries::add, completions::add);
         map.setViewport(new MapViewport(800, 600, 0, 0, 1));
         return map;
+    }
+
+    private static MundaneMap resourceMap(MundaneMap.IconSessionAccess sessionAccess) {
+        MundaneMap map =
+                new MundaneMap(
+                        System::nanoTime,
+                        Runnable::run,
+                        Runnable::run,
+                        Runnable::run,
+                        sessionAccess);
+        map.setViewport(new MapViewport(800, 600, 0, 0, 1));
+        return map;
+    }
+
+    private static FeatureSourceBinding iconBinding(String id) {
+        RasterIconSymbol icon =
+                RasterIconSymbol.of(
+                        1,
+                        1,
+                        new int[] {0x102030ff},
+                        MarkerPlacement.centeredScreen(16),
+                        RasterInterpolation.NEAREST,
+                        1);
+        InMemoryFeatureSource source =
+                InMemoryFeatureSource.open(
+                        new SourceIdentity(id, id),
+                        List.of(
+                                new FeatureRecord(
+                                        id, id, new PointGeometry(new Coordinate(0, 0)), Map.of())),
+                        Optional.empty(),
+                        Optional.of(
+                                CrsMetadata.recognized(
+                                        CrsDefinitions.EPSG_3857,
+                                        Optional.of("EPSG:3857"),
+                                        Optional.empty())),
+                        FeatureSourceLimits.LEVEL_1);
+        return FeatureSourceBinding.owned(
+                id,
+                id,
+                source,
+                FeaturePortrayal.markers(new FixedSymbolSelector(icon)),
+                NamedSymbolCatalog.of(List.of(new NamedSymbol("icon", icon))),
+                Optional.empty());
     }
 
     private static void runNext(ArrayDeque<Runnable> tasks) {

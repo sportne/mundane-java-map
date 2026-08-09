@@ -16,6 +16,7 @@ import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.MapSourceReportEvent;
 import io.github.mundanej.map.api.MapSourceReportListener;
+import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.core.CrsDefinitions;
@@ -46,7 +47,8 @@ import java.util.function.LongSupplier;
  * generation-checked viewport values. Snapshot layers and explicitly bound feature sources accept
  * all six Level 1 geometry families and the bounded built-in vector profile: vector markers, solid
  * lines with endpoint markers, solid and hatch fills, outlines, and role-homogeneous composites.
- * Raster, legacy, and custom renderer values are not forwarded to the browser.
+ * Explicit-catalog raster icons are served as expiring same-origin session resources. Legacy and
+ * custom renderer values are not forwarded to the browser.
  */
 @Tag("mundane-map-canvas")
 @JsModule("./mundane-map-canvas.js")
@@ -96,6 +98,15 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** Pure synchronous feature query engine executed only on the serialized lane. */
     private final FeatureSourceQueryEngine sourceQueryEngine = new FeatureSourceQueryEngine();
+
+    /** Session-owned immutable icon resources for the currently published scene. */
+    private IconResourceBatch iconResources = IconResourceBatch.empty();
+
+    /** Session access shared by resource registration and destruction cleanup wiring. */
+    private final IconSessionAccess iconSessionAccess;
+
+    /** Removes the current session cleanup callback on detach or close. */
+    private Registration iconSessionCleanup;
 
     /** Per-component serialized source-query executor. */
     private final Executor queryExecutor;
@@ -162,15 +173,15 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** Creates an empty map using the fixed protocol limits and an 800 by 600 logical viewport. */
     public MundaneMap() {
-        this(System::nanoTime, null, null, null);
+        this(System::nanoTime, null, null, null, null);
     }
 
     MundaneMap(LongSupplier nanoTime) {
-        this(nanoTime, null, null, null);
+        this(nanoTime, null, null, null, null);
     }
 
     MundaneMap(LongSupplier nanoTime, Consumer<Runnable> settledScheduler) {
-        this(nanoTime, settledScheduler, null, null);
+        this(nanoTime, settledScheduler, null, null, null);
     }
 
     MundaneMap(
@@ -178,8 +189,19 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             Consumer<Runnable> settledScheduler,
             Executor queryExecutor,
             Consumer<Runnable> queryCompletionDispatcher) {
+        this(nanoTime, settledScheduler, queryExecutor, queryCompletionDispatcher, null);
+    }
+
+    MundaneMap(
+            LongSupplier nanoTime,
+            Consumer<Runnable> settledScheduler,
+            Executor queryExecutor,
+            Consumer<Runnable> queryCompletionDispatcher,
+            IconSessionAccess iconSessionAccess) {
         protocol = new SceneProtocol(SceneProtocol.DEFAULT_LIMITS);
         this.nanoTime = Objects.requireNonNull(nanoTime, "nanoTime");
+        this.iconSessionAccess =
+                iconSessionAccess != null ? iconSessionAccess : IconSessionAccess.vaadin();
         this.settledScheduler =
                 settledScheduler != null
                         ? settledScheduler
@@ -233,20 +255,16 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 componentGeneration,
                 nextGeneration,
                 viewportGeneration);
-        SceneProtocol.Result result =
-                protocol.encode(
-                        combine(snapshot.layers(), this.sourceLayers),
-                        background,
-                        viewport,
-                        componentGeneration,
-                        nextGeneration,
-                        viewportGeneration);
+        StagedScene staged =
+                stageScene(
+                        combine(snapshot.layers(), this.sourceLayers), background, nextGeneration);
+        SceneProtocol.Result result = staged.result();
         layers = snapshot.layers();
         cancelPendingSettledViewport();
         sceneEnvelope = result.envelope();
         sceneGeneration = nextGeneration;
         diagnostic = Optional.empty();
-        publishScene(result.scene());
+        publishStagedScene(staged);
     }
 
     /**
@@ -308,6 +326,13 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                                 binding,
                                                 priorVisibility.getOrDefault(binding, true)))
                         .toList();
+        sourceLayers = List.of();
+        releaseIconResources();
+        long replacementGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene replacement = stageScene(layers, background, replacementGeneration);
+        sceneEnvelope = replacement.result().envelope();
+        sceneGeneration = replacementGeneration;
+        publishStagedScene(replacement);
         for (FeatureSourceBinding removedBinding : removed) {
             transitionSourceReport(removedBinding.id(), Optional.empty());
         }
@@ -451,20 +476,14 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         requireOpen();
         Objects.requireNonNull(color, "color");
         long nextGeneration = Math.incrementExact(sceneGeneration);
-        SceneProtocol.Result result =
-                protocol.encode(
-                        combinedLayers(),
-                        color,
-                        viewport,
-                        componentGeneration,
-                        nextGeneration,
-                        viewportGeneration);
+        StagedScene staged = stageScene(combinedLayers(), color, nextGeneration);
+        SceneProtocol.Result result = staged.result();
         background = color;
         cancelPendingSettledViewport();
         sceneEnvelope = result.envelope();
         sceneGeneration = nextGeneration;
         diagnostic = Optional.empty();
-        publishScene(result.scene());
+        publishStagedScene(staged);
     }
 
     /**
@@ -698,6 +717,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             MundaneMapException.UNSUPPORTED_VALUE,
                             SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED,
                             MundaneMapException.BROWSER_CAPABILITY_UNSUPPORTED,
+                            MundaneMapException.RESOURCE_UNAVAILABLE,
                             MundaneMapException.PROTOCOL_VERSION_UNSUPPORTED,
                             MundaneMapException.STALE_GENERATION ->
                             clientCode;
@@ -744,6 +764,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         sourceReportNotifications.clear();
         layers = List.of();
         sourceLayers = List.of();
+        releaseIconResources();
+        removeIconSessionCleanup();
         sceneEnvelope = Optional.empty();
         cancelPendingSettledViewport();
         cancelFeatureQuery();
@@ -768,18 +790,14 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         componentGeneration = Math.incrementExact(componentGeneration);
         resetClientEventState();
         sceneGeneration = Math.incrementExact(sceneGeneration);
-        SceneProtocol.Result result =
-                protocol.encode(
-                        combinedLayers(),
-                        background,
-                        viewport,
-                        componentGeneration,
-                        sceneGeneration,
-                        viewportGeneration);
+        removeIconSessionCleanup();
+        iconSessionCleanup =
+                iconSessionAccess.addDestroyListener(this, this::handleIconSessionDestroy);
+        StagedScene staged = stageScene(combinedLayers(), background, sceneGeneration);
         getElement()
                 .callJsFunction(
                         "activateMap", SceneProtocol.VERSION, componentGeneration, sceneGeneration);
-        publishScene(result.scene());
+        publishStagedScene(staged);
         publishViewport();
         scheduleSourceQuery();
     }
@@ -792,6 +810,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             componentGeneration = Math.incrementExact(componentGeneration);
             resetClientEventState();
             cancelFeatureQuery();
+            sourceLayers = List.of();
+            releaseIconResources();
+            removeIconSessionCleanup();
         }
         super.onDetach(detachEvent);
     }
@@ -803,7 +824,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         viewport,
                         componentGeneration,
                         sceneGeneration,
-                        viewportGeneration)
+                        viewportGeneration,
+                        iconResources)
                 .scene();
     }
 
@@ -959,14 +981,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         }
         long nextSceneGeneration = Math.incrementExact(sceneGeneration);
         try {
-            SceneProtocol.Result encoded =
-                    protocol.encode(
-                            combine(layers, queryResult.layers()),
-                            background,
-                            viewport,
-                            componentGeneration,
-                            nextSceneGeneration,
-                            viewportGeneration);
+            StagedScene staged =
+                    stageScene(
+                            combine(layers, queryResult.layers()), background, nextSceneGeneration);
+            SceneProtocol.Result encoded = staged.result();
             int snapshotCount = layers.size();
             sourceLayers =
                     List.copyOf(encoded.layers().subList(snapshotCount, encoded.layers().size()));
@@ -974,11 +992,75 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             sceneGeneration = nextSceneGeneration;
             diagnostic = Optional.empty();
             reconcileSourceReports(queryResult.reports());
-            publishScene(encoded.scene());
+            publishStagedScene(staged);
             publishViewport();
             drainSourceReportNotifications();
         } catch (MundaneMapException exception) {
             diagnostic = Optional.of(exception);
+        }
+    }
+
+    private StagedScene stageScene(
+            List<? extends Layer> stagedLayers, Rgba stagedBackground, long stagedGeneration) {
+        IconResourceBatch.Registrar registrar = iconSessionAccess.resourceRegistrar(this);
+        IconResourceBatch resources =
+                IconResourceBatch.prepare(stagedLayers, this::isAuthorizedIcon, registrar);
+        try {
+            SceneProtocol.Result result =
+                    protocol.encode(
+                            stagedLayers,
+                            stagedBackground,
+                            viewport,
+                            componentGeneration,
+                            stagedGeneration,
+                            viewportGeneration,
+                            resources);
+            return new StagedScene(result, resources);
+        } catch (RuntimeException | Error failure) {
+            resources.close();
+            throw failure;
+        }
+    }
+
+    private boolean isAuthorizedIcon(RasterIconSymbol icon) {
+        for (FeatureSourceQueryEngine.RequestBinding binding : featureBindings) {
+            if (binding.binding().authorizes(icon)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void acceptIconResources(IconResourceBatch replacement) {
+        IconResourceBatch previous = iconResources;
+        iconResources = replacement;
+        previous.close();
+    }
+
+    private void publishStagedScene(StagedScene staged) {
+        try {
+            publishScene(staged.result().scene());
+        } catch (RuntimeException | Error failure) {
+            staged.resources().close();
+            throw failure;
+        }
+        acceptIconResources(staged.resources());
+    }
+
+    private void releaseIconResources() {
+        IconResourceBatch previous = iconResources;
+        iconResources = IconResourceBatch.empty();
+        previous.close();
+    }
+
+    void handleIconSessionDestroy() {
+        releaseIconResources();
+    }
+
+    private void removeIconSessionCleanup() {
+        if (iconSessionCleanup != null) {
+            iconSessionCleanup.remove();
+            iconSessionCleanup = null;
         }
     }
 
@@ -1169,6 +1251,48 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         @Override
         public Optional<Envelope> envelope() {
             return Optional.empty();
+        }
+    }
+
+    private record StagedScene(SceneProtocol.Result result, IconResourceBatch resources) {
+        private StagedScene {
+            Objects.requireNonNull(result, "result");
+            Objects.requireNonNull(resources, "resources");
+        }
+    }
+
+    interface IconSessionAccess {
+        IconResourceBatch.Registrar resourceRegistrar(MundaneMap map);
+
+        Registration addDestroyListener(MundaneMap map, Runnable listener);
+
+        static IconSessionAccess vaadin() {
+            return new IconSessionAccess() {
+                @Override
+                public IconResourceBatch.Registrar resourceRegistrar(MundaneMap map) {
+                    return map.getUI()
+                            .<IconResourceBatch.Registrar>map(
+                                    ui -> IconResourceBatch.vaadin(ui.getSession()))
+                            .orElse(
+                                    bytes -> {
+                                        throw new MundaneMapException(
+                                                MundaneMapException.RESOURCE_UNAVAILABLE,
+                                                "Raster icon resources require an attached session",
+                                                Map.of("resourceKind", "catalog-icon"));
+                                    });
+                }
+
+                @Override
+                public Registration addDestroyListener(MundaneMap map, Runnable listener) {
+                    return map.getUI()
+                            .<Registration>map(
+                                    ui ->
+                                            ui.getSession()
+                                                    .addSessionDestroyListener(
+                                                            event -> listener.run()))
+                            .orElse(null);
+                }
+            };
         }
     }
 }

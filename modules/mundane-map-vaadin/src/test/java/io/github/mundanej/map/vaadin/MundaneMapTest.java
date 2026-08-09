@@ -171,6 +171,14 @@ final class MundaneMapTest {
                 1,
                 (double) map.componentGenerationForTest(),
                 (double) map.sceneGenerationForTest(),
+                MundaneMapException.RESOURCE_UNAVAILABLE);
+        assertEquals(
+                MundaneMapException.RESOURCE_UNAVAILABLE, map.diagnostic().orElseThrow().code());
+
+        map.acceptClientFailure(
+                1,
+                (double) map.componentGenerationForTest(),
+                (double) map.sceneGenerationForTest(),
                 SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED);
         assertEquals(
                 SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED,

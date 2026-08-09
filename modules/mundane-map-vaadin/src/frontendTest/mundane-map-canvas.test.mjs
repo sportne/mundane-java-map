@@ -25,9 +25,11 @@ function createCanvas() {
   const context = {operations};
   for (const name of ['setTransform', 'clearRect', 'fillRect', 'save', 'restore', 'beginPath',
     'moveTo', 'lineTo', 'closePath', 'fill', 'stroke', 'translate', 'scale',
-    'transform', 'clip', 'quadraticCurveTo', 'bezierCurveTo']) {
+    'transform', 'clip', 'quadraticCurveTo', 'bezierCurveTo', 'putImageData', 'drawImage']) {
     context[name] = (...arguments_) => operations.push([name, ...arguments_]);
   }
+  context.createImageData = (width, height) =>
+    ({width, height, data: new Uint8ClampedArray(width * height * 4)});
   Object.defineProperty(context, 'lineWidth', {
     set: value => operations.push(['lineWidth', value]),
     get: () => operations.filter(operation => operation[0] === 'lineWidth').at(-1)?.[1]
@@ -431,6 +433,70 @@ flushPaint();
 assert.equal(invisibleElement.sceneGeneration, 4);
 assert.equal(failures.length, failuresBeforeInvisible);
 invisibleElement.disconnectedCallback();
+
+globalThis.location = {href: 'https://maps.example.test/app/'};
+const iconBytes = new Uint8Array([77, 77, 82, 73, 1, 0, 0, 1, 0, 1, 0, 0,
+  12, 34, 56, 255]);
+const fetches = [];
+globalThis.fetch = async (resource, options) => {
+  fetches.push([resource, options]);
+  return {ok: true, arrayBuffer: async () => iconBytes.buffer.slice(0)};
+};
+const iconScene = structuredClone(scene);
+iconScene.componentGeneration = 9;
+iconScene.sceneGeneration = 10;
+iconScene.layers[0].features[0].primitives = [{
+  kind: 'icon', coordinate: [10, 20], resource: './VAADIN/dynamic/resource/token/icon.mmri',
+  intrinsicWidth: 1, intrinsicHeight: 1, size: [16, 16], unit: 'SCREEN_PIXEL',
+  anchor: 'CENTER', offset: [0, 0], rotationDegrees: 0,
+  rotationMode: 'SCREEN_RELATIVE', interpolation: 'NEAREST',
+  endpointBearing: {present: false}, opacity: 1
+}];
+iconScene.layers[0].features.splice(1);
+assert.equal(canvasModule.logicalSceneBytes(iconScene), 299);
+const iconFailures = [];
+const iconElement = new ElementClass();
+iconElement.$server = {
+  acceptSettledViewport: () => {},
+  acceptClientFailure: (...arguments_) => iconFailures.push(arguments_)
+};
+iconElement.connectedCallback();
+iconElement.activateMap(1, 9, 10);
+iconElement.setScene(iconScene);
+iconElement.setMapViewport(1, 9, 10, 5, 400, 300, 30, 40, 1);
+await new Promise(resolve => setTimeout(resolve, 0));
+flushPaint();
+assert.equal(iconElement.sceneGeneration, 10);
+assert.equal(iconElement.viewportGeneration, 5);
+assert.deepEqual(iconElement.viewport,
+  {width: 400, height: 300, centerX: 30, centerY: 40, worldUnitsPerPixel: 1});
+assert.equal(iconFailures.length, 0);
+assert.equal(fetches.length, 1);
+assert.equal(fetches[0][0], './VAADIN/dynamic/resource/token/icon.mmri');
+assert.equal(fetches[0][1].credentials, 'same-origin');
+assert.equal(fetches[0][1].redirect, 'error');
+assert.ok(iconElement.canvas.operations.some(operation => operation[0] === 'drawImage'));
+const hostileIconScene = structuredClone(iconScene);
+hostileIconScene.sceneGeneration = 11;
+hostileIconScene.layers[0].features[0].primitives[0].resource = 'https://evil.example/icon';
+iconElement.setScene(hostileIconScene);
+assert.equal(iconFailures.at(-1)[3], 'RESOURCE_UNAVAILABLE');
+assert.equal(iconElement.sceneGeneration, 10);
+globalThis.fetch = async () => { throw new TypeError('browser-specific network failure'); };
+const expiredIconScene = structuredClone(iconScene);
+expiredIconScene.sceneGeneration = 11;
+iconElement.setScene(expiredIconScene);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(iconFailures.at(-1)[3], 'RESOURCE_UNAVAILABLE');
+assert.equal(iconElement.sceneGeneration, 10);
+const iconReplacement = structuredClone(scene);
+iconReplacement.componentGeneration = 9;
+iconReplacement.sceneGeneration = 11;
+iconElement.setScene(iconReplacement);
+assert.equal(iconElement.sceneGeneration, 11);
+assert.equal(iconElement.iconResources.size, 0);
+iconElement.deactivateMap(1, 9);
+assert.equal(iconElement.scene, null);
 
 const resizeObserver = globalThis.ResizeObserver;
 globalThis.ResizeObserver = undefined;

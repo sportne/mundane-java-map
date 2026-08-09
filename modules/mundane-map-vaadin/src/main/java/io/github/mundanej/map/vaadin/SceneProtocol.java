@@ -15,6 +15,7 @@ import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
@@ -34,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /** Package-private encoder for protocol version one. */
 final class SceneProtocol {
@@ -44,6 +46,18 @@ final class SceneProtocol {
     private static final int MAX_SYMBOL_DEPTH = 64;
 
     private final Limits limits;
+
+    @FunctionalInterface
+    interface IconResources {
+        /** Resolver that rejects every raster icon. */
+        IconResources NONE =
+                ignored -> {
+                    throw unsupported("raster icon");
+                };
+
+        /** Returns one staged same-origin resource URI. */
+        String uri(RasterIconSymbol icon);
+    }
 
     SceneProtocol(Limits limits) {
         this.limits = Objects.requireNonNull(limits, "limits");
@@ -71,8 +85,27 @@ final class SceneProtocol {
             long componentGeneration,
             long sceneGeneration,
             long viewportGeneration) {
+        return encode(
+                sourceLayers,
+                background,
+                viewport,
+                componentGeneration,
+                sceneGeneration,
+                viewportGeneration,
+                IconResources.NONE);
+    }
+
+    Result encode(
+            List<? extends Layer> sourceLayers,
+            Rgba background,
+            MapViewport viewport,
+            long componentGeneration,
+            long sceneGeneration,
+            long viewportGeneration,
+            IconResources iconResources) {
         Objects.requireNonNull(sourceLayers, "sourceLayers");
         Objects.requireNonNull(background, "background");
+        Objects.requireNonNull(iconResources, "iconResources");
         validateViewport(viewport);
         requireLimit("layers", sourceLayers.size(), limits.layers());
         Budget budget = new Budget(limits.logicalBytes());
@@ -127,7 +160,7 @@ final class SceneProtocol {
                                 feature.geometry(),
                                 feature.attributes(),
                                 feature.symbol());
-                EncodedFeature encoded = encodeFeature(copy, budget);
+                EncodedFeature encoded = encodeFeature(copy, budget, iconResources);
                 primitiveCount =
                         addAndCheck(
                                 "primitives",
@@ -149,6 +182,11 @@ final class SceneProtocol {
                 featureCopies.add(copy);
                 encodedFeatures.add(encoded.value());
                 layerEnvelope = union(layerEnvelope, copy.geometry().envelope());
+            }
+            Optional<Envelope> declaredEnvelope =
+                    Objects.requireNonNull(layer.envelope(), "layer envelope");
+            if (declaredEnvelope.isPresent()) {
+                layerEnvelope = union(layerEnvelope, declaredEnvelope.orElseThrow());
             }
             Layer copy = new SnapshotLayer(layerId, layerName, featureCopies, layerEnvelope);
             copies.add(copy);
@@ -180,23 +218,39 @@ final class SceneProtocol {
         return new Result(List.copyOf(copies), scene, envelope, budget.used());
     }
 
-    private EncodedFeature encodeFeature(Feature feature, Budget budget) {
+    private EncodedFeature encodeFeature(
+            Feature feature, Budget budget, IconResources iconResources) {
         PrimitiveAccumulator target = new PrimitiveAccumulator(budget, limits);
         Geometry geometry = feature.geometry();
         Symbol symbol = feature.symbol();
         if (geometry instanceof PointGeometry point) {
             requireRole(symbol, SymbolRole.MARKER, "point symbol");
-            encodeMarkers(symbol, List.of(point.coordinate()), 1.0, Optional.empty(), 0, target);
+            encodeMarkers(
+                    symbol,
+                    List.of(point.coordinate()),
+                    1.0,
+                    Optional.empty(),
+                    0,
+                    target,
+                    iconResources);
         } else if (geometry instanceof MultiPointGeometry points) {
             requireRole(symbol, SymbolRole.MARKER, "point symbol");
             List<Coordinate> coordinates = new ArrayList<>(points.coordinates().size());
             for (int index = 0; index < points.coordinates().size(); index++) {
                 coordinates.add(points.coordinates().coordinate(index));
             }
-            encodeMarkers(symbol, coordinates, 1.0, Optional.empty(), 0, target);
+            encodeMarkers(symbol, coordinates, 1.0, Optional.empty(), 0, target, iconResources);
         } else if (geometry instanceof LineStringGeometry line) {
             requireRole(symbol, SymbolRole.LINE, "line symbol");
-            encodeLines(symbol, List.of(line.coordinates()), feature.id(), 1.0, false, 0, target);
+            encodeLines(
+                    symbol,
+                    List.of(line.coordinates()),
+                    feature.id(),
+                    1.0,
+                    false,
+                    0,
+                    target,
+                    iconResources);
         } else if (geometry instanceof MultiLineStringGeometry lines) {
             requireRole(symbol, SymbolRole.LINE, "line symbol");
             List<CoordinateSequence> parts = new ArrayList<>(lines.partCount());
@@ -207,10 +261,11 @@ final class SceneProtocol {
                                 lines.partOffset(part),
                                 lines.partOffset(part + 1)));
             }
-            encodeLines(symbol, parts, feature.id(), 1.0, false, 0, target);
+            encodeLines(symbol, parts, feature.id(), 1.0, false, 0, target, iconResources);
         } else if (geometry instanceof PolygonGeometry polygon) {
             requireRole(symbol, SymbolRole.FILL, "polygon symbol");
-            encodeFills(symbol, List.of(rings(polygon)), feature.id(), 1.0, 0, target);
+            encodeFills(
+                    symbol, List.of(rings(polygon)), feature.id(), 1.0, 0, target, iconResources);
         } else if (geometry instanceof MultiPolygonGeometry polygons) {
             requireRole(symbol, SymbolRole.FILL, "polygon symbol");
             List<List<CoordinateSequence>> components = new ArrayList<>(polygons.polygonCount());
@@ -227,7 +282,7 @@ final class SceneProtocol {
                 }
                 components.add(List.copyOf(rings));
             }
-            encodeFills(symbol, components, feature.id(), 1.0, 0, target);
+            encodeFills(symbol, components, feature.id(), 1.0, 0, target, iconResources);
         } else {
             throw unsupported("geometry");
         }
@@ -243,57 +298,90 @@ final class SceneProtocol {
 
     static Symbol requireBuiltInSymbol(
             Symbol symbol, SymbolRole role, String scope, String valueKind) {
+        return requirePortrayalSymbol(symbol, role, ignored -> false, scope, valueKind);
+    }
+
+    static Symbol requirePortrayalSymbol(
+            Symbol symbol,
+            SymbolRole role,
+            Predicate<RasterIconSymbol> authorizedIcon,
+            String scope) {
+        return requirePortrayalSymbol(symbol, role, authorizedIcon, scope, roleValueKind(role));
+    }
+
+    private static Symbol requirePortrayalSymbol(
+            Symbol symbol,
+            SymbolRole role,
+            Predicate<RasterIconSymbol> authorizedIcon,
+            String scope,
+            String valueKind) {
         Objects.requireNonNull(symbol, "symbol");
+        Objects.requireNonNull(authorizedIcon, "authorizedIcon");
         if (symbol.role() != role) {
             throw unsupported(valueKind, scope);
         }
         switch (role) {
-            case MARKER -> validateMarkerTree(symbol, 0, scope);
-            case LINE -> validateLineTree(symbol, 0, scope);
-            case FILL -> validateFillTree(symbol, 0, scope);
+            case MARKER -> validateMarkerTree(symbol, 0, scope, authorizedIcon);
+            case LINE -> validateLineTree(symbol, 0, scope, authorizedIcon);
+            case FILL -> validateFillTree(symbol, 0, scope, authorizedIcon);
             default -> throw unsupported(valueKind, scope);
         }
         return symbol;
     }
 
-    private static void validateMarkerTree(Symbol symbol, int depth, String scope) {
+    private static void validateMarkerTree(
+            Symbol symbol, int depth, String scope, Predicate<RasterIconSymbol> authorizedIcon) {
         requireDepth(depth);
         if (symbol instanceof CompositeSymbol composite) {
             requireRole(composite, SymbolRole.MARKER, "marker composite");
             for (Symbol child : composite.children()) {
-                validateMarkerTree(child, depth + 1, scope);
+                validateMarkerTree(child, depth + 1, scope, authorizedIcon);
+            }
+        } else if (symbol instanceof RasterIconSymbol icon) {
+            if (!authorizedIcon.test(icon)) {
+                throw unsupported("unauthorized raster icon", scope);
             }
         } else if (!(symbol instanceof VectorMarkerSymbol)) {
             throw unsupported("marker symbol", scope);
         }
     }
 
-    private static void validateLineTree(Symbol symbol, int depth, String scope) {
+    private static void validateLineTree(
+            Symbol symbol, int depth, String scope, Predicate<RasterIconSymbol> authorizedIcon) {
         requireDepth(depth);
         if (symbol instanceof CompositeSymbol composite) {
             requireRole(composite, SymbolRole.LINE, "line composite");
             for (Symbol child : composite.children()) {
-                validateLineTree(child, depth + 1, scope);
+                validateLineTree(child, depth + 1, scope, authorizedIcon);
             }
         } else if (symbol instanceof SolidLineSymbol line) {
-            line.startMarker().ifPresent(marker -> validateMarkerTree(marker, depth + 1, scope));
-            line.endMarker().ifPresent(marker -> validateMarkerTree(marker, depth + 1, scope));
+            line.startMarker()
+                    .ifPresent(
+                            marker -> validateMarkerTree(marker, depth + 1, scope, authorizedIcon));
+            line.endMarker()
+                    .ifPresent(
+                            marker -> validateMarkerTree(marker, depth + 1, scope, authorizedIcon));
         } else {
             throw unsupported("line symbol", scope);
         }
     }
 
-    private static void validateFillTree(Symbol symbol, int depth, String scope) {
+    private static void validateFillTree(
+            Symbol symbol, int depth, String scope, Predicate<RasterIconSymbol> authorizedIcon) {
         requireDepth(depth);
         if (symbol instanceof CompositeSymbol composite) {
             requireRole(composite, SymbolRole.FILL, "fill composite");
             for (Symbol child : composite.children()) {
-                validateFillTree(child, depth + 1, scope);
+                validateFillTree(child, depth + 1, scope, authorizedIcon);
             }
         } else if (symbol instanceof SolidFillSymbol fill) {
-            fill.outline().ifPresent(outline -> validateLineTree(outline, depth + 1, scope));
+            fill.outline()
+                    .ifPresent(
+                            outline -> validateLineTree(outline, depth + 1, scope, authorizedIcon));
         } else if (symbol instanceof HatchFillSymbol hatch) {
-            hatch.outline().ifPresent(outline -> validateLineTree(outline, depth + 1, scope));
+            hatch.outline()
+                    .ifPresent(
+                            outline -> validateLineTree(outline, depth + 1, scope, authorizedIcon));
         } else {
             throw unsupported("fill symbol", scope);
         }
@@ -305,7 +393,8 @@ final class SceneProtocol {
             double inheritedOpacity,
             Optional<Double> endpointBearing,
             int depth,
-            PrimitiveAccumulator target) {
+            PrimitiveAccumulator target,
+            IconResources iconResources) {
         requireDepth(depth);
         if (symbol instanceof CompositeSymbol composite) {
             requireRole(composite, SymbolRole.MARKER, "marker composite");
@@ -316,7 +405,22 @@ final class SceneProtocol {
                         inheritedOpacity * composite.opacity(),
                         endpointBearing,
                         depth + 1,
-                        target);
+                        target,
+                        iconResources);
+            }
+            return;
+        }
+        if (symbol instanceof RasterIconSymbol icon) {
+            for (Coordinate coordinate : coordinates) {
+                target.addMarker(
+                        iconPrimitive(
+                                coordinate,
+                                icon,
+                                inheritedOpacity * icon.opacity(),
+                                endpointBearing,
+                                iconResources.uri(icon),
+                                target.budget),
+                        0);
             }
             return;
         }
@@ -342,7 +446,8 @@ final class SceneProtocol {
             double inheritedOpacity,
             boolean closedRing,
             int depth,
-            PrimitiveAccumulator target) {
+            PrimitiveAccumulator target,
+            IconResources iconResources) {
         requireDepth(depth);
         if (symbol instanceof CompositeSymbol composite) {
             requireRole(composite, SymbolRole.LINE, "line composite");
@@ -354,7 +459,8 @@ final class SceneProtocol {
                         inheritedOpacity * composite.opacity(),
                         closedRing,
                         depth + 1,
-                        target);
+                        target,
+                        iconResources);
             }
             return;
         }
@@ -378,7 +484,8 @@ final class SceneProtocol {
                             opacity,
                             bearings.start(),
                             depth + 1,
-                            target);
+                            target,
+                            iconResources);
                 }
                 if (line.endMarker().isPresent() && bearings.end().isPresent()) {
                     encodeMarkers(
@@ -387,7 +494,8 @@ final class SceneProtocol {
                             opacity,
                             bearings.end(),
                             depth + 1,
-                            target);
+                            target,
+                            iconResources);
                 }
             }
         }
@@ -399,7 +507,8 @@ final class SceneProtocol {
             String featureId,
             double inheritedOpacity,
             int depth,
-            PrimitiveAccumulator target) {
+            PrimitiveAccumulator target,
+            IconResources iconResources) {
         requireDepth(depth);
         if (symbol instanceof CompositeSymbol composite) {
             requireRole(composite, SymbolRole.FILL, "fill composite");
@@ -410,7 +519,8 @@ final class SceneProtocol {
                         featureId,
                         inheritedOpacity * composite.opacity(),
                         depth + 1,
-                        target);
+                        target,
+                        iconResources);
             }
             return;
         }
@@ -423,8 +533,14 @@ final class SceneProtocol {
                         .ifPresent(
                                 outline ->
                                         encodeLines(
-                                                outline, polygon, featureId, opacity, true,
-                                                depth + 1, target));
+                                                outline,
+                                                polygon,
+                                                featureId,
+                                                opacity,
+                                                true,
+                                                depth + 1,
+                                                target,
+                                                iconResources));
             }
             return;
         }
@@ -436,8 +552,14 @@ final class SceneProtocol {
                         .ifPresent(
                                 outline ->
                                         encodeLines(
-                                                outline, polygon, featureId, opacity, true,
-                                                depth + 1, target));
+                                                outline,
+                                                polygon,
+                                                featureId,
+                                                opacity,
+                                                true,
+                                                depth + 1,
+                                                target,
+                                                iconResources));
             }
             return;
         }
@@ -490,6 +612,42 @@ final class SceneProtocol {
                 "rotationMode", placement.rotationMode().name(),
                 "fill", color(marker.fill()),
                 "stroke", optionalStroke(marker.stroke()),
+                "endpointBearing", optionalNumber(endpointBearing),
+                "opacity", opacity);
+    }
+
+    private static Map<String, Object> iconPrimitive(
+            Coordinate point,
+            RasterIconSymbol icon,
+            double opacity,
+            Optional<Double> endpointBearing,
+            String resource,
+            Budget budget) {
+        MarkerPlacement placement = icon.placement();
+        budget.add(1);
+        budget.addArrayOfNumbers(2);
+        budget.add(Integer.BYTES + resource.getBytes(StandardCharsets.UTF_8).length);
+        budget.addNumbers(2);
+        budget.addArrayOfNumbers(2);
+        budget.addArrayOfNumbers(2);
+        budget.addNumbers(2);
+        budget.add(5);
+        if (endpointBearing.isPresent()) {
+            budget.addNumbers(1);
+        }
+        return immutableMap(
+                "kind", "icon",
+                "coordinate", List.of(point.x(), point.y()),
+                "resource", resource,
+                "intrinsicWidth", icon.width(),
+                "intrinsicHeight", icon.height(),
+                "size", List.of(placement.size().width(), placement.size().height()),
+                "unit", placement.size().unit().name(),
+                "anchor", placement.anchor().name(),
+                "offset", List.of(placement.offsetX(), placement.offsetY()),
+                "rotationDegrees", placement.rotationDegrees(),
+                "rotationMode", placement.rotationMode().name(),
+                "interpolation", icon.interpolation().name(),
                 "endpointBearing", optionalNumber(endpointBearing),
                 "opacity", opacity);
     }
@@ -634,6 +792,23 @@ final class SceneProtocol {
         if (depth > MAX_SYMBOL_DEPTH) {
             throw limitFailure("symbolDepth", depth, MAX_SYMBOL_DEPTH);
         }
+    }
+
+    static void requireSymbolDepth(int depth) {
+        requireDepth(depth);
+    }
+
+    static MundaneMapException unsupportedBindingValue(String valueKind) {
+        return unsupported(valueKind, "binding");
+    }
+
+    private static String roleValueKind(SymbolRole role) {
+        return switch (role) {
+            case MARKER -> "marker symbol";
+            case LINE -> "line symbol";
+            case FILL -> "fill symbol";
+            case LEGACY_GEOMETRY -> "legacy symbol";
+        };
     }
 
     private static Map<String, Object> optionalStroke(Optional<SymbolStroke> stroke) {

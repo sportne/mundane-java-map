@@ -44,6 +44,9 @@ public final class MundaneMapException extends RuntimeException {
     /** The browser rejected or failed to paint an accepted scene. */
     public static final String CLIENT_FAILURE = "CLIENT_FAILURE";
 
+    /** A component/session-owned raster resource is absent, expired, or invalid. */
+    public static final String RESOURCE_UNAVAILABLE = "RESOURCE_UNAVAILABLE";
+
     /** Stable failure code retained with the exception. */
     private final String code;
 

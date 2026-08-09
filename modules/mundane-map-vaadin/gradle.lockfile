@@ -38,6 +38,7 @@ commons-io:commons-io:2.20.0=spotbugs
 info.picocli:picocli:4.7.7=checkstyle
 io.github.eisop:dataflow-errorprone:3.41.0-eisop1=annotationProcessor,testAnnotationProcessor
 io.github.java-diff-utils:java-diff-utils:4.12=annotationProcessor,testAnnotationProcessor
+jakarta.servlet:jakarta.servlet-api:6.1.0=compileClasspath
 javax.inject:javax.inject:1=annotationProcessor,testAnnotationProcessor
 jaxen:jaxen:2.0.0=spotbugs
 net.sf.saxon:Saxon-HE:12.9=checkstyle,spotbugs

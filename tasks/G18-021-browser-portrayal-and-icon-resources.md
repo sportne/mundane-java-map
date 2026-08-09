@@ -1,6 +1,6 @@
 # G18-021 — Browser portrayal and catalog icon resources
 
-Status: Proposed
+Status: Complete
 Depends on: G18-020, G14-007
 Gate: G18
 Type: AFK
@@ -52,3 +52,8 @@ git diff --check
 
 Java remains the only portrayal evaluator. The resource path accepts adapter-owned catalog bytes,
 never a caller- or feature-supplied URL.
+
+Implemented with exact resolver-driven source projection and scale/zoom/geometry context, followed
+by one closed scene protocol shared by native, SE, MapLibre-style, and MIL-STD-2525 portrayals.
+Explicit-catalog raster icons use bounded immutable same-origin session resources, atomic browser
+preload, stable diagnostics, and cleanup on replacement, detach, session destruction, and close.

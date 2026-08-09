@@ -1856,7 +1856,9 @@ class ArchitectureRulesTest {
         assertFalse(vaadinClasses.isEmpty(), "Expected a working Vaadin adapter");
         assertTrue(adapterViolations.isEmpty(), adapterViolations::toString);
         assertTrue(existingModuleLeaks.isEmpty(), existingModuleLeaks::toString);
-        assertFalse(frontendSource.contains("fetch("));
+        assertTrue(frontendSource.contains("fetch(resource"));
+        assertTrue(frontendSource.contains("credentials: 'same-origin'"));
+        assertTrue(frontendSource.contains("redirect: 'error'"));
         assertFalse(frontendSource.contains("http://"));
         assertFalse(frontendSource.contains("https://"));
         assertFalse(frontendSource.toLowerCase(java.util.Locale.ROOT).contains("maplibre"));
