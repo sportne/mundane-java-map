@@ -1,6 +1,6 @@
 # G18-030 — Browser interaction and tool routing
 
-Status: Proposed
+Status: Complete
 Depends on: G18-022, G3-003
 Gate: G18
 Type: AFK

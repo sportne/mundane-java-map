@@ -1,4 +1,5 @@
 const PROTOCOL_VERSION = 1;
+const MAX_PENDING_TOOL_EVENTS = 32;
 const MAX_LAYERS = 64;
 const MAX_FEATURES = 50000;
 const MAX_PRIMITIVES = 200000;
@@ -596,8 +597,8 @@ export class MundaneMapCanvas extends HTMLElement {
     this.attachShadow({mode: 'open'});
     this.canvas = document.createElement('canvas');
     this.canvas.setAttribute('part', 'canvas');
+    this.canvas.setAttribute('role', 'application');
     this.canvas.setAttribute('aria-label', 'Interactive map');
-    this.canvas.setAttribute('role', 'img');
     const style = document.createElement('style');
     style.textContent = ':host{display:block;min-width:1px;min-height:1px;overflow:hidden}' +
       'canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}';
@@ -616,6 +617,8 @@ export class MundaneMapCanvas extends HTMLElement {
       ['Uint8Array', typeof Uint8Array === 'function']
     ].find(entry => !entry[1])?.[0] || null;
     this.scene = null;
+    this.interactionLayers = [];
+    this.pendingInteractionOverlay = null;
     this.iconResources = new Map();
     this.sceneLoadAbort = null;
     this.sceneLoadSequence = 0;
@@ -630,6 +633,14 @@ export class MundaneMapCanvas extends HTMLElement {
     this.sceneGeneration = -1;
     this.viewportGeneration = 0;
     this.eventSequence = 0;
+    this.toolActive = false;
+    this.toolCaptured = false;
+    this.interactionEpoch = 0;
+    this.interactionChain = Promise.resolve();
+    this.pendingToolEvents = 0;
+    this.hoverTimer = 0;
+    this.pendingHoverEvent = null;
+    this.lastHoverMilliseconds = -Infinity;
     this.enabled = true;
     this.closed = false;
     this.active = false;
@@ -638,12 +649,28 @@ export class MundaneMapCanvas extends HTMLElement {
     this.settledRateTimer = 0;
     this.settledTokens = 10;
     this.settledRefillMilliseconds = performance.now();
+    this.toolPointerTokens = 120;
+    this.toolPointerRefillMilliseconds = this.settledRefillMilliseconds;
+    this.toolPointerRateLimited = false;
+    this.toolPointerRateCancellationQueued = false;
+    this.pendingCancellationCount = 0;
+    this.requiredCancellationPending = false;
+    this.viewportDirty = false;
     this.pointers = new Map();
+    this.lastPointerSnapshot = null;
     this.lastPinch = null;
     this.boundPointerDown = event => this.onPointerDown(event);
     this.boundPointerMove = event => this.onPointerMove(event);
     this.boundPointerUp = event => this.onPointerUp(event);
+    this.boundPointerCancel = event => this.onPointerCancel(event);
+    this.boundClick = event => this.onClick(event);
+    this.boundAuxClick = event => this.onAuxClick(event);
+    this.boundContextMenu = event => this.onContextMenu(event);
     this.boundWheel = event => this.onWheel(event);
+    this.boundKeyDown = event => this.onKeyDown(event);
+    this.boundBlur = event => this.onBlur(event);
+    this.boundFocus = () => this.onFocus();
+    this.boundPointerLeave = event => this.onPointerLeave(event);
     this.boundWindowResize = () => this.resizeCanvas();
     this.resizeObserver = this.missingCapability ? null :
       new ResizeObserver(() => this.resizeCanvas());
@@ -665,6 +692,7 @@ export class MundaneMapCanvas extends HTMLElement {
       this.reportFailure('PROTOCOL_VERSION_UNSUPPORTED');
       return;
     }
+    this.interactionEpoch++;
     this.cancelSceneLoad();
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
@@ -673,12 +701,18 @@ export class MundaneMapCanvas extends HTMLElement {
     this.pendingLabelAcknowledgement = null;
     this.iconResources.clear();
     this.scene = null;
+    this.interactionLayers = [];
+    this.pendingInteractionOverlay = null;
     this.componentGeneration = componentGeneration;
     this.sceneGeneration = sceneGeneration - 1;
     this.expectedSceneGeneration = sceneGeneration;
     this.eventSequence = 0;
     this.settledTokens = 10;
     this.settledRefillMilliseconds = performance.now();
+    this.toolPointerTokens = 120;
+    this.toolPointerRefillMilliseconds = this.settledRefillMilliseconds;
+    this.toolPointerRateLimited = false;
+    this.toolPointerRateCancellationQueued = false;
     if (this.missingCapability) {
       this.reportFailure('BROWSER_CAPABILITY_UNSUPPORTED', sceneGeneration);
       return;
@@ -690,6 +724,7 @@ export class MundaneMapCanvas extends HTMLElement {
 
   deactivateMap(version, componentGeneration) {
     if (version === PROTOCOL_VERSION && componentGeneration === this.componentGeneration) {
+      this.interactionEpoch++;
       this.cancelSceneLoad();
       this.pendingSceneGeneration = -1;
       this.pendingViewport = null;
@@ -698,6 +733,8 @@ export class MundaneMapCanvas extends HTMLElement {
       this.pendingLabelAcknowledgement = null;
       this.iconResources.clear();
       this.scene = null;
+      this.interactionLayers = [];
+      this.pendingInteractionOverlay = null;
       this.teardown();
     }
   }
@@ -707,8 +744,11 @@ export class MundaneMapCanvas extends HTMLElement {
       return;
     }
     this.componentGeneration = componentGeneration;
+    this.interactionEpoch++;
     this.closed = true;
     this.scene = null;
+    this.interactionLayers = [];
+    this.pendingInteractionOverlay = null;
     this.cancelSceneLoad();
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
@@ -723,7 +763,9 @@ export class MundaneMapCanvas extends HTMLElement {
   }
 
   setMapEnabled(enabled) {
-    this.enabled = Boolean(enabled);
+    const next = Boolean(enabled);
+    if (next !== this.enabled) this.interactionEpoch++;
+    this.enabled = next;
     if (!this.enabled) {
       this.placedLabels = [];
       this.lastLabelMeasurementKey = null;
@@ -731,6 +773,57 @@ export class MundaneMapCanvas extends HTMLElement {
       this.teardown();
     } else if (this.isConnected && !this.closed) {
       this.setup();
+    }
+  }
+
+  setToolState(active, captured, cursor) {
+    this.toolActive = Boolean(active);
+    this.toolCaptured = Boolean(captured);
+    const cursors = {DEFAULT: 'default', CROSSHAIR: 'crosshair', HAND: 'pointer', MOVE: 'move'};
+    this.canvas.style.cursor = cursors[cursor] || 'default';
+  }
+
+  resetToolState(active, captured, cursor) {
+    this.settleTerminatedGesture();
+    this.interactionEpoch++;
+    this.releaseClientPointers();
+    this.setToolState(active, captured, cursor);
+  }
+
+  requestMapPaint() {
+    this.schedulePaint();
+  }
+
+  setInteractionOverlay(version, componentGeneration, sceneGeneration,
+      viewportGeneration, layers) {
+    if (version !== PROTOCOL_VERSION || componentGeneration !== this.componentGeneration ||
+        !Array.isArray(layers)) {
+      return;
+    }
+    if (sceneGeneration === this.pendingSceneGeneration) {
+      this.pendingInteractionOverlay = {version, componentGeneration, sceneGeneration,
+        viewportGeneration, layers};
+      return;
+    }
+    if (sceneGeneration !== this.sceneGeneration ||
+        viewportGeneration !== this.viewportGeneration) return;
+    try {
+      const candidate = validateScene({
+        protocolVersion: PROTOCOL_VERSION,
+        componentGeneration,
+        sceneGeneration,
+        viewportGeneration,
+        background: [0, 0, 0, 0],
+        viewport: {...this.viewport},
+        labelCandidates: [],
+        layers
+      }, componentGeneration, sceneGeneration - 1);
+      this.interactionLayers = deepFreeze(candidate.layers);
+      this.pendingInteractionOverlay = null;
+      this.preflightLayers(this.interactionLayers, this.iconResources);
+      this.schedulePaint();
+    } catch (error) {
+      this.reportFailure(error.message);
     }
   }
 
@@ -764,9 +857,16 @@ export class MundaneMapCanvas extends HTMLElement {
       this.reportFailure(error.message, candidate.sceneGeneration);
       return;
     }
+    this.interactionEpoch++;
+    this.toolPointerRateLimited = false;
+    this.toolPointerRateCancellationQueued = false;
+    this.viewportDirty = false;
+    this.setToolState(this.toolActive, false, 'DEFAULT');
+    this.releaseClientPointers();
     this.cancelSceneLoad();
     this.pendingSceneGeneration = accepted.sceneGeneration;
     this.pendingViewport = null;
+    this.pendingInteractionOverlay = null;
     const sequence = ++this.sceneLoadSequence;
     if (!resources.size) {
       this.acceptLoadedScene(accepted, acceptedViewport, new Map(), sequence);
@@ -861,11 +961,14 @@ export class MundaneMapCanvas extends HTMLElement {
       queued.viewportGeneration >= accepted.viewportGeneration ?
       queued.viewportGeneration : accepted.viewportGeneration;
     const previousViewport = this.viewport;
+    const previousInteractionLayers = this.interactionLayers;
     this.viewport = finalViewport;
+    this.interactionLayers = [];
     try {
       this.preflightPaint(accepted, icons);
     } catch (error) {
       this.viewport = previousViewport;
+      this.interactionLayers = previousInteractionLayers;
       this.pendingSceneGeneration = -1;
       this.pendingViewport = null;
       this.reportFailure(error.message, accepted.sceneGeneration);
@@ -880,10 +983,18 @@ export class MundaneMapCanvas extends HTMLElement {
     this.sceneGeneration = accepted.sceneGeneration;
     this.viewportGeneration = finalViewportGeneration;
     this.viewport = finalViewport;
+    this.viewportDirty = false;
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
+    const pendingOverlay = this.pendingInteractionOverlay;
+    this.pendingInteractionOverlay = null;
     this.schedulePaint();
     this.requestLabelMeasurements();
+    if (pendingOverlay && pendingOverlay.sceneGeneration === this.sceneGeneration &&
+        pendingOverlay.viewportGeneration === this.viewportGeneration) {
+      this.setInteractionOverlay(pendingOverlay.version, pendingOverlay.componentGeneration,
+        pendingOverlay.sceneGeneration, pendingOverlay.viewportGeneration, pendingOverlay.layers);
+    }
   }
 
   setMapViewport(version, componentGeneration, sceneGeneration, viewportGeneration,
@@ -927,6 +1038,7 @@ export class MundaneMapCanvas extends HTMLElement {
       const changed = viewportGeneration !== this.viewportGeneration;
       this.viewport = candidate;
       this.viewportGeneration = viewportGeneration;
+      this.viewportDirty = false;
       if (changed) {
         this.placedLabels = [];
         this.pendingLabelAcknowledgement = null;
@@ -1043,8 +1155,15 @@ export class MundaneMapCanvas extends HTMLElement {
     this.canvas.addEventListener('pointerdown', this.boundPointerDown);
     this.canvas.addEventListener('pointermove', this.boundPointerMove);
     this.canvas.addEventListener('pointerup', this.boundPointerUp);
-    this.canvas.addEventListener('pointercancel', this.boundPointerUp);
+    this.canvas.addEventListener('pointercancel', this.boundPointerCancel);
+    this.canvas.addEventListener('pointerleave', this.boundPointerLeave);
+    this.canvas.addEventListener('click', this.boundClick);
+    this.canvas.addEventListener('auxclick', this.boundAuxClick);
+    this.canvas.addEventListener('contextmenu', this.boundContextMenu);
     this.canvas.addEventListener('wheel', this.boundWheel, {passive: false});
+    this.canvas.addEventListener('keydown', this.boundKeyDown);
+    this.canvas.addEventListener('blur', this.boundBlur);
+    this.canvas.addEventListener('focus', this.boundFocus);
     this.resizeObserver.observe(this);
     window.addEventListener('resize', this.boundWindowResize);
     this.resizeCanvas();
@@ -1064,8 +1183,15 @@ export class MundaneMapCanvas extends HTMLElement {
     this.canvas.removeEventListener('pointerdown', this.boundPointerDown);
     this.canvas.removeEventListener('pointermove', this.boundPointerMove);
     this.canvas.removeEventListener('pointerup', this.boundPointerUp);
-    this.canvas.removeEventListener('pointercancel', this.boundPointerUp);
+    this.canvas.removeEventListener('pointercancel', this.boundPointerCancel);
+    this.canvas.removeEventListener('pointerleave', this.boundPointerLeave);
+    this.canvas.removeEventListener('click', this.boundClick);
+    this.canvas.removeEventListener('auxclick', this.boundAuxClick);
+    this.canvas.removeEventListener('contextmenu', this.boundContextMenu);
     this.canvas.removeEventListener('wheel', this.boundWheel);
+    this.canvas.removeEventListener('keydown', this.boundKeyDown);
+    this.canvas.removeEventListener('blur', this.boundBlur);
+    this.canvas.removeEventListener('focus', this.boundFocus);
     for (const pointerId of this.pointers.keys()) {
       if (this.canvas.hasPointerCapture(pointerId)) {
         this.canvas.releasePointerCapture(pointerId);
@@ -1073,6 +1199,11 @@ export class MundaneMapCanvas extends HTMLElement {
     }
     this.pointers.clear();
     this.lastPinch = null;
+    if (this.hoverTimer) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = 0;
+    }
+    this.pendingHoverEvent = null;
     if (this.paintFrame) {
       cancelAnimationFrame(this.paintFrame);
       this.paintFrame = 0;
@@ -1103,8 +1234,14 @@ export class MundaneMapCanvas extends HTMLElement {
     this.canvas.width = backingWidth;
     this.canvas.height = backingHeight;
     this.canvas.dataset.devicePixelRatio = String(dpr);
+    if (changed && (this.pointers.size || this.toolCaptured)) {
+      this.settleTerminatedGesture();
+      this.sendCancellation(this.lifecycleSnapshot({}), 'POINTER_STATE_LOST');
+      this.releaseClientPointers();
+    }
     this.viewport = resizeViewport(this.viewport, width, height);
     if (changed) {
+      this.viewportDirty = true;
       this.placedLabels = [];
       this.pendingLabelAcknowledgement = null;
     }
@@ -1152,6 +1289,13 @@ export class MundaneMapCanvas extends HTMLElement {
           this.context.fillText(label.text, label.baselineX, label.baselineY);
         } finally {
           this.context.restore();
+        }
+      }
+      for (const layer of this.interactionLayers) {
+        for (const feature of layer.features) {
+          for (const primitive of feature.primitives) {
+            this.drawPrimitive(primitive);
+          }
         }
       }
     } catch (error) {
@@ -1416,8 +1560,12 @@ export class MundaneMapCanvas extends HTMLElement {
     if (!scene) {
       return;
     }
+    this.preflightLayers([...scene.layers, ...this.interactionLayers], iconResources);
+  }
+
+  preflightLayers(layers, iconResources) {
     let hatchSegments = 0;
-    for (const layer of scene.layers) {
+    for (const layer of layers) {
       for (const feature of layer.features) {
         for (const primitive of feature.primitives) {
           if (primitive.kind === 'icon') {
@@ -1520,51 +1668,148 @@ export class MundaneMapCanvas extends HTMLElement {
     if (!this.enabled || this.closed) {
       return;
     }
+    this.rememberPointerEvent(event);
+    this.canvas.focus?.({preventScroll: true});
     this.canvas.setPointerCapture(event.pointerId);
-    this.pointers.set(event.pointerId, {x: event.offsetX, y: event.offsetY});
+    this.pointers.set(event.pointerId, {x: event.offsetX, y: event.offsetY,
+      button: this.pointerButton(event.button), moved: false});
     this.updatePinch();
+    if (this.toolActive) {
+      this.sendInteraction(event, 'PRESS', '').then(outcome => {
+        this.applyToolOutcome(outcome, event.pointerId);
+      });
+    } else {
+      this.sendInteraction(event, 'PRESS', '').then(outcome => this.applyToolOutcome(outcome));
+    }
   }
 
   onPointerMove(event) {
+    this.rememberPointerEvent(event);
     const previous = this.pointers.get(event.pointerId);
     if (!previous) {
+      if (event.buttons === 0) {
+        this.queueHover(event);
+      } else if (this.toolActive) {
+        this.sendCancellation(event, 'POINTER_STATE_LOST');
+      }
       return;
     }
-    const current = {x: event.offsetX, y: event.offsetY};
-    this.pointers.set(event.pointerId, current);
-    if (this.pointers.size === 1) {
-      this.viewport = panViewport(this.viewport,
-        current.x - previous.x, current.y - previous.y);
-    } else if (this.pointers.size === 2 && this.lastPinch) {
-      const points = [...this.pointers.values()];
-      const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
-      const centerX = (points[0].x + points[1].x) / 2;
-      const centerY = (points[0].y + points[1].y) / 2;
-      if (this.lastPinch.distance > 0 && distance > 0) {
-        this.viewport = panViewport(this.viewport,
-          centerX - this.lastPinch.centerX, centerY - this.lastPinch.centerY);
-        this.viewport = zoomViewport(this.viewport, centerX, centerY,
-          distance / this.lastPinch.distance);
-      }
-      this.lastPinch = {distance, centerX, centerY};
+    if (event.buttons === 0) {
+      this.settleTerminatedGesture();
+      this.sendCancellation(event, 'POINTER_STATE_LOST');
+      this.releaseClientPointers();
+      return;
     }
-    this.placedLabels = [];
-    this.pendingLabelAcknowledgement = null;
-    this.schedulePaint();
+    const current = {x: event.offsetX, y: event.offsetY,
+      button: previous.button, moved: true};
+    this.pointers.set(event.pointerId, current);
+    const navigate = () => {
+      try {
+        let next = this.viewport;
+        if (this.pointers.size === 1 && event.buttons === 1) {
+          next = panViewport(next,
+            current.x - previous.x, current.y - previous.y);
+        } else if (this.pointers.size === 2 && this.lastPinch) {
+          const points = [...this.pointers.values()];
+          const distance = Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y);
+          const centerX = (points[0].x + points[1].x) / 2;
+          const centerY = (points[0].y + points[1].y) / 2;
+          if (this.lastPinch.distance > 0 && distance > 0) {
+            next = panViewport(next,
+              centerX - this.lastPinch.centerX, centerY - this.lastPinch.centerY);
+            next = zoomViewport(next, centerX, centerY,
+              distance / this.lastPinch.distance);
+          }
+          this.lastPinch = {distance, centerX, centerY};
+        }
+        this.viewport = next;
+        this.afterLocalNavigation(false);
+        return true;
+      } catch (error) {
+        this.reportFailure(error.message);
+        return false;
+      }
+    };
+    if (this.toolActive) {
+      this.applyRoutedInteraction(this.sendInteraction(event, 'DRAG', ''), outcome => {
+        this.applyToolOutcome(outcome, event.pointerId);
+        return Boolean(outcome?.accepted && !outcome.suppressDefault && navigate());
+      });
+      return;
+    }
+    navigate();
   }
 
   onPointerUp(event) {
     if (!this.pointers.has(event.pointerId)) {
       return;
     }
-    this.pointers.delete(event.pointerId);
-    if (this.canvas.hasPointerCapture(event.pointerId)) {
-      this.canvas.releasePointerCapture(event.pointerId);
+    this.rememberPointerEvent(event);
+    const retained = event.buttons !== 0;
+    if (retained) {
+      const previous = this.pointers.get(event.pointerId);
+      this.pointers.set(event.pointerId, {
+        x: event.offsetX, y: event.offsetY, button: previous.button, moved: previous.moved
+      });
+    } else {
+      this.pointers.delete(event.pointerId);
+    }
+    if (this.toolActive) {
+      this.sendInteraction(event, 'RELEASE', '').then(outcome => {
+        this.applyToolOutcome(outcome, event.pointerId);
+        if (!retained && !outcome?.captured && this.canvas.hasPointerCapture(event.pointerId)) {
+          this.canvas.releasePointerCapture(event.pointerId);
+        }
+      });
+    } else {
+      this.sendInteraction(event, 'RELEASE', '').then(outcome => this.applyToolOutcome(outcome));
+      if (!retained && this.canvas.hasPointerCapture(event.pointerId)) {
+        this.canvas.releasePointerCapture(event.pointerId);
+      }
     }
     this.updatePinch();
     if (!this.pointers.size) {
       this.emitSettled();
     }
+  }
+
+  onPointerCancel(event) {
+    if (!this.pointers.has(event.pointerId)) return;
+    this.rememberPointerEvent(event);
+    this.settleTerminatedGesture();
+    this.sendCancellation(event, 'POINTER_STATE_LOST');
+    this.releaseClientPointers();
+  }
+
+  onPointerLeave(event) {
+    this.rememberPointerEvent(event);
+    if (!this.toolCaptured) {
+      this.settleTerminatedGesture();
+      this.sendCancellation(event, 'POINTER_EXITED');
+      this.releaseClientPointers();
+    }
+    this.pendingHoverEvent = null;
+  }
+
+  onClick(event) {
+    if (!this.enabled || this.closed || this.pointers.size) return;
+    this.rememberPointerEvent(event);
+    this.sendInteraction(event, 'CLICK', '').then(outcome => this.applyToolOutcome(outcome));
+  }
+
+  onAuxClick(event) {
+    if (!this.enabled || this.closed || this.pointers.size || event.button !== 1) return;
+    this.rememberPointerEvent(event);
+    event.preventDefault();
+    this.sendInteraction(event, 'CLICK', '').then(outcome => this.applyToolOutcome(outcome));
+  }
+
+  onContextMenu(event) {
+    if (!this.enabled || this.closed || this.pointers.size) return;
+    this.rememberPointerEvent(event);
+    event.preventDefault();
+    this.sendInteraction(event, 'CLICK', '', true)
+      .then(outcome => this.applyToolOutcome(outcome));
   }
 
   updatePinch() {
@@ -1584,30 +1829,473 @@ export class MundaneMapCanvas extends HTMLElement {
     if (!this.enabled || this.closed) {
       return;
     }
+    this.rememberPointerEvent(event);
     event.preventDefault();
-    const factor = Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * 0.002);
-    this.viewport = zoomViewport(this.viewport, event.offsetX, event.offsetY, factor);
+    const navigate = () => {
+      const factor = Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * 0.002);
+      try {
+        this.viewport = zoomViewport(this.viewport, event.offsetX, event.offsetY, factor);
+        this.afterLocalNavigation(true);
+        return true;
+      } catch (error) {
+        this.reportFailure(error.message);
+        return false;
+      }
+    };
+    if (this.toolActive) {
+      this.applyRoutedInteraction(this.sendInteraction(event, 'WHEEL', ''), outcome => {
+        this.applyToolOutcome(outcome);
+        return Boolean(outcome?.accepted && !outcome.suppressDefault && navigate());
+      });
+    } else {
+      navigate();
+    }
+  }
+
+  onKeyDown(event) {
+    if (!this.enabled || this.closed || event.altKey || event.ctrlKey || event.metaKey ||
+        event.shiftKey) return;
+    if (event.key === 'Backspace' && this.toolActive) {
+      event.preventDefault();
+      this.sendCommand('DELETE_BACKWARD').then(outcome => this.applyToolOutcome(outcome));
+      return;
+    }
+    if (event.key === 'Escape' && (this.toolActive || this.pointers.size)) {
+      event.preventDefault();
+      this.settleTerminatedGesture();
+      this.sendCancellation(this.lifecycleSnapshot(event), 'USER_CANCEL');
+      this.releaseClientPointers();
+      return;
+    }
+    const pans = {ArrowLeft: [40, 0], ArrowRight: [-40, 0],
+      ArrowUp: [0, 40], ArrowDown: [0, -40]};
+    if (pans[event.key]) {
+      event.preventDefault();
+      try {
+        this.viewport = panViewport(this.viewport, ...pans[event.key]);
+        this.afterLocalNavigation(true);
+      } catch (error) {
+        this.reportFailure(error.message);
+      }
+      return;
+    }
+    if (['+', '=', '-', '_'].includes(event.key)) {
+      event.preventDefault();
+      const factor = ['+', '='].includes(event.key) ? 2 : 0.5;
+      try {
+        this.viewport = zoomViewport(this.viewport,
+          this.viewport.width / 2, this.viewport.height / 2, factor);
+        this.afterLocalNavigation(true);
+      } catch (error) {
+        this.reportFailure(error.message);
+      }
+    }
+  }
+
+  onBlur(event) {
+    if (this.toolActive || this.pointers.size) {
+      this.settleTerminatedGesture();
+      this.sendCancellation(this.lifecycleSnapshot(event), 'FOCUS_LOST');
+      this.releaseClientPointers();
+    }
+  }
+
+  onFocus() {
+    if (!this.enabled || this.closed || !this.toolActive) return;
+    this.sendResume().then(outcome => this.applyToolOutcome(outcome));
+  }
+
+  queueHover(event) {
+    const snapshot = this.eventSnapshot(event);
+    const elapsed = performance.now() - this.lastHoverMilliseconds;
+    if (elapsed >= 50 && !this.hoverTimer) {
+      this.lastHoverMilliseconds = performance.now();
+      this.sendInteraction(snapshot, 'MOVE', '').then(outcome => this.applyToolOutcome(outcome));
+      return;
+    }
+    this.pendingHoverEvent = snapshot;
+    if (!this.hoverTimer) {
+      this.hoverTimer = setTimeout(() => {
+        this.hoverTimer = 0;
+        const pending = this.pendingHoverEvent;
+        this.pendingHoverEvent = null;
+        if (pending) {
+          this.lastHoverMilliseconds = performance.now();
+          this.sendInteraction(pending, 'MOVE', '')
+            .then(outcome => this.applyToolOutcome(outcome));
+        }
+      }, Math.max(1, Math.ceil(50 - elapsed)));
+    }
+  }
+
+  afterLocalNavigation(settle) {
+    this.viewportDirty = true;
     this.placedLabels = [];
     this.pendingLabelAcknowledgement = null;
+    this.interactionLayers = this.interactionLayers.filter(layer => layer.id !== '__hover');
     this.schedulePaint();
-    if (this.settleTimer) {
-      clearTimeout(this.settleTimer);
-    }
+    if (!settle) return;
+    if (this.settleTimer) clearTimeout(this.settleTimer);
     this.settleTimer = setTimeout(() => {
       this.settleTimer = 0;
       this.emitSettled();
     }, 80);
   }
 
-  emitSettled() {
+  pointerButton(button) {
+    return Number.isInteger(button) && button >= 0 && button <= 2 ? button + 1 : 0;
+  }
+
+  modifierMask(event) {
+    return (event.shiftKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) |
+      (event.altKey ? 4 : 0) | (event.metaKey ? 8 : 0) |
+      (event.getModifierState?.('AltGraph') ? 16 : 0);
+  }
+
+  eventSnapshot(event) {
+    return {
+      offsetX: Number(event.offsetX ?? 0), offsetY: Number(event.offsetY ?? 0),
+      button: Number(event.button ?? -1), buttons: Number(event.buttons ?? 0),
+      detail: Number(event.detail ?? 0), deltaY: Number(event.deltaY ?? 0),
+      shiftKey: Boolean(event.shiftKey), ctrlKey: Boolean(event.ctrlKey),
+      altKey: Boolean(event.altKey), metaKey: Boolean(event.metaKey),
+      getModifierState: name => name === 'AltGraph' && Boolean(event.getModifierState?.(name))
+    };
+  }
+
+  rememberPointerEvent(event) {
+    if (Number.isFinite(event.offsetX) && Number.isFinite(event.offsetY)) {
+      this.lastPointerSnapshot = this.eventSnapshot(event);
+    }
+  }
+
+  lifecycleSnapshot(event) {
+    const retained = this.lastPointerSnapshot || {
+      offsetX: this.viewport.width / 2, offsetY: this.viewport.height / 2,
+      button: -1, buttons: 0, detail: 0, deltaY: 0,
+      shiftKey: false, ctrlKey: false, altKey: false, metaKey: false,
+      getModifierState: () => false
+    };
+    return {
+      ...retained,
+      shiftKey: typeof event.shiftKey === 'boolean' ? event.shiftKey : retained.shiftKey,
+      ctrlKey: typeof event.ctrlKey === 'boolean' ? event.ctrlKey : retained.ctrlKey,
+      altKey: typeof event.altKey === 'boolean' ? event.altKey : retained.altKey,
+      metaKey: typeof event.metaKey === 'boolean' ? event.metaKey : retained.metaKey,
+      getModifierState: name => typeof event.getModifierState === 'function' ?
+        event.getModifierState(name) : retained.getModifierState?.(name)
+    };
+  }
+
+  sendInteraction(event, type, cancelReason, popupTrigger = false,
+    requiredCancellation = false) {
+    const snapshot = this.eventSnapshot(event);
+    if (type === 'CANCEL' && !requiredCancellation &&
+        this.pendingToolEvents >= MAX_PENDING_TOOL_EVENTS + 2) {
+      return Promise.resolve(
+        {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+    }
+    if (type !== 'CANCEL') {
+      const now = performance.now();
+      const elapsed = Math.max(0, now - this.toolPointerRefillMilliseconds);
+      this.toolPointerRefillMilliseconds = now;
+      this.toolPointerTokens = Math.min(120,
+        this.toolPointerTokens + elapsed * 0.12);
+      if (this.toolPointerRateLimited) {
+        return Promise.resolve(
+          {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+      }
+      if (this.pendingToolEvents >= MAX_PENDING_TOOL_EVENTS) {
+        this.beginClientRateCancellation(snapshot);
+        return Promise.resolve(
+          {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+      }
+      if (this.toolPointerTokens < 1) {
+        this.toolPointerRateLimited = true;
+      } else {
+        this.toolPointerTokens -= 1;
+      }
+    }
+    const result = this.enqueueInteraction(snapshot, type, cancelReason, popupTrigger);
+    if (type !== 'CANCEL' && this.toolPointerRateLimited) {
+      this.beginClientRateCancellation(snapshot);
+    }
+    return result;
+  }
+
+  enqueueInteraction(snapshot, type, cancelReason, popupTrigger) {
+    const componentGeneration = this.componentGeneration;
+    const sceneGeneration = this.sceneGeneration;
+    const interactionEpoch = this.interactionEpoch;
+    const operation = async () => {
+      if (!this.$server?.acceptMapInteraction || !this.active || !this.scene ||
+          interactionEpoch !== this.interactionEpoch) {
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      const changedButton = ['PRESS', 'RELEASE', 'CLICK'].includes(type) ?
+        this.pointerButton(snapshot.button) : 0;
+      const clickCount = ['PRESS', 'RELEASE'].includes(type) ?
+        Math.max(0, Math.trunc(snapshot.detail)) :
+        (type === 'CLICK' ? Math.max(1, Math.trunc(snapshot.detail || 1)) : 0);
+      const wheel = type === 'WHEEL' ? snapshot.deltaY : 0;
+      const viewportGeneration = this.viewportGeneration;
+      let outcome;
+      try {
+        outcome = await this.$server.acceptMapInteraction(PROTOCOL_VERSION,
+          componentGeneration, sceneGeneration, viewportGeneration,
+          this.eventSequence++, type, snapshot.offsetX, snapshot.offsetY,
+          changedButton, snapshot.buttons, this.modifierMask(snapshot), clickCount,
+          wheel, popupTrigger, cancelReason);
+      } catch (error) {
+        if (type !== 'CANCEL') {
+          this.beginClientFailureCancellation(snapshot);
+        } else {
+          this.toolPointerRateLimited = false;
+          this.toolPointerRateCancellationQueued = false;
+          this.setToolState(this.toolActive, false, 'DEFAULT');
+          this.releaseClientPointers();
+        }
+        this.reportFailure(error?.message || 'CLIENT_FAILURE');
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      if (type === 'CANCEL') {
+        this.toolPointerRateLimited = false;
+        this.toolPointerRateCancellationQueued = false;
+      }
+      if (interactionEpoch !== this.interactionEpoch || !this.active || !this.enabled ||
+          this.closed || componentGeneration !== this.componentGeneration ||
+          sceneGeneration !== this.sceneGeneration ||
+          viewportGeneration !== this.viewportGeneration) {
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      return outcome;
+    };
+    this.pendingToolEvents++;
+    const result = this.interactionChain.then(operation, operation);
+    const tracked = result.finally(() => this.pendingToolEvents--);
+    this.interactionChain = tracked.catch(
+      error => this.reportFailure(error?.message || 'CLIENT_FAILURE'));
+    return tracked;
+  }
+
+  sendCommand(command) {
+    const snapshot = {offsetX: this.viewport.width / 2, offsetY: this.viewport.height / 2,
+      button: -1, buttons: 0};
+    const now = performance.now();
+    const elapsed = Math.max(0, now - this.toolPointerRefillMilliseconds);
+    this.toolPointerRefillMilliseconds = now;
+    this.toolPointerTokens = Math.min(120, this.toolPointerTokens + elapsed * 0.12);
+    if (this.toolPointerRateLimited) {
+      return Promise.resolve(
+        {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+    }
+    if (this.pendingToolEvents >= MAX_PENDING_TOOL_EVENTS) {
+      this.beginClientRateCancellation(snapshot);
+      return Promise.resolve(
+        {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+    }
+    if (this.toolPointerTokens < 1) {
+      this.toolPointerRateLimited = true;
+    } else {
+      this.toolPointerTokens -= 1;
+    }
+    const componentGeneration = this.componentGeneration;
+    const sceneGeneration = this.sceneGeneration;
+    const interactionEpoch = this.interactionEpoch;
+    const operation = async () => {
+      if (!this.$server?.acceptMapCommand || !this.active || !this.scene ||
+          interactionEpoch !== this.interactionEpoch) {
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      const viewportGeneration = this.viewportGeneration;
+      let outcome;
+      try {
+        outcome = await this.$server.acceptMapCommand(PROTOCOL_VERSION,
+          componentGeneration, sceneGeneration, viewportGeneration,
+          this.eventSequence++, command);
+      } catch (error) {
+        this.beginClientFailureCancellation(snapshot);
+        this.reportFailure(error?.message || 'CLIENT_FAILURE');
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      if (interactionEpoch !== this.interactionEpoch || !this.active || !this.enabled ||
+          this.closed || componentGeneration !== this.componentGeneration ||
+          sceneGeneration !== this.sceneGeneration ||
+          viewportGeneration !== this.viewportGeneration) {
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      return outcome;
+    };
+    this.pendingToolEvents++;
+    const result = this.interactionChain.then(operation, operation);
+    const tracked = result.finally(() => this.pendingToolEvents--);
+    this.interactionChain = tracked.catch(
+      error => this.reportFailure(error?.message || 'CLIENT_FAILURE'));
+    if (this.toolPointerRateLimited) this.beginClientRateCancellation(snapshot);
+    return tracked;
+  }
+
+  sendResume() {
+    const snapshot = this.lifecycleSnapshot({});
+    const now = performance.now();
+    const elapsed = Math.max(0, now - this.toolPointerRefillMilliseconds);
+    this.toolPointerRefillMilliseconds = now;
+    this.toolPointerTokens = Math.min(120, this.toolPointerTokens + elapsed * 0.12);
+    if (this.toolPointerRateLimited || this.pendingToolEvents >= MAX_PENDING_TOOL_EVENTS) {
+      if (!this.toolPointerRateLimited) this.beginClientRateCancellation(snapshot);
+      return Promise.resolve(
+        {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+    }
+    if (this.toolPointerTokens < 1) {
+      this.toolPointerRateLimited = true;
+    } else {
+      this.toolPointerTokens -= 1;
+    }
+    const componentGeneration = this.componentGeneration;
+    const sceneGeneration = this.sceneGeneration;
+    const interactionEpoch = this.interactionEpoch;
+    const operation = async () => {
+      if (!this.$server?.acceptMapToolResume || !this.active || !this.scene ||
+          interactionEpoch !== this.interactionEpoch) {
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      const viewportGeneration = this.viewportGeneration;
+      let outcome;
+      try {
+        outcome = await this.$server.acceptMapToolResume(PROTOCOL_VERSION,
+          componentGeneration, sceneGeneration, viewportGeneration, this.eventSequence++);
+      } catch (error) {
+        this.beginClientFailureCancellation(snapshot);
+        this.reportFailure(error?.message || 'CLIENT_FAILURE');
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      if (interactionEpoch !== this.interactionEpoch || !this.active || !this.enabled ||
+          this.closed || componentGeneration !== this.componentGeneration ||
+          sceneGeneration !== this.sceneGeneration ||
+          viewportGeneration !== this.viewportGeneration) {
+        return {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'};
+      }
+      return outcome;
+    };
+    this.pendingToolEvents++;
+    const result = this.interactionChain.then(operation, operation);
+    const tracked = result.finally(() => this.pendingToolEvents--);
+    this.interactionChain = tracked.catch(
+      error => this.reportFailure(error?.message || 'CLIENT_FAILURE'));
+    if (this.toolPointerRateLimited) this.beginClientRateCancellation(snapshot);
+    return tracked;
+  }
+
+  applyRoutedInteraction(result, action) {
+    const applied = result.then(async outcome => {
+      if (action(outcome)) await this.syncToolViewport();
+      return outcome;
+    });
+    this.interactionChain = applied.catch(
+      error => this.reportFailure(error?.message || 'CLIENT_FAILURE'));
+    return applied;
+  }
+
+  async syncToolViewport() {
+    if (!this.$server?.acceptTransientViewport || !this.active || !this.scene) return;
+    const reportedGeneration = this.viewportGeneration;
+    const settledViewport = {...this.viewport};
+    this.viewportGeneration++;
+    await this.$server.acceptTransientViewport(PROTOCOL_VERSION, this.componentGeneration,
+      this.sceneGeneration, reportedGeneration, this.eventSequence++,
+      settledViewport.width, settledViewport.height,
+      settledViewport.centerX, settledViewport.centerY, settledViewport.worldUnitsPerPixel);
+  }
+
+  sendCancellation(event, reason, required = false) {
+    if ((required && this.requiredCancellationPending) ||
+        (!required && this.pendingCancellationCount > 0)) {
+      return Promise.resolve(
+        {accepted: false, suppressDefault: true, captured: false, cursor: 'DEFAULT'});
+    }
+    this.pendingCancellationCount++;
+    if (required) this.requiredCancellationPending = true;
+    const completed = this.sendInteraction(event, 'CANCEL', reason, false, required)
+      .then(outcome => this.applyToolOutcome(outcome))
+      .finally(() => {
+        this.pendingCancellationCount--;
+        if (required) this.requiredCancellationPending = false;
+      });
+    this.interactionChain = completed.catch(
+      error => this.reportFailure(error?.message || 'CLIENT_FAILURE'));
+    return completed;
+  }
+
+  beginClientRateCancellation(event) {
+    if (this.toolPointerRateCancellationQueued) return;
+    this.interactionEpoch++;
+    this.toolPointerRateLimited = true;
+    this.toolPointerRateCancellationQueued = true;
+    const snapshot = this.eventSnapshot(event);
+    this.settleTerminatedGesture();
+    this.setToolState(this.toolActive, false, 'DEFAULT');
+    this.releaseClientPointers();
+    this.sendCancellation({...snapshot, button: -1}, 'POINTER_STATE_LOST', true);
+  }
+
+  beginClientFailureCancellation(event) {
+    if (this.toolPointerRateCancellationQueued) return;
+    this.interactionEpoch++;
+    this.toolPointerRateCancellationQueued = true;
+    const snapshot = this.eventSnapshot(event);
+    this.settleTerminatedGesture();
+    this.setToolState(this.toolActive, false, 'DEFAULT');
+    this.releaseClientPointers();
+    this.sendCancellation({...snapshot, button: -1}, 'POINTER_STATE_LOST', true);
+  }
+
+  applyToolOutcome(outcome, pointerId) {
+    if (outcome?.rateExceeded) {
+      const pointer = this.pointers.values().next().value ||
+        {x: this.viewport.width / 2, y: this.viewport.height / 2};
+      this.beginClientRateCancellation(
+        {offsetX: pointer.x, offsetY: pointer.y, button: -1, buttons: 0});
+      return;
+    }
+    if (!outcome || !outcome.accepted) return;
+    this.setToolState(this.toolActive, outcome.captured, outcome.cursor);
+    if (pointerId !== undefined && !outcome.captured &&
+        this.canvas.hasPointerCapture(pointerId) &&
+        (outcome.suppressDefault || !this.pointers.has(pointerId))) {
+      this.canvas.releasePointerCapture(pointerId);
+    }
+  }
+
+  releaseClientPointers() {
+    for (const pointerId of this.pointers.keys()) {
+      if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId);
+    }
+    this.pointers.clear();
+    this.lastPinch = null;
+  }
+
+  settleTerminatedGesture() {
+    if (this.viewportDirty) this.emitSettled(true);
+  }
+
+  emitSettled(force = false) {
     if (!this.scene || !this.$server || !this.active) {
+      return;
+    }
+    if (!force && this.pendingToolEvents >= MAX_PENDING_TOOL_EVENTS) {
+      if (!this.settledRateTimer) {
+        this.settledRateTimer = setTimeout(() => {
+          this.settledRateTimer = 0;
+          this.emitSettled();
+        }, 100);
+      }
       return;
     }
     const now = performance.now();
     const elapsed = Math.max(0, now - this.settledRefillMilliseconds);
     this.settledRefillMilliseconds = now;
     this.settledTokens = Math.min(10, this.settledTokens + elapsed / 100);
-    if (this.settledTokens < 1) {
+    if (!force && this.settledTokens < 1) {
       if (!this.settledRateTimer) {
         this.settledRateTimer = setTimeout(() => {
           this.settledRateTimer = 0;
@@ -1616,13 +2304,25 @@ export class MundaneMapCanvas extends HTMLElement {
       }
       return;
     }
-    this.settledTokens -= 1;
+    if (!force) this.settledTokens -= 1;
     const reportedGeneration = this.viewportGeneration;
+    const componentGeneration = this.componentGeneration;
+    const sceneGeneration = this.sceneGeneration;
+    const settledViewport = {...this.viewport};
+    this.viewportDirty = false;
     this.viewportGeneration += 1;
-    this.$server.acceptSettledViewport(PROTOCOL_VERSION, this.componentGeneration,
-      this.sceneGeneration, reportedGeneration, this.eventSequence++,
-      this.viewport.width, this.viewport.height,
-      this.viewport.centerX, this.viewport.centerY, this.viewport.worldUnitsPerPixel);
+    const operation = async () => {
+      if (!this.$server?.acceptSettledViewport || !this.active || !this.scene) return;
+      await this.$server.acceptSettledViewport(PROTOCOL_VERSION, componentGeneration,
+        sceneGeneration, reportedGeneration, this.eventSequence++,
+        settledViewport.width, settledViewport.height,
+        settledViewport.centerX, settledViewport.centerY, settledViewport.worldUnitsPerPixel);
+    };
+    this.pendingToolEvents++;
+    const result = this.interactionChain.then(operation, operation);
+    const tracked = result.finally(() => this.pendingToolEvents--);
+    this.interactionChain = tracked.catch(error =>
+      this.reportFailure(error?.message || 'CLIENT_FAILURE'));
   }
 
   reportFailure(message, sceneGeneration = Math.max(0, this.sceneGeneration)) {

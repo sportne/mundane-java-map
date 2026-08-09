@@ -44,6 +44,7 @@ function createCanvas() {
   });
   return {
     dataset: {},
+    style: {},
     width: 0,
     height: 0,
     listeners,
@@ -52,6 +53,7 @@ function createCanvas() {
     getContext: () => context,
     addEventListener: (name, listener) => listeners.set(name, listener),
     removeEventListener: name => listeners.delete(name),
+    focus() {},
     setPointerCapture: id => captures.add(id),
     hasPointerCapture: id => captures.has(id),
     releasePointerCapture: id => captures.delete(id),
@@ -339,9 +341,15 @@ assert.ok(element.canvas.operations.some(operation => operation[0] === 'bezierCu
 element.setScene(nonFiniteColor);
 assert.deepEqual(failures.at(-1), [1, 2, 4, 'NON_FINITE_VALUE']);
 
-element.canvas.dispatch('pointerdown', {pointerId: 1, offsetX: 100, offsetY: 100});
-element.canvas.dispatch('pointermove', {pointerId: 1, offsetX: 120, offsetY: 110});
-element.canvas.dispatch('pointerup', {pointerId: 1, offsetX: 120, offsetY: 110});
+const beforeDefaultDrag = element.viewport.centerX;
+element.canvas.dispatch('pointerdown', {pointerId: 1, offsetX: 100, offsetY: 100,
+  button: 0, buttons: 1});
+element.canvas.dispatch('pointermove', {pointerId: 1, offsetX: 120, offsetY: 110,
+  button: -1, buttons: 1});
+element.canvas.dispatch('pointerup', {pointerId: 1, offsetX: 120, offsetY: 110,
+  button: 0, buttons: 0});
+await element.interactionChain;
+assert.notEqual(element.viewport.centerX, beforeDefaultDrag);
 assert.equal(settled.length, 1);
 assert.equal(settled[0][1], 2);
 assert.equal(settled[0][2], 3);
@@ -650,6 +658,367 @@ assert.equal(iconElement.sceneGeneration, 11);
 assert.equal(iconElement.iconResources.size, 0);
 iconElement.deactivateMap(1, 9);
 assert.equal(iconElement.scene, null);
+
+const routedCalls = [];
+const resumeCalls = [];
+const interactionElement = new ElementClass();
+interactionElement.$server = {
+  acceptClientFailure: (...arguments_) => assert.fail(`interaction failure ${arguments_}`),
+  acceptLabelMeasurements: () => {},
+  acceptPlacedLabels: () => {},
+  acceptSettledViewport: () => {},
+  acceptMapInteraction: async (...arguments_) => {
+    routedCalls.push(arguments_);
+    const type = arguments_[5];
+    return {accepted: true, suppressDefault: type !== 'MOVE' && type !== 'CLICK',
+      captured: type === 'PRESS' || type === 'DRAG', cursor: 'CROSSHAIR'};
+  },
+  acceptMapCommand: async (...arguments_) => {
+    routedCalls.push(arguments_);
+    return {accepted: true, suppressDefault: true, captured: false, cursor: 'HAND'};
+  },
+  acceptMapToolResume: async (...arguments_) => {
+    resumeCalls.push(arguments_);
+    return {accepted: true, suppressDefault: false, captured: false, cursor: 'HAND'};
+  }
+};
+interactionElement.connectedCallback();
+interactionElement.activateMap(1, 2, 3);
+interactionElement.setScene(structuredClone(scene));
+interactionElement.setInteractionOverlay(1, 2, 3, 4,
+  structuredClone(scene.layers.slice(0, 1)));
+flushPaint();
+assert.equal(interactionElement.interactionLayers.length, 1);
+assert.ok(interactionElement.canvas.operations.filter(operation => operation[0] === 'fill').length >= 2);
+const hoverLayer = structuredClone(scene.layers[0]);
+hoverLayer.id = '__hover';
+const selectionLayer = structuredClone(scene.layers[0]);
+selectionLayer.id = '__selection';
+interactionElement.interactionLayers = [hoverLayer, selectionLayer];
+interactionElement.afterLocalNavigation(false);
+assert.deepEqual(interactionElement.interactionLayers.map(layer => layer.id), ['__selection']);
+
+interactionElement.canvas.dispatch('pointermove', {offsetX: 20, offsetY: 30, buttons: 0,
+  button: -1, detail: 0});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'MOVE');
+assert.deepEqual(routedCalls.at(-1).slice(6, 8), [20, 30]);
+interactionElement.canvas.dispatch('click', {offsetX: 20, offsetY: 30, buttons: 0,
+  button: 0, detail: 1});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'CLICK');
+let contextMenuPrevented = false;
+interactionElement.canvas.dispatch('contextmenu', {offsetX: 20, offsetY: 30, buttons: 0,
+  button: 2, detail: 1, preventDefault() { contextMenuPrevented = true; }});
+await interactionElement.interactionChain;
+assert.equal(contextMenuPrevented, true);
+assert.equal(routedCalls.at(-1)[5], 'CLICK');
+assert.equal(routedCalls.at(-1)[13], true);
+let auxClickPrevented = false;
+interactionElement.canvas.dispatch('auxclick', {offsetX: 20, offsetY: 30, buttons: 0,
+  button: 1, detail: 1, preventDefault() { auxClickPrevented = true; }});
+await interactionElement.interactionChain;
+assert.equal(auxClickPrevented, true);
+assert.equal(routedCalls.at(-1)[5], 'CLICK');
+assert.equal(routedCalls.at(-1)[8], 2);
+interactionElement.canvas.dispatch('pointerleave', {offsetX: 21, offsetY: 30,
+  button: -1, buttons: 0, detail: 0});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'CANCEL');
+assert.equal(routedCalls.at(-1).at(-1), 'POINTER_EXITED');
+
+interactionElement.setToolState(true, false, 'DEFAULT');
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 6, offsetX: 30, offsetY: 30,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointerleave', {pointerId: 6, offsetX: 31, offsetY: 30,
+  button: -1, buttons: 1, detail: 0});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'CANCEL');
+assert.equal(routedCalls.at(-1).at(-1), 'POINTER_EXITED');
+assert.equal(interactionElement.pointers.size, 0);
+
+interactionElement.setToolState(true, false, 'DEFAULT');
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 9, offsetX: 30, offsetY: 30,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 10, offsetX: 60, offsetY: 30,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointercancel', {pointerId: 9, offsetX: 30, offsetY: 30,
+  button: -1, buttons: 0, detail: 0});
+await interactionElement.interactionChain;
+assert.equal(interactionElement.pointers.size, 0);
+assert.equal(interactionElement.canvas.hasPointerCapture(9), false);
+assert.equal(interactionElement.canvas.hasPointerCapture(10), false);
+
+interactionElement.setToolState(true, false, 'DEFAULT');
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 11, offsetX: 30, offsetY: 30,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointermove', {pointerId: 11, offsetX: 31, offsetY: 30,
+  button: -1, buttons: 0, detail: 0});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'CANCEL');
+assert.equal(routedCalls.at(-1).at(-1), 'POINTER_STATE_LOST');
+assert.equal(interactionElement.pointers.size, 0);
+
+interactionElement.setToolState(true, false, 'DEFAULT');
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 13, offsetX: 35, offsetY: 35,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 13, offsetX: 35, offsetY: 35,
+  button: 2, buttons: 3, detail: 1});
+interactionElement.canvas.dispatch('pointerup', {pointerId: 13, offsetX: 35, offsetY: 35,
+  button: 2, buttons: 1, detail: 1});
+assert.equal(interactionElement.pointers.size, 1);
+assert.equal(interactionElement.canvas.hasPointerCapture(13), true);
+interactionElement.canvas.dispatch('pointermove', {pointerId: 13, offsetX: 36, offsetY: 35,
+  button: -1, buttons: 1, detail: 0});
+interactionElement.canvas.dispatch('pointerup', {pointerId: 13, offsetX: 36, offsetY: 35,
+  button: 0, buttons: 0, detail: 1});
+await interactionElement.interactionChain;
+assert.deepEqual(routedCalls.slice(-5).map(call => call[5]),
+  ['PRESS', 'PRESS', 'RELEASE', 'DRAG', 'RELEASE']);
+assert.equal(interactionElement.pointers.size, 0);
+
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 12, offsetX: 30, offsetY: 30,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.resetToolState(false, false, 'DEFAULT');
+assert.equal(interactionElement.pointers.size, 0);
+assert.equal(interactionElement.canvas.hasPointerCapture(12), false);
+assert.equal(interactionElement.toolActive, false);
+
+interactionElement.setToolState(true, false, 'MOVE');
+assert.equal(interactionElement.canvas.style.cursor, 'move');
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 7, offsetX: 40, offsetY: 40,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.canvas.dispatch('pointermove', {pointerId: 7, offsetX: 45, offsetY: 40,
+  button: -1, buttons: 1, detail: 0});
+interactionElement.canvas.dispatch('pointerup', {pointerId: 7, offsetX: 45, offsetY: 40,
+  button: 0, buttons: 0, detail: 1});
+await interactionElement.interactionChain;
+assert.deepEqual(routedCalls.slice(-3).map(call => call[5]), ['PRESS', 'DRAG', 'RELEASE']);
+assert.equal(interactionElement.toolCaptured, false);
+interactionElement.canvas.dispatch('keydown', {key: 'Backspace', preventDefault() {}});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'DELETE_BACKWARD');
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 14, offsetX: 42, offsetY: 43,
+  button: 0, buttons: 1, detail: 1, shiftKey: true});
+interactionElement.canvas.dispatch('blur', {});
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'CANCEL');
+assert.equal(routedCalls.at(-1).at(-1), 'FOCUS_LOST');
+assert.deepEqual(routedCalls.at(-1).slice(6, 8), [42, 43]);
+assert.equal(routedCalls.at(-1)[9], 1);
+interactionElement.canvas.dispatch('focus', {});
+await interactionElement.interactionChain;
+assert.equal(resumeCalls.length, 1);
+assert.equal(interactionElement.canvas.style.cursor, 'pointer');
+
+interactionElement.canvas.dispatch('pointerdown', {pointerId: 8, offsetX: 40, offsetY: 40,
+  button: 0, buttons: 1, detail: 1});
+interactionElement.clientWidth = 801;
+interactionElement.resizeCanvas();
+await interactionElement.interactionChain;
+assert.equal(routedCalls.at(-1)[5], 'CANCEL');
+assert.equal(routedCalls.at(-1).at(-1), 'POINTER_STATE_LOST');
+assert.equal(routedCalls.at(-1)[9], 1);
+
+interactionElement.setToolState(false, false, 'DEFAULT');
+const keyboardCenter = interactionElement.viewport.centerX;
+interactionElement.canvas.dispatch('keydown', {key: 'ArrowLeft', altKey: false, ctrlKey: false,
+  metaKey: false, shiftKey: false, preventDefault() {}});
+assert.notEqual(interactionElement.viewport.centerX, keyboardCenter);
+interactionElement.disconnectedCallback();
+
+let resolveDelayedInteraction;
+const delayedElement = new ElementClass();
+delayedElement.$server = {
+  acceptClientFailure: (...arguments_) => assert.fail(`delayed failure ${arguments_}`),
+  acceptSettledViewport: () => {},
+  acceptMapInteraction: () => new Promise(resolve => { resolveDelayedInteraction = resolve; })
+};
+delayedElement.connectedCallback();
+delayedElement.activateMap(1, 2, 3);
+delayedElement.setScene(structuredClone(scene));
+delayedElement.setToolState(true, false, 'DEFAULT');
+const delayedScale = delayedElement.viewport.worldUnitsPerPixel;
+delayedElement.canvas.dispatch('wheel', {offsetX: 20, offsetY: 30, deltaY: -100,
+  button: -1, buttons: 0, preventDefault() {}});
+await new Promise(resolve => setTimeout(resolve, 0));
+delayedElement.setMapEnabled(false);
+resolveDelayedInteraction({accepted: true, suppressDefault: false, captured: false,
+  cursor: 'HAND'});
+await delayedElement.interactionChain;
+assert.equal(delayedElement.viewport.worldUnitsPerPixel, delayedScale);
+assert.notEqual(delayedElement.canvas.style.cursor, 'pointer');
+
+let resolveBoundedInteraction;
+const boundedCalls = [];
+const boundedElement = new ElementClass();
+boundedElement.$server = {
+  acceptClientFailure: (...arguments_) => assert.fail(`bounded failure ${arguments_}`),
+  acceptSettledViewport: () => {},
+  acceptMapInteraction: (...arguments_) => {
+    boundedCalls.push(arguments_);
+    if (boundedCalls.length === 1) {
+      return new Promise(resolve => { resolveBoundedInteraction = resolve; });
+    }
+    return Promise.resolve({accepted: true, suppressDefault: true,
+      captured: false, cursor: 'DEFAULT'});
+  }
+};
+boundedElement.connectedCallback();
+boundedElement.activateMap(1, 2, 3);
+boundedElement.setScene(structuredClone(scene));
+boundedElement.setToolState(true, false, 'DEFAULT');
+boundedElement.canvas.dispatch('pointerdown', {pointerId: 20, offsetX: 10, offsetY: 10,
+  button: 0, buttons: 1, detail: 1});
+await new Promise(resolve => setTimeout(resolve, 0));
+for (let index = 0; index < 40; index++) {
+  boundedElement.canvas.dispatch('pointermove', {pointerId: 20,
+    offsetX: 11 + index, offsetY: 10, button: -1, buttons: 1, detail: 0});
+}
+for (let index = 0; index < 40; index++) {
+  boundedElement.canvas.dispatch('blur', {offsetX: 50, offsetY: 50, buttons: 1});
+}
+assert.ok(boundedElement.pendingToolEvents <= 33);
+await new Promise(resolve => setTimeout(resolve, 0));
+resolveBoundedInteraction({accepted: true, suppressDefault: true,
+  captured: true, cursor: 'CROSSHAIR'});
+await boundedElement.interactionChain;
+await new Promise(resolve => setTimeout(resolve, 0));
+await boundedElement.interactionChain;
+assert.equal(boundedCalls.at(-1)[5], 'CANCEL');
+assert.equal(boundedCalls.at(-1).at(-1), 'POINTER_STATE_LOST');
+assert.equal(boundedElement.toolCaptured, false);
+assert.equal(boundedElement.pointers.size, 0);
+assert.equal(boundedElement.pendingToolEvents, 0);
+
+let resolveBoundedCommand;
+const commandCalls = [];
+const boundedCommandElement = new ElementClass();
+boundedCommandElement.$server = {
+  acceptClientFailure: (...arguments_) => assert.fail(`command failure ${arguments_}`),
+  acceptSettledViewport: () => {},
+  acceptMapCommand: (...arguments_) => {
+    commandCalls.push(arguments_);
+    if (commandCalls.length === 1) {
+      return new Promise(resolve => { resolveBoundedCommand = resolve; });
+    }
+    return Promise.resolve({accepted: true, suppressDefault: true,
+      captured: false, cursor: 'DEFAULT'});
+  },
+  acceptMapInteraction: (...arguments_) => {
+    commandCalls.push(arguments_);
+    return Promise.resolve({accepted: true, suppressDefault: true,
+      captured: false, cursor: 'DEFAULT'});
+  }
+};
+boundedCommandElement.connectedCallback();
+boundedCommandElement.activateMap(1, 2, 3);
+boundedCommandElement.setScene(structuredClone(scene));
+boundedCommandElement.setToolState(true, false, 'DEFAULT');
+boundedCommandElement.canvas.dispatch('keydown',
+  {key: 'Backspace', preventDefault() {}});
+await new Promise(resolve => setTimeout(resolve, 0));
+for (let index = 1; index < 40; index++) {
+  boundedCommandElement.canvas.dispatch('keydown',
+    {key: 'Backspace', preventDefault() {}});
+}
+assert.ok(boundedCommandElement.pendingToolEvents <= 33);
+await new Promise(resolve => setTimeout(resolve, 0));
+resolveBoundedCommand({accepted: true, suppressDefault: true,
+  captured: false, cursor: 'DEFAULT'});
+await boundedCommandElement.interactionChain;
+await new Promise(resolve => setTimeout(resolve, 0));
+await boundedCommandElement.interactionChain;
+assert.equal(boundedCommandElement.pendingToolEvents, 0);
+assert.ok(commandCalls.length <= 2);
+
+const rejectedCalls = [];
+const rejectedFailures = [];
+const rejectedElement = new ElementClass();
+rejectedElement.$server = {
+  acceptClientFailure: (...arguments_) => rejectedFailures.push(arguments_),
+  acceptSettledViewport: () => {},
+  acceptMapInteraction: (...arguments_) => {
+    rejectedCalls.push(arguments_);
+    if (arguments_[5] === 'PRESS') return Promise.reject(new Error('TOOL_CALLBACK_FAILED'));
+    return Promise.resolve({accepted: true, suppressDefault: true,
+      captured: false, cursor: 'DEFAULT'});
+  }
+};
+rejectedElement.connectedCallback();
+rejectedElement.activateMap(1, 2, 3);
+rejectedElement.setScene(structuredClone(scene));
+rejectedElement.setToolState(true, true, 'CROSSHAIR');
+rejectedElement.canvas.dispatch('pointerdown', {pointerId: 21, offsetX: 10, offsetY: 10,
+  button: 0, buttons: 1, detail: 1});
+await rejectedElement.interactionChain;
+await new Promise(resolve => setTimeout(resolve, 0));
+await rejectedElement.interactionChain;
+assert.equal(rejectedCalls.at(-1)[5], 'CANCEL');
+assert.equal(rejectedElement.toolCaptured, false);
+assert.equal(rejectedElement.pointers.size, 0);
+assert.equal(rejectedFailures.at(-1)[3], 'TOOL_CALLBACK_FAILED');
+
+const rejectedCancelFailures = [];
+const rejectedCancelElement = new ElementClass();
+rejectedCancelElement.$server = {
+  acceptClientFailure: (...arguments_) => rejectedCancelFailures.push(arguments_),
+  acceptSettledViewport: () => {},
+  acceptMapInteraction: async (...arguments_) => {
+    if (arguments_[5] === 'CANCEL') throw new Error('CANCEL_CALLBACK_FAILED');
+    return {accepted: true, suppressDefault: true, captured: true, cursor: 'CROSSHAIR'};
+  }
+};
+rejectedCancelElement.connectedCallback();
+rejectedCancelElement.activateMap(1, 2, 3);
+rejectedCancelElement.setScene(structuredClone(scene));
+rejectedCancelElement.setToolState(true, false, 'DEFAULT');
+rejectedCancelElement.canvas.dispatch('pointerdown', {pointerId: 23, offsetX: 10, offsetY: 10,
+  button: 0, buttons: 1, detail: 1});
+await rejectedCancelElement.interactionChain;
+rejectedCancelElement.canvas.dispatch('blur', {offsetX: 10, offsetY: 10, buttons: 1});
+await rejectedCancelElement.interactionChain;
+assert.equal(rejectedCancelElement.toolCaptured, false);
+assert.equal(rejectedCancelElement.canvas.style.cursor, 'default');
+assert.equal(rejectedCancelFailures.at(-1)[3], 'CANCEL_CALLBACK_FAILED');
+
+let resolveFirstDrag;
+const passDragCalls = [];
+const transientCalls = [];
+const passDragElement = new ElementClass();
+passDragElement.$server = {
+  acceptClientFailure: (...arguments_) => assert.fail(`pass drag failure ${arguments_}`),
+  acceptSettledViewport: () => {},
+  acceptTransientViewport: async (...arguments_) => transientCalls.push(arguments_),
+  acceptMapInteraction: async (...arguments_) => {
+    passDragCalls.push(arguments_);
+    if (arguments_[5] === 'PRESS') {
+      return {accepted: true, suppressDefault: true, captured: true, cursor: 'CROSSHAIR'};
+    }
+    if (arguments_[5] === 'DRAG' && !resolveFirstDrag) {
+      return new Promise(resolve => { resolveFirstDrag = resolve; });
+    }
+    return {accepted: true, suppressDefault: false, captured: false, cursor: 'DEFAULT'};
+  }
+};
+passDragElement.connectedCallback();
+passDragElement.activateMap(1, 2, 3);
+passDragElement.setScene(structuredClone(scene));
+passDragElement.setToolState(true, false, 'DEFAULT');
+passDragElement.canvas.dispatch('pointerdown', {pointerId: 22, offsetX: 10, offsetY: 10,
+  button: 0, buttons: 1, detail: 1});
+await passDragElement.interactionChain;
+passDragElement.canvas.dispatch('pointermove', {pointerId: 22, offsetX: 20, offsetY: 10,
+  button: -1, buttons: 1, detail: 0});
+await new Promise(resolve => setTimeout(resolve, 0));
+passDragElement.canvas.dispatch('pointermove', {pointerId: 22, offsetX: 30, offsetY: 10,
+  button: -1, buttons: 1, detail: 0});
+resolveFirstDrag({accepted: true, suppressDefault: false,
+  captured: false, cursor: 'DEFAULT'});
+await passDragElement.interactionChain;
+assert.deepEqual(passDragCalls.map(call => call[5]), ['PRESS', 'DRAG', 'DRAG']);
+assert.equal(transientCalls.length, 2);
+assert.deepEqual(passDragCalls.slice(1).map(call => call[3]), [4, 5]);
 
 const resizeObserver = globalThis.ResizeObserver;
 globalThis.ResizeObserver = undefined;
