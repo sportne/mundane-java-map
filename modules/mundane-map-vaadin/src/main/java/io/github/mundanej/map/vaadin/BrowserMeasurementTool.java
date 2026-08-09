@@ -1,5 +1,6 @@
 package io.github.mundanej.map.vaadin;
 
+import com.vaadin.flow.shared.Registration;
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
@@ -34,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * View-bound browser measurement controller using toolkit-neutral tool events and distance values.
@@ -73,6 +76,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
     private Optional<DistanceResult> previewDistance = Optional.empty();
     private MeasurementPhase phase = MeasurementPhase.EMPTY;
     private MeasurementState state = MeasurementState.empty();
+    private final List<Consumer<MeasurementState>> stateListeners = new CopyOnWriteArrayList<>();
 
     /**
      * Creates a controller with the default bounded vertex limit.
@@ -122,6 +126,20 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
      */
     public MeasurementState state() {
         return state;
+    }
+
+    /**
+     * Adds a listener for immutable measurement-state changes.
+     *
+     * <p>Listeners run synchronously in deterministic registration order after the controller has
+     * accepted the new snapshot. Listener failures propagate through the routed tool operation.
+     *
+     * @param listener listener to register
+     * @return idempotent removal registration
+     */
+    public Registration addStateListener(Consumer<MeasurementState> listener) {
+        Objects.requireNonNull(listener, "listener");
+        return Registration.addAndRemove(stateListeners, listener);
     }
 
     /**
@@ -416,23 +434,32 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         previewDistance = Optional.empty();
         previewDisplayReference = Optional.empty();
         state = MeasurementState.empty();
+        notifyStateListeners();
         return true;
     }
 
     private void publish() {
         if (phase == MeasurementPhase.EMPTY) {
             state = MeasurementState.empty();
-            return;
+        } else {
+            state =
+                    new MeasurementState(
+                            phase,
+                            Arrays.copyOf(vertices, vertexCount * 2),
+                            preview,
+                            new DistanceResult(cumulativeMetres[vertexCount - 1]),
+                            vertexCount >= 2
+                                    ? Optional.of(
+                                            new DistanceResult(segmentMetres[vertexCount - 1]))
+                                    : Optional.empty(),
+                            previewDistance);
         }
-        state =
-                new MeasurementState(
-                        phase,
-                        Arrays.copyOf(vertices, vertexCount * 2),
-                        preview,
-                        new DistanceResult(cumulativeMetres[vertexCount - 1]),
-                        vertexCount >= 2
-                                ? Optional.of(new DistanceResult(segmentMetres[vertexCount - 1]))
-                                : Optional.empty(),
-                        previewDistance);
+        notifyStateListeners();
+    }
+
+    private void notifyStateListeners() {
+        for (Consumer<MeasurementState> listener : List.copyOf(stateListeners)) {
+            listener.accept(state);
+        }
     }
 }

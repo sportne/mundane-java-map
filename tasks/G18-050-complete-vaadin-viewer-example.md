@@ -1,6 +1,6 @@
 # G18-050 — Vaadin viewer application shell
 
-Status: Proposed
+Status: Complete
 Depends on: G18-031, G18-041
 Gate: G18
 Type: HITL
@@ -58,3 +58,14 @@ git diff --check
 
 HITL checkpoint: **Vaadin viewer shell usability, responsive layout, keyboard access, visual map
 fidelity, and no-commercial/no-network-default review**. Stop `bootRun` after the named review.
+
+Completion record (2026-08-09): added the non-published Spring Boot 4.1.0 and Flow 25.2.4
+application with the approved Flow-only dependency surface and a mechanically checked frozen npm
+resolution. Each route owns an in-memory vector map and fixed-lane editable points plus responsive
+native HTML controls for ordering/visibility, fit/zoom, coordinates, selection, diagnostics,
+measurement, point create/move, undo/redo, and compatible horizontal wrap. Context, route, control,
+tool, diagnostic, edit, and idempotent cleanup tests run without browser or Node work in the normal
+gate. A development launch with the pinned Node 24.14.0/npm 11.9.0 pair built the local frontend,
+served the root route over loopback with HTTP 200, disabled usage statistics, and was stopped after
+review. The example README records prerequisites, per-session ownership, no-basemap behavior, and
+the intentionally unsupported production claims.

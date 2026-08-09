@@ -10,4 +10,12 @@
         <Class name="io.github.mundanej.map.vaadin.MundaneMap" />
         <Bug pattern="EI_EXPOSE_REP,SE_BAD_FIELD" />
     </Match>
+    <!--
+      The example route has the same intentionally UI/session-owned boundary. ViewerSession owns
+      executors and resources that are closed on detach and are deliberately not Java-serialized.
+    -->
+    <Match>
+        <Class name="io.github.mundanej.map.example.vaadin.ViewerRoute" />
+        <Bug pattern="SE_BAD_FIELD" />
+    </Match>
 </FindBugsFilter>

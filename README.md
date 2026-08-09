@@ -305,7 +305,7 @@ viewer with the bundled fixture, or pass one local file:
 
 ## Examples
 
-Twenty independent examples consume the published APIs without copying parsers or renderers:
+Twenty-one independent examples consume the published APIs without copying parsers or renderers:
 
 ```bash
 ./gradlew :examples:basic-viewer:run
@@ -329,6 +329,8 @@ Twenty independent examples consume the published APIs without copying parsers o
 ./gradlew :examples:se-viewer:run
 ./gradlew :examples:maplibre-style-viewer:run
 ./gradlew :examples:live-track-stress:run --args='--population=1000000'
+./gradlew :examples:vaadin-viewer:run
+./gradlew :examples:vaadin-viewer:bootRun
 ```
 
 The basic, symbol, measurement, elevation, editing, styling, and workspace examples are deterministic
@@ -337,6 +339,8 @@ present structured diagnostics under fixed non-path source identities, and trans
 ownership according to their documented view/session lifecycle. The
 [SE viewer](examples/se-viewer) is a project-authored vector-profile gallery with scale controls,
 ordered rules, an explicit catalog marker, lines, polygon fills/outlines, and a visible hole. The
+[Vaadin viewer](examples/vaadin-viewer/README.md) is an offline-by-default in-memory Spring Boot and
+Flow shell with native HTML controls and no remote basemap or commercial map component. The
 [live-track stress example](examples/live-track-stress/README.md) is a JVM-only packed simulation,
 estimation, rendering, and evidence workload rather than a public tracking API.
 

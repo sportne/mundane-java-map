@@ -1,0 +1,9 @@
+node_modules/
+target/
+tsconfig.json
+types.d.ts
+vite.config.ts
+vite.generated.ts
+src/main/bundles/
+src/main/frontend/generated/
+src/main/frontend/index.html

@@ -1,0 +1,61 @@
+# Exact external JAR graph reviewed for the G18-050 application on 2026-08-09.
+# scope	coordinate	file	SHA-256	approved license
+production	org.springframework.boot:spring-boot-starter-webmvc:4.1.0	spring-boot-starter-webmvc-4.1.0.jar	49686a49412712d7440edd7e4f7fe7f6e75b63d68a11a275a50b5eca902dfaec	Apache-2.0
+production	com.vaadin:vaadin-spring:25.2.4	vaadin-spring-25.2.4.jar	4e87d974825c28a20322efe39fce6fa9ccc0313c1e7ecbe9102e7e0bb51be9c8	Apache-2.0
+production	org.springframework.boot:spring-boot-webmvc:4.1.0	spring-boot-webmvc-4.1.0.jar	ab21735a550cbfefaa4ad6ffbb1a891592580ef05ad729cd2025bc0245862b55	Apache-2.0
+production	org.springframework:spring-webmvc:7.0.8	spring-webmvc-7.0.8.jar	48f7e1e2d0d46e98ed3fa30d5a64cb1f7ed2aa339a82edcd87289ed8ff216f04	Apache-2.0
+production	org.springframework:spring-websocket:7.0.8	spring-websocket-7.0.8.jar	5127c9bd1d565b9081b07743496c892424a19e2f42a81ec1480cbc98fb3dd2a5	Apache-2.0
+production	org.springframework.boot:spring-boot-http-converter:4.1.0	spring-boot-http-converter-4.1.0.jar	f82c8913ea17a60630a5d26fa006cf79f28c7d920dbbef8760f5bc7053706fea	Apache-2.0
+production	org.springframework.boot:spring-boot-starter-jackson:4.1.0	spring-boot-starter-jackson-4.1.0.jar	4214c534cca5c7c7e1cf92db90f178a3dffdede503fb68ac3c0dd905f331431f	Apache-2.0
+production	org.springframework.boot:spring-boot-starter-tomcat:4.1.0	spring-boot-starter-tomcat-4.1.0.jar	3e8cbd141ee6f4f2acfaf6320f1951307816f086de426d08eac19ef4a57d7e90	Apache-2.0
+production	org.springframework.boot:spring-boot-starter:4.1.0	spring-boot-starter-4.1.0.jar	40352b3fc0834d5830f66d40100fc8afa8ac73e24a134c7779bd42b72f2d6506	Apache-2.0
+production	org.springframework.boot:spring-boot-autoconfigure:4.1.0	spring-boot-autoconfigure-4.1.0.jar	0fcaa3050ba835ca6b3879f81cd48dc590a6262f53bbf10d2a95c70bf7c048ac	Apache-2.0
+production	org.springframework.boot:spring-boot-jackson:4.1.0	spring-boot-jackson-4.1.0.jar	10b6e63a40b257168854093f413eaab8b8a9afb7e989fcc7f6732b42c3f173d1	Apache-2.0
+production	org.springframework.boot:spring-boot-servlet:4.1.0	spring-boot-servlet-4.1.0.jar	5f694a7c6c357a87032bc92db0e7e0e03b64010f77892e5992c86b10f568a5ae	Apache-2.0
+production	org.springframework.boot:spring-boot-starter-tomcat-runtime:4.1.0	spring-boot-starter-tomcat-runtime-4.1.0.jar	135fa0b7a4232c64b975f348cab39e2259d36a18e14768f5f213147a4febf68d	Apache-2.0
+production	org.springframework.boot:spring-boot-tomcat:4.1.0	spring-boot-tomcat-4.1.0.jar	011e662eb6f9f4a80c5dacf914cfca8a25a33fcd753736ec453dcf701337dd24	Apache-2.0
+production	org.springframework.boot:spring-boot-web-server:4.1.0	spring-boot-web-server-4.1.0.jar	a8541ccbd29f5a8db7e6092fa83463aa4d1c002fac07b8b5babe118ad6c4a3d3	Apache-2.0
+production	org.springframework.boot:spring-boot:4.1.0	spring-boot-4.1.0.jar	b23951a3a7f867e38db4729b8594e1b72374516f386b1dd9cf4d5317d6d3f91f	Apache-2.0
+production	org.springframework:spring-context:7.0.8	spring-context-7.0.8.jar	1eb7d552414ebac00e30ab3e809138d810785f6d2c4271db77cdf0181f308f19	Apache-2.0
+production	org.springframework:spring-expression:7.0.8	spring-expression-7.0.8.jar	3c97c38ab59c77ee886e08ccf8096f6bb58a1245f68dfed7a40e93f41c435f9a	Apache-2.0
+production	org.yaml:snakeyaml:2.6	snakeyaml-2.6.jar	c8f7a98e7394adda02f6317249710e4d1b4c7a25aa8c7eace0c2eea52eb8bf85	Apache-2.0
+production	org.springframework.boot:spring-boot-starter-logging:4.1.0	spring-boot-starter-logging-4.1.0.jar	73a6a42d2b6a589bd722aa107800829d0b20b731d94135f53c4b744db8beafbf	Apache-2.0
+production	org.apache.logging.log4j:log4j-to-slf4j:2.25.4	log4j-to-slf4j-2.25.4.jar	d7b78fc0aaaa5e8ada388b29d718b0ab187e512965bed0b259bb4ab299f13db2	Apache-2.0
+production	org.apache.logging.log4j:log4j-api:2.25.4	log4j-api-2.25.4.jar	c4b642a7f047275215de117e0e3847eb2c7711d84a0aa7433e7b3c096daf341d	Apache-2.0
+production	com.vaadin:flow-client:25.2.4	flow-client-25.2.4.jar	2781489748e717c1e1136cc2f2ab65a296f4f6a3fe5d3c1e3b2122c06ef2beda	Apache-2.0
+production	com.vaadin:flow-server:25.2.4	flow-server-25.2.4.jar	0bc39676491e2c5e32e752b89c4491ad7a3e00be08ec6aa460538f372e042ebb	Apache-2.0
+production	org.jsoup:jsoup:1.22.2	jsoup-1.22.2.jar	596785996d3c6df16f544c232d10a9a1d88783b2a4740cf5251cb616f2be704d	MIT
+production	com.vaadin:flow-push:25.2.4	flow-push-25.2.4.jar	ca44d7d4a27e819708643c65ecfc133c12afeefbe679a6d4f6a312543b26c48b	Apache-2.0
+production	com.vaadin.external.atmosphere:atmosphere-runtime:3.0.5.slf4jvaadin1	atmosphere-runtime-3.0.5.slf4jvaadin1.jar	4dfa763a8c284bff0e1577969f98d976fdc76ad8876094a5c43d94baada41d98	Apache-2.0 OR CDDL-1.0
+production	ch.qos.logback:logback-classic:1.5.35	logback-classic-1.5.35.jar	1a0ba277c4d177862731c820099913013255892c79e05b5371307f174f089878	EPL-1.0 OR LGPL-2.1
+production	org.slf4j:jul-to-slf4j:2.0.18	jul-to-slf4j-2.0.18.jar	cbb7d1aaaa9e871eb1a06594abd911bf97027152976edf1edc315be75239204e	MIT
+production	org.slf4j:slf4j-api:2.0.18	slf4j-api-2.0.18.jar	44508fd1576500688c790b190acdd16fec4f8c79a3e0b900afd70503cf055f55	MIT
+production	org.springframework:spring-web:7.0.8	spring-web-7.0.8.jar	4d4ed7ecb0453d25d735ea27d025ea36b003c3d29cb7d006bedd6d5188a2f5c0	Apache-2.0
+production	org.springframework:spring-aop:7.0.8	spring-aop-7.0.8.jar	1178f039e087884174e2affc46e484f4a8bd7f2a4e011d33dd9137709f740f80	Apache-2.0
+production	org.springframework:spring-beans:7.0.8	spring-beans-7.0.8.jar	6ec2e361a8872a71d8b1ff66f1bcb8cfa29fcc437931998919da7cecfb59b45b	Apache-2.0
+production	org.hibernate.validator:hibernate-validator:9.1.0.Final	hibernate-validator-9.1.0.Final.jar	4dea20c780d12e8ad6e1fe7d695460af74f8668df9eb58910991919194412188	Apache-2.0
+production	org.jboss.logging:jboss-logging:3.6.3.Final	jboss-logging-3.6.3.Final.jar	7c12ee575508f81e22b1db9334b969d0ec54ef0fd1dcba24eeab1a44235fc366	Apache-2.0
+production	org.springframework:spring-core:7.0.8	spring-core-7.0.8.jar	726ba2a5130833644bdf267a55ff26e1f52e8dcc9aa1ffa06904ca9c14619f25	Apache-2.0
+production	io.micrometer:micrometer-observation:1.17.0	micrometer-observation-1.17.0.jar	2fc95a327578d3b2a81c3ff40e646a4a21e46b0153ccbbf91690142bf80d9661	Apache-2.0
+production	io.micrometer:micrometer-commons:1.17.0	micrometer-commons-1.17.0.jar	03919dc71e2417ec4b5c254c4ba924963c972e124190f73cdcb68ed51c6eede6	Apache-2.0
+production	org.jspecify:jspecify:1.0.0	jspecify-1.0.0.jar	1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab	Apache-2.0
+production	jakarta.validation:jakarta.validation-api:3.1.1	jakarta.validation-api-3.1.1.jar	63ce00156388c365f3ac1be71fcfaf114682fc0c452020b5df6e7ec236e142ab	EPL-2.0 OR GPL-2.0-with-classpath-exception
+production	tools.jackson.core:jackson-databind:3.1.5	jackson-databind-3.1.5.jar	3a2338d996fd3056791df8d335fa9ba8a62a706ed4245ecf81b3e583df37d08a	Apache-2.0
+production	tools.jackson.core:jackson-core:3.1.5	jackson-core-3.1.5.jar	9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2	Apache-2.0
+production	org.apache.tomcat.embed:tomcat-embed-websocket:11.0.24	tomcat-embed-websocket-11.0.24.jar	825160101f0da4a10e19b5730c2ae2f99f8c2c7a7211ac05562726c5e97ab91e	Apache-2.0
+production	ch.qos.logback:logback-core:1.5.35	logback-core-1.5.35.jar	d8c38ea6871eefccf769f83e1afd07280e29fa0d1dd281092a77eb77c880ace6	EPL-1.0 OR LGPL-2.1
+production	com.fasterxml.jackson.core:jackson-annotations:2.22	jackson-annotations-2.22.jar	21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0	Apache-2.0
+production	org.apache.tomcat.embed:tomcat-embed-el:11.0.24	tomcat-embed-el-11.0.24.jar	ad0546f12dace008aacce18ba13222137760b310ca719e173d3e13021b9af6c6	Apache-2.0
+production	org.apache.tomcat.embed:tomcat-embed-core:11.0.24	tomcat-embed-core-11.0.24.jar	e7b966dcaac8c5ffa4f10e44031ebf5b71f2123560c08ac8b7120028615aea08	Apache-2.0
+production	commons-logging:commons-logging:1.3.6	commons-logging-1.3.6.jar	f8ead8943401081dea0aa824b5b1ba40a0e4ed297a572a0f02258150a0b62357	Apache-2.0
+production	com.vaadin.external:gentyref:1.2.0.vaadin1	gentyref-1.2.0.vaadin1.jar	7fbb7aaa015944f08c0fcf394e4e4e6854ee5a4714c10835adab8d0e4c15c46a	Apache-2.0
+production	com.fasterxml:classmate:1.7.3	classmate-1.7.3.jar	75fbda45456f123fb6e2028a6189442d8d0730b357adce4c0a6d7e789f70669b	Apache-2.0
+production	jakarta.annotation:jakarta.annotation-api:3.0.0	jakarta.annotation-api-3.0.0.jar	b01f55552284cfb149411e64eabca75e942d26d2e1786b32914250e4330afaa2	EPL-2.0 OR GPL-2.0-with-classpath-exception
+development	com.vaadin:vaadin-dev-server:25.2.4	vaadin-dev-server-25.2.4.jar	af085bf366afbe24d6bb65e7204e0a974f8cd82eed8d2080208070bba8ffa508	Apache-2.0
+development	com.vaadin:flow-build-tools:25.2.4	flow-build-tools-25.2.4-shaded.jar	320305750e585f673cf5e833a10c69f9dfefcf4e6db2f2dd2d8d2ddc231bc7bf	Apache-2.0
+development	com.vaadin:license-checker:3.1.0	license-checker-3.1.0.jar	07a9ce419166effc5ac3dc7a63f1c9568597eefad7f9ec9203b5d1afd84f0650	Apache-2.0
+development	io.methvin:directory-watcher:0.19.1	directory-watcher-0.19.1.jar	6e801aa1fb48a0b09cc9a8626c4fae329cb771423418a43bf0518425f9559e19	Apache-2.0
+development	com.vaadin:open:8.5.0.5	open-8.5.0.5.jar	893c5a11b7667145a0d5fdb2ddfb1827c25e52208997d071e6462a91bb204876	Apache-2.0
+development	com.nimbusds:nimbus-jose-jwt:10.3.1	nimbus-jose-jwt-10.3.1.jar	d7919520ae9702ea06a23cc669c9ed1daa543d12a33a1be214a85b47dfc1c7c8	Apache-2.0
+development	net.java.dev.jna:jna:5.18.1	jna-5.18.1.jar	260c4b1e22b1db9e110ee441c4f13ce115f841fa48c41d78750986214b395557	Apache-2.0 OR LGPL-2.1
+development	com.github.javaparser:javaparser-core:3.28.2	javaparser-core-3.28.2.jar	b5499a3b1c40b16c0671fabe478c9aafeab38160c6fde74a6c13f42d86716ecd	Apache-2.0

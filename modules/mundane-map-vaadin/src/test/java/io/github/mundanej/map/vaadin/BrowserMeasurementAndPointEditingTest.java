@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.vaadin.flow.shared.Registration;
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
@@ -29,6 +30,7 @@ import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MeasurementPhase;
+import io.github.mundanej.map.api.MeasurementState;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.NamedSymbol;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
@@ -65,6 +67,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 final class BrowserMeasurementAndPointEditingTest {
+    @Test
+    void measurementStateListenersObserveAcceptedSnapshotsAndCanBeRemoved() {
+        MundaneMap map = configuredMap();
+        BrowserMeasurementTool tool =
+                new BrowserMeasurementTool(
+                        map, DistanceStrategies.planarMetres(CrsDefinitions.EPSG_3857));
+        List<MeasurementState> observed = new CopyOnWriteArrayList<>();
+        Registration registration = tool.addStateListener(observed::add);
+        map.setActiveTool(tool);
+
+        interaction(map, 0, "CLICK", 50, 50, 1, 0, 1, "");
+        interaction(map, 1, "MOVE", 53, 46, 0, 0, 0, "");
+        assertEquals(2, observed.size());
+        assertEquals(new Coordinate(3, 4), observed.getLast().preview().orElseThrow());
+
+        registration.remove();
+        interaction(map, 2, "CLICK", 53, 46, 1, 0, 1, "");
+        assertEquals(2, observed.size());
+        map.close();
+    }
+
     @Test
     void measuresPlanarPreviewCompletionUndoAndCancelThroughBrowserEvents() {
         MundaneMap map = configuredMap();

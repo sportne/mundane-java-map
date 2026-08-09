@@ -1,0 +1,231 @@
+plugins {
+    id 'mundane-map.java-application-conventions'
+    id 'org.springframework.boot' version '4.1.0'
+    id 'com.vaadin.flow' version '25.2.4'
+}
+
+dependencies {
+    implementation project(':modules:mundane-map-api')
+    implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-vaadin')
+    implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'com.vaadin:vaadin-spring:25.2.4'
+    developmentOnly 'com.vaadin:vaadin-dev-server:25.2.4'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'com.vaadin:vaadin-dev-server:25.2.4'
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+}
+
+application {
+    mainClass = 'io.github.mundanej.map.example.vaadin.VaadinViewerApplication'
+}
+
+vaadin {
+    productionMode = false
+    reactEnable = false
+    npmExcludeWebComponents = true
+    pnpmEnable = false
+    bunEnable = false
+    requireHomeNodeExec = true
+    nodeVersion = 'v24.14.0'
+    excludePostinstallPackages = [
+        '@vaadin/vaadin-usage-statistics'
+    ]
+}
+
+def productionViewerRuntime = configurations.productionRuntimeClasspath.incoming.artifactView {
+    componentFilter { identifier ->
+        identifier instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
+    }
+}.files
+def developmentViewerRuntime = configurations.runtimeClasspath.incoming.artifactView {
+    componentFilter { identifier ->
+        identifier instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier
+    }
+}.files
+def runtimeInventory = layout.projectDirectory.file('runtime-inventory.tsv')
+def frontendProfile = rootProject.layout.projectDirectory.file(
+        'verification/G18-001-frontend-profile.json')
+def frontendInventory = rootProject.layout.projectDirectory.file(
+        'verification/G18-001-frontend-build-inventory.tsv')
+def frontendPackage = layout.projectDirectory.file('package.json')
+def frontendLock = layout.projectDirectory.file('package-lock.json')
+
+def verifyViewerDependencyProfile = tasks.register('verifyViewerDependencyProfile') {
+    group = 'verification'
+    description = 'Verifies exact open production and bounded development JAR graphs.'
+    inputs.files(productionViewerRuntime, developmentViewerRuntime, runtimeInventory)
+    doLast {
+        def allowedLicenses = [
+            'Apache-2.0',
+            'MIT',
+            'Apache-2.0 OR CDDL-1.0',
+            'Apache-2.0 OR LGPL-2.1',
+            'EPL-1.0 OR LGPL-2.1',
+            'EPL-2.0 OR GPL-2.0-with-classpath-exception'
+        ] as Set
+        def rows = runtimeInventory.asFile.readLines('UTF-8')
+                .findAll { line -> !line.startsWith('#') && !line.isBlank() }
+                .collect { line ->
+                    def columns = line.split('\t', -1)
+                    if (columns.length != 5
+                            || !(columns[0] in ['production', 'development'])
+                            || !allowedLicenses.contains(columns[4])) {
+                        throw new GradleException('Invalid viewer runtime inventory row')
+                    }
+                    [
+                        scope: columns[0],
+                        coordinate: columns[1],
+                        file: columns[2],
+                        checksum: columns[3],
+                        license: columns[4]
+                    ]
+                }
+        def sha256 = { File file ->
+            def digest = java.security.MessageDigest.getInstance('SHA-256')
+            file.withInputStream { input ->
+                byte[] buffer = new byte[8192]
+                for (int count; (count = input.read(buffer)) >= 0;) {
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().encodeHex().toString()
+        }
+        def verify = { String scope, files ->
+            def expectedRows = scope == 'production'
+                    ? rows.findAll { row -> row.scope == 'production' }
+                    : rows
+            def expected = expectedRows
+                    .collectEntries { row -> [(row.file): row] }
+            if (expected.size() != expectedRows.size()) {
+                throw new GradleException("Duplicate ${scope} viewer inventory file")
+            }
+            def actual = files.files.collectEntries { file -> [(file.name): file] }
+            if (actual.size() != files.files.size()
+                    || actual.keySet() != expected.keySet()) {
+                throw new GradleException(
+                "Unexpected ${scope} viewer artifacts: ${actual.keySet().sort()}")
+            }
+            expected.each { name, row ->
+                if (sha256(actual.get(name)) != row.checksum) {
+                    throw new GradleException(
+                    "${scope.capitalize()} viewer checksum mismatch: ${name}")
+                }
+            }
+        }
+        verify('production', productionViewerRuntime)
+        verify('development', developmentViewerRuntime)
+        def prohibited = [
+            'vaadin-map',
+            'vaadin-testbench',
+            'vaadin-charts',
+            'grid-pro',
+            'designer',
+            'swing-kit',
+            'copilot',
+            'collaboration-engine',
+            'kubernetes-kit',
+            'observability-kit',
+            'sso-kit',
+            'appsec',
+            'hilla',
+            'maplibre',
+            'openlayers',
+            'leaflet'
+        ]
+        def violations = rows.findAll { row ->
+            String coordinate = row.coordinate.toLowerCase(java.util.Locale.ROOT)
+            prohibited.any { token -> coordinate.contains(token) }
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException(
+            "Prohibited Vaadin viewer dependencies: ${violations*.coordinate.sort()}")
+        }
+    }
+}
+
+def verifyViewerFrontendProfile = tasks.register('verifyViewerFrontendProfile') {
+    group = 'verification'
+    description = 'Verifies the frozen script-disabled Flow frontend resolution.'
+    inputs.files(frontendProfile, frontendInventory, frontendPackage, frontendLock)
+    doLast {
+        def parser = new groovy.json.JsonSlurper()
+        def expected = parser.parse(frontendProfile.asFile)
+        def declared = parser.parse(frontendPackage.asFile)
+        def expectedDependencies = new LinkedHashMap(expected.dependencies)
+        // No Polymer-authored element is reachable from this Flow-only application.
+        expectedDependencies.remove('@polymer/polymer')
+        def expectedOverrides = expectedDependencies.collectEntries { name, ignored ->
+            [(name): '\$' + name]
+        }
+        def expectedDocument = [
+            private: true,
+            vaadin: [
+                dependencies: expectedDependencies,
+                devDependencies: expected.devDependencies,
+                disableUsageStatistics: true,
+                hash: 'c89fe35c0c5c8da775a4fd19592869d236abb7b0aa3fce3460a2d192543b3bfe'
+            ],
+            dependencies: expectedDependencies,
+            devDependencies: expected.devDependencies,
+            type: 'module',
+            overrides: expectedOverrides
+        ]
+        if (declared != expectedDocument) {
+            throw new GradleException('Vaadin viewer frontend profile mismatch')
+        }
+        List<String> expectedEntries = frontendInventory.asFile.readLines('UTF-8')
+                .findAll { line -> !line.startsWith('#') && !line.startsWith('package\t') }
+                .findAll { line ->
+                    !(line.startsWith('@polymer/polymer\t')
+                            || line.startsWith('@webcomponents/shadycss\t'))
+                }
+                .collect { line ->
+                    def columns = line.split('\t', -1)
+                    "${columns[0]}\t${columns[1]}\t${columns[2]}\t${columns[3]}\t${columns[4]}"
+                }
+                .sort()
+        def locked = parser.parse(frontendLock.asFile)
+        def expectedLockKeys = [
+            'name',
+            'lockfileVersion',
+            'requires',
+            'packages'
+        ] as Set
+        def rootPackage = locked.packages.get('')
+        if (locked.keySet() != expectedLockKeys
+                || locked.name != 'vaadin-viewer'
+                || locked.lockfileVersion != 3
+                || locked.requires != true
+                || rootPackage?.keySet() != ([
+                    'dependencies',
+                    'devDependencies'
+                ] as Set)
+                || rootPackage.dependencies != expectedDependencies
+                || rootPackage.devDependencies != expected.devDependencies) {
+            throw new GradleException('Vaadin viewer package-lock root metadata mismatch')
+        }
+        List<String> actualEntries = locked.packages.findAll { path, ignored -> !path.isEmpty() }
+        .collect { path, value ->
+            int marker = path.lastIndexOf('node_modules/')
+            String name = path.substring(marker + 'node_modules/'.length())
+            "${name}\t${value.version}\t${value.license}\t${value.integrity}\t${value.resolved}"
+        }
+        .sort()
+        if (actualEntries != expectedEntries) {
+            throw new GradleException('Vaadin viewer package lock differs from frozen inventory')
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn verifyViewerDependencyProfile
+    dependsOn verifyViewerFrontendProfile
+}
+
+description = 'Runnable offline-by-default Spring Boot and Vaadin map viewer.'

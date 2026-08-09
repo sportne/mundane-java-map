@@ -1665,6 +1665,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             }
         } else if (event.type() == MapToolEvent.Type.MOVE
                 || event.type() == MapToolEvent.Type.CLICK) {
+            firePointer(
+                    event.type() == MapToolEvent.Type.MOVE
+                            ? MapPointerEvent.Type.MOVED
+                            : MapPointerEvent.Type.CLICKED,
+                    event);
             transitionInteraction(selection, Optional.empty());
         }
         if (event.type() != MapToolEvent.Type.MOVE && event.type() != MapToolEvent.Type.CLICK) {

@@ -183,6 +183,10 @@ def projectInventory = [
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
     [path: ':examples:live-track-stress', category: 'SUPPORT', releaseLevel: 0,
         published: false, nativeTarget: false, allowedRuntimeProjects: []],
+    [path: ':examples:vaadin-viewer', category: 'SUPPORT', releaseLevel: 0,
+        published: false, nativeTarget: false, allowedRuntimeProjects: [
+            ':modules:mundane-map-api', ':modules:mundane-map-core',
+            ':modules:mundane-map-vaadin']],
 ]
 
 def duplicateProjectPaths = projectInventory.groupBy { it.path }.findAll { _, entries ->

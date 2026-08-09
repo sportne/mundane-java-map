@@ -63,6 +63,24 @@ final class BrowserInteractionTest {
     }
 
     @Test
+    void consumedToolMovesAndClicksStillPublishPointerCoordinates() {
+        MundaneMap map = new MundaneMap();
+        map.setViewport(new MapViewport(100, 100, 0, 0, 1));
+        map.setSnapshotLayers(List.of(layer()));
+        map.setActiveTool(new RecordingTool());
+        List<MapPointerEvent> pointers = new ArrayList<>();
+        map.addMapPointerListener(pointers::add);
+
+        interaction(map, 0, "MOVE", 53, 46, 0, 0, 0, 0, 0, "");
+        interaction(map, 1, "CLICK", 53, 46, 1, 0, 0, 1, 0, "");
+
+        assertEquals(
+                List.of(MapPointerEvent.Type.MOVED, MapPointerEvent.Type.CLICKED),
+                pointers.stream().map(MapPointerEvent::type).toList());
+        assertEquals(new Coordinate(3, 4), pointers.getLast().mapCoordinate().orElseThrow());
+    }
+
+    @Test
     void rejectsMalformedValuesWithoutPoisoningLifecycleAndBoundsCoordinateConversion() {
         MundaneMap map = new MundaneMap();
         RecordingTool tool = new RecordingTool();
