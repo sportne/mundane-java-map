@@ -23,12 +23,17 @@ import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
+import io.github.mundanej.map.api.VectorExportSnapshot;
+import io.github.mundanej.map.api.VectorExportSnapshotException;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.DistanceStrategies;
 import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
+import io.github.mundanej.map.io.svg.SvgExportException;
+import io.github.mundanej.map.io.svg.SvgExportLimits;
+import io.github.mundanej.map.io.svg.SvgMapExports;
 import io.github.mundanej.map.vaadin.BrowserMeasurementTool;
 import io.github.mundanej.map.vaadin.BrowserPointEditController;
 import io.github.mundanej.map.vaadin.FeatureEditBinding;
@@ -47,6 +52,9 @@ import java.util.function.Consumer;
 
 /** Per-route owner of the example component, edit lane, controls, and listener registrations. */
 final class ViewerSession implements AutoCloseable {
+    static final SvgExportLimits SVG_EXPORT_LIMITS =
+            SvgExportLimits.defaults().withMaximumOutputBytes(ViewerSvgDownloads.MAXIMUM_BYTES);
+
     enum ToolMode {
         NAVIGATE,
         MEASURE,
@@ -62,6 +70,8 @@ final class ViewerSession implements AutoCloseable {
     private final BrowserMeasurementTool measurement;
     private final Registration measurementRegistration;
     private final ViewerSourceWorkflows sources;
+    private final ViewerUploadStaging uploads = new ViewerUploadStaging();
+    private final ViewerSvgDownloads downloads = new ViewerSvgDownloads();
     private final List<Runnable> observers = new CopyOnWriteArrayList<>();
     private String coordinateText = "Move the pointer over the map";
     private String selectionText = "Nothing selected";
@@ -196,6 +206,64 @@ final class ViewerSession implements AutoCloseable {
     CompletionStage<ViewerSourceWorkflows.OpenResult> rejectInvalidSourcePath() {
         requireOpen();
         return sources.rejectInvalidPath();
+    }
+
+    ViewerUploadStaging uploads() {
+        return uploads;
+    }
+
+    ViewerSvgDownloads downloads() {
+        return downloads;
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openUploaded(
+            ViewerUploadStaging.UploadSelection upload) {
+        requireOpen();
+        return switch (upload.kind()) {
+            case SHAPEFILE -> openShapefile(upload.entry());
+            case RASTER -> openRaster(upload.entry());
+            case ELEVATION -> openElevation(upload.entry());
+            case WORKSPACE -> openWorkspace(upload.entry());
+        };
+    }
+
+    boolean prepareSvgExport() {
+        requireOpen();
+        downloads.invalidate();
+        try {
+            return publishSvg(map.captureVectorExportSnapshot());
+        } catch (VectorExportSnapshotException failure) {
+            diagnosticText = failure.problem().code();
+        } catch (SvgExportException failure) {
+            diagnosticText = failure.problem().code();
+        }
+        notifyObservers();
+        return false;
+    }
+
+    boolean prepareSvgExport(VectorExportSnapshot snapshot) {
+        requireOpen();
+        downloads.invalidate();
+        try {
+            return publishSvg(Objects.requireNonNull(snapshot, "snapshot"));
+        } catch (SvgExportException failure) {
+            diagnosticText = failure.problem().code();
+            notifyObservers();
+            return false;
+        }
+    }
+
+    private boolean publishSvg(VectorExportSnapshot snapshot) {
+        downloads.publish(SvgMapExports.encode(snapshot, SVG_EXPORT_LIMITS));
+        diagnosticText = "SVG_EXPORT_READY";
+        notifyObservers();
+        return true;
+    }
+
+    void reportDiagnostic(String code) {
+        requireOpen();
+        diagnosticText = Objects.requireNonNull(code, "code");
+        notifyObservers();
     }
 
     void clearSources() {
@@ -333,6 +401,8 @@ final class ViewerSession implements AutoCloseable {
         primary = cleanup(primary, sources::close);
         primary = cleanup(primary, map::close);
         primary = cleanup(primary, editBinding::close);
+        primary = cleanup(primary, downloads::close);
+        primary = cleanup(primary, uploads::close);
         throwIfPresent(primary);
     }
 

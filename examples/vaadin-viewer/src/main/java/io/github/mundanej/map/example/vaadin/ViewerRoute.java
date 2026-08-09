@@ -29,8 +29,9 @@ public final class ViewerRoute extends Component implements AutoCloseable {
             .top{padding:.75rem 1rem;background:#17324d;color:white}
             h1{font-size:1.15rem;margin:0}
             .toolbar{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.65rem}
-            button{min-height:2.5rem;padding:.45rem .75rem;border:1px solid #6d7f90;
+            button,.toolbar a{min-height:2.5rem;padding:.45rem .75rem;border:1px solid #6d7f90;
                 border-radius:.35rem;background:white;color:#17212b}
+            .toolbar a{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
             button[aria-pressed=true]{background:#cfe5fb;border-color:#195f9d}
             .body{display:grid;grid-template-columns:minmax(13rem,18rem) 1fr;min-height:0}
             aside{padding:1rem;background:#fff;border-right:1px solid #cad2da;overflow:auto}
@@ -38,6 +39,7 @@ public final class ViewerRoute extends Component implements AutoCloseable {
             .layer{display:grid;grid-template-columns:1fr auto auto;gap:.3rem;
                 align-items:center;margin:.45rem 0}
             .source-open{display:grid;gap:.4rem;margin:.8rem 0}.source-open input{min-height:2.2rem}
+            .upload-form{display:grid;gap:.4rem}.upload-form select{min-height:2.2rem}
             .status{display:grid;gap:.35rem;margin-top:1rem}
             footer{padding:.6rem 1rem;background:#e7edf2}
             .hint{font-size:.86rem;color:#405264}.sr-status{min-height:1.2rem}
@@ -70,6 +72,15 @@ public final class ViewerRoute extends Component implements AutoCloseable {
 
     /** Caller-selected trusted server-local path input. */
     private final NativeElement sourcePath = element("input", "");
+
+    /** Native upload form whose scoped handler is registered only after UI attachment. */
+    private final NativeElement uploadForm = element("form", "upload-form");
+
+    /** Immediate browser-visible upload transport status. */
+    private final NativeElement uploadStatus = element("output", "sr-status");
+
+    /** Native SVG anchor whose scoped handler is registered only after UI attachment. */
+    private final NativeElement downloadLink = element("a", "");
 
     /** Screen-reader-visible coordinate status. */
     private final NativeElement coordinates = element("output", "sr-status");
@@ -134,6 +145,9 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         NativeElement sourceHeading = element("h2", "");
         sourceHeading.text("Server-local sources");
         NativeElement sourceOpen = sourceControls();
+        NativeElement uploadHeading = element("h2", "");
+        uploadHeading.text("Browser upload");
+        NativeElement upload = uploadControls();
         NativeElement status = element("section", "status");
         status.getElement().setAttribute("aria-label", "Map status");
         status.add(label("Coordinates", coordinates), label("Selection", selection));
@@ -142,7 +156,16 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         hint.text(
                 "No basemap or network map data is used. Select a tool, then focus the map "
                         + "and use pointer or keyboard input.");
-        sidebar.add(layerHeading, layerList, sourceHeading, sourceOpen, sourceList, status, hint);
+        sidebar.add(
+                layerHeading,
+                layerList,
+                sourceHeading,
+                sourceOpen,
+                sourceList,
+                uploadHeading,
+                upload,
+                status,
+                hint);
 
         NativeElement mapRegion = element("section", "map");
         mapRegion.getElement().setAttribute("aria-label", "Interactive map");
@@ -166,6 +189,7 @@ public final class ViewerRoute extends Component implements AutoCloseable {
     protected void onAttach(AttachEvent event) {
         super.onAttach(event);
         if (!closed) {
+            registerTransfers();
             sessionDestroyRegistration.remove();
             sessionDestroyRegistration = sessionAccess.addDestroyListener(this, this::close);
         }
@@ -218,6 +242,11 @@ public final class ViewerRoute extends Component implements AutoCloseable {
                         session::movePoint));
         toolbar.add(button("undo", "Undo", session::undo));
         toolbar.add(button("redo", "Redo", session::redo));
+        toolbar.add(button("prepare-svg", "Prepare SVG", session::prepareSvgExport));
+        downloadLink.getElement().setAttribute("download", "mundane-map.svg");
+        downloadLink.getElement().setAttribute("id", "download-svg");
+        downloadLink.text("Download SVG");
+        toolbar.add(downloadLink);
         NativeElement wrap = element("label", "");
         NativeElement input = element("input", "");
         input.getElement().setAttribute("type", "checkbox");
@@ -332,6 +361,82 @@ public final class ViewerRoute extends Component implements AutoCloseable {
                         () -> openFixture(SourceKind.WORKSPACE)));
         controls.add(fixtures);
         return controls;
+    }
+
+    private NativeElement uploadControls() {
+        NativeElement controls = element("div", "source-open");
+        NativeElement form = uploadForm;
+        form.getElement().setAttribute("method", "post");
+        form.getElement().setAttribute("enctype", "multipart/form-data");
+        NativeElement kind = element("select", "");
+        kind.getElement().setAttribute("aria-label", "Uploaded source type");
+        for (ViewerUploadStaging.UploadKind value : ViewerUploadStaging.UploadKind.values()) {
+            NativeElement option = element("option", "");
+            option.getElement().setAttribute("value", value.name());
+            option.text(value.name().toLowerCase(Locale.ROOT));
+            kind.add(option);
+        }
+        NativeElement files = element("input", "");
+        files.getElement().setAttribute("type", "file");
+        files.getElement().setAttribute("name", "files");
+        files.getElement().setAttribute("multiple", true);
+        files.getElement().setAttribute("aria-label", "Upload map source files");
+        NativeElement submit = element("button", "");
+        submit.getElement().setAttribute("type", "submit");
+        submit.text("Upload and open");
+        NativeElement cancel = button("cancel-upload", "Cancel upload", session.uploads()::cancel);
+        uploadStatus.getElement().setAttribute("id", "upload-status");
+        uploadStatus.getElement().setAttribute("aria-live", "polite");
+        uploadStatus.text("No upload attempted");
+        form.add(kind, files, submit);
+        form.getElement()
+                .executeJs(
+                        """
+                        if (!this.__boundedUpload) {
+                          this.__boundedUpload = true;
+                          this.addEventListener('submit', async event => {
+                            event.preventDefault();
+                            const submit = this.querySelector('button[type=submit]');
+                            const controller = new AbortController();
+                            this.__uploadAbort = controller;
+                            const kind = this.querySelector('select').value;
+                            submit.disabled = true;
+                            try {
+                              const response = await fetch(this.action, {method:'POST', body:new FormData(this),
+                                credentials:'same-origin', redirect:'error', signal:controller.signal,
+                                headers:{'X-Mundane-Upload-Kind':kind}});
+                              const payload = await response.json().catch(() => ({}));
+                              const status = this.parentElement.querySelector('#upload-status');
+                              if (status) status.textContent = payload.code || 'UPLOAD_RESPONSE_INVALID';
+                            } catch (failure) {
+                              const status = this.parentElement.querySelector('#upload-status');
+                              if (status) status.textContent = failure.name === 'AbortError'
+                                ? 'UPLOAD_CANCELLED' : 'UPLOAD_TRANSPORT_FAILED';
+                            } finally {
+                              if (this.__uploadAbort === controller) this.__uploadAbort = null;
+                              submit.disabled = false;
+                              this.reset();
+                            }
+                          });
+                        }
+                        """);
+        cancel.getElement()
+                .executeJs(
+                        "this.addEventListener('click',()=>{"
+                                + "const form=this.parentElement.querySelector('form');"
+                                + "if(form && form.__uploadAbort) form.__uploadAbort.abort();});");
+        controls.add(form, cancel, uploadStatus);
+        return controls;
+    }
+
+    private void registerTransfers() {
+        if (getUI().isEmpty()) {
+            return;
+        }
+        uploadForm
+                .getElement()
+                .setAttribute("action", new ViewerUploadHandler(session, this::dispatch));
+        downloadLink.getElement().setAttribute("href", session.downloads().handler());
     }
 
     CompletionStage<ViewerSourceWorkflows.OpenResult> openPath(SourceKind kind) {

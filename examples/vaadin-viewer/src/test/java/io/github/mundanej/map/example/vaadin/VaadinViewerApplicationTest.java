@@ -9,13 +9,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.DetachEvent;
+import com.vaadin.flow.component.page.Push;
 import com.vaadin.flow.router.Route;
+import com.vaadin.flow.shared.communication.PushMode;
+import com.vaadin.flow.spring.SpringServlet;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MeasurementPhase;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -24,11 +29,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.ConfigurableApplicationContext;
 
 final class VaadinViewerApplicationTest {
     @Test
     void applicationContextStartsWithoutNetworkMapData() {
+        assertEquals(
+                PushMode.AUTOMATIC,
+                VaadinViewerApplication.class.getAnnotation(Push.class).value());
         SpringApplication application = VaadinViewerApplication.application();
         application.setDefaultProperties(
                 java.util.Map.of(
@@ -37,6 +46,23 @@ final class VaadinViewerApplicationTest {
                         "vaadin.productionMode", "true"));
         try (ConfigurableApplicationContext context = application.run()) {
             assertNotNull(context.getBean(VaadinViewerApplication.class));
+            assertEquals(
+                    "16MB",
+                    context.getEnvironment().getProperty("spring.servlet.multipart.max-file-size"));
+            assertEquals(
+                    "33MB",
+                    context.getEnvironment()
+                            .getProperty("spring.servlet.multipart.max-request-size"));
+            ServletRegistrationBean<?> vaadin =
+                    context.getBeansOfType(ServletRegistrationBean.class).values().stream()
+                            .filter(
+                                    registration ->
+                                            registration.getServlet() instanceof SpringServlet)
+                            .findFirst()
+                            .orElseThrow();
+            assertEquals(16L * 1024 * 1024, vaadin.getMultipartConfig().getMaxFileSize());
+            assertEquals(33L * 1024 * 1024, vaadin.getMultipartConfig().getMaxRequestSize());
+            assertEquals(0, vaadin.getMultipartConfig().getFileSizeThreshold());
         }
     }
 
@@ -47,12 +73,16 @@ final class VaadinViewerApplicationTest {
         assertEquals("main", route.getElement().getTag());
         assertTrue(route.getElement().getClassList().contains("viewer-root"));
         assertTrue(route.getElement().getTextRecursively().contains("No basemap"));
+        assertTrue(route.getElement().getTextRecursively().contains("Upload and open"));
+        assertTrue(route.getElement().getTextRecursively().contains("Download SVG"));
         assertFalse(route.session().isClosed());
+        Path uploadRoot = route.session().uploads().root();
 
         route.onDetach(new DetachEvent(route));
         route.close();
 
         assertTrue(route.session().isClosed());
+        assertFalse(Files.exists(uploadRoot));
     }
 
     @Test
@@ -138,10 +168,13 @@ final class VaadinViewerApplicationTest {
                     throw new IllegalArgumentException("second");
                 });
 
-        IllegalStateException failure = assertThrows(IllegalStateException.class, registry::close);
+        RuntimeException failure = assertThrows(RuntimeException.class, registry::close);
 
         assertEquals(1, failure.getSuppressed().length);
         assertEquals(2, calls.get());
+        removed.close();
+        failing.close();
+        alsoFailing.close();
     }
 
     @Test

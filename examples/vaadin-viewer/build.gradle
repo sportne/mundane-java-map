@@ -9,14 +9,17 @@ dependencies {
     implementation project(':modules:mundane-map-core')
     implementation project(':modules:mundane-map-io-geotiff')
     implementation project(':modules:mundane-map-io-shapefile')
+    implementation project(':modules:mundane-map-io-svg')
     implementation project(':modules:mundane-map-vaadin')
     implementation project(':modules:mundane-map-workspace')
     implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'com.vaadin:vaadin-spring:25.2.4'
     developmentOnly 'com.vaadin:vaadin-dev-server:25.2.4'
+    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testCompileOnly 'com.github.spotbugs:spotbugs-annotations:4.9.8'
     testRuntimeOnly 'com.vaadin:vaadin-dev-server:25.2.4'
 }
 

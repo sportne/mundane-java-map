@@ -1,6 +1,6 @@
 # G18-052 — Vaadin viewer upload and export closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G18-051
 Gate: G18
 Type: HITL
@@ -51,3 +51,19 @@ git diff --check
 
 HITL checkpoint: **complete Vaadin viewer upload security, SVG export, deployment wording, responsive
 layout, keyboard access, visual fidelity, and cleanup review**. Stop `bootRun` after review.
+
+## Completion record
+
+- Browser multipart requests stream into a fresh route-owned root under closed 8-file/16-MiB-file/
+  32-MiB-request and 32-file/64-MiB-session ceilings. Leaf-name validation, exact byte lengths,
+  same-stem shapefile sidecars, server-generated identities, prospective commit, cancellation, and
+  failure cleanup precede the existing asynchronous source-opening boundary.
+- The existing acknowledged vector capture and canonical SVG encoder feed a route-scoped five-minute
+  download with exact length, `nosniff`, sandbox, and private `no-store` headers. Pending,
+  non-representable, expired, detached, and closed cases publish no partial document and retain the
+  existing stable diagnostics.
+- Focused tests cover hostile names/paths, sidecars, duplicate/type/byte/count/session limits,
+  cancellation, real uploaded shapefile opening, response value hygiene, canonical export bytes,
+  defensive ownership, expiry, headers, detach/session/application cleanup, and production profile
+  wiring. The viewer README records launch/build commands, exact limits, ownership, unsupported
+  content, and deployment exclusions without a security, scale, or pixel-identity claim.

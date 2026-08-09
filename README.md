@@ -94,6 +94,11 @@ repository verification, and the exact glibc/musl SQLite-adapter platform matrix
 lanes remain separate because they require cold homes, corpus data, external tools, containers,
 platform-specific behavior, or deliberately expensive evidence.
 
+The non-published `examples:vaadin-viewer` application combines the optional Flow adapter with
+bounded server-local or per-session uploaded shapefile/GeoTIFF/workspace data and route-scoped
+canonical SVG downloads. Its own README records the exact limits, production build command, and
+security/deployment exclusions; this example does not extend the Level 1 runtime support claim.
+
 The Java 21 CI job owns the complete `qualityGate`, including formatting, Checkstyle, SpotBugs,
 coverage reporting and thresholds, architecture rules, and Javadocs. The Java 25 job runs
 `supportedJdkTests`, which compiles against Java 21 and executes every normal JUnit suite—including
