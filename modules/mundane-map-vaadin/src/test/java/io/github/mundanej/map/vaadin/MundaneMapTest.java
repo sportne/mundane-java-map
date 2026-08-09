@@ -13,6 +13,7 @@ import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.core.InMemoryLayer;
@@ -164,6 +165,15 @@ final class MundaneMapTest {
                 MundaneMapException.BROWSER_CAPABILITY_UNSUPPORTED);
         assertEquals(
                 MundaneMapException.BROWSER_CAPABILITY_UNSUPPORTED,
+                map.diagnostic().orElseThrow().code());
+
+        map.acceptClientFailure(
+                1,
+                (double) map.componentGenerationForTest(),
+                (double) map.sceneGenerationForTest(),
+                SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED);
+        assertEquals(
+                SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED,
                 map.diagnostic().orElseThrow().code());
 
         map.acceptClientFailure(9, 0, 0, "stale");

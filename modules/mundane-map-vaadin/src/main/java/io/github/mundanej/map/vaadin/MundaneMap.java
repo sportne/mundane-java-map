@@ -17,6 +17,7 @@ import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.MapSourceReportEvent;
 import io.github.mundanej.map.api.MapSourceReportListener;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
@@ -43,10 +44,9 @@ import java.util.function.LongSupplier;
  *
  * <p>All high-frequency navigation runs in the bundled custom element. Java receives only settled,
  * generation-checked viewport values. Snapshot layers and explicitly bound feature sources accept
- * all six Level 1 geometry families, centered fill-only screen-pixel {@link
- * io.github.mundanej.map.api.VectorMarkerSymbol}s, plain screen-pixel {@link
- * io.github.mundanej.map.api.SolidLineSymbol}s, and plain {@link
- * io.github.mundanej.map.api.SolidFillSymbol}s.
+ * all six Level 1 geometry families and the bounded built-in vector profile: vector markers, solid
+ * lines with endpoint markers, solid and hatch fills, outlines, and role-homogeneous composites.
+ * Raster, legacy, and custom renderer values are not forwarded to the browser.
  */
 @Tag("mundane-map-canvas")
 @JsModule("./mundane-map-canvas.js")
@@ -696,6 +696,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             MundaneMapException.NON_FINITE_VALUE,
                             MundaneMapException.DUPLICATE_ID,
                             MundaneMapException.UNSUPPORTED_VALUE,
+                            SymbolException.HATCH_SEGMENT_LIMIT_EXCEEDED,
                             MundaneMapException.BROWSER_CAPABILITY_UNSUPPORTED,
                             MundaneMapException.PROTOCOL_VERSION_UNSUPPORTED,
                             MundaneMapException.STALE_GENERATION ->

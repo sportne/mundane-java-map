@@ -7,13 +7,18 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
+import io.github.mundanej.map.api.FeatureStyle;
+import io.github.mundanej.map.api.HatchFillSymbol;
+import io.github.mundanej.map.api.HatchPattern;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MarkerPlacement;
+import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
@@ -24,8 +29,10 @@ import io.github.mundanej.map.api.RasterInterpolation;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolLength;
+import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolRotationMode;
 import io.github.mundanej.map.api.SymbolSize;
 import io.github.mundanej.map.api.SymbolStroke;
@@ -87,7 +94,7 @@ final class SceneProtocolTest {
                 List.of("point", "line", "polygon"),
                 result.layers().getFirst().features().stream().map(Feature::id).toList());
         assertEquals(new Envelope(-4, -2, 10, 10), result.envelope().orElseThrow());
-        assertEquals(747, result.logicalBytes());
+        assertEquals(1016, result.logicalBytes());
         assertEquals(SceneProtocol.VERSION, result.scene().get("protocolVersion"));
         assertEquals(3L, result.scene().get("componentGeneration"));
         assertEquals(7L, result.scene().get("sceneGeneration"));
@@ -102,7 +109,10 @@ final class SceneProtocolTest {
         Map<?, ?> polygonPrimitive =
                 (Map<?, ?>) ((List<?>) polygonValue.get("primitives")).getFirst();
         assertEquals(2, ((List<?>) polygonPrimitive.get("rings")).size());
-        assertInstanceOf(Map.class, polygonPrimitive.get("outline"));
+        assertEquals(
+                List.of("polygon", "line", "line"),
+                ((List<?>) polygonValue.get("primitives"))
+                        .stream().map(value -> ((Map<?, ?>) value).get("kind")).toList());
         assertThrows(UnsupportedOperationException.class, () -> result.scene().put("bad", true));
         assertThrows(UnsupportedOperationException.class, () -> result.layers().add(source));
     }
@@ -191,6 +201,44 @@ final class SceneProtocolTest {
     }
 
     @Test
+    void omitsCoincidentLinePartsAndTheirEndpointMarkers() {
+        SolidLineSymbol endpoints =
+                SolidLineSymbol.of(BLUE_STROKE, Optional.of(marker()), Optional.of(marker()), 1);
+        List<Feature> features =
+                List.of(
+                        new Feature(
+                                "coincident",
+                                "Coincident",
+                                new LineStringGeometry(CoordinateSequence.of(1, 1, 1, 1, 1, 1)),
+                                Map.of(),
+                                SolidLineSymbol.of(BLUE_STROKE, 1)),
+                        new Feature(
+                                "multipart",
+                                "Multipart",
+                                MultiLineStringGeometry.ofParts(
+                                        List.of(
+                                                CoordinateSequence.of(2, 2, 2, 2),
+                                                CoordinateSequence.of(0, 0, 3, 0))),
+                                Map.of(),
+                                endpoints));
+
+        SceneProtocol.Result result =
+                protocol()
+                        .encode(
+                                List.of(new InMemoryLayer("lines", "Lines", features)),
+                                Rgba.TRANSPARENT,
+                                MapViewport.initial(20, 20),
+                                1,
+                                1);
+        List<?> encoded =
+                (List<?>)
+                        ((Map<?, ?>) ((List<?>) result.scene().get("layers")).getFirst())
+                                .get("features");
+        assertTrue(kinds((Map<?, ?>) encoded.get(0)).isEmpty());
+        assertEquals(List.of("line", "point", "point"), kinds((Map<?, ?>) encoded.get(1)));
+    }
+
+    @Test
     void rejectsDuplicateIdentitiesAndNullValues() {
         InMemoryLayer first = new InMemoryLayer("same", "One", List.of());
         InMemoryLayer second = new InMemoryLayer("same", "Two", List.of());
@@ -239,7 +287,7 @@ final class SceneProtocolTest {
     }
 
     @Test
-    void rejectsEveryOutOfSliceGeometryAndSymbolShapeAtomically() {
+    void completesBuiltInMarkerLineFillCompositeEndpointAndHatchMatrix() {
         assertUnsupported(
                 new Feature(
                         "raster",
@@ -250,57 +298,126 @@ final class SceneProtocolTest {
                                 1, 1, new int[] {0xffffffff}, RasterInterpolation.NEAREST, 1)));
         MarkerPlacement moved =
                 new MarkerPlacement(
-                        SymbolSize.square(10, SymbolUnit.SCREEN_PIXEL),
+                        new SymbolSize(10, 14, SymbolUnit.MAP_UNIT),
                         SymbolAnchor.NORTH,
-                        0,
-                        0,
-                        0,
-                        SymbolRotationMode.SCREEN_RELATIVE);
-        assertUnsupported(
-                new Feature(
-                        "moved",
-                        "Moved",
-                        new PointGeometry(new Coordinate(0, 0)),
-                        Map.of(),
-                        VectorMarkerSymbol.of(
-                                marker().path(),
-                                marker().viewBox(),
-                                RED,
-                                Optional.empty(),
-                                moved,
-                                1)));
+                        2,
+                        -3,
+                        37,
+                        SymbolRotationMode.MAP_RELATIVE);
+        VectorMarkerSymbol placed =
+                VectorMarkerSymbol.of(
+                        marker().path(),
+                        marker().viewBox(),
+                        RED,
+                        Optional.of(BLUE_STROKE),
+                        moved,
+                        0.8);
         SolidLineSymbol endpointLine =
-                SolidLineSymbol.of(BLUE_STROKE, Optional.of(marker()), Optional.empty(), 1);
-        assertUnsupported(
-                new Feature(
-                        "endpoint",
-                        "Endpoint",
-                        new LineStringGeometry(CoordinateSequence.of(0, 0, 1, 1)),
-                        Map.of(),
-                        endpointLine));
+                SolidLineSymbol.of(
+                        new SymbolStroke(RED, new SymbolLength(1, SymbolUnit.MAP_UNIT)),
+                        Optional.of(CompositeSymbol.of(List.of(marker(), placed), 0.5)),
+                        Optional.of(placed),
+                        0.75);
         SymbolStroke mapStroke = new SymbolStroke(RED, new SymbolLength(1, SymbolUnit.MAP_UNIT));
-        assertUnsupported(
-                new Feature(
-                        "map-line",
-                        "Map line",
-                        new LineStringGeometry(CoordinateSequence.of(0, 0, 1, 1)),
-                        Map.of(),
-                        SolidLineSymbol.of(mapStroke, 1)));
-        assertUnsupported(
-                new Feature(
-                        "outline",
-                        "Outline",
-                        new PolygonGeometry(CoordinateSequence.of(0, 0, 1, 0, 1, 1, 0, 0)),
-                        Map.of(),
-                        SolidFillSymbol.of(
-                                RED,
-                                Optional.of(
-                                        SolidLineSymbol.of(
-                                                BLUE_STROKE,
-                                                Optional.of(marker()),
-                                                Optional.empty(),
-                                                1)),
-                                1)));
+        SolidLineSymbol outline = SolidLineSymbol.of(mapStroke, 0.6);
+        HatchFillSymbol hatch =
+                HatchFillSymbol.of(
+                        HatchPattern.CROSS_DIAGONAL,
+                        BLUE_STROKE,
+                        new SymbolLength(4, SymbolUnit.MAP_UNIT),
+                        SymbolRotationMode.MAP_RELATIVE,
+                        Optional.of(CompositeSymbol.of(List.of(outline, outline), 0.5)),
+                        0.7,
+                        1234);
+        HatchFillSymbol forward =
+                HatchFillSymbol.of(
+                        HatchPattern.FORWARD_DIAGONAL,
+                        BLUE_STROKE,
+                        new SymbolLength(5, SymbolUnit.SCREEN_PIXEL),
+                        SymbolRotationMode.SCREEN_RELATIVE,
+                        1);
+        HatchFillSymbol backward =
+                HatchFillSymbol.of(
+                        HatchPattern.BACKWARD_DIAGONAL,
+                        BLUE_STROKE,
+                        new SymbolLength(6, SymbolUnit.SCREEN_PIXEL),
+                        SymbolRotationMode.MAP_RELATIVE,
+                        0.9);
+        List<Feature> features =
+                List.of(
+                        new Feature(
+                                "markers",
+                                "Markers",
+                                new MultiPointGeometry(CoordinateSequence.of(0, 0, 1, 1)),
+                                Map.of(),
+                                CompositeSymbol.of(List.of(marker(), placed), 0.5)),
+                        new Feature(
+                                "endpoint",
+                                "Endpoint",
+                                new LineStringGeometry(CoordinateSequence.of(0, 0, 2, 0, 2, 3)),
+                                Map.of(),
+                                CompositeSymbol.of(
+                                        List.of(SolidLineSymbol.of(BLUE_STROKE, 1), endpointLine),
+                                        0.5)),
+                        new Feature(
+                                "fill",
+                                "Fill",
+                                new PolygonGeometry(
+                                        CoordinateSequence.of(0, 0, 4, 0, 4, 4, 0, 0),
+                                        List.of(CoordinateSequence.of(1, 1, 2, 1, 2, 2, 1, 1))),
+                                Map.of(),
+                                CompositeSymbol.of(
+                                        List.of(
+                                                SolidFillSymbol.of(RED, Optional.of(outline), 0.8),
+                                                forward,
+                                                backward,
+                                                hatch),
+                                        0.5)));
+
+        SceneProtocol.Result result =
+                protocol()
+                        .encode(
+                                List.of(new InMemoryLayer("symbols", "Symbols", features)),
+                                Rgba.TRANSPARENT,
+                                MapViewport.initial(200, 100),
+                                1,
+                                2);
+        List<?> encoded =
+                (List<?>)
+                        ((Map<?, ?>) ((List<?>) result.scene().get("layers")).getFirst())
+                                .get("features");
+        assertEquals(
+                List.of("point", "point", "point", "point"), kinds((Map<?, ?>) encoded.get(0)));
+        assertEquals(
+                List.of("line", "line", "point", "point", "point"),
+                kinds((Map<?, ?>) encoded.get(1)));
+        assertEquals(
+                List.of(
+                        "polygon", "line", "line", "hatch", "hatch", "hatch", "line", "line",
+                        "line", "line"),
+                kinds((Map<?, ?>) encoded.get(2)));
+        Map<?, ?> placedPrimitive =
+                (Map<?, ?>) ((List<?>) ((Map<?, ?>) encoded.get(0)).get("primitives")).get(2);
+        assertEquals(List.of(10.0, 14.0), placedPrimitive.get("size"));
+        assertEquals("MAP_UNIT", placedPrimitive.get("unit"));
+        assertEquals("NORTH", placedPrimitive.get("anchor"));
+        assertEquals("MAP_RELATIVE", placedPrimitive.get("rotationMode"));
+        Map<?, ?> endpoint =
+                (Map<?, ?>) ((List<?>) ((Map<?, ?>) encoded.get(1)).get("primitives")).get(2);
+        assertEquals(Map.of("present", true, "value", 180.0), endpoint.get("endpointBearing"));
+        Map<?, ?> end =
+                (Map<?, ?>) ((List<?>) ((Map<?, ?>) encoded.get(1)).get("primitives")).get(4);
+        assertEquals(Map.of("present", true, "value", 270.0), end.get("endpointBearing"));
+        Map<?, ?> hatchPrimitive =
+                (Map<?, ?>) ((List<?>) ((Map<?, ?>) encoded.get(2)).get("primitives")).get(5);
+        assertEquals(
+                List.of("FORWARD_DIAGONAL", "BACKWARD_DIAGONAL", "CROSS_DIAGONAL"),
+                ((List<?>) ((Map<?, ?>) encoded.get(2)).get("primitives"))
+                        .subList(3, 6).stream()
+                                .map(value -> ((Map<?, ?>) value).get("pattern"))
+                                .toList());
+        assertEquals("CROSS_DIAGONAL", hatchPrimitive.get("pattern"));
+        assertEquals(1234, hatchPrimitive.get("maxSegments"));
     }
 
     @Test
@@ -331,6 +448,70 @@ final class SceneProtocolTest {
                                                 1,
                                                 1));
         assertEquals(MundaneMapException.LIMIT_EXCEEDED, oversizedViewport.code());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void rejectsLegacyAndExcessivelyNestedSymbolsWithStableDiagnostics() {
+        assertUnsupported(
+                new Feature(
+                        "legacy",
+                        "Legacy",
+                        new PointGeometry(new Coordinate(0, 0)),
+                        Map.of(),
+                        FeatureStyle.point(RED, 4)));
+        MarkerSymbol custom =
+                new MarkerSymbol() {
+                    @Override
+                    public SymbolRendererKey rendererKey() {
+                        return new SymbolRendererKey("example.custom-marker");
+                    }
+
+                    @Override
+                    public double opacity() {
+                        return 1;
+                    }
+                };
+        assertUnsupported(
+                new Feature(
+                        "custom",
+                        "Custom",
+                        new PointGeometry(new Coordinate(0, 0)),
+                        Map.of(),
+                        custom));
+
+        Symbol nested = marker();
+        for (int depth = 0; depth <= 64; depth++) {
+            nested = CompositeSymbol.of(List.of(nested), 1);
+        }
+        Symbol overDepth = nested;
+        MundaneMapException exception =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                protocol()
+                                        .encode(
+                                                List.of(
+                                                        new InMemoryLayer(
+                                                                "layer",
+                                                                "Layer",
+                                                                List.of(
+                                                                        new Feature(
+                                                                                "deep",
+                                                                                "Deep",
+                                                                                new PointGeometry(
+                                                                                        new Coordinate(
+                                                                                                0,
+                                                                                                0)),
+                                                                                Map.of(),
+                                                                                overDepth)))),
+                                                Rgba.TRANSPARENT,
+                                                MapViewport.initial(20, 20),
+                                                1,
+                                                1));
+        assertEquals(MundaneMapException.LIMIT_EXCEEDED, exception.code());
+        assertEquals("symbolDepth", exception.context().get("limit"));
+        assertEquals("64", exception.context().get("maximum"));
     }
 
     @Test
@@ -399,6 +580,11 @@ final class SceneProtocolTest {
 
     private static SceneProtocol protocol() {
         return new SceneProtocol(SceneProtocol.DEFAULT_LIMITS);
+    }
+
+    private static List<?> kinds(Map<?, ?> feature) {
+        return ((List<?>) feature.get("primitives"))
+                .stream().map(value -> ((Map<?, ?>) value).get("kind")).toList();
     }
 
     private static Feature point(String id) {

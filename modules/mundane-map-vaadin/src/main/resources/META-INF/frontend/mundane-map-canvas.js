@@ -5,6 +5,7 @@ const MAX_PRIMITIVES = 200000;
 const MAX_COORDINATE_PAIRS = 2000000;
 const MAX_PATH_COMMANDS = 2000000;
 const MAX_LOGICAL_BYTES = 64 * 1024 * 1024;
+const MAX_HATCH_SEGMENTS = 200000;
 const MAX_BACKING_PIXELS = 67108864;
 const MAX_BACKING_EDGE = 16384;
 const MAX_DPR = 4;
@@ -112,10 +113,44 @@ function validatePath(path) {
   if (!path.ordinates.every(Number.isFinite)) {
     throw new Error('NON_FINITE_VALUE');
   }
+  let active = false;
+  let closed = false;
+  let subpathHasSegment = false;
+  let hasSegment = false;
+  let allSubpathsClosed = true;
+  for (const command of path.commands) {
+    if (command === 'MOVE_TO') {
+      if (active && !subpathHasSegment) {
+        throw new Error('SYMBOL_UNSUPPORTED');
+      }
+      if (active && !closed) {
+        allSubpathsClosed = false;
+      }
+      active = true;
+      closed = false;
+      subpathHasSegment = false;
+    } else if (command === 'CLOSE') {
+      if (!active || closed || !subpathHasSegment) {
+        throw new Error('SYMBOL_UNSUPPORTED');
+      }
+      closed = true;
+    } else {
+      if (!active || closed) {
+        throw new Error('SYMBOL_UNSUPPORTED');
+      }
+      subpathHasSegment = true;
+      hasSegment = true;
+    }
+  }
+  if (!subpathHasSegment || !hasSegment) {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  return allSubpathsClosed && closed;
 }
 
 function validateStroke(stroke) {
-  if (!stroke || !validateColor(stroke.color) || typeof stroke.width !== 'number') {
+  if (!stroke || !validateColor(stroke.color) || typeof stroke.width !== 'number' ||
+      !['SCREEN_PIXEL', 'MAP_UNIT'].includes(stroke.unit)) {
     throw new Error('SYMBOL_UNSUPPORTED');
   }
   if (!Number.isFinite(stroke.width)) {
@@ -124,6 +159,38 @@ function validateStroke(stroke) {
   if (stroke.width <= 0) {
     throw new Error('SYMBOL_UNSUPPORTED');
   }
+}
+
+function validateOptionalStroke(stroke) {
+  if (!stroke || typeof stroke.present !== 'boolean') {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  if (stroke.present) {
+    validateStroke(stroke.value);
+  }
+}
+
+function validateOptionalNumber(value) {
+  if (!value || typeof value.present !== 'boolean') {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  if (value.present && !Number.isFinite(value.value)) {
+    throw new Error('NON_FINITE_VALUE');
+  }
+}
+
+function validateRings(rings) {
+  if (!Array.isArray(rings) || !rings.length) {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  let pairs = 0;
+  for (const ring of rings) {
+    pairs += validateCoordinates(ring, 4);
+    if (ring[0] !== ring[ring.length - 2] || ring[1] !== ring[ring.length - 1]) {
+      throw new Error('SYMBOL_UNSUPPORTED');
+    }
+  }
+  return pairs;
 }
 
 function validateOpacity(value) {
@@ -150,8 +217,19 @@ function detachPrimitive(primitive) {
       coordinate: [...primitive.coordinate],
       path: {commands: [...primitive.path.commands], ordinates: [...primitive.path.ordinates]},
       viewBox: [...primitive.viewBox],
-      size: primitive.size,
+      size: [...primitive.size],
+      unit: primitive.unit,
+      anchor: primitive.anchor,
+      offset: [...primitive.offset],
+      rotationDegrees: primitive.rotationDegrees,
+      rotationMode: primitive.rotationMode,
       fill: [...primitive.fill],
+      stroke: primitive.stroke.present ? {present: true, value: {
+        color: [...primitive.stroke.value.color], width: primitive.stroke.value.width,
+        unit: primitive.stroke.value.unit
+      }} : {present: false},
+      endpointBearing: primitive.endpointBearing.present ?
+        {present: true, value: primitive.endpointBearing.value} : {present: false},
       opacity: primitive.opacity
     };
   }
@@ -159,20 +237,29 @@ function detachPrimitive(primitive) {
     return {
       kind: 'line',
       coordinates: [...primitive.coordinates],
-      stroke: {color: [...primitive.stroke.color], width: primitive.stroke.width},
+      stroke: {color: [...primitive.stroke.color], width: primitive.stroke.width,
+        unit: primitive.stroke.unit},
       opacity: primitive.opacity
     };
   }
-  const outline = primitive.outline.present ? {
-    present: true,
-    stroke: {color: [...primitive.outline.stroke.color], width: primitive.outline.stroke.width},
-    opacity: primitive.outline.opacity
-  } : {present: false};
+  if (primitive.kind === 'hatch') {
+    return {
+      kind: 'hatch',
+      rings: primitive.rings.map(ring => [...ring]),
+      pattern: primitive.pattern,
+      stroke: {color: [...primitive.stroke.color], width: primitive.stroke.width,
+        unit: primitive.stroke.unit},
+      spacing: primitive.spacing,
+      spacingUnit: primitive.spacingUnit,
+      rotationMode: primitive.rotationMode,
+      maxSegments: primitive.maxSegments,
+      opacity: primitive.opacity
+    };
+  }
   return {
     kind: 'polygon',
     rings: primitive.rings.map(ring => [...ring]),
     fill: [...primitive.fill],
-    outline,
     opacity: primitive.opacity
   };
 }
@@ -218,18 +305,25 @@ export function logicalSceneBytes(scene) {
         if (primitive.kind === 'point') {
           size += logicalNumberArrayBytes(primitive.coordinate) + 4 +
             primitive.path.commands.length + logicalNumberArrayBytes(primitive.path.ordinates) +
-            logicalNumberArrayBytes(primitive.viewBox) + 2 * 8 +
-            logicalNumberArrayBytes(primitive.fill);
+            logicalNumberArrayBytes(primitive.viewBox) +
+            logicalNumberArrayBytes(primitive.size) + logicalNumberArrayBytes(primitive.offset) +
+            2 * 8 + 3 + logicalNumberArrayBytes(primitive.fill) + 1 + 1;
+          if (primitive.stroke.present) {
+            size += logicalNumberArrayBytes(primitive.stroke.value.color) + 8 + 1;
+          }
+          if (primitive.endpointBearing.present) {
+            size += 8;
+          }
         } else if (primitive.kind === 'line') {
           size += logicalNumberArrayBytes(primitive.coordinates) +
-            logicalNumberArrayBytes(primitive.stroke.color) + 2 * 8;
+            logicalNumberArrayBytes(primitive.stroke.color) + 2 * 8 + 1;
+        } else if (primitive.kind === 'hatch') {
+          size += 4 + primitive.rings.reduce((sum, ring) =>
+            sum + logicalNumberArrayBytes(ring), 0) +
+            logicalNumberArrayBytes(primitive.stroke.color) + 4 * 8 + 3;
         } else {
           size += 4 + primitive.rings.reduce((sum, ring) =>
-            sum + logicalNumberArrayBytes(ring), 0) + logicalNumberArrayBytes(primitive.fill) +
-            1 + 8;
-          if (primitive.outline.present) {
-            size += logicalNumberArrayBytes(primitive.outline.stroke.color) + 2 * 8;
-          }
+            sum + logicalNumberArrayBytes(ring), 0) + logicalNumberArrayBytes(primitive.fill) + 8;
         }
       }
     }
@@ -303,17 +397,49 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
         }
         if (primitive.kind === 'point') {
           coordinatePairs += validateCoordinates(primitive.coordinate, 1);
-          validatePath(primitive.path);
+          const pathClosed = validatePath(primitive.path);
           if (primitive.coordinate.length !== 2 ||
               !Array.isArray(primitive.viewBox) || primitive.viewBox.length !== 4 ||
-              !validateColor(primitive.fill) || typeof primitive.size !== 'number') {
+              !Array.isArray(primitive.size) || primitive.size.length !== 2 ||
+              !Array.isArray(primitive.offset) || primitive.offset.length !== 2 ||
+              !validateColor(primitive.fill) ||
+              !['SCREEN_PIXEL', 'MAP_UNIT'].includes(primitive.unit) ||
+              !['NORTH_WEST', 'NORTH', 'NORTH_EAST', 'WEST', 'CENTER', 'EAST',
+                'SOUTH_WEST', 'SOUTH', 'SOUTH_EAST'].includes(primitive.anchor) ||
+              !['SCREEN_RELATIVE', 'MAP_RELATIVE'].includes(primitive.rotationMode)) {
             throw new Error('SYMBOL_UNSUPPORTED');
           }
-          if (!primitive.viewBox.every(Number.isFinite) || !Number.isFinite(primitive.size)) {
+          if (!primitive.viewBox.every(Number.isFinite) ||
+              !primitive.size.every(Number.isFinite) ||
+              !primitive.offset.every(Number.isFinite) ||
+              !Number.isFinite(primitive.rotationDegrees)) {
             throw new Error('NON_FINITE_VALUE');
           }
-          if (primitive.viewBox[2] <= primitive.viewBox[0] ||
-              primitive.viewBox[3] <= primitive.viewBox[1] || primitive.size <= 0) {
+          const viewBoxWidth = primitive.viewBox[2] - primitive.viewBox[0];
+          const viewBoxHeight = primitive.viewBox[3] - primitive.viewBox[1];
+          if (!Number.isFinite(viewBoxWidth) || !Number.isFinite(viewBoxHeight)) {
+            throw new Error('NON_FINITE_VALUE');
+          }
+          if (viewBoxWidth <= 0 || viewBoxHeight <= 0 ||
+              primitive.size.some(value => value <= 0) || primitive.rotationDegrees < 0 ||
+              primitive.rotationDegrees >= 360) {
+            throw new Error('SYMBOL_UNSUPPORTED');
+          }
+          validateOptionalStroke(primitive.stroke);
+          validateOptionalNumber(primitive.endpointBearing);
+          if (primitive.endpointBearing.present &&
+              (primitive.endpointBearing.value < 0 || primitive.endpointBearing.value >= 360)) {
+            throw new Error('SYMBOL_UNSUPPORTED');
+          }
+          for (let index = 0; index < primitive.path.ordinates.length; index += 2) {
+            if (primitive.path.ordinates[index] < primitive.viewBox[0] ||
+                primitive.path.ordinates[index] > primitive.viewBox[2] ||
+                primitive.path.ordinates[index + 1] < primitive.viewBox[1] ||
+                primitive.path.ordinates[index + 1] > primitive.viewBox[3]) {
+              throw new Error('SYMBOL_UNSUPPORTED');
+            }
+          }
+          if ((primitive.fill[3] !== 0 || !primitive.stroke.present) && !pathClosed) {
             throw new Error('SYMBOL_UNSUPPORTED');
           }
           pathCommands += primitive.path.commands.length;
@@ -321,22 +447,21 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
           coordinatePairs += validateCoordinates(primitive.coordinates, 2);
           validateStroke(primitive.stroke);
         } else if (primitive.kind === 'polygon') {
-          if (!Array.isArray(primitive.rings) || !primitive.rings.length ||
-              !validateColor(primitive.fill)) {
+          coordinatePairs += validateRings(primitive.rings);
+          if (!validateColor(primitive.fill)) {
             throw new Error('SYMBOL_UNSUPPORTED');
           }
-          for (const ring of primitive.rings) {
-            coordinatePairs += validateCoordinates(ring, 4);
-            if (ring[0] !== ring[ring.length - 2] || ring[1] !== ring[ring.length - 1]) {
-              throw new Error('SYMBOL_UNSUPPORTED');
-            }
-          }
-          if (!primitive.outline || typeof primitive.outline.present !== 'boolean') {
+        } else if (primitive.kind === 'hatch') {
+          coordinatePairs += validateRings(primitive.rings);
+          validateStroke(primitive.stroke);
+          if (!['FORWARD_DIAGONAL', 'BACKWARD_DIAGONAL', 'CROSS_DIAGONAL']
+            .includes(primitive.pattern) ||
+              !['SCREEN_PIXEL', 'MAP_UNIT'].includes(primitive.spacingUnit) ||
+              !['SCREEN_RELATIVE', 'MAP_RELATIVE'].includes(primitive.rotationMode) ||
+              !Number.isFinite(primitive.spacing) || primitive.spacing <= 0 ||
+              !Number.isSafeInteger(primitive.maxSegments) || primitive.maxSegments <= 0 ||
+              primitive.maxSegments > 2147483647) {
             throw new Error('SYMBOL_UNSUPPORTED');
-          }
-          if (primitive.outline.present) {
-            validateStroke(primitive.outline.stroke);
-            validateOpacity(primitive.outline.opacity);
           }
         } else {
           throw new Error('SYMBOL_UNSUPPORTED');
@@ -479,10 +604,18 @@ export class MundaneMapCanvas extends HTMLElement {
     }
     try {
       const accepted = validateScene(candidate, this.componentGeneration, this.sceneGeneration);
+      const acceptedViewport = validateViewport(accepted.viewport);
+      const previousViewport = this.viewport;
+      this.viewport = acceptedViewport;
+      try {
+        this.preflightPaint(accepted);
+      } finally {
+        this.viewport = previousViewport;
+      }
       this.scene = accepted;
       this.sceneGeneration = accepted.sceneGeneration;
       this.viewportGeneration = accepted.viewportGeneration;
-      this.viewport = validateViewport(accepted.viewport);
+      this.viewport = acceptedViewport;
       this.schedulePaint();
     } catch (error) {
       this.reportFailure(error.message, candidate.sceneGeneration);
@@ -601,6 +734,12 @@ export class MundaneMapCanvas extends HTMLElement {
   }
 
   paint() {
+    try {
+      this.preflightPaint();
+    } catch (error) {
+      this.reportFailure(error.message);
+      return;
+    }
     const dpr = Number(this.canvas.dataset.devicePixelRatio || 1);
     this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.context.clearRect(0, 0, this.viewport.width, this.viewport.height);
@@ -624,6 +763,8 @@ export class MundaneMapCanvas extends HTMLElement {
       this.drawPoint(primitive);
     } else if (primitive.kind === 'line') {
       this.drawLine(primitive.coordinates, primitive.stroke, primitive.opacity);
+    } else if (primitive.kind === 'hatch') {
+      this.drawHatch(primitive);
     } else {
       this.drawPolygon(primitive);
     }
@@ -638,6 +779,9 @@ export class MundaneMapCanvas extends HTMLElement {
   }
 
   drawLine(coordinates, stroke, opacity) {
+    if (opacity === 0 || stroke.color[3] === 0) {
+      return;
+    }
     this.context.beginPath();
     for (let index = 0; index < coordinates.length; index += 2) {
       const point = this.screen(coordinates, index);
@@ -648,45 +792,27 @@ export class MundaneMapCanvas extends HTMLElement {
       }
     }
     this.context.strokeStyle = rgba(stroke.color, opacity);
-    this.context.lineWidth = stroke.width;
+    this.context.lineWidth = this.screenLength(stroke.width, stroke.unit);
     this.context.lineCap = 'round';
     this.context.lineJoin = 'round';
     this.context.stroke();
   }
 
   drawPolygon(primitive) {
-    this.context.beginPath();
-    for (const ring of primitive.rings) {
-      for (let index = 0; index < ring.length; index += 2) {
-        const point = this.screen(ring, index);
-        if (index === 0) {
-          this.context.moveTo(point[0], point[1]);
-        } else {
-          this.context.lineTo(point[0], point[1]);
-        }
-      }
-      this.context.closePath();
-    }
+    this.polygonPath(primitive.rings);
     this.context.fillStyle = rgba(primitive.fill, primitive.opacity);
     this.context.fill('evenodd');
-    if (primitive.outline.present) {
-      this.context.strokeStyle = rgba(primitive.outline.stroke.color,
-        primitive.opacity * primitive.outline.opacity);
-      this.context.lineWidth = primitive.outline.stroke.width;
-      this.context.lineCap = 'round';
-      this.context.lineJoin = 'round';
-      this.context.stroke();
-    }
   }
 
   drawPoint(primitive) {
-    const point = this.screen(primitive.coordinate, 0);
-    const viewBox = primitive.viewBox;
-    const scaleX = primitive.size / (viewBox[2] - viewBox[0]);
-    const scaleY = primitive.size / (viewBox[3] - viewBox[1]);
-    this.context.translate(point[0] - primitive.size / 2, point[1] - primitive.size / 2);
-    this.context.scale(scaleX, scaleY);
-    this.context.translate(-viewBox[0], -viewBox[1]);
+    const matrix = this.markerTransform(primitive);
+    const strokeVisible = primitive.stroke.present && primitive.stroke.value.color[3] > 0;
+    if (primitive.opacity === 0 || (primitive.fill[3] === 0 && !strokeVisible)) {
+      return;
+    }
+    this.context.save();
+    this.context.transform(matrix.m00, matrix.m10, matrix.m01, matrix.m11,
+      matrix.m02, matrix.m12);
     this.context.beginPath();
     let ordinate = 0;
     for (const command of primitive.path.commands) {
@@ -708,8 +834,252 @@ export class MundaneMapCanvas extends HTMLElement {
         this.context.closePath();
       }
     }
-    this.context.fillStyle = rgba(primitive.fill, primitive.opacity);
-    this.context.fill('evenodd');
+    this.context.restore();
+    if (primitive.fill[3] > 0) {
+      this.context.fillStyle = rgba(primitive.fill, primitive.opacity);
+      this.context.fill('evenodd');
+    }
+    if (strokeVisible) {
+      const stroke = primitive.stroke.value;
+      this.context.strokeStyle = rgba(stroke.color, primitive.opacity);
+      this.context.lineWidth = this.screenLength(stroke.width, stroke.unit);
+      this.context.lineCap = 'round';
+      this.context.lineJoin = 'round';
+      this.context.stroke();
+    }
+  }
+
+  markerTransform(primitive) {
+    const point = this.screen(primitive.coordinate, 0);
+    const viewBox = primitive.viewBox;
+    const unitScale = primitive.unit === 'SCREEN_PIXEL' ? 1 :
+      1 / this.viewport.worldUnitsPerPixel;
+    const width = primitive.size[0] * unitScale;
+    const height = primitive.size[1] * unitScale;
+    const offsetX = primitive.unit === 'SCREEN_PIXEL' ? primitive.offset[0] :
+      primitive.offset[0] / this.viewport.worldUnitsPerPixel;
+    const offsetY = primitive.unit === 'SCREEN_PIXEL' ? primitive.offset[1] :
+      -primitive.offset[1] / this.viewport.worldUnitsPerPixel;
+    const anchors = {
+      NORTH_WEST: [0, 0], NORTH: [0.5, 0], NORTH_EAST: [1, 0],
+      WEST: [0, 0.5], CENTER: [0.5, 0.5], EAST: [1, 0.5],
+      SOUTH_WEST: [0, 1], SOUTH: [0.5, 1], SOUTH_EAST: [1, 1]
+    };
+    const anchor = anchors[primitive.anchor];
+    const bearing = (primitive.endpointBearing.present ? primitive.endpointBearing.value :
+      (primitive.rotationMode === 'MAP_RELATIVE' ? 0 : 0)) + primitive.rotationDegrees;
+    const radians = bearing * Math.PI / 180;
+    const cosine = Math.cos(radians);
+    const sine = Math.sin(radians);
+    const scaleX = width / (viewBox[2] - viewBox[0]);
+    const scaleY = height / (viewBox[3] - viewBox[1]);
+    const localX = -viewBox[0] * scaleX - anchor[0] * width;
+    const localY = -viewBox[1] * scaleY - anchor[1] * height;
+    const m00 = cosine * scaleX;
+    const m01 = -sine * scaleY;
+    const m10 = sine * scaleX;
+    const m11 = cosine * scaleY;
+    const m02 = point[0] + offsetX + cosine * localX - sine * localY;
+    const m12 = point[1] + offsetY + sine * localX + cosine * localY;
+    const values = [width, height, offsetX, offsetY, scaleX, scaleY,
+      m00, m01, m10, m11, m02, m12];
+    if (!values.every(Number.isFinite) || width <= 0 || height <= 0) {
+      throw new Error('NON_FINITE_VALUE');
+    }
+    for (const x of [viewBox[0], viewBox[2]]) {
+      for (const y of [viewBox[1], viewBox[3]]) {
+        const xProductX = m00 * x;
+        const yProductX = m01 * y;
+        const xProductY = m10 * x;
+        const yProductY = m11 * y;
+        const cornerX = xProductX + yProductX + m02;
+        const cornerY = xProductY + yProductY + m12;
+        if (![xProductX, yProductX, xProductY, yProductY, cornerX, cornerY]
+          .every(Number.isFinite)) {
+          throw new Error('NON_FINITE_VALUE');
+        }
+      }
+    }
+    return {m00, m01, m10, m11, m02, m12};
+  }
+
+  screenLength(value, unit) {
+    const result = unit === 'SCREEN_PIXEL' ? value :
+      value / this.viewport.worldUnitsPerPixel;
+    if (!Number.isFinite(result) || result <= 0) {
+      throw new Error('NON_FINITE_VALUE');
+    }
+    return result;
+  }
+
+  polygonPath(rings) {
+    this.context.beginPath();
+    for (const ring of rings) {
+      for (let index = 0; index < ring.length; index += 2) {
+        const point = this.screen(ring, index);
+        if (index === 0) {
+          this.context.moveTo(point[0], point[1]);
+        } else {
+          this.context.lineTo(point[0], point[1]);
+        }
+      }
+      this.context.closePath();
+    }
+  }
+
+  hatchLayout(primitive) {
+    const bounds = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const ring of primitive.rings) {
+      for (let index = 0; index < ring.length; index += 2) {
+        const point = this.screen(ring, index);
+        bounds[0] = Math.min(bounds[0], point[0]);
+        bounds[1] = Math.min(bounds[1], point[1]);
+        bounds[2] = Math.max(bounds[2], point[0]);
+        bounds[3] = Math.max(bounds[3], point[1]);
+      }
+    }
+    bounds[0] = Math.max(0, bounds[0]);
+    bounds[1] = Math.max(0, bounds[1]);
+    bounds[2] = Math.min(this.viewport.width, bounds[2]);
+    bounds[3] = Math.min(this.viewport.height, bounds[3]);
+    if (!(bounds[0] < bounds[2] && bounds[1] < bounds[3])) {
+      return {bounds, orientations: [], required: 0};
+    }
+    const origin = primitive.rotationMode === 'MAP_RELATIVE' ? this.screen([0, 0], 0) : [0, 0];
+    const spacing = this.screenLength(primitive.spacing, primitive.spacingUnit);
+    if (!Number.isFinite(spacing) || spacing <= 0) {
+      throw new Error('NON_FINITE_VALUE');
+    }
+    const bearings = primitive.pattern === 'FORWARD_DIAGONAL' ? [315] :
+      primitive.pattern === 'BACKWARD_DIAGONAL' ? [45] : [315, 45];
+    const orientations = [];
+    let required = 0;
+    for (const bearing of bearings) {
+      const radians = bearing * Math.PI / 180;
+      const directionX = Math.cos(radians);
+      const directionY = Math.sin(radians);
+      const normalX = -directionY;
+      const normalY = directionX;
+      const projections = [
+        [bounds[0], bounds[1]], [bounds[0], bounds[3]],
+        [bounds[2], bounds[1]], [bounds[2], bounds[3]]
+      ].map(point => (point[0] - origin[0]) * normalX +
+        (point[1] - origin[1]) * normalY);
+      const first = Math.ceil(Math.min(...projections) / spacing);
+      const last = Math.floor(Math.max(...projections) / spacing);
+      const count = Math.max(0, last - first + 1);
+      if (![first, last, count].every(Number.isSafeInteger)) {
+        throw new Error('SYMBOL_HATCH_SEGMENT_LIMIT_EXCEEDED');
+      }
+      required += count;
+      orientations.push({directionX, directionY, normalX, normalY, first, last});
+    }
+    if (!Number.isSafeInteger(required) || required > primitive.maxSegments ||
+        required > MAX_HATCH_SEGMENTS) {
+      throw new Error('SYMBOL_HATCH_SEGMENT_LIMIT_EXCEEDED');
+    }
+    return {bounds, origin, spacing, orientations, required};
+  }
+
+  preflightPaint(scene = this.scene) {
+    if (!scene) {
+      return;
+    }
+    let hatchSegments = 0;
+    for (const layer of scene.layers) {
+      for (const feature of layer.features) {
+        for (const primitive of feature.primitives) {
+          if (primitive.kind === 'hatch') {
+            this.preflightRings(primitive.rings);
+            if (primitive.opacity === 0 || primitive.stroke.color[3] === 0) {
+              continue;
+            }
+            hatchSegments += this.hatchLayout(primitive).required;
+            if (!Number.isSafeInteger(hatchSegments) || hatchSegments > MAX_HATCH_SEGMENTS) {
+              throw new Error('SYMBOL_HATCH_SEGMENT_LIMIT_EXCEEDED');
+            }
+            this.screenLength(primitive.stroke.width, primitive.stroke.unit);
+          } else if (primitive.kind === 'point') {
+            this.markerTransform(primitive);
+            if (primitive.opacity !== 0 && primitive.stroke.present &&
+                primitive.stroke.value.color[3] !== 0) {
+              this.screenLength(primitive.stroke.value.width, primitive.stroke.value.unit);
+            }
+          } else if (primitive.kind === 'line') {
+            this.preflightCoordinates(primitive.coordinates);
+            if (primitive.opacity !== 0 && primitive.stroke.color[3] !== 0) {
+              this.screenLength(primitive.stroke.width, primitive.stroke.unit);
+            }
+          } else {
+            this.preflightRings(primitive.rings);
+          }
+        }
+      }
+    }
+  }
+
+  preflightCoordinates(coordinates) {
+    for (let index = 0; index < coordinates.length; index += 2) {
+      if (!this.screen(coordinates, index).every(Number.isFinite)) {
+        throw new Error('NON_FINITE_VALUE');
+      }
+    }
+  }
+
+  preflightRings(rings) {
+    for (const ring of rings) {
+      this.preflightCoordinates(ring);
+    }
+  }
+
+  drawHatch(primitive) {
+    if (primitive.opacity === 0 || primitive.stroke.color[3] === 0) {
+      return;
+    }
+    const layout = this.hatchLayout(primitive);
+    if (!layout.required) {
+      return;
+    }
+    this.polygonPath(primitive.rings);
+    this.context.clip('evenodd');
+    this.context.beginPath();
+    const bounds = layout.bounds;
+    for (const orientation of layout.orientations) {
+      for (let index = orientation.first; index <= orientation.last; index++) {
+        const offset = index * layout.spacing;
+        const lineX = layout.origin[0] + orientation.normalX * offset;
+        const lineY = layout.origin[1] + orientation.normalY * offset;
+        let minimum = -Infinity;
+        let maximum = Infinity;
+        if (orientation.directionX === 0) {
+          if (lineX < bounds[0] || lineX > bounds[2]) continue;
+        } else {
+          const first = (bounds[0] - lineX) / orientation.directionX;
+          const second = (bounds[2] - lineX) / orientation.directionX;
+          minimum = Math.max(minimum, Math.min(first, second));
+          maximum = Math.min(maximum, Math.max(first, second));
+        }
+        if (orientation.directionY === 0) {
+          if (lineY < bounds[1] || lineY > bounds[3]) continue;
+        } else {
+          const first = (bounds[1] - lineY) / orientation.directionY;
+          const second = (bounds[3] - lineY) / orientation.directionY;
+          minimum = Math.max(minimum, Math.min(first, second));
+          maximum = Math.min(maximum, Math.max(first, second));
+        }
+        if (minimum < maximum) {
+          this.context.moveTo(lineX + orientation.directionX * minimum,
+            lineY + orientation.directionY * minimum);
+          this.context.lineTo(lineX + orientation.directionX * maximum,
+            lineY + orientation.directionY * maximum);
+        }
+      }
+    }
+    this.context.strokeStyle = rgba(primitive.stroke.color, primitive.opacity);
+    this.context.lineWidth = this.screenLength(primitive.stroke.width, primitive.stroke.unit);
+    this.context.lineCap = 'round';
+    this.context.lineJoin = 'round';
+    this.context.stroke();
   }
 
   onPointerDown(event) {

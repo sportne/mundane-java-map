@@ -1,6 +1,6 @@
 # G18-020 — Browser built-in vector symbol completion
 
-Status: Proposed
+Status: Complete
 Depends on: G18-011, G14-007
 Gate: G18
 Type: AFK
@@ -50,3 +50,8 @@ git diff --check
 
 The bundled client implements only the closed Canvas drawing primitives. Java remains authoritative
 for symbol construction and never forwards source style syntax for browser evaluation.
+
+Implemented with a bounded private operation stream that flattens role-homogeneous composites in
+authoritative paint order. Marker placement stays unit-aware during local navigation; endpoint
+bearings are derived from transformed geometry; hatch work is preflighted before scene replacement
+and again before paint. Unsupported legacy, raster, and custom values remain closed failures.

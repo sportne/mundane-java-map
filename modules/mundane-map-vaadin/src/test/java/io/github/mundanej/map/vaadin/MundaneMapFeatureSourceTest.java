@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.mundanej.map.api.AttributeSelection;
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CrsMetadata;
 import io.github.mundanej.map.api.DiagnosticReport;
@@ -19,12 +20,16 @@ import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
 import io.github.mundanej.map.api.FeatureSourceMetadata;
+import io.github.mundanej.map.api.LineSymbol;
+import io.github.mundanej.map.api.MarkerSymbol;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
 import io.github.mundanej.map.api.SourceIdentity;
+import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolLength;
+import io.github.mundanej.map.api.SymbolRendererKey;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
@@ -415,6 +420,125 @@ final class MundaneMapFeatureSourceTest {
         assertThrows(IllegalStateException.class, () -> binding("closed", ownedSource, false));
         owner.close();
         other.close();
+    }
+
+    @Test
+    void rejectsCustomNestedAndOverDepthBindingSymbolsBeforeSourceIo() {
+        CountingSource source = source("closed-profile", true);
+        MarkerSymbol customMarker =
+                new MarkerSymbol() {
+                    @Override
+                    public SymbolRendererKey rendererKey() {
+                        return new SymbolRendererKey("example.custom-marker");
+                    }
+
+                    @Override
+                    public double opacity() {
+                        return 1;
+                    }
+                };
+        LineSymbol customLine =
+                new LineSymbol() {
+                    @Override
+                    public SymbolRendererKey rendererKey() {
+                        return new SymbolRendererKey("example.custom-line");
+                    }
+
+                    @Override
+                    public double opacity() {
+                        return 1;
+                    }
+                };
+
+        MundaneMapException wrongRole =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                FeatureSourceBinding.borrowed(
+                                        "wrong-role",
+                                        "Wrong role",
+                                        source,
+                                        line(),
+                                        line(),
+                                        SolidFillSymbol.of(Rgba.rgb(70, 80, 90), 1),
+                                        AttributeSelection.NONE,
+                                        Optional.empty()));
+        assertEquals("binding", wrongRole.context().get("scope"));
+
+        MundaneMapException direct =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                FeatureSourceBinding.borrowed(
+                                        "custom",
+                                        "Custom",
+                                        source,
+                                        customMarker,
+                                        line(),
+                                        SolidFillSymbol.of(Rgba.rgb(70, 80, 90), 1),
+                                        AttributeSelection.NONE,
+                                        Optional.empty()));
+        assertEquals(MundaneMapException.UNSUPPORTED_VALUE, direct.code());
+        assertEquals("binding", direct.context().get("scope"));
+
+        SolidLineSymbol nestedEndpoint =
+                SolidLineSymbol.of(
+                        line().stroke(),
+                        Optional.of(CompositeSymbol.of(List.of(customMarker), 1)),
+                        Optional.empty(),
+                        1);
+        MundaneMapException endpoint =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                FeatureSourceBinding.borrowed(
+                                        "endpoint",
+                                        "Endpoint",
+                                        source,
+                                        marker(),
+                                        nestedEndpoint,
+                                        SolidFillSymbol.of(Rgba.rgb(70, 80, 90), 1),
+                                        AttributeSelection.NONE,
+                                        Optional.empty()));
+        assertEquals("marker symbol", endpoint.context().get("valueKind"));
+
+        MundaneMapException outline =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                FeatureSourceBinding.borrowed(
+                                        "outline",
+                                        "Outline",
+                                        source,
+                                        marker(),
+                                        line(),
+                                        SolidFillSymbol.of(
+                                                Rgba.rgb(70, 80, 90), Optional.of(customLine), 1),
+                                        AttributeSelection.NONE,
+                                        Optional.empty()));
+        assertEquals("line symbol", outline.context().get("valueKind"));
+
+        Symbol nested = marker();
+        for (int depth = 0; depth <= 64; depth++) {
+            nested = CompositeSymbol.of(List.of(nested), 1);
+        }
+        Symbol overDepth = nested;
+        MundaneMapException depth =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                FeatureSourceBinding.borrowed(
+                                        "deep",
+                                        "Deep",
+                                        source,
+                                        overDepth,
+                                        line(),
+                                        SolidFillSymbol.of(Rgba.rgb(70, 80, 90), 1),
+                                        AttributeSelection.NONE,
+                                        Optional.empty()));
+        assertEquals(MundaneMapException.LIMIT_EXCEEDED, depth.code());
+        assertEquals("symbolDepth", depth.context().get("limit"));
+        assertEquals(0, source.openedCursors);
     }
 
     private static MundaneMap map(ArrayDeque<Runnable> queries, ArrayDeque<Runnable> completions) {

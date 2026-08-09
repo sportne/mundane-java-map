@@ -3,15 +3,14 @@ package io.github.mundanej.map.vaadin;
 import io.github.mundanej.map.api.AttributeSelection;
 import io.github.mundanej.map.api.FeatureQueryLimits;
 import io.github.mundanej.map.api.FeatureSource;
-import io.github.mundanej.map.api.SolidFillSymbol;
-import io.github.mundanej.map.api.SolidLineSymbol;
-import io.github.mundanej.map.api.VectorMarkerSymbol;
+import io.github.mundanej.map.api.Symbol;
+import io.github.mundanej.map.api.SymbolRole;
 import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Explicit Vaadin binding for one synchronous feature source and the first solid browser portrayal.
+ * Explicit Vaadin binding for one synchronous feature source and one built-in vector portrayal.
  *
  * <p>A borrowed binding never closes its source. An owned binding transfers exclusive source
  * ownership and closes it exactly once when removed, when its component closes, or when the
@@ -25,9 +24,9 @@ public final class FeatureSourceBinding implements AutoCloseable {
     private final String id;
     private final String name;
     private final FeatureSource source;
-    private final VectorMarkerSymbol marker;
-    private final SolidLineSymbol line;
-    private final SolidFillSymbol fill;
+    private final Symbol marker;
+    private final Symbol line;
+    private final Symbol fill;
     private final AttributeSelection attributes;
     private final Optional<FeatureQueryLimits> tighterLimits;
     private final boolean owned;
@@ -38,18 +37,22 @@ public final class FeatureSourceBinding implements AutoCloseable {
             String id,
             String name,
             FeatureSource source,
-            VectorMarkerSymbol marker,
-            SolidLineSymbol line,
-            SolidFillSymbol fill,
+            Symbol marker,
+            Symbol line,
+            Symbol fill,
             AttributeSelection attributes,
             Optional<FeatureQueryLimits> tighterLimits,
             boolean owned) {
         this.id = requireText(id, "id");
         this.name = requireText(name, "name");
         this.source = Objects.requireNonNull(source, "source");
-        this.marker = Objects.requireNonNull(marker, "marker");
-        this.line = Objects.requireNonNull(line, "line");
-        this.fill = Objects.requireNonNull(fill, "fill");
+        this.marker =
+                SceneProtocol.requireBuiltInSymbol(
+                        marker, SymbolRole.MARKER, "binding", "marker symbol");
+        this.line =
+                SceneProtocol.requireBuiltInSymbol(line, SymbolRole.LINE, "binding", "line symbol");
+        this.fill =
+                SceneProtocol.requireBuiltInSymbol(fill, SymbolRole.FILL, "binding", "fill symbol");
         this.attributes = Objects.requireNonNull(attributes, "attributes");
         this.tighterLimits = Objects.requireNonNull(tighterLimits, "tighterLimits");
         this.owned = owned;
@@ -71,9 +74,9 @@ public final class FeatureSourceBinding implements AutoCloseable {
      * @param id stable non-blank layer identity
      * @param name non-blank display name
      * @param source open caller-owned source
-     * @param marker point and multipoint symbol
-     * @param line line and multiline symbol
-     * @param fill polygon and multipolygon symbol
+     * @param marker built-in marker-role point and multipoint symbol
+     * @param line built-in line-role line and multiline symbol
+     * @param fill built-in fill-role polygon and multipolygon symbol
      * @param attributes exact source attributes required by the binding
      * @param tighterLimits optional per-query limits that only tighten the source limits
      * @return new unattached borrowed binding
@@ -82,9 +85,9 @@ public final class FeatureSourceBinding implements AutoCloseable {
             String id,
             String name,
             FeatureSource source,
-            VectorMarkerSymbol marker,
-            SolidLineSymbol line,
-            SolidFillSymbol fill,
+            Symbol marker,
+            Symbol line,
+            Symbol fill,
             AttributeSelection attributes,
             Optional<FeatureQueryLimits> tighterLimits) {
         return new FeatureSourceBinding(
@@ -97,9 +100,9 @@ public final class FeatureSourceBinding implements AutoCloseable {
      * @param id stable non-blank layer identity
      * @param name non-blank display name
      * @param source open source whose ownership is transferred
-     * @param marker point and multipoint symbol
-     * @param line line and multiline symbol
-     * @param fill polygon and multipolygon symbol
+     * @param marker built-in marker-role point and multipoint symbol
+     * @param line built-in line-role line and multiline symbol
+     * @param fill built-in fill-role polygon and multipolygon symbol
      * @param attributes exact source attributes required by the binding
      * @param tighterLimits optional per-query limits that only tighten the source limits
      * @return new unattached owned binding
@@ -108,9 +111,9 @@ public final class FeatureSourceBinding implements AutoCloseable {
             String id,
             String name,
             FeatureSource source,
-            VectorMarkerSymbol marker,
-            SolidLineSymbol line,
-            SolidFillSymbol fill,
+            Symbol marker,
+            Symbol line,
+            Symbol fill,
             AttributeSelection attributes,
             Optional<FeatureQueryLimits> tighterLimits) {
         return new FeatureSourceBinding(
@@ -199,15 +202,15 @@ public final class FeatureSourceBinding implements AutoCloseable {
         }
     }
 
-    VectorMarkerSymbol marker() {
+    Symbol marker() {
         return marker;
     }
 
-    SolidLineSymbol line() {
+    Symbol line() {
         return line;
     }
 
-    SolidFillSymbol fill() {
+    Symbol fill() {
         return fill;
     }
 
