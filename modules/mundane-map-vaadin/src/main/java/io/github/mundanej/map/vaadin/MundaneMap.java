@@ -10,15 +10,21 @@ import com.vaadin.flow.component.Tag;
 import com.vaadin.flow.component.dependency.JsModule;
 import com.vaadin.flow.shared.Registration;
 import io.github.mundanej.map.api.CancellationSource;
+import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.MapSourceReportEvent;
 import io.github.mundanej.map.api.MapSourceReportListener;
+import io.github.mundanej.map.api.PlacedPointLabel;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SymbolException;
+import io.github.mundanej.map.api.VectorExportSnapshot;
+import io.github.mundanej.map.api.VectorExportSnapshotException;
+import io.github.mundanej.map.api.VectorExportSnapshotLimits;
+import io.github.mundanej.map.api.VectorExportSnapshotProblem;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsRegistry;
 import io.github.mundanej.map.core.MapViewport;
@@ -47,8 +53,10 @@ import java.util.function.LongSupplier;
  * generation-checked viewport values. Snapshot layers and explicitly bound feature sources accept
  * all six Level 1 geometry families and the bounded built-in vector profile: vector markers, solid
  * lines with endpoint markers, solid and hatch fills, outlines, and role-homogeneous composites.
- * Explicit-catalog raster icons are served as expiring same-origin session resources. Legacy and
- * custom renderer values are not forwarded to the browser.
+ * Bounded point labels use the bundled Canvas closed-font measurement handshake. Explicit-catalog
+ * raster icons are served as expiring same-origin session resources. A settled acknowledged vector
+ * scene can be captured through the existing detached export snapshot boundary; legacy and custom
+ * renderer values are not forwarded to the browser.
  */
 @Tag("mundane-map-canvas")
 @JsModule("./mundane-map-canvas.js")
@@ -107,6 +115,21 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** Removes the current session cleanup callback on detach or close. */
     private Registration iconSessionCleanup;
+
+    /** Immutable layers and candidates belonging to the currently published scene. */
+    private List<Layer> currentSceneLayers = List.of();
+
+    /** Server-selected point-label candidates belonging to the currently published scene. */
+    private List<SceneLabelCandidate> currentLabelCandidates = List.of();
+
+    /** Current generation waiting for closed-font browser measurements. */
+    private PendingLabelMeasurements pendingLabelMeasurements;
+
+    /** Current server placements waiting for browser acceptance acknowledgement. */
+    private PendingPlacedLabels pendingPlacedLabels;
+
+    /** Last browser-acknowledged immutable scene state eligible for vector capture. */
+    private BrowserCaptureState browserCaptureState;
 
     /** Per-component serialized source-query executor. */
     private final Executor queryExecutor;
@@ -567,6 +590,71 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     /**
+     * Captures the latest browser-acknowledged vector scene using default export limits.
+     *
+     * <p>Capture is available only after the current scene and viewport generation has completed
+     * its bounded label handshake, including scenes with no labels. Raster icons retain the
+     * existing {@code VECTOR_EXPORT_SYMBOL_UNSUPPORTED} failure from the API snapshot boundary.
+     *
+     * @return immutable detached vector-export snapshot
+     * @throws MundaneMapException if this component is closed
+     * @throws VectorExportSnapshotException if the current generation is pending or contains
+     *     content outside the existing vector-export profile
+     */
+    public VectorExportSnapshot captureVectorExportSnapshot() {
+        return captureVectorExportSnapshot(
+                VectorExportSnapshotLimits.defaults(), CancellationToken.none());
+    }
+
+    /**
+     * Captures the latest browser-acknowledged vector scene with explicit limits.
+     *
+     * @param limits bounded detached-snapshot limits
+     * @return immutable detached vector-export snapshot
+     * @throws MundaneMapException if this component is closed
+     * @throws VectorExportSnapshotException if the current generation is pending, over limit, or
+     *     contains content outside the existing vector-export profile
+     */
+    public VectorExportSnapshot captureVectorExportSnapshot(VectorExportSnapshotLimits limits) {
+        return captureVectorExportSnapshot(limits, CancellationToken.none());
+    }
+
+    /**
+     * Captures the latest browser-acknowledged vector scene with explicit limits and cancellation.
+     *
+     * @param limits bounded detached-snapshot limits
+     * @param cancellation cancellation signal observed throughout capture
+     * @return immutable detached vector-export snapshot
+     * @throws MundaneMapException if this component is closed
+     * @throws VectorExportSnapshotException if the current generation is pending, cancelled, over
+     *     limit, or contains content outside the existing vector-export profile
+     */
+    public VectorExportSnapshot captureVectorExportSnapshot(
+            VectorExportSnapshotLimits limits, CancellationToken cancellation) {
+        requireOpen();
+        Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(cancellation, "cancellation");
+        BrowserCaptureState state = browserCaptureState;
+        if (state == null
+                || state.componentGeneration() != componentGeneration
+                || state.sceneGeneration() != sceneGeneration
+                || state.viewportGeneration() != viewportGeneration) {
+            throw new VectorExportSnapshotException(
+                    "The current browser scene has not completed label acceptance",
+                    new VectorExportSnapshotProblem(
+                            "VECTOR_EXPORT_SNAPSHOT_VALUE_INVALID",
+                            Map.of("field", "labelMeasurements", "reason", "pending")));
+        }
+        return BrowserVectorCapture.capture(
+                state.layers(),
+                state.labels(),
+                state.viewport(),
+                state.background(),
+                limits,
+                cancellation);
+    }
+
+    /**
      * Accepts a settled viewport reported by the bundled element after navigation or resize.
      *
      * <p>This protocol endpoint is public only so Flow can invoke it. Applications should use
@@ -664,6 +752,144 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     /**
+     * Accepts one packed closed-font metric vector for the current label generation.
+     *
+     * <p>This protocol endpoint is public only so Flow can invoke it. Each candidate contributes
+     * advance, minimum x/y, and maximum x/y values in server-declared order.
+     *
+     * @param protocolVersion client protocol version
+     * @param clientComponentGeneration client component generation
+     * @param clientSceneGeneration client scene generation
+     * @param clientViewportGeneration client viewport generation
+     * @param measurements flat packed metric values
+     */
+    @ClientCallable
+    public void acceptLabelMeasurements(
+            int protocolVersion,
+            double clientComponentGeneration,
+            double clientSceneGeneration,
+            double clientViewportGeneration,
+            double[] measurements) {
+        if (!validateLabelMessage(
+                protocolVersion,
+                clientComponentGeneration,
+                clientSceneGeneration,
+                clientViewportGeneration,
+                pendingLabelMeasurements)) {
+            return;
+        }
+        PendingLabelMeasurements pending = pendingLabelMeasurements;
+        double[] values;
+        try {
+            Objects.requireNonNull(measurements, "measurements");
+            int length = measurements.length;
+            int expected =
+                    Math.multiplyExact(
+                            pending.candidates().size(), BrowserLabelPlacement.METRIC_VALUES);
+            if (length != expected) {
+                throw new MundaneMapException(
+                        MundaneMapException.LIMIT_EXCEEDED,
+                        "Browser label metric count does not match the pending candidates",
+                        Map.of("limit", "labelMetrics"));
+            }
+            values = measurements.clone();
+            List<PlacedPointLabel> placed =
+                    BrowserLabelPlacement.place(pending.candidates(), values, pending.viewport());
+            List<Map<String, Object>> encoded = new ArrayList<>(placed.size());
+            for (PlacedPointLabel label : placed) {
+                encoded.add(
+                        Map.of(
+                                "text",
+                                label.text(),
+                                "color",
+                                List.of(
+                                        label.style().color().red(),
+                                        label.style().color().green(),
+                                        label.style().color().blue(),
+                                        label.style().color().alpha()),
+                                "weight",
+                                label.style().weight().name(),
+                                "sizePixels",
+                                label.style().sizePixels(),
+                                "baselineX",
+                                label.baselineX(),
+                                "baselineY",
+                                label.baselineY(),
+                                "advance",
+                                label.advance(),
+                                "ordinal",
+                                label.ordinaryPaintOrdinal()));
+            }
+            PendingPlacedLabels staged =
+                    new PendingPlacedLabels(
+                            pending.componentGeneration(),
+                            pending.sceneGeneration(),
+                            pending.viewportGeneration(),
+                            pending.layers(),
+                            pending.viewport(),
+                            pending.background(),
+                            placed);
+            getElement()
+                    .callJsFunction(
+                            "setPlacedLabels",
+                            SceneProtocol.VERSION,
+                            componentGeneration,
+                            sceneGeneration,
+                            viewportGeneration,
+                            List.copyOf(encoded));
+            pendingLabelMeasurements = null;
+            pendingPlacedLabels = staged;
+            diagnostic = Optional.empty();
+        } catch (MundaneMapException exception) {
+            diagnostic = Optional.of(exception);
+        } catch (RuntimeException exception) {
+            diagnostic =
+                    Optional.of(
+                            failure(
+                                    MundaneMapException.UNSUPPORTED_VALUE,
+                                    "Browser label metrics are malformed",
+                                    "valueKind",
+                                    "labelMetrics"));
+        }
+    }
+
+    /**
+     * Acknowledges that the bundled element accepted the server-placed label generation.
+     *
+     * @param protocolVersion client protocol version
+     * @param clientComponentGeneration client component generation
+     * @param clientSceneGeneration client scene generation
+     * @param clientViewportGeneration client viewport generation
+     */
+    @ClientCallable
+    public void acceptPlacedLabels(
+            int protocolVersion,
+            double clientComponentGeneration,
+            double clientSceneGeneration,
+            double clientViewportGeneration) {
+        if (!validateLabelMessage(
+                protocolVersion,
+                clientComponentGeneration,
+                clientSceneGeneration,
+                clientViewportGeneration,
+                pendingPlacedLabels)) {
+            return;
+        }
+        PendingPlacedLabels pending = pendingPlacedLabels;
+        browserCaptureState =
+                new BrowserCaptureState(
+                        pending.componentGeneration(),
+                        pending.sceneGeneration(),
+                        pending.viewportGeneration(),
+                        pending.layers(),
+                        pending.viewport(),
+                        pending.background(),
+                        pending.labels());
+        pendingPlacedLabels = null;
+        diagnostic = Optional.empty();
+    }
+
+    /**
      * Records a bounded failure reported by the bundled element.
      *
      * <p>This protocol endpoint is public only so Flow can invoke it.
@@ -723,6 +949,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             clientCode;
                     default -> MundaneMapException.CLIENT_FAILURE;
                 };
+        browserCaptureState = null;
         diagnostic =
                 Optional.of(
                         failure(
@@ -744,10 +971,15 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         if (!enabled) {
             cancelPendingSettledViewport();
             cancelFeatureQuery();
+            viewportGeneration = Math.incrementExact(viewportGeneration);
+            clearBrowserLabelState(false);
         } else {
             scheduleSourceQuery();
         }
         getElement().callJsFunction("setMapEnabled", enabled);
+        if (enabled) {
+            publishViewport();
+        }
     }
 
     /** Releases browser listeners, pending paints, registered listeners, and snapshot state. */
@@ -765,6 +997,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         layers = List.of();
         sourceLayers = List.of();
         releaseIconResources();
+        clearBrowserLabelState(true);
         removeIconSessionCleanup();
         sceneEnvelope = Optional.empty();
         cancelPendingSettledViewport();
@@ -812,6 +1045,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             cancelFeatureQuery();
             sourceLayers = List.of();
             releaseIconResources();
+            clearBrowserLabelState(true);
             removeIconSessionCleanup();
         }
         super.onDetach(detachEvent);
@@ -846,6 +1080,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private void publishViewport() {
+        prepareCurrentLabelState();
         getElement()
                 .callJsFunction(
                         "setMapViewport",
@@ -858,6 +1093,112 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         viewport.centerX(),
                         viewport.centerY(),
                         viewport.worldUnitsPerPixel());
+    }
+
+    private void requestCurrentLabelMeasurements() {
+        if (closed || !isEnabled()) {
+            return;
+        }
+        prepareCurrentLabelState();
+        getElement()
+                .callJsFunction(
+                        "remeasureLabels",
+                        SceneProtocol.VERSION,
+                        componentGeneration,
+                        sceneGeneration,
+                        viewportGeneration);
+    }
+
+    private void prepareCurrentLabelState() {
+        if (labelStateMatchesCurrent(pendingLabelMeasurements)
+                || labelStateMatchesCurrent(pendingPlacedLabels)
+                || labelStateMatchesCurrent(browserCaptureState)) {
+            return;
+        }
+        pendingLabelMeasurements = null;
+        pendingPlacedLabels = null;
+        browserCaptureState = null;
+        if (currentLabelCandidates.isEmpty()) {
+            pendingPlacedLabels =
+                    new PendingPlacedLabels(
+                            componentGeneration,
+                            sceneGeneration,
+                            viewportGeneration,
+                            currentSceneLayers,
+                            viewport,
+                            background,
+                            List.of());
+        } else {
+            pendingLabelMeasurements =
+                    new PendingLabelMeasurements(
+                            componentGeneration,
+                            sceneGeneration,
+                            viewportGeneration,
+                            currentSceneLayers,
+                            currentLabelCandidates,
+                            viewport,
+                            background);
+        }
+    }
+
+    private boolean labelStateMatchesCurrent(LabelGeneration state) {
+        return state != null
+                && state.componentGeneration() == componentGeneration
+                && state.sceneGeneration() == sceneGeneration
+                && state.viewportGeneration() == viewportGeneration;
+    }
+
+    private boolean validateLabelMessage(
+            int protocolVersion,
+            double clientComponentGeneration,
+            double clientSceneGeneration,
+            double clientViewportGeneration,
+            LabelGeneration pending) {
+        if (closed) {
+            diagnostic = Optional.of(closedFailure());
+            return false;
+        }
+        if (!isEnabled()) {
+            diagnostic = Optional.of(disabledFailure());
+            return false;
+        }
+        if (protocolVersion != SceneProtocol.VERSION) {
+            diagnostic =
+                    Optional.of(
+                            failure(
+                                    MundaneMapException.PROTOCOL_VERSION_UNSUPPORTED,
+                                    "Browser protocol version is unsupported",
+                                    "actual",
+                                    Integer.toString(protocolVersion)));
+            return false;
+        }
+        if (pending == null
+                || !exactGeneration(clientComponentGeneration, componentGeneration)
+                || !exactGeneration(clientSceneGeneration, sceneGeneration)
+                || !exactGeneration(clientViewportGeneration, viewportGeneration)
+                || !exactGeneration(clientComponentGeneration, pending.componentGeneration())
+                || !exactGeneration(clientSceneGeneration, pending.sceneGeneration())
+                || !exactGeneration(clientViewportGeneration, pending.viewportGeneration())) {
+            diagnostic =
+                    Optional.of(
+                            failure(
+                                    MundaneMapException.STALE_GENERATION,
+                                    "Browser label message belongs to a stale generation",
+                                    "eventClass",
+                                    "labels"));
+            return false;
+        }
+        return true;
+    }
+
+    private void clearBrowserLabelState(boolean clearScene) {
+        pendingLabelMeasurements = null;
+        pendingPlacedLabels = null;
+        browserCaptureState = null;
+        if (clearScene) {
+            currentSceneLayers = List.of();
+            currentLabelCandidates = List.of();
+        }
     }
 
     private void requireOpen() {
@@ -928,6 +1269,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     private void acceptViewport(MapViewport accepted) {
         viewport = accepted;
         diagnostic = Optional.empty();
+        requestCurrentLabelMeasurements();
         for (Consumer<MapViewport> listener : List.copyOf(viewportListeners)) {
             listener.accept(accepted);
         }
@@ -1045,6 +1387,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             throw failure;
         }
         acceptIconResources(staged.resources());
+        currentSceneLayers = staged.result().layers();
+        currentLabelCandidates = staged.result().labelCandidates();
+        prepareCurrentLabelState();
     }
 
     private void releaseIconResources() {
@@ -1055,6 +1400,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     void handleIconSessionDestroy() {
         releaseIconResources();
+        clearBrowserLabelState(true);
     }
 
     private void removeIconSessionCleanup() {
@@ -1240,6 +1586,65 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         LinkedHashMap<String, String> context = new LinkedHashMap<>();
         context.put(contextName, Objects.requireNonNullElse(contextValue, "unspecified"));
         return new MundaneMapException(code, message, context);
+    }
+
+    private interface LabelGeneration {
+        long componentGeneration();
+
+        long sceneGeneration();
+
+        long viewportGeneration();
+    }
+
+    private record PendingLabelMeasurements(
+            long componentGeneration,
+            long sceneGeneration,
+            long viewportGeneration,
+            List<Layer> layers,
+            List<SceneLabelCandidate> candidates,
+            MapViewport viewport,
+            Rgba background)
+            implements LabelGeneration {
+        private PendingLabelMeasurements {
+            layers = List.copyOf(layers);
+            candidates = List.copyOf(candidates);
+            Objects.requireNonNull(viewport, "viewport");
+            Objects.requireNonNull(background, "background");
+        }
+    }
+
+    private record PendingPlacedLabels(
+            long componentGeneration,
+            long sceneGeneration,
+            long viewportGeneration,
+            List<Layer> layers,
+            MapViewport viewport,
+            Rgba background,
+            List<PlacedPointLabel> labels)
+            implements LabelGeneration {
+        private PendingPlacedLabels {
+            layers = List.copyOf(layers);
+            Objects.requireNonNull(viewport, "viewport");
+            Objects.requireNonNull(background, "background");
+            labels = List.copyOf(labels);
+        }
+    }
+
+    private record BrowserCaptureState(
+            long componentGeneration,
+            long sceneGeneration,
+            long viewportGeneration,
+            List<Layer> layers,
+            MapViewport viewport,
+            Rgba background,
+            List<PlacedPointLabel> labels)
+            implements LabelGeneration {
+        private BrowserCaptureState {
+            layers = List.copyOf(layers);
+            Objects.requireNonNull(viewport, "viewport");
+            Objects.requireNonNull(background, "background");
+            labels = List.copyOf(labels);
+        }
     }
 
     private record ConfiguredFeatureLayer(String id, String name) implements Layer {

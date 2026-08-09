@@ -25,11 +25,19 @@ function createCanvas() {
   const context = {operations};
   for (const name of ['setTransform', 'clearRect', 'fillRect', 'save', 'restore', 'beginPath',
     'moveTo', 'lineTo', 'closePath', 'fill', 'stroke', 'translate', 'scale',
-    'transform', 'clip', 'quadraticCurveTo', 'bezierCurveTo', 'putImageData', 'drawImage']) {
+    'transform', 'clip', 'quadraticCurveTo', 'bezierCurveTo', 'putImageData', 'drawImage',
+    'fillText']) {
     context[name] = (...arguments_) => operations.push([name, ...arguments_]);
   }
   context.createImageData = (width, height) =>
     ({width, height, data: new Uint8ClampedArray(width * height * 4)});
+  context.measureText = text => ({
+    width: text.length * 7,
+    actualBoundingBoxLeft: 0,
+    actualBoundingBoxAscent: 9,
+    actualBoundingBoxRight: text.length * 7,
+    actualBoundingBoxDescent: 3
+  });
   Object.defineProperty(context, 'lineWidth', {
     set: value => operations.push(['lineWidth', value]),
     get: () => operations.filter(operation => operation[0] === 'lineWidth').at(-1)?.[1]
@@ -134,6 +142,7 @@ const scene = {
   viewportGeneration: 4,
   background: [255, 255, 255, 255],
   viewport: initial,
+  labelCandidates: [],
   layers: [{id: 'layer', name: 'Layer', features: [
     {id: 'point', name: 'Point', primitives: [{
       kind: 'point', coordinate: [0, 0],
@@ -174,7 +183,7 @@ multipart.layers[0].features[0].primitives.push({
 canvasModule.validateScene(multipart, 2, 3);
 assert.deepEqual(canvasModule.collectDrawOrder(multipart),
   ['layer/point/0', 'layer/point/1', 'layer/line/0', 'layer/polygon/0']);
-assert.equal(canvasModule.logicalSceneBytes(scene), 691);
+assert.equal(canvasModule.logicalSceneBytes(scene), 695);
 assert.throws(() => canvasModule.validateScene({...scene, protocolVersion: 2}, 2, 2),
   /PROTOCOL_VERSION_UNSUPPORTED/);
 assert.throws(() => canvasModule.validateScene({...scene, sceneGeneration: 2}, 2, 2),
@@ -308,14 +317,19 @@ assert.equal(ElementClass, canvasModule.MundaneMapCanvas);
 const element = new ElementClass();
 const settled = [];
 const failures = [];
+const emptyLabelAcks = [];
 element.$server = {
   acceptSettledViewport: (...arguments_) => settled.push(arguments_),
+  acceptPlacedLabels: (...arguments_) => emptyLabelAcks.push(arguments_),
   acceptClientFailure: (...arguments_) => failures.push(arguments_)
 };
 element.connectedCallback();
 element.activateMap(1, 2, 3);
 element.setScene(scene);
+assert.deepEqual(emptyLabelAcks, []);
+element.setMapViewport(1, 2, 3, 4, 800, 600, 10, 20, 2);
 flushPaint();
+assert.deepEqual(emptyLabelAcks, [[1, 2, 3, 4]]);
 assert.equal(failures.length, 0);
 assert.equal(element.canvas.width, 800);
 assert.equal(element.canvas.height, 600);
@@ -420,6 +434,145 @@ assertForwardHatchPhase(zoomHatchMoves[1], zoomScreenHatch.origin,
   zoomScreenHatch.spacing);
 richElement.disconnectedCallback();
 
+const labelScene = structuredClone(scene);
+labelScene.componentGeneration = 12;
+labelScene.sceneGeneration = 13;
+labelScene.labelCandidates = [{
+  ordinal: 0,
+  text: 'Alpha',
+  fontFamily: 'SANS_SERIF',
+  weight: 'BOLD',
+  sizePixels: 14
+}];
+assert.equal(canvasModule.logicalSceneBytes(labelScene), 722);
+assert.deepEqual(canvasModule.validateScene(labelScene, 12, 12), labelScene);
+const hostileFontScene = structuredClone(labelScene);
+hostileFontScene.labelCandidates[0].fontFamily = 'url(https://evil.example/font)';
+assert.throws(() => canvasModule.validateScene(hostileFontScene, 12, 12),
+  /SYMBOL_UNSUPPORTED/);
+const multilineLabelScene = structuredClone(labelScene);
+multilineLabelScene.labelCandidates[0].text = 'Alpha\nBeta';
+assert.throws(() => canvasModule.validateScene(multilineLabelScene, 12, 12),
+  /SYMBOL_UNSUPPORTED/);
+const misorderedLabelScene = structuredClone(labelScene);
+misorderedLabelScene.labelCandidates[0].ordinal = 1;
+assert.throws(() => canvasModule.validateScene(misorderedLabelScene, 12, 12),
+  /SYMBOL_UNSUPPORTED/);
+const excessiveLabelsScene = structuredClone(labelScene);
+excessiveLabelsScene.labelCandidates = Array.from({length: 4097}, (_, ordinal) => ({
+  ...labelScene.labelCandidates[0], ordinal
+}));
+assert.throws(() => canvasModule.validateScene(excessiveLabelsScene, 12, 12),
+  /LIMIT_EXCEEDED/);
+const excessiveLabelTextScene = structuredClone(labelScene);
+excessiveLabelTextScene.labelCandidates = Array.from({length: 1025}, (_, ordinal) => ({
+  ...labelScene.labelCandidates[0], ordinal, text: 'x'.repeat(256)
+}));
+assert.throws(() => canvasModule.validateScene(excessiveLabelTextScene, 12, 12),
+  /LIMIT_EXCEEDED/);
+
+const labelMeasurements = [];
+const placedAcks = [];
+const labelFailures = [];
+const labelElement = new ElementClass();
+labelElement.$server = {
+  acceptSettledViewport: () => {},
+  acceptLabelMeasurements: (...arguments_) => labelMeasurements.push(arguments_),
+  acceptPlacedLabels: (...arguments_) => placedAcks.push(arguments_),
+  acceptClientFailure: (...arguments_) => labelFailures.push(arguments_)
+};
+labelElement.connectedCallback();
+labelElement.activateMap(1, 12, 13);
+labelElement.setScene(labelScene);
+assert.deepEqual(labelMeasurements, [[1, 12, 13, 4, [35, -0, -9, 35, 3]]]);
+assert.equal(labelElement.context.font, '700 14px sans-serif');
+const labelPaintStart = labelElement.canvas.operations.length;
+labelElement.setPlacedLabels(1, 12, 13, 4, [{
+  text: 'Alpha', color: [20, 30, 40, 255], weight: 'BOLD', sizePixels: 14,
+  baselineX: 401, baselineY: 299, advance: 35, ordinal: 0
+}]);
+assert.deepEqual(placedAcks, []);
+flushPaint();
+assert.deepEqual(placedAcks, [[1, 12, 13, 4]]);
+const labelPaint = labelElement.canvas.operations.slice(labelPaintStart);
+assert.deepEqual(labelPaint.filter(operation => operation[0] === 'fillText'),
+  [['fillText', 'Alpha', 401, 299]]);
+assert.ok(labelPaint.findIndex(operation => operation[0] === 'fillText') >
+  labelPaint.findIndex(operation => operation[0] === 'stroke'));
+assert.equal(labelElement.context.font, '700 14px sans-serif');
+
+labelElement.setPlacedLabels(1, 12, 13, 4, [{
+  text: 'url(https://evil.example)', color: [20, 30, 40, 255], weight: 'BOLD',
+  sizePixels: 14, baselineX: 0, baselineY: 0, advance: 1, ordinal: 0
+}]);
+assert.equal(labelFailures.at(-1)[3], 'SYMBOL_UNSUPPORTED');
+assert.equal(labelElement.placedLabels[0].text, 'Alpha');
+labelElement.setPlacedLabels(1, 12, 13, 3, []);
+assert.equal(labelFailures.at(-1)[3], 'STALE_GENERATION');
+assert.equal(labelElement.placedLabels[0].text, 'Alpha');
+
+labelElement.setMapEnabled(false);
+assert.deepEqual(labelElement.placedLabels, []);
+labelElement.setMapEnabled(true);
+labelElement.remeasureLabels(1, 12, 13, 4);
+assert.equal(labelMeasurements.length, 2);
+labelElement.setPlacedLabels(1, 12, 13, 4, [{
+  text: 'Alpha', color: [20, 30, 40, 255], weight: 'BOLD', sizePixels: 14,
+  baselineX: 401, baselineY: 299, advance: 35, ordinal: 0
+}]);
+labelElement.setMapViewport(1, 12, 13, 5, 800, 600, 10, 20, 1);
+assert.deepEqual(labelElement.placedLabels, []);
+assert.equal(labelMeasurements.length, 3);
+assert.deepEqual(labelMeasurements.at(-1).slice(0, 4), [1, 12, 13, 5]);
+labelElement.deactivateMap(1, 12);
+assert.equal(labelElement.scene, null);
+assert.deepEqual(labelElement.placedLabels, []);
+labelElement.disconnectedCallback();
+
+for (const invalidMeasurement of [
+  () => ({width: 1}),
+  () => ({width: Number.NaN, actualBoundingBoxLeft: 0, actualBoundingBoxAscent: 1,
+    actualBoundingBoxRight: 1, actualBoundingBoxDescent: 0}),
+  () => ({width: 1, actualBoundingBoxLeft: -2, actualBoundingBoxAscent: 1,
+    actualBoundingBoxRight: 1, actualBoundingBoxDescent: 0}),
+  () => ({width: 1000001, actualBoundingBoxLeft: 0, actualBoundingBoxAscent: 1,
+    actualBoundingBoxRight: 1000001, actualBoundingBoxDescent: 0})
+]) {
+  const metricFailures = [];
+  const metricElement = new ElementClass();
+  metricElement.context.measureText = invalidMeasurement;
+  metricElement.$server = {
+    acceptClientFailure: (...arguments_) => metricFailures.push(arguments_),
+    acceptLabelMeasurements: () => assert.fail('invalid metrics must not be published')
+  };
+  metricElement.connectedCallback();
+  metricElement.activateMap(1, 12, 13);
+  metricElement.setScene(labelScene);
+  assert.equal(metricFailures.at(-1)[3], 'BROWSER_CAPABILITY_UNSUPPORTED');
+  metricElement.disconnectedCallback();
+}
+
+const fillFailures = [];
+const fillAcks = [];
+const fillElement = new ElementClass();
+fillElement.$server = {
+  acceptClientFailure: (...arguments_) => fillFailures.push(arguments_),
+  acceptLabelMeasurements: () => {},
+  acceptPlacedLabels: (...arguments_) => fillAcks.push(arguments_)
+};
+fillElement.connectedCallback();
+fillElement.activateMap(1, 12, 13);
+fillElement.setScene(labelScene);
+fillElement.context.fillText = () => { throw new Error('deliberate label paint failure'); };
+fillElement.setPlacedLabels(1, 12, 13, 4, [{
+  text: 'Alpha', color: [20, 30, 40, 255], weight: 'BOLD', sizePixels: 14,
+  baselineX: 401, baselineY: 299, advance: 35, ordinal: 0
+}]);
+flushPaint();
+assert.deepEqual(fillAcks, []);
+assert.equal(fillFailures.at(-1)[3], 'deliberate label paint failure');
+fillElement.disconnectedCallback();
+
 const invisibleElement = new ElementClass();
 invisibleElement.$server = {
   acceptSettledViewport: () => {},
@@ -453,7 +606,7 @@ iconScene.layers[0].features[0].primitives = [{
   endpointBearing: {present: false}, opacity: 1
 }];
 iconScene.layers[0].features.splice(1);
-assert.equal(canvasModule.logicalSceneBytes(iconScene), 299);
+assert.equal(canvasModule.logicalSceneBytes(iconScene), 303);
 const iconFailures = [];
 const iconElement = new ElementClass();
 iconElement.$server = {

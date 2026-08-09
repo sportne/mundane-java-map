@@ -1,6 +1,6 @@
 # G18-022 — Browser labels and vector snapshot capture
 
-Status: Proposed
+Status: Complete
 Depends on: G18-021, G11-043
 Gate: G18
 Type: AFK
@@ -49,3 +49,10 @@ git diff --check
 
 The SVG module remains the only encoder. G18 claims structural and tolerant placement agreement,
 not identical glyph pixels across operating systems.
+
+Implemented with a closed generic-sans-serif Canvas measurement vector, generation-checked
+server-side core placement, fixed request/text/work limits, and acknowledgement before capture.
+Capture converts the immutable accepted scene into the existing `VectorExportSnapshot` boundary,
+preserving viewport, paint order, supported symbols, and placed labels while retaining existing
+representability, cancellation, and limit diagnostics. Replacement, detach, disable, session
+destruction, and close invalidate pending or captured state.

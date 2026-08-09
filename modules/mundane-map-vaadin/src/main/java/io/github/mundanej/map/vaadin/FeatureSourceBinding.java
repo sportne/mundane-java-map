@@ -74,9 +74,6 @@ public final class FeatureSourceBinding implements AutoCloseable {
         this.source = Objects.requireNonNull(source, "source");
         this.portrayal = Objects.requireNonNull(portrayal, "portrayal");
         Objects.requireNonNull(catalog, "catalog");
-        if (portrayal.pointLabel().isPresent()) {
-            throw SceneProtocol.unsupportedBindingValue("point label");
-        }
         Set<RasterIconSymbol> catalogIcons = identityIconSet(catalog);
         for (Symbol symbol : portrayal.reachableSymbols()) {
             SceneProtocol.requirePortrayalSymbol(
@@ -161,7 +158,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
      * @param id stable non-blank layer identity
      * @param name non-blank display name
      * @param source open caller-owned source
-     * @param portrayal closed server-side portrayal without labels
+     * @param portrayal closed server-side portrayal with an optional point-label profile
      * @param tighterLimits optional per-query limits that only tighten the source limits
      * @return new unattached borrowed binding
      */
@@ -181,7 +178,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
      * @param id stable non-blank layer identity
      * @param name non-blank display name
      * @param source open caller-owned source
-     * @param portrayal closed server-side portrayal without labels
+     * @param portrayal closed server-side portrayal with an optional point-label profile
      * @param catalog catalog whose exact raster-icon instances may be published
      * @param tighterLimits optional per-query limits that only tighten the source limits
      * @return new unattached borrowed binding
@@ -211,7 +208,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
      * @param id stable non-blank layer identity
      * @param name non-blank display name
      * @param source open source whose ownership is transferred
-     * @param portrayal closed server-side portrayal without labels
+     * @param portrayal closed server-side portrayal with an optional point-label profile
      * @param tighterLimits optional per-query limits that only tighten the source limits
      * @return new unattached owned binding
      */
@@ -230,7 +227,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
      * @param id stable non-blank layer identity
      * @param name non-blank display name
      * @param source open source whose ownership is transferred
-     * @param portrayal closed server-side portrayal without labels
+     * @param portrayal closed server-side portrayal with an optional point-label profile
      * @param catalog catalog whose exact raster-icon instances may be published
      * @param tighterLimits optional per-query limits that only tighten the source limits
      * @return new unattached owned binding
@@ -282,12 +279,23 @@ public final class FeatureSourceBinding implements AutoCloseable {
     }
 
     /**
-     * Returns the exact requested attribute projection.
+     * Returns the complete exact portrayal-configuration attribute projection.
+     *
+     * <p>Queries omit a label-only attribute when the label profile is outside its visible
+     * resolution range.
      *
      * @return requested attributes
      */
     public AttributeSelection attributes() {
         return attributes;
+    }
+
+    AttributeSelection queryAttributes(double unitsPerPixel) {
+        if (portrayal.pointLabel().isEmpty()) {
+            return attributes;
+        }
+        List<String> required = portrayal.requiredPaintAttributes(unitsPerPixel);
+        return required.isEmpty() ? AttributeSelection.NONE : AttributeSelection.only(required);
     }
 
     /**
@@ -404,7 +412,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
     }
 
     private static AttributeSelection exactAttributes(FeaturePortrayalResolver resolver) {
-        List<String> required = resolver.requiredSymbolAttributes();
+        List<String> required = resolver.requiredConfigurationAttributes();
         return required.isEmpty() ? AttributeSelection.NONE : AttributeSelection.only(required);
     }
 

@@ -7,6 +7,9 @@ const MAX_PATH_COMMANDS = 2000000;
 const MAX_LOGICAL_BYTES = 64 * 1024 * 1024;
 const MAX_ICON_RESOURCES = 4096;
 const MAX_ICON_RESOURCE_BYTES = 64 * 1024 * 1024;
+const MAX_LABELS = 4096;
+const MAX_LABEL_CODE_POINTS = 262144;
+const MAX_LABEL_METRIC_MAGNITUDE = 1000000;
 const MAX_HATCH_SEGMENTS = 200000;
 const MAX_BACKING_PIXELS = 67108864;
 const MAX_BACKING_EDGE = 16384;
@@ -63,6 +66,12 @@ export function zoomViewport(viewport, screenX, screenY, factor) {
     centerY: beforeY + (screenY - viewport.height / 2) * nextUnits,
     worldUnitsPerPixel: nextUnits
   });
+}
+
+function sameViewport(first, second) {
+  return first.width === second.width && first.height === second.height &&
+    first.centerX === second.centerX && first.centerY === second.centerY &&
+    first.worldUnitsPerPixel === second.worldUnitsPerPixel;
 }
 
 export function collectDrawOrder(scene) {
@@ -293,6 +302,7 @@ function detachScene(scene) {
     viewportGeneration: scene.viewportGeneration,
     background: [...scene.background],
     viewport: {...scene.viewport},
+    labelCandidates: scene.labelCandidates.map(candidate => ({...candidate})),
     layers: scene.layers.map(layer => ({
       id: layer.id,
       name: layer.name,
@@ -316,7 +326,10 @@ function deepFreeze(value) {
 }
 
 export function logicalSceneBytes(scene) {
-  let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4;
+  let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4 + 4;
+  for (const candidate of scene.labelCandidates) {
+    size += 2 * 8 + logicalStringBytes(candidate.text) + 2;
+  }
   for (const layer of scene.layers) {
     size += logicalStringBytes(layer.id) + logicalStringBytes(layer.name) + 4;
     for (const feature of layer.features) {
@@ -374,8 +387,29 @@ function validateSceneIdentity(candidate, currentComponentGeneration, currentSce
 export function validateScene(candidate, currentComponentGeneration, currentSceneGeneration) {
   validateSceneIdentity(candidate, currentComponentGeneration, currentSceneGeneration);
   validateViewport(candidate.viewport);
-  if (!validateColor(candidate.background) || !Array.isArray(candidate.layers)) {
+  if (!validateColor(candidate.background) || !Array.isArray(candidate.layers) ||
+      !Array.isArray(candidate.labelCandidates)) {
     throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  if (candidate.labelCandidates.length > MAX_LABELS) {
+    throw new Error('LIMIT_EXCEEDED');
+  }
+  let labelCodePoints = 0;
+  for (let index = 0; index < candidate.labelCandidates.length; index++) {
+    const label = candidate.labelCandidates[index];
+    const codePoints = typeof label?.text === 'string' ? [...label.text].length : 0;
+    if (!label || label.ordinal !== index || typeof label.text !== 'string' ||
+        !label.text || label.text.length > 512 || codePoints > 256 ||
+        /[\r\n\u2028\u2029]/u.test(label.text) || label.fontFamily !== 'SANS_SERIF' ||
+        !['NORMAL', 'BOLD'].includes(label.weight) ||
+        !Number.isFinite(label.sizePixels)) {
+      throw new Error('SYMBOL_UNSUPPORTED');
+    }
+    if (label.sizePixels < 1 || label.sizePixels > 512) {
+      throw new Error('LIMIT_EXCEEDED');
+    }
+    labelCodePoints += codePoints;
+    if (labelCodePoints > MAX_LABEL_CODE_POINTS) throw new Error('LIMIT_EXCEEDED');
   }
   if (candidate.layers.length > MAX_LAYERS) {
     throw new Error('LIMIT_EXCEEDED');
@@ -576,6 +610,8 @@ export class MundaneMapCanvas extends HTMLElement {
       ['requestAnimationFrame', typeof requestAnimationFrame === 'function'],
       ['AbortController', typeof AbortController === 'function'],
       ['fetch', typeof fetch === 'function'],
+      ['measureText', typeof this.context?.measureText === 'function'],
+      ['fillText', typeof this.context?.fillText === 'function'],
       ['TextEncoder', typeof TextEncoder === 'function'],
       ['Uint8Array', typeof Uint8Array === 'function']
     ].find(entry => !entry[1])?.[0] || null;
@@ -585,6 +621,9 @@ export class MundaneMapCanvas extends HTMLElement {
     this.sceneLoadSequence = 0;
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
+    this.placedLabels = [];
+    this.lastLabelMeasurementKey = null;
+    this.pendingLabelAcknowledgement = null;
     this.viewport = validateViewport({width: 800, height: 600, centerX: 0,
       centerY: 0, worldUnitsPerPixel: 100000});
     this.componentGeneration = 0;
@@ -629,6 +668,9 @@ export class MundaneMapCanvas extends HTMLElement {
     this.cancelSceneLoad();
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
+    this.placedLabels = [];
+    this.lastLabelMeasurementKey = null;
+    this.pendingLabelAcknowledgement = null;
     this.iconResources.clear();
     this.scene = null;
     this.componentGeneration = componentGeneration;
@@ -651,6 +693,9 @@ export class MundaneMapCanvas extends HTMLElement {
       this.cancelSceneLoad();
       this.pendingSceneGeneration = -1;
       this.pendingViewport = null;
+      this.placedLabels = [];
+      this.lastLabelMeasurementKey = null;
+      this.pendingLabelAcknowledgement = null;
       this.iconResources.clear();
       this.scene = null;
       this.teardown();
@@ -667,6 +712,9 @@ export class MundaneMapCanvas extends HTMLElement {
     this.cancelSceneLoad();
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
+    this.placedLabels = [];
+    this.lastLabelMeasurementKey = null;
+    this.pendingLabelAcknowledgement = null;
     this.iconResources.clear();
     this.teardown();
     if (this.context) {
@@ -677,6 +725,9 @@ export class MundaneMapCanvas extends HTMLElement {
   setMapEnabled(enabled) {
     this.enabled = Boolean(enabled);
     if (!this.enabled) {
+      this.placedLabels = [];
+      this.lastLabelMeasurementKey = null;
+      this.pendingLabelAcknowledgement = null;
       this.teardown();
     } else if (this.isConnected && !this.closed) {
       this.setup();
@@ -823,12 +874,16 @@ export class MundaneMapCanvas extends HTMLElement {
     this.sceneLoadAbort = null;
     this.scene = accepted;
     this.iconResources = icons;
+    this.placedLabels = [];
+    this.lastLabelMeasurementKey = null;
+    this.pendingLabelAcknowledgement = null;
     this.sceneGeneration = accepted.sceneGeneration;
     this.viewportGeneration = finalViewportGeneration;
     this.viewport = finalViewport;
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
     this.schedulePaint();
+    this.requestLabelMeasurements();
   }
 
   setMapViewport(version, componentGeneration, sceneGeneration, viewportGeneration,
@@ -864,8 +919,115 @@ export class MundaneMapCanvas extends HTMLElement {
         this.reportFailure('STALE_GENERATION', sceneGeneration);
         return;
       }
+      if (viewportGeneration === this.viewportGeneration &&
+          !sameViewport(candidate, this.viewport)) {
+        this.reportFailure('STALE_GENERATION', sceneGeneration);
+        return;
+      }
+      const changed = viewportGeneration !== this.viewportGeneration;
       this.viewport = candidate;
       this.viewportGeneration = viewportGeneration;
+      if (changed) {
+        this.placedLabels = [];
+        this.pendingLabelAcknowledgement = null;
+      }
+      this.schedulePaint();
+      this.requestLabelMeasurements();
+    } catch (error) {
+      this.reportFailure(error.message, sceneGeneration);
+    }
+  }
+
+  remeasureLabels(version, componentGeneration, sceneGeneration, viewportGeneration) {
+    if (version !== PROTOCOL_VERSION || componentGeneration !== this.componentGeneration ||
+        sceneGeneration !== this.sceneGeneration ||
+        viewportGeneration !== this.viewportGeneration) {
+      this.reportFailure('STALE_GENERATION', sceneGeneration);
+      return;
+    }
+    this.placedLabels = [];
+    this.lastLabelMeasurementKey = null;
+    this.pendingLabelAcknowledgement = null;
+    this.schedulePaint();
+    this.requestLabelMeasurements();
+  }
+
+  requestLabelMeasurements() {
+    if (!this.scene || !this.$server || !this.enabled || !this.active) return;
+    const key = `${this.componentGeneration}/${this.sceneGeneration}/${this.viewportGeneration}`;
+    if (key === this.lastLabelMeasurementKey) return;
+    this.lastLabelMeasurementKey = key;
+    const candidates = this.scene.labelCandidates;
+    if (!candidates.length) {
+      this.pendingLabelAcknowledgement = {
+        componentGeneration: this.componentGeneration,
+        sceneGeneration: this.sceneGeneration,
+        viewportGeneration: this.viewportGeneration
+      };
+      this.schedulePaint();
+      return;
+    }
+    const metrics = [];
+    try {
+      for (const candidate of candidates) {
+        this.context.font = `${candidate.weight === 'BOLD' ? '700' : '400'} ` +
+          `${candidate.sizePixels}px sans-serif`;
+        this.context.textBaseline = 'alphabetic';
+        const measured = this.context.measureText(candidate.text);
+        const values = [measured.width, -measured.actualBoundingBoxLeft,
+          -measured.actualBoundingBoxAscent, measured.actualBoundingBoxRight,
+          measured.actualBoundingBoxDescent];
+        if (!values.every(Number.isFinite) || values[0] < 0 ||
+            values.some(value => Math.abs(value) > MAX_LABEL_METRIC_MAGNITUDE) ||
+            values[3] < values[1] || values[4] < values[2]) {
+          throw new Error('BROWSER_CAPABILITY_UNSUPPORTED');
+        }
+        metrics.push(...values);
+      }
+      this.$server.acceptLabelMeasurements?.(PROTOCOL_VERSION, this.componentGeneration,
+        this.sceneGeneration, this.viewportGeneration, metrics);
+    } catch (_error) {
+      this.reportFailure('BROWSER_CAPABILITY_UNSUPPORTED', this.sceneGeneration);
+    }
+  }
+
+  setPlacedLabels(version, componentGeneration, sceneGeneration, viewportGeneration, labels) {
+    if (version !== PROTOCOL_VERSION || componentGeneration !== this.componentGeneration ||
+        sceneGeneration !== this.sceneGeneration ||
+        viewportGeneration !== this.viewportGeneration || !Array.isArray(labels)) {
+      this.reportFailure('STALE_GENERATION', sceneGeneration);
+      return;
+    }
+    try {
+      if (labels.length > MAX_LABELS) throw new Error('LIMIT_EXCEEDED');
+      let priorOrdinal = -1;
+      const accepted = labels.map(label => {
+        if (!label || typeof label.text !== 'string' || !label.text ||
+            label.text.length > 512 || [...label.text].length > 256 ||
+            /[\r\n\u2028\u2029]/u.test(label.text) || !validateColor(label.color) ||
+            !['NORMAL', 'BOLD'].includes(label.weight) ||
+            ![label.sizePixels, label.baselineX, label.baselineY, label.advance]
+              .every(Number.isFinite) || label.sizePixels < 1 || label.sizePixels > 512 ||
+            label.advance < 0 || !Number.isSafeInteger(label.ordinal) ||
+            label.ordinal <= priorOrdinal || label.ordinal >= this.scene.labelCandidates.length ||
+            [label.baselineX, label.baselineY, label.advance]
+              .some(value => Math.abs(value) > MAX_LABEL_METRIC_MAGNITUDE)) {
+          throw new Error('SYMBOL_UNSUPPORTED');
+        }
+        const candidate = this.scene.labelCandidates[label.ordinal];
+        if (label.text !== candidate.text || label.weight !== candidate.weight ||
+            label.sizePixels !== candidate.sizePixels) {
+          throw new Error('SYMBOL_UNSUPPORTED');
+        }
+        priorOrdinal = label.ordinal;
+        return {...label, color: [...label.color]};
+      });
+      this.placedLabels = deepFreeze(accepted);
+      this.pendingLabelAcknowledgement = {
+        componentGeneration: this.componentGeneration,
+        sceneGeneration: this.sceneGeneration,
+        viewportGeneration: this.viewportGeneration
+      };
       this.schedulePaint();
     } catch (error) {
       this.reportFailure(error.message, sceneGeneration);
@@ -942,6 +1104,10 @@ export class MundaneMapCanvas extends HTMLElement {
     this.canvas.height = backingHeight;
     this.canvas.dataset.devicePixelRatio = String(dpr);
     this.viewport = resizeViewport(this.viewport, width, height);
+    if (changed) {
+      this.placedLabels = [];
+      this.pendingLabelAcknowledgement = null;
+    }
     this.schedulePaint();
     if (changed && this.scene) {
       this.emitSettled();
@@ -961,41 +1127,66 @@ export class MundaneMapCanvas extends HTMLElement {
   paint() {
     try {
       this.preflightPaint();
+      const dpr = Number(this.canvas.dataset.devicePixelRatio || 1);
+      this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.context.clearRect(0, 0, this.viewport.width, this.viewport.height);
+      if (!this.scene) {
+        return;
+      }
+      this.context.fillStyle = rgba(this.scene.background);
+      this.context.fillRect(0, 0, this.viewport.width, this.viewport.height);
+      for (const layer of this.scene.layers) {
+        for (const feature of layer.features) {
+          for (const primitive of feature.primitives) {
+            this.drawPrimitive(primitive);
+          }
+        }
+      }
+      for (const label of this.placedLabels) {
+        this.context.save();
+        try {
+          this.context.font = `${label.weight === 'BOLD' ? '700' : '400'} ` +
+            `${label.sizePixels}px sans-serif`;
+          this.context.textBaseline = 'alphabetic';
+          this.context.fillStyle = rgba(label.color);
+          this.context.fillText(label.text, label.baselineX, label.baselineY);
+        } finally {
+          this.context.restore();
+        }
+      }
     } catch (error) {
+      this.pendingLabelAcknowledgement = null;
       this.reportFailure(error.message);
       return;
     }
-    const dpr = Number(this.canvas.dataset.devicePixelRatio || 1);
-    this.context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.context.clearRect(0, 0, this.viewport.width, this.viewport.height);
-    if (!this.scene) {
-      return;
-    }
-    this.context.fillStyle = rgba(this.scene.background);
-    this.context.fillRect(0, 0, this.viewport.width, this.viewport.height);
-    for (const layer of this.scene.layers) {
-      for (const feature of layer.features) {
-        for (const primitive of feature.primitives) {
-          this.drawPrimitive(primitive);
-        }
-      }
+    const acknowledgement = this.pendingLabelAcknowledgement;
+    if (acknowledgement &&
+        acknowledgement.componentGeneration === this.componentGeneration &&
+        acknowledgement.sceneGeneration === this.sceneGeneration &&
+        acknowledgement.viewportGeneration === this.viewportGeneration) {
+      this.pendingLabelAcknowledgement = null;
+      this.$server?.acceptPlacedLabels?.(PROTOCOL_VERSION, this.componentGeneration,
+        this.sceneGeneration, this.viewportGeneration);
     }
   }
 
   drawPrimitive(primitive) {
     this.context.save();
-    if (primitive.kind === 'point') {
-      this.drawPoint(primitive);
-    } else if (primitive.kind === 'icon') {
-      this.drawIcon(primitive);
-    } else if (primitive.kind === 'line') {
-      this.drawLine(primitive.coordinates, primitive.stroke, primitive.opacity);
-    } else if (primitive.kind === 'hatch') {
-      this.drawHatch(primitive);
-    } else {
-      this.drawPolygon(primitive);
+    try {
+      if (primitive.kind === 'point') {
+        this.drawPoint(primitive);
+      } else if (primitive.kind === 'icon') {
+        this.drawIcon(primitive);
+      } else if (primitive.kind === 'line') {
+        this.drawLine(primitive.coordinates, primitive.stroke, primitive.opacity);
+      } else if (primitive.kind === 'hatch') {
+        this.drawHatch(primitive);
+      } else {
+        this.drawPolygon(primitive);
+      }
+    } finally {
+      this.context.restore();
     }
-    this.context.restore();
   }
 
   screen(coordinates, index) {
@@ -1357,6 +1548,8 @@ export class MundaneMapCanvas extends HTMLElement {
       }
       this.lastPinch = {distance, centerX, centerY};
     }
+    this.placedLabels = [];
+    this.pendingLabelAcknowledgement = null;
     this.schedulePaint();
   }
 
@@ -1394,6 +1587,8 @@ export class MundaneMapCanvas extends HTMLElement {
     event.preventDefault();
     const factor = Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * 0.002);
     this.viewport = zoomViewport(this.viewport, event.offsetX, event.offsetY, factor);
+    this.placedLabels = [];
+    this.pendingLabelAcknowledgement = null;
     this.schedulePaint();
     if (this.settleTimer) {
       clearTimeout(this.settleTimer);

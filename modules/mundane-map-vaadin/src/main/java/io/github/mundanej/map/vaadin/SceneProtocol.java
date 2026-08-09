@@ -14,6 +14,7 @@ import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
+import io.github.mundanej.map.api.PointLabelTexts;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Rgba;
@@ -24,6 +25,7 @@ import io.github.mundanej.map.api.SymbolRole;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
+import io.github.mundanej.map.core.GreedyPointLabelPlacement;
 import io.github.mundanej.map.core.MapViewport;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -113,6 +115,7 @@ final class SceneProtocol {
         budget.addArrayOfNumbers(4);
         budget.addNumbers(5);
         budget.add(Integer.BYTES);
+        budget.add(Integer.BYTES);
         Set<String> layerIds = new LinkedHashSet<>();
         List<Layer> copies = new ArrayList<>(sourceLayers.size());
         List<Map<String, Object>> encodedLayers = new ArrayList<>(sourceLayers.size());
@@ -121,7 +124,13 @@ final class SceneProtocol {
         long primitiveCount = 0;
         long coordinatePairs = 0;
         long pathCommands = 0;
-        for (Layer layer : sourceLayers) {
+        long labelCandidates = 0;
+        long labelPositions = 0;
+        long labelCodePoints = 0;
+        List<SceneLabelCandidate> retainedLabelCandidates = new ArrayList<>();
+        List<Map<String, Object>> encodedLabelCandidates = new ArrayList<>();
+        for (int layerIndex = 0; layerIndex < sourceLayers.size(); layerIndex++) {
+            Layer layer = sourceLayers.get(layerIndex);
             Objects.requireNonNull(layer, "layer");
             String layerId = requireText(layer.id(), "layerId", budget);
             if (!layerIds.add(layerId)) {
@@ -188,7 +197,87 @@ final class SceneProtocol {
             if (declaredEnvelope.isPresent()) {
                 layerEnvelope = union(layerEnvelope, declaredEnvelope.orElseThrow());
             }
-            Layer copy = new SnapshotLayer(layerId, layerName, featureCopies, layerEnvelope);
+            List<BrowserLabelCandidate> layerLabels =
+                    layer instanceof BrowserLabelLayer labelLayer
+                            ? List.copyOf(labelLayer.browserLabelCandidates())
+                            : List.of();
+            List<BrowserLabelCandidate> retainedLayerLabels = new ArrayList<>(layerLabels.size());
+            for (BrowserLabelCandidate candidate : layerLabels) {
+                Objects.requireNonNull(candidate, "label candidate");
+                if (!candidate.layerId().equals(layerId)
+                        || candidate.featureIndex() >= featureCopies.size()
+                        || !featureCopies
+                                .get(candidate.featureIndex())
+                                .id()
+                                .equals(candidate.featureId())
+                        || !(featureCopies.get(candidate.featureIndex()).geometry()
+                                instanceof PointGeometry)
+                        || !((PointGeometry) featureCopies.get(candidate.featureIndex()).geometry())
+                                .coordinate()
+                                .equals(candidate.mapAnchor())
+                        || !featureCopies
+                                .get(candidate.featureIndex())
+                                .symbol()
+                                .equals(candidate.marker())) {
+                    throw failure(
+                            MundaneMapException.UNSUPPORTED_VALUE,
+                            "Point-label candidate does not match its feature",
+                            "valueKind",
+                            "point label");
+                }
+                int codePoints;
+                try {
+                    codePoints = PointLabelTexts.requireSupported(candidate.text());
+                } catch (PointLabelTexts.ValidationException exception) {
+                    String code =
+                            exception.reason() == PointLabelTexts.FailureReason.TOO_LONG
+                                    ? "LABEL_TEXT_LIMIT_EXCEEDED"
+                                    : exception.reason() == PointLabelTexts.FailureReason.MULTILINE
+                                            ? "LABEL_TEXT_MULTILINE_UNSUPPORTED"
+                                            : MundaneMapException.UNSUPPORTED_VALUE;
+                    throw failure(
+                            code, "Point-label text is unsupported", "valueKind", "labelText");
+                }
+                labelCandidates =
+                        addAndCheck(
+                                "labelRequests",
+                                labelCandidates,
+                                1,
+                                GreedyPointLabelPlacement.MAXIMUM_REQUESTS);
+                labelPositions =
+                        addAndCheck(
+                                "labelCandidates",
+                                labelPositions,
+                                candidate.profile().positions().size(),
+                                GreedyPointLabelPlacement.MAXIMUM_CANDIDATES);
+                labelCodePoints =
+                        addAndCheck("labelCodePoints", labelCodePoints, codePoints, 262_144);
+                SceneLabelCandidate retained =
+                        new SceneLabelCandidate(
+                                candidate,
+                                layerIndex,
+                                Math.toIntExact(retainedLabelCandidates.size()));
+                retainedLabelCandidates.add(retained);
+                retainedLayerLabels.add(candidate);
+                String text = requireTextValue(candidate.text(), "labelText", budget);
+                budget.addNumbers(2);
+                budget.add(2);
+                encodedLabelCandidates.add(
+                        immutableMap(
+                                "ordinal",
+                                retained.ordinaryPaintOrdinal(),
+                                "text",
+                                text,
+                                "fontFamily",
+                                "SANS_SERIF",
+                                "weight",
+                                candidate.profile().style().weight().name(),
+                                "sizePixels",
+                                candidate.profile().style().sizePixels()));
+            }
+            Layer copy =
+                    new SnapshotLayer(
+                            layerId, layerName, featureCopies, layerEnvelope, retainedLayerLabels);
             copies.add(copy);
             encodedLayers.add(
                     immutableMap(
@@ -213,9 +302,16 @@ final class SceneProtocol {
                         color(background),
                         "viewport",
                         viewport(viewport),
+                        "labelCandidates",
+                        List.copyOf(encodedLabelCandidates),
                         "layers",
                         List.copyOf(encodedLayers));
-        return new Result(List.copyOf(copies), scene, envelope, budget.used());
+        return new Result(
+                List.copyOf(copies),
+                scene,
+                envelope,
+                budget.used(),
+                List.copyOf(retainedLabelCandidates));
     }
 
     private EncodedFeature encodeFeature(
@@ -977,7 +1073,12 @@ final class SceneProtocol {
             List<Layer> layers,
             Map<String, Object> scene,
             Optional<Envelope> envelope,
-            long logicalBytes) {}
+            long logicalBytes,
+            List<SceneLabelCandidate> labelCandidates) {
+        Result {
+            labelCandidates = List.copyOf(labelCandidates);
+        }
+    }
 
     private record EncodedFeature(
             Map<String, Object> value, long primitives, long coordinatePairs, long pathCommands) {}
@@ -985,11 +1086,16 @@ final class SceneProtocol {
     private record EndpointBearings(Optional<Double> start, Optional<Double> end) {}
 
     private record SnapshotLayer(
-            String id, String name, List<Feature> features, Optional<Envelope> envelope)
-            implements Layer {
+            String id,
+            String name,
+            List<Feature> features,
+            Optional<Envelope> envelope,
+            List<BrowserLabelCandidate> browserLabelCandidates)
+            implements Layer, BrowserLabelLayer {
         private SnapshotLayer {
             features = List.copyOf(features);
             Objects.requireNonNull(envelope, "envelope");
+            browserLabelCandidates = List.copyOf(browserLabelCandidates);
         }
     }
 

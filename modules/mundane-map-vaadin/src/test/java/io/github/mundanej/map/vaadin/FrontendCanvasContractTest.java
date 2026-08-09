@@ -43,6 +43,11 @@ final class FrontendCanvasContractTest {
         assertTrue(source.contains("credentials: 'same-origin'"));
         assertTrue(source.contains("redirect: 'error'"));
         assertTrue(source.contains("RESOURCE_UNAVAILABLE"));
+        assertTrue(source.contains("measureText"));
+        assertTrue(source.contains("fillText"));
+        assertTrue(source.contains("acceptLabelMeasurements"));
+        assertTrue(source.contains("acceptPlacedLabels"));
+        assertTrue(source.contains("fontFamily !== 'SANS_SERIF'"));
         assertFalse(source.contains("eval("));
         assertFalse(source.contains("innerHTML"));
         assertFalse(source.contains("http://"));

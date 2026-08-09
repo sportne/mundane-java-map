@@ -139,9 +139,10 @@ final class FeatureSourceQueryEngine {
             FeatureQuery query =
                     new FeatureQuery(
                             sourceEnvelope.transformedEnvelope(),
-                            binding.attributes(),
+                            binding.queryAttributes(viewport.worldUnitsPerPixel()),
                             binding.tighterLimits());
             List<Feature> features = new ArrayList<>();
+            List<BrowserLabelCandidate> labelCandidates = new ArrayList<>();
             Optional<Envelope> completeEnvelope = Optional.empty();
             PortrayalEvaluationContext portrayalContext = portrayalContext(viewport, displayCrs);
             DiagnosticReport cursorReport;
@@ -158,6 +159,7 @@ final class FeatureSourceQueryEngine {
                     Optional<Symbol> selected =
                             symbol(binding, transformed, record.attributes(), portrayalContext);
                     if (selected.isPresent()) {
+                        int featureIndex = features.size();
                         features.add(
                                 new Feature(
                                         record.id(),
@@ -165,6 +167,27 @@ final class FeatureSourceQueryEngine {
                                         transformed,
                                         record.attributes(),
                                         selected.orElseThrow()));
+                        if (transformed instanceof PointGeometry point
+                                && binding.portrayal().pointLabel().isPresent()) {
+                            binding.portrayal()
+                                    .resolveLabelText(
+                                            record.name(),
+                                            record.attributes(),
+                                            viewport.worldUnitsPerPixel())
+                                    .ifPresent(
+                                            text ->
+                                                    labelCandidates.add(
+                                                            new BrowserLabelCandidate(
+                                                                    binding.id(),
+                                                                    record.id(),
+                                                                    point.coordinate(),
+                                                                    selected.orElseThrow(),
+                                                                    text,
+                                                                    binding.portrayal()
+                                                                            .pointLabel()
+                                                                            .orElseThrow(),
+                                                                    featureIndex)));
+                        }
                     }
                 }
                 cursorReport = cursor.diagnostics();
@@ -172,7 +195,12 @@ final class FeatureSourceQueryEngine {
             DiagnosticReport report =
                     merge(binding.source().openingDiagnostics(), planning, cursorReport);
             return new BindingResult(
-                    new QueryLayer(binding.id(), binding.name(), features, completeEnvelope),
+                    new QueryLayer(
+                            binding.id(),
+                            binding.name(),
+                            features,
+                            completeEnvelope,
+                            labelCandidates),
                     report,
                     false);
         } catch (SourceException exception) {
@@ -401,15 +429,20 @@ final class FeatureSourceQueryEngine {
     }
 
     private record QueryLayer(
-            String id, String name, List<Feature> features, Optional<Envelope> envelope)
-            implements Layer {
+            String id,
+            String name,
+            List<Feature> features,
+            Optional<Envelope> envelope,
+            List<BrowserLabelCandidate> browserLabelCandidates)
+            implements Layer, BrowserLabelLayer {
         private QueryLayer {
             features = List.copyOf(features);
             Objects.requireNonNull(envelope, "envelope");
+            browserLabelCandidates = List.copyOf(browserLabelCandidates);
         }
 
         private QueryLayer(String id, String name, List<Feature> features) {
-            this(id, name, features, featureEnvelope(features));
+            this(id, name, features, featureEnvelope(features), List.of());
         }
 
         private static Optional<Envelope> featureEnvelope(List<Feature> features) {
