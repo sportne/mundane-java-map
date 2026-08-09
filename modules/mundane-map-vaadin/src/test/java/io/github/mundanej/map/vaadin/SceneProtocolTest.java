@@ -14,7 +14,9 @@ import io.github.mundanej.map.api.Feature;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MarkerPlacement;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.RasterIconSymbol;
@@ -131,6 +133,64 @@ final class SceneProtocolTest {
     }
 
     @Test
+    void expandsMultipartGeometryUnderOneStableLogicalFeatureIdentity() {
+        PolygonGeometry firstPolygon =
+                new PolygonGeometry(CoordinateSequence.of(0, 0, 2, 0, 2, 2, 0, 0));
+        PolygonGeometry secondPolygon =
+                new PolygonGeometry(
+                        CoordinateSequence.of(3, 3, 6, 3, 6, 6, 3, 3),
+                        List.of(CoordinateSequence.of(4, 4, 5, 4, 5, 5, 4, 4)));
+        List<Feature> features =
+                List.of(
+                        new Feature(
+                                "points",
+                                "Points",
+                                new MultiPointGeometry(CoordinateSequence.of(0, 0, 1, 1)),
+                                Map.of(),
+                                marker()),
+                        new Feature(
+                                "lines",
+                                "Lines",
+                                MultiLineStringGeometry.ofParts(
+                                        List.of(
+                                                CoordinateSequence.of(0, 0, 1, 1),
+                                                CoordinateSequence.of(2, 2, 3, 3, 4, 4))),
+                                Map.of(),
+                                SolidLineSymbol.of(BLUE_STROKE, 1)),
+                        new Feature(
+                                "polygons",
+                                "Polygons",
+                                MultiPolygonGeometry.ofPolygons(
+                                        List.of(firstPolygon, secondPolygon)),
+                                Map.of(),
+                                SolidFillSymbol.of(RED, 1)));
+
+        SceneProtocol.Result result =
+                protocol()
+                        .encode(
+                                List.of(new InMemoryLayer("multipart", "Multipart", features)),
+                                Rgba.TRANSPARENT,
+                                MapViewport.initial(100, 100),
+                                1,
+                                1);
+
+        Map<?, ?> layer = (Map<?, ?>) ((List<?>) result.scene().get("layers")).getFirst();
+        List<?> encodedFeatures = (List<?>) layer.get("features");
+        assertEquals(
+                List.of("points", "lines", "polygons"),
+                encodedFeatures.stream().map(value -> ((Map<?, ?>) value).get("id")).toList());
+        assertEquals(
+                List.of(2, 2, 2),
+                encodedFeatures.stream()
+                        .map(value -> ((List<?>) ((Map<?, ?>) value).get("primitives")).size())
+                        .toList());
+        Map<?, ?> polygonPrimitive =
+                (Map<?, ?>)
+                        ((List<?>) ((Map<?, ?>) encodedFeatures.get(2)).get("primitives")).get(1);
+        assertEquals(2, ((List<?>) polygonPrimitive.get("rings")).size());
+    }
+
+    @Test
     void rejectsDuplicateIdentitiesAndNullValues() {
         InMemoryLayer first = new InMemoryLayer("same", "One", List.of());
         InMemoryLayer second = new InMemoryLayer("same", "Two", List.of());
@@ -180,13 +240,6 @@ final class SceneProtocolTest {
 
     @Test
     void rejectsEveryOutOfSliceGeometryAndSymbolShapeAtomically() {
-        assertUnsupported(
-                new Feature(
-                        "multi",
-                        "Multi",
-                        new MultiPointGeometry(CoordinateSequence.of(0, 0, 1, 1)),
-                        Map.of(),
-                        marker()));
         assertUnsupported(
                 new Feature(
                         "raster",
@@ -280,6 +333,70 @@ final class SceneProtocolTest {
         assertEquals(MundaneMapException.LIMIT_EXCEEDED, oversizedViewport.code());
     }
 
+    @Test
+    void enforcesFocusedMultipartPrimitiveCoordinatePathAndByteLimits() {
+        Feature points =
+                new Feature(
+                        "points",
+                        "Points",
+                        new MultiPointGeometry(CoordinateSequence.of(0, 0, 1, 1)),
+                        Map.of(),
+                        marker());
+        Feature lines =
+                new Feature(
+                        "lines",
+                        "Lines",
+                        MultiLineStringGeometry.ofParts(
+                                List.of(
+                                        CoordinateSequence.of(0, 0, 1, 1),
+                                        CoordinateSequence.of(2, 2, 3, 3))),
+                        Map.of(),
+                        SolidLineSymbol.of(BLUE_STROKE, 1));
+        PolygonGeometry first = new PolygonGeometry(CoordinateSequence.of(0, 0, 2, 0, 2, 2, 0, 0));
+        PolygonGeometry second =
+                new PolygonGeometry(
+                        CoordinateSequence.of(3, 3, 6, 3, 6, 6, 3, 3),
+                        List.of(CoordinateSequence.of(4, 4, 5, 4, 5, 5, 4, 4)));
+        Feature polygons =
+                new Feature(
+                        "polygons",
+                        "Polygons",
+                        MultiPolygonGeometry.ofPolygons(List.of(first, second)),
+                        Map.of(),
+                        SolidFillSymbol.of(RED, 1));
+        InMemoryLayer pointLayer = new InMemoryLayer("points", "Points", List.of(points));
+        InMemoryLayer lineLayer = new InMemoryLayer("lines", "Lines", List.of(lines));
+        InMemoryLayer polygonLayer = new InMemoryLayer("polygons", "Polygons", List.of(polygons));
+
+        assertLimit(
+                "primitives",
+                new SceneProtocol.Limits(1, 1, 1, 100, 100, 100_000, 100),
+                List.of(lineLayer));
+        assertLimit(
+                "coordinatePairs",
+                new SceneProtocol.Limits(1, 1, 10, 11, 100, 100_000, 100),
+                List.of(polygonLayer));
+        assertLimit(
+                "pathCommands",
+                new SceneProtocol.Limits(
+                        1, 1, 10, 100, marker().path().commandCount() * 2 - 1, 100_000, 100),
+                List.of(pointLayer));
+        SceneProtocol.Limits generous = new SceneProtocol.Limits(1, 1, 10, 100, 100, 100_000, 100);
+        long multipartBytes =
+                new SceneProtocol(generous)
+                        .encode(
+                                List.of(polygonLayer),
+                                Rgba.TRANSPARENT,
+                                MapViewport.initial(20, 20),
+                                1,
+                                1)
+                        .logicalBytes();
+        assertLimit(
+                "logicalBytes",
+                new SceneProtocol.Limits(1, 1, 10, 100, 100, multipartBytes - 1, 100),
+                List.of(polygonLayer));
+    }
+
     private static SceneProtocol protocol() {
         return new SceneProtocol(SceneProtocol.DEFAULT_LIMITS);
     }
@@ -346,6 +463,11 @@ final class SceneProtocolTest {
     }
 
     private static void assertLimit(SceneProtocol.Limits limits, List<? extends Layer> layers) {
+        assertLimit(null, limits, layers);
+    }
+
+    private static void assertLimit(
+            String expectedLimit, SceneProtocol.Limits limits, List<? extends Layer> layers) {
         MundaneMapException exception =
                 assertThrows(
                         MundaneMapException.class,
@@ -358,5 +480,8 @@ final class SceneProtocolTest {
                                                 1,
                                                 1));
         assertEquals(MundaneMapException.LIMIT_EXCEEDED, exception.code());
+        if (expectedLimit != null) {
+            assertEquals(expectedLimit, exception.context().get("limit"));
+        }
     }
 }

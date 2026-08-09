@@ -136,6 +136,15 @@ assert.equal(acceptedScene.layers[0].features[2].primitives[0].rings[0][0], 0);
 scene.layers[0].features[2].primitives[0].rings[0][0] = 0;
 assert.deepEqual(canvasModule.collectDrawOrder(scene),
   ['layer/point/0', 'layer/line/0', 'layer/polygon/0']);
+const multipart = structuredClone(scene);
+multipart.sceneGeneration = 4;
+multipart.layers[0].features[0].primitives.push({
+  ...structuredClone(multipart.layers[0].features[0].primitives[0]),
+  coordinate: [1, 1]
+});
+canvasModule.validateScene(multipart, 2, 3);
+assert.deepEqual(canvasModule.collectDrawOrder(multipart),
+  ['layer/point/0', 'layer/point/1', 'layer/line/0', 'layer/polygon/0']);
 assert.equal(canvasModule.logicalSceneBytes(scene), 646);
 assert.throws(() => canvasModule.validateScene({...scene, protocolVersion: 2}, 2, 2),
   /PROTOCOL_VERSION_UNSUPPORTED/);

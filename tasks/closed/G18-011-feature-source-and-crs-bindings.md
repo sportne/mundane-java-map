@@ -1,6 +1,6 @@
 # G18-011 — Feature-source and CRS browser bindings
 
-Status: Proposed
+Status: Complete
 Depends on: G18-010, G4-003
 Gate: G18
 Type: AFK
@@ -65,3 +65,12 @@ git diff --check
 Format viewers remain authoritative format evidence. This task proves one common browser binding,
 not separate shapefile/GeoJSON/GPX/KML implementations.
 
+The completed binding keeps ordered visibility state, requests the exact attribute projection and
+settled visible source envelope, serializes all cursors per component, and rejects stale query
+completions before atomically publishing source layers and report transitions. Source coordinates
+are transformed through explicit source-to-map and map-to-display operations; missing, unknown,
+unavailable, clipped, and outside-domain cases retain stable diagnostics. Multipart records expand
+to deterministic browser primitives while retaining one encoded logical feature identity.
+
+Full-scene replacement remains the only wire path. G18-011 produced no measured transfer evidence
+that qualifies stable-ID patches, so adding a second protocol path would not be justified.

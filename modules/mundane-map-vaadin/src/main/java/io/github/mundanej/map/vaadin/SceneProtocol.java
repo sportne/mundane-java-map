@@ -1,5 +1,6 @@
 package io.github.mundanej.map.vaadin;
 
+import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.Feature;
@@ -7,6 +8,9 @@ import io.github.mundanej.map.api.Geometry;
 import io.github.mundanej.map.api.Layer;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MarkerPlacement;
+import io.github.mundanej.map.api.MultiLineStringGeometry;
+import io.github.mundanej.map.api.MultiPointGeometry;
+import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
@@ -177,112 +181,86 @@ final class SceneProtocol {
 
     private EncodedFeature encodeFeature(Feature feature, Budget budget) {
         Geometry geometry = feature.geometry();
-        Map<String, Object> primitive;
-        long coordinatePairs;
+        List<Map<String, Object>> primitives = new ArrayList<>();
+        long coordinatePairs = 0;
         long pathCommands = 0;
-        if (geometry instanceof PointGeometry point) {
+        if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
             if (!(feature.symbol() instanceof VectorMarkerSymbol marker)) {
                 throw unsupported("point symbol");
             }
-            MarkerPlacement placement = marker.placement();
-            if (marker.stroke().isPresent()
-                    || placement.size().unit() != SymbolUnit.SCREEN_PIXEL
-                    || placement.size().width() != placement.size().height()
-                    || placement.anchor() != SymbolAnchor.CENTER
-                    || placement.offsetX() != 0.0
-                    || placement.offsetY() != 0.0
-                    || placement.rotationDegrees() != 0.0
-                    || placement.rotationMode() != SymbolRotationMode.SCREEN_RELATIVE) {
-                throw unsupported("point symbol placement");
+            validateMarker(marker);
+            if (geometry instanceof PointGeometry point) {
+                primitives.add(pointPrimitive(point.coordinate(), marker, budget));
+                coordinatePairs = 1;
+                pathCommands = marker.path().commandCount();
+            } else {
+                CoordinateSequence coordinates = ((MultiPointGeometry) geometry).coordinates();
+                for (int index = 0; index < coordinates.size(); index++) {
+                    primitives.add(
+                            pointPrimitive(
+                                    new Coordinate(coordinates.x(index), coordinates.y(index)),
+                                    marker,
+                                    budget));
+                }
+                coordinatePairs = coordinates.size();
+                pathCommands =
+                        Math.multiplyExact((long) marker.path().commandCount(), coordinates.size());
             }
-            VectorPath path = marker.path();
-            budget.add(1);
-            budget.addArrayOfNumbers(2);
-            budget.add(Integer.BYTES + path.commandCount());
-            budget.addArrayOfNumbers(path.ordinateCount());
-            budget.addArrayOfNumbers(4);
-            budget.addNumbers(2);
-            budget.addArrayOfNumbers(4);
-            pathCommands = path.commandCount();
-            primitive =
-                    immutableMap(
-                            "kind", "point",
-                            "coordinate", List.of(point.coordinate().x(), point.coordinate().y()),
-                            "path", path(path),
-                            "viewBox",
-                                    List.of(
-                                            marker.viewBox().minX(),
-                                            marker.viewBox().minY(),
-                                            marker.viewBox().maxX(),
-                                            marker.viewBox().maxY()),
-                            "size", placement.size().width(),
-                            "fill", color(marker.fill()),
-                            "opacity", marker.opacity());
-            coordinatePairs = 1;
-        } else if (geometry instanceof LineStringGeometry line) {
+        } else if (geometry instanceof LineStringGeometry
+                || geometry instanceof MultiLineStringGeometry) {
             if (!(feature.symbol() instanceof SolidLineSymbol symbol)
                     || symbol.startMarker().isPresent()
                     || symbol.endMarker().isPresent()
                     || symbol.stroke().width().unit() != SymbolUnit.SCREEN_PIXEL) {
                 throw unsupported("line symbol");
             }
-            budget.add(1);
-            budget.addArrayOfNumbers(line.coordinates().size() * 2L);
-            budget.addArrayOfNumbers(4);
-            budget.addNumbers(2);
-            primitive =
-                    immutableMap(
-                            "kind", "line",
-                            "coordinates", numbers(line.coordinates()),
-                            "stroke", stroke(symbol.stroke()),
-                            "opacity", symbol.opacity());
-            coordinatePairs = line.coordinates().size();
-        } else if (geometry instanceof PolygonGeometry polygon) {
+            if (geometry instanceof LineStringGeometry line) {
+                primitives.add(linePrimitive(line.coordinates(), symbol, budget));
+                coordinatePairs = line.coordinates().size();
+            } else {
+                MultiLineStringGeometry multiline = (MultiLineStringGeometry) geometry;
+                for (int part = 0; part < multiline.partCount(); part++) {
+                    CoordinateSequence coordinates =
+                            slice(
+                                    multiline.coordinates(),
+                                    multiline.partOffset(part),
+                                    multiline.partOffset(part + 1));
+                    primitives.add(linePrimitive(coordinates, symbol, budget));
+                }
+                coordinatePairs = multiline.coordinates().size();
+            }
+        } else if (geometry instanceof PolygonGeometry
+                || geometry instanceof MultiPolygonGeometry) {
             if (!(feature.symbol() instanceof SolidFillSymbol symbol)) {
                 throw unsupported("polygon symbol");
             }
-            List<List<Double>> rings = new ArrayList<>(polygon.holes().size() + 1);
-            rings.add(numbers(polygon.exterior()));
-            coordinatePairs = polygon.exterior().size();
-            for (CoordinateSequence hole : polygon.holes()) {
-                rings.add(numbers(hole));
-                coordinatePairs += hole.size();
-            }
-            Map<String, Object> outline = immutableMap("present", false);
-            budget.add(1);
-            if (symbol.outline().isPresent()) {
-                Symbol candidate = symbol.outline().orElseThrow();
-                if (!(candidate instanceof SolidLineSymbol line)
-                        || line.startMarker().isPresent()
-                        || line.endMarker().isPresent()
-                        || line.stroke().width().unit() != SymbolUnit.SCREEN_PIXEL) {
-                    throw unsupported("polygon outline");
+            validateFill(symbol);
+            if (geometry instanceof PolygonGeometry polygon) {
+                List<CoordinateSequence> rings = new ArrayList<>(polygon.holes().size() + 1);
+                rings.add(polygon.exterior());
+                rings.addAll(polygon.holes());
+                primitives.add(polygonPrimitive(rings, symbol, budget));
+                coordinatePairs = polygon.exterior().size();
+                for (CoordinateSequence hole : polygon.holes()) {
+                    coordinatePairs += hole.size();
                 }
-                outline =
-                        immutableMap(
-                                "present",
-                                true,
-                                "stroke",
-                                stroke(line.stroke()),
-                                "opacity",
-                                line.opacity());
-                budget.addArrayOfNumbers(4);
-                budget.addNumbers(2);
+            } else {
+                MultiPolygonGeometry multipolygon = (MultiPolygonGeometry) geometry;
+                for (int polygon = 0; polygon < multipolygon.polygonCount(); polygon++) {
+                    List<CoordinateSequence> rings = new ArrayList<>();
+                    int firstRing = multipolygon.polygonRingOffset(polygon);
+                    int ringLimit = multipolygon.polygonRingOffset(polygon + 1);
+                    for (int ring = firstRing; ring < ringLimit; ring++) {
+                        rings.add(
+                                slice(
+                                        multipolygon.coordinates(),
+                                        multipolygon.ringOffset(ring),
+                                        multipolygon.ringOffset(ring + 1)));
+                    }
+                    primitives.add(polygonPrimitive(rings, symbol, budget));
+                }
+                coordinatePairs = multipolygon.coordinates().size();
             }
-            budget.add(1);
-            budget.add(Integer.BYTES);
-            for (List<Double> ring : rings) {
-                budget.addArrayOfNumbers(ring.size());
-            }
-            budget.addArrayOfNumbers(4);
-            budget.addNumbers(1);
-            primitive =
-                    immutableMap(
-                            "kind", "polygon",
-                            "rings", List.copyOf(rings),
-                            "fill", color(symbol.fill()),
-                            "outline", outline,
-                            "opacity", symbol.opacity());
         } else {
             throw unsupported("geometry");
         }
@@ -290,10 +268,119 @@ final class SceneProtocol {
                 immutableMap(
                         "id", feature.id(),
                         "name", feature.name(),
-                        "primitives", List.of(primitive)),
-                1,
+                        "primitives", List.copyOf(primitives)),
+                primitives.size(),
                 coordinatePairs,
                 pathCommands);
+    }
+
+    private static void validateMarker(VectorMarkerSymbol marker) {
+        MarkerPlacement placement = marker.placement();
+        if (marker.stroke().isPresent()
+                || placement.size().unit() != SymbolUnit.SCREEN_PIXEL
+                || placement.size().width() != placement.size().height()
+                || placement.anchor() != SymbolAnchor.CENTER
+                || placement.offsetX() != 0.0
+                || placement.offsetY() != 0.0
+                || placement.rotationDegrees() != 0.0
+                || placement.rotationMode() != SymbolRotationMode.SCREEN_RELATIVE) {
+            throw unsupported("point symbol placement");
+        }
+    }
+
+    private static Map<String, Object> pointPrimitive(
+            Coordinate point, VectorMarkerSymbol marker, Budget budget) {
+        MarkerPlacement placement = marker.placement();
+        VectorPath path = marker.path();
+        budget.add(1);
+        budget.addArrayOfNumbers(2);
+        budget.add(Integer.BYTES + path.commandCount());
+        budget.addArrayOfNumbers(path.ordinateCount());
+        budget.addArrayOfNumbers(4);
+        budget.addNumbers(2);
+        budget.addArrayOfNumbers(4);
+        return immutableMap(
+                "kind", "point",
+                "coordinate", List.of(point.x(), point.y()),
+                "path", path(path),
+                "viewBox",
+                        List.of(
+                                marker.viewBox().minX(),
+                                marker.viewBox().minY(),
+                                marker.viewBox().maxX(),
+                                marker.viewBox().maxY()),
+                "size", placement.size().width(),
+                "fill", color(marker.fill()),
+                "opacity", marker.opacity());
+    }
+
+    private static Map<String, Object> linePrimitive(
+            CoordinateSequence coordinates, SolidLineSymbol symbol, Budget budget) {
+        budget.add(1);
+        budget.addArrayOfNumbers(coordinates.size() * 2L);
+        budget.addArrayOfNumbers(4);
+        budget.addNumbers(2);
+        return immutableMap(
+                "kind", "line",
+                "coordinates", numbers(coordinates),
+                "stroke", stroke(symbol.stroke()),
+                "opacity", symbol.opacity());
+    }
+
+    private static void validateFill(SolidFillSymbol symbol) {
+        if (symbol.outline().isEmpty()) {
+            return;
+        }
+        Symbol candidate = symbol.outline().orElseThrow();
+        if (!(candidate instanceof SolidLineSymbol line)
+                || line.startMarker().isPresent()
+                || line.endMarker().isPresent()
+                || line.stroke().width().unit() != SymbolUnit.SCREEN_PIXEL) {
+            throw unsupported("polygon outline");
+        }
+    }
+
+    private static Map<String, Object> polygonPrimitive(
+            List<CoordinateSequence> sourceRings, SolidFillSymbol symbol, Budget budget) {
+        List<List<Double>> rings = sourceRings.stream().map(SceneProtocol::numbers).toList();
+        Map<String, Object> outline = immutableMap("present", false);
+        budget.add(1);
+        if (symbol.outline().isPresent()) {
+            SolidLineSymbol line = (SolidLineSymbol) symbol.outline().orElseThrow();
+            outline =
+                    immutableMap(
+                            "present",
+                            true,
+                            "stroke",
+                            stroke(line.stroke()),
+                            "opacity",
+                            line.opacity());
+            budget.addArrayOfNumbers(4);
+            budget.addNumbers(2);
+        }
+        budget.add(1);
+        budget.add(Integer.BYTES);
+        for (List<Double> ring : rings) {
+            budget.addArrayOfNumbers(ring.size());
+        }
+        budget.addArrayOfNumbers(4);
+        budget.addNumbers(1);
+        return immutableMap(
+                "kind", "polygon",
+                "rings", List.copyOf(rings),
+                "fill", color(symbol.fill()),
+                "outline", outline,
+                "opacity", symbol.opacity());
+    }
+
+    private static CoordinateSequence slice(CoordinateSequence source, int start, int end) {
+        double[] packed = new double[Math.multiplyExact(end - start, 2)];
+        int target = 0;
+        for (int index = start; index < end; index++) {
+            packed[target++] = source.x(index);
+            packed[target++] = source.y(index);
+        }
+        return CoordinateSequence.of(packed);
     }
 
     private static MundaneMapException unsupported(String valueKind) {
