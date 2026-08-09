@@ -173,7 +173,7 @@ const scene = {
   viewport: initial,
   labelCandidates: [],
   layers: [{id: 'layer', name: 'Layer', features: [
-    {id: 'point', name: 'Point', primitives: [{
+    {id: 'point', logicalId: 'point', copyIndex: 0, name: 'Point', primitives: [{
       kind: 'point', coordinate: [0, 0],
       path: {commands: ['MOVE_TO', 'LINE_TO', 'LINE_TO', 'CLOSE'],
         ordinates: [0, 0, 1, 0, 0, 1]},
@@ -182,11 +182,11 @@ const scene = {
       fill: [200, 10, 20, 255], stroke: {present: false},
       endpointBearing: {present: false}, opacity: 1
     }]},
-    {id: 'line', name: 'Line', primitives: [{
+    {id: 'line', logicalId: 'line', copyIndex: 0, name: 'Line', primitives: [{
       kind: 'line', coordinates: [0, 0, 2, 2],
       stroke: {color: [10, 20, 200, 255], width: 2, unit: 'SCREEN_PIXEL'}, opacity: 0.5
     }]},
-    {id: 'polygon', name: 'Polygon', primitives: [{
+    {id: 'polygon', logicalId: 'polygon', copyIndex: 0, name: 'Polygon', primitives: [{
       kind: 'polygon', rings: [[0, 0, 4, 0, 4, 4, 0, 0],
         [1, 1, 2, 1, 2, 2, 1, 1]], fill: [10, 200, 20, 255],
       opacity: 0.75
@@ -203,6 +203,10 @@ assert.equal(acceptedScene.layers[0].features[2].primitives[0].rings[0][0], 0);
 scene.layers[0].features[2].primitives[0].rings[0][0] = 0;
 assert.deepEqual(canvasModule.collectDrawOrder(scene),
   ['layer/point/0', 'layer/line/0', 'layer/polygon/0']);
+const hostileCopy = structuredClone(scene);
+hostileCopy.sceneGeneration = 4;
+hostileCopy.layers[0].features[0].copyIndex = 1048577;
+assert.throws(() => canvasModule.validateScene(hostileCopy, 2, 3), /LIMIT_EXCEEDED/);
 const multipart = structuredClone(scene);
 multipart.sceneGeneration = 4;
 multipart.layers[0].features[0].primitives.push({
@@ -212,7 +216,7 @@ multipart.layers[0].features[0].primitives.push({
 canvasModule.validateScene(multipart, 2, 3);
 assert.deepEqual(canvasModule.collectDrawOrder(multipart),
   ['layer/point/0', 'layer/point/1', 'layer/line/0', 'layer/polygon/0']);
-assert.equal(canvasModule.logicalSceneBytes(scene), 699);
+assert.equal(canvasModule.logicalSceneBytes(scene), 751);
 assert.throws(() => canvasModule.validateScene({...scene, protocolVersion: 2}, 2, 2),
   /PROTOCOL_VERSION_UNSUPPORTED/);
 assert.throws(() => canvasModule.validateScene({...scene, sceneGeneration: 2}, 2, 2),
@@ -495,7 +499,7 @@ labelScene.labelCandidates = [{
   weight: 'BOLD',
   sizePixels: 14
 }];
-assert.equal(canvasModule.logicalSceneBytes(labelScene), 726);
+assert.equal(canvasModule.logicalSceneBytes(labelScene), 778);
 assert.deepEqual(canvasModule.validateScene(labelScene, 12, 12), labelScene);
 const hostileFontScene = structuredClone(labelScene);
 hostileFontScene.labelCandidates[0].fontFamily = 'url(https://evil.example/font)';
@@ -657,7 +661,7 @@ iconScene.layers[0].features[0].primitives = [{
   endpointBearing: {present: false}, opacity: 1
 }];
 iconScene.layers[0].features.splice(1);
-assert.equal(canvasModule.logicalSceneBytes(iconScene), 307);
+assert.equal(canvasModule.logicalSceneBytes(iconScene), 324);
 const iconFailures = [];
 const iconElement = new ElementClass();
 iconElement.$server = {
@@ -733,12 +737,18 @@ const rasterScene = structuredClone(scene);
 rasterScene.componentGeneration = 14;
 rasterScene.sceneGeneration = 15;
 rasterScene.rasters = [{
-  id: 'terrain', name: 'Terrain', resource: './VAADIN/dynamic/resource/token/window.mmrw',
+  id: 'terrain', logicalId: 'terrain', copyIndex: 0, name: 'Terrain',
+  resource: './VAADIN/dynamic/resource/token/window.mmrw',
   width: 2, height: 1, opacity: 0.75, interpolation: 'BILINEAR',
   sourceWindow: [0, 0, 2, 1], imageMapBounds: [0, 0, 20, 10],
   clipMapBounds: [2, 0, 18, 10],
   placement: {kind: 'AFFINE', transform: [10, 0, 0, -10, 5, 5]}
 }];
+rasterScene.rasters.push({
+  ...structuredClone(rasterScene.rasters[0]), id: 'terrain__wrap_1', copyIndex: 1,
+  imageMapBounds: [20, 0, 40, 10], clipMapBounds: [22, 0, 38, 10],
+  placement: {kind: 'AFFINE', transform: [10, 0, 0, -10, 25, 5]}
+});
 const rasterBuffer = rasterWindowBytes(2, 1, 14, 15,
   new Uint8Array([255, 0, 0, 255, 0, 0, 255, 128]));
 const rasterFetches = [];
@@ -1232,6 +1242,35 @@ await passDragElement.interactionChain;
 assert.deepEqual(passDragCalls.map(call => call[5]), ['PRESS', 'DRAG', 'DRAG']);
 assert.equal(transientCalls.length, 2);
 assert.deepEqual(passDragCalls.slice(1).map(call => call[3]), [4, 5]);
+
+const rejectedViewportElement = new ElementClass();
+rejectedViewportElement.$server = {
+  acceptClientFailure: (...arguments_) => assert.fail(`viewport failure ${arguments_}`),
+  acceptSettledViewport: async () => false,
+  acceptTransientViewport: async () => false
+};
+rejectedViewportElement.connectedCallback();
+rejectedViewportElement.activateMap(1, 2, 3);
+rejectedViewportElement.setScene(structuredClone(scene));
+const authoritativeViewport = {...rejectedViewportElement.viewport};
+const authoritativeGeneration = rejectedViewportElement.viewportGeneration;
+rejectedViewportElement.viewport = {
+  ...rejectedViewportElement.viewport,
+  centerX: rejectedViewportElement.viewport.centerX + 100
+};
+rejectedViewportElement.afterLocalNavigation(false);
+await rejectedViewportElement.syncToolViewport();
+assert.deepEqual(rejectedViewportElement.viewport, authoritativeViewport);
+assert.equal(rejectedViewportElement.viewportGeneration, authoritativeGeneration);
+rejectedViewportElement.viewport = {
+  ...rejectedViewportElement.viewport,
+  centerX: rejectedViewportElement.viewport.centerX + 200
+};
+rejectedViewportElement.afterLocalNavigation(false);
+rejectedViewportElement.emitSettled(true);
+await rejectedViewportElement.interactionChain;
+assert.deepEqual(rejectedViewportElement.viewport, authoritativeViewport);
+assert.equal(rejectedViewportElement.viewportGeneration, authoritativeGeneration);
 
 const resizeObserver = globalThis.ResizeObserver;
 globalThis.ResizeObserver = undefined;

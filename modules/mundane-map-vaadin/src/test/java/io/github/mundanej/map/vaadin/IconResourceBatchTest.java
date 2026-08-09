@@ -190,7 +190,7 @@ final class IconResourceBatchTest {
         assertEquals("icon", primitive.get("kind"));
         assertEquals("./VAADIN/dynamic/resource/token/icon.mmri", primitive.get("resource"));
         assertTrue(!primitive.containsKey("pixels"));
-        assertEquals(307, result.logicalBytes());
+        assertEquals(324, result.logicalBytes());
 
         batch.close();
         batch.close();

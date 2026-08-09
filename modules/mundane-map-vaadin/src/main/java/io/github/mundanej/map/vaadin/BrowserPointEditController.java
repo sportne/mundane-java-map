@@ -117,7 +117,7 @@ public final class BrowserPointEditController implements MapTool, BrowserBoundTo
                 new SnapReferenceSet(Objects.requireNonNull(host, "host").mapCrs(), List.of()),
                 BROWSER_SNAP_LIMITS,
                 DEFAULT_SNAP_TOLERANCE_PIXELS,
-                Optional.empty(),
+                host.horizontalWrapFor(target),
                 Set.of());
     }
 
@@ -144,8 +144,8 @@ public final class BrowserPointEditController implements MapTool, BrowserBoundTo
                 externalReferences,
                 snapLimits,
                 tolerancePixels,
-                Optional.empty(),
-                Set.of());
+                host.horizontalWrapFor(target, externalReferences),
+                host.repeatingSnapLayerIds(target, externalReferences));
     }
 
     /**
@@ -804,7 +804,9 @@ public final class BrowserPointEditController implements MapTool, BrowserBoundTo
             return Set.of();
         }
         java.util.HashSet<String> result = new java.util.HashSet<>(repeatingLayerIds);
-        if (references.layers().stream().anyMatch(layer -> layer.layerId().equals(target.id()))) {
+        if (target.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X
+                && references.layers().stream()
+                        .anyMatch(layer -> layer.layerId().equals(target.id()))) {
             result.add(target.id());
         }
         return Set.copyOf(result);

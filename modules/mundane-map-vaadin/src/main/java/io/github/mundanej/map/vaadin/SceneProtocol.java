@@ -149,9 +149,12 @@ final class SceneProtocol {
                     addAndCheck("features", featureCount, features.size(), limits.features());
             Set<String> featureIds = new LinkedHashSet<>();
             List<Feature> featureCopies = new ArrayList<>(features.size());
+            List<String> logicalFeatureIds = new ArrayList<>(features.size());
+            List<Long> copyIndices = new ArrayList<>(features.size());
             List<Map<String, Object>> encodedFeatures = new ArrayList<>(features.size());
             Optional<Envelope> layerEnvelope = Optional.empty();
-            for (Feature feature : features) {
+            for (int featureIndex = 0; featureIndex < features.size(); featureIndex++) {
+                Feature feature = features.get(featureIndex);
                 Objects.requireNonNull(feature, "feature");
                 String featureId = requireText(feature.id(), "featureId", budget);
                 if (!featureIds.add(featureId)) {
@@ -162,7 +165,24 @@ final class SceneProtocol {
                             "feature");
                 }
                 String featureName = requireTextValue(feature.name(), "featureName", budget);
+                String logicalFeatureId =
+                        requireText(
+                                BrowserLogicalLayer.logicalFeatureId(layer, featureIndex),
+                                "logicalFeatureId",
+                                budget);
+                long copyIndex = BrowserLogicalLayer.copyIndex(layer, featureIndex);
+                if (copyIndex < -io.github.mundanej.map.core.HorizontalWrap.COPY_INDEX_HARD_MAXIMUM
+                        || copyIndex
+                                > io.github.mundanej.map.core.HorizontalWrap
+                                        .COPY_INDEX_HARD_MAXIMUM) {
+                    throw failure(
+                            MundaneMapException.LIMIT_EXCEEDED,
+                            "Browser wrap copy index exceeds the closed profile",
+                            "limit",
+                            "copyIndex");
+                }
                 budget.add(Integer.BYTES);
+                budget.addNumbers(1);
                 Feature copy =
                         new Feature(
                                 featureId,
@@ -170,7 +190,8 @@ final class SceneProtocol {
                                 feature.geometry(),
                                 feature.attributes(),
                                 feature.symbol());
-                EncodedFeature encoded = encodeFeature(copy, budget, iconResources);
+                EncodedFeature encoded =
+                        encodeFeature(copy, logicalFeatureId, copyIndex, budget, iconResources);
                 primitiveCount =
                         addAndCheck(
                                 "primitives",
@@ -190,6 +211,8 @@ final class SceneProtocol {
                                 encoded.pathCommands(),
                                 limits.pathCommands());
                 featureCopies.add(copy);
+                logicalFeatureIds.add(logicalFeatureId);
+                copyIndices.add(copyIndex);
                 encodedFeatures.add(encoded.value());
                 layerEnvelope = union(layerEnvelope, copy.geometry().envelope());
             }
@@ -278,7 +301,13 @@ final class SceneProtocol {
             }
             Layer copy =
                     new SnapshotLayer(
-                            layerId, layerName, featureCopies, layerEnvelope, retainedLayerLabels);
+                            layerId,
+                            layerName,
+                            featureCopies,
+                            layerEnvelope,
+                            retainedLayerLabels,
+                            logicalFeatureIds,
+                            copyIndices);
             copies.add(copy);
             encodedLayers.add(
                     immutableMap(
@@ -339,7 +368,7 @@ final class SceneProtocol {
         Optional<Envelope> envelope = vectorResult.envelope();
         for (int index = 0; index < windows.size(); index++) {
             BrowserRasterWindow window = windows.get(index);
-            if (!identities.add(window.bindingId())) {
+            if (!identities.add(window.displayId())) {
                 throw failure(
                         MundaneMapException.DUPLICATE_ID,
                         "Duplicate layer identity",
@@ -369,7 +398,7 @@ final class SceneProtocol {
         bytes =
                 Math.addExact(
                         bytes,
-                        Integer.BYTES + window.bindingId().getBytes(StandardCharsets.UTF_8).length);
+                        Integer.BYTES + window.displayId().getBytes(StandardCharsets.UTF_8).length);
         bytes =
                 Math.addExact(
                         bytes,
@@ -379,12 +408,21 @@ final class SceneProtocol {
                 Math.addExact(
                         bytes, Integer.BYTES + resource.getBytes(StandardCharsets.UTF_8).length);
         bytes = Math.addExact(bytes, 4L * Integer.BYTES);
+        bytes = Math.addExact(bytes, Long.BYTES);
+        bytes =
+                Math.addExact(
+                        bytes,
+                        Integer.BYTES + window.bindingId().getBytes(StandardCharsets.UTF_8).length);
         bytes = Math.addExact(bytes, 19L * Double.BYTES);
         return bytes;
     }
 
     private EncodedFeature encodeFeature(
-            Feature feature, Budget budget, IconResources iconResources) {
+            Feature feature,
+            String logicalFeatureId,
+            long copyIndex,
+            Budget budget,
+            IconResources iconResources) {
         PrimitiveAccumulator target = new PrimitiveAccumulator(budget, limits);
         Geometry geometry = feature.geometry();
         Symbol symbol = feature.symbol();
@@ -454,6 +492,8 @@ final class SceneProtocol {
         return new EncodedFeature(
                 immutableMap(
                         "id", feature.id(),
+                        "logicalId", logicalFeatureId,
+                        "copyIndex", copyIndex,
                         "name", feature.name(),
                         "primitives", List.copyOf(target.primitives)),
                 target.primitives.size(),
@@ -1159,12 +1199,26 @@ final class SceneProtocol {
             String name,
             List<Feature> features,
             Optional<Envelope> envelope,
-            List<BrowserLabelCandidate> browserLabelCandidates)
-            implements Layer, BrowserLabelLayer {
+            List<BrowserLabelCandidate> browserLabelCandidates,
+            List<String> logicalFeatureIds,
+            List<Long> copyIndices)
+            implements Layer, BrowserLabelLayer, BrowserLogicalLayer {
         private SnapshotLayer {
             features = List.copyOf(features);
             Objects.requireNonNull(envelope, "envelope");
             browserLabelCandidates = List.copyOf(browserLabelCandidates);
+            logicalFeatureIds = List.copyOf(logicalFeatureIds);
+            copyIndices = List.copyOf(copyIndices);
+        }
+
+        @Override
+        public String logicalFeatureId(int featureIndex) {
+            return logicalFeatureIds.get(featureIndex);
+        }
+
+        @Override
+        public long copyIndex(int featureIndex) {
+            return copyIndices.get(featureIndex);
         }
     }
 

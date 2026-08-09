@@ -152,6 +152,8 @@ function validateBounds(value) {
 
 function validateRaster(raster) {
   if (!raster || typeof raster.id !== 'string' || !raster.id || raster.id.length > 256 ||
+      typeof raster.logicalId !== 'string' || !raster.logicalId ||
+      raster.logicalId.length > 256 || !Number.isSafeInteger(raster.copyIndex) ||
       typeof raster.name !== 'string' || raster.name.length > 4096 ||
       !Number.isInteger(raster.width) || raster.width <= 0 || raster.width > MAX_RASTER_EDGE ||
       !Number.isInteger(raster.height) || raster.height <= 0 || raster.height > MAX_RASTER_EDGE ||
@@ -164,6 +166,7 @@ function validateRaster(raster) {
       raster.sourceWindow[2] <= 0 || raster.sourceWindow[3] <= 0 || !raster.placement) {
     throw new Error('SYMBOL_UNSUPPORTED');
   }
+  if (Math.abs(raster.copyIndex) > 1048576) throw new Error('LIMIT_EXCEEDED');
   validateRelativeResource(raster.resource);
   validateBounds(raster.imageMapBounds);
   validateBounds(raster.clipMapBounds);
@@ -423,6 +426,8 @@ function detachScene(scene) {
       name: layer.name,
       features: layer.features.map(feature => ({
         id: feature.id,
+        logicalId: feature.logicalId,
+        copyIndex: feature.copyIndex,
         name: feature.name,
         primitives: feature.primitives.map(detachPrimitive)
       }))
@@ -444,7 +449,8 @@ export function logicalSceneBytes(scene) {
   let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4 + 4 + 4;
   for (const raster of scene.rasters || []) {
     size += logicalStringBytes(raster.id) + logicalStringBytes(raster.name) +
-      logicalStringBytes(raster.resource) + 4 * 4 + 19 * 8;
+      logicalStringBytes(raster.logicalId) + logicalStringBytes(raster.resource) +
+      4 * 4 + 20 * 8;
   }
   for (const candidate of scene.labelCandidates) {
     size += 2 * 8 + logicalStringBytes(candidate.text) + 2;
@@ -452,7 +458,8 @@ export function logicalSceneBytes(scene) {
   for (const layer of scene.layers) {
     size += logicalStringBytes(layer.id) + logicalStringBytes(layer.name) + 4;
     for (const feature of layer.features) {
-      size += logicalStringBytes(feature.id) + logicalStringBytes(feature.name) + 4;
+      size += logicalStringBytes(feature.id) + logicalStringBytes(feature.logicalId) +
+        logicalStringBytes(feature.name) + 8 + 4;
       for (const primitive of feature.primitives) {
         size += 1;
         if (primitive.kind === 'point') {
@@ -564,10 +571,14 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
     }
     for (const feature of layer.features) {
       if (!feature || typeof feature.id !== 'string' || !feature.id ||
+          typeof feature.logicalId !== 'string' || !feature.logicalId ||
+          !Number.isSafeInteger(feature.copyIndex) ||
           typeof feature.name !== 'string' || !Array.isArray(feature.primitives)) {
         throw new Error('SYMBOL_UNSUPPORTED');
       }
-      if (feature.id.length > 256 || feature.name.length > 4096) {
+      if (Math.abs(feature.copyIndex) > 1048576) throw new Error('LIMIT_EXCEEDED');
+      if (feature.id.length > 256 || feature.logicalId.length > 256 ||
+          feature.name.length > 4096) {
         throw new Error('LIMIT_EXCEEDED');
       }
       if (featureIds.has(feature.id)) {
@@ -740,9 +751,11 @@ export class MundaneMapCanvas extends HTMLElement {
     this.pendingLabelAcknowledgement = null;
     this.viewport = validateViewport({width: 800, height: 600, centerX: 0,
       centerY: 0, worldUnitsPerPixel: 100000});
+    this.authoritativeViewport = {...this.viewport};
     this.componentGeneration = 0;
     this.sceneGeneration = -1;
     this.viewportGeneration = 0;
+    this.authoritativeViewportGeneration = 0;
     this.eventSequence = 0;
     this.toolActive = false;
     this.toolCaptured = false;
@@ -1043,9 +1056,15 @@ export class MundaneMapCanvas extends HTMLElement {
     const resources = new Map();
     let total = [...icons.values()].reduce((sum, metadata) => sum + metadata.bytes, 0);
     for (const raster of scene.rasters || []) {
-      if (resources.has(raster.resource)) throw new Error('RESOURCE_UNAVAILABLE');
       const bytes = 32 + raster.width * raster.height * 4;
       if (bytes - 32 > MAX_RASTER_WINDOW_BYTES) throw new Error('LIMIT_EXCEEDED');
+      const prior = resources.get(raster.resource);
+      if (prior) {
+        if (prior.width !== raster.width || prior.height !== raster.height) {
+          throw new Error('RESOURCE_UNAVAILABLE');
+        }
+        continue;
+      }
       total += bytes;
       if (resources.size >= MAX_RASTER_WINDOWS || total > MAX_SCENE_RESOURCE_BYTES) {
         throw new Error('LIMIT_EXCEEDED');
@@ -1156,6 +1175,8 @@ export class MundaneMapCanvas extends HTMLElement {
     this.sceneGeneration = accepted.sceneGeneration;
     this.viewportGeneration = finalViewportGeneration;
     this.viewport = finalViewport;
+    this.authoritativeViewport = {...finalViewport};
+    this.authoritativeViewportGeneration = finalViewportGeneration;
     this.viewportDirty = false;
     this.pendingSceneGeneration = -1;
     this.pendingViewport = null;
@@ -1211,6 +1232,8 @@ export class MundaneMapCanvas extends HTMLElement {
       const changed = viewportGeneration !== this.viewportGeneration;
       this.viewport = candidate;
       this.viewportGeneration = viewportGeneration;
+      this.authoritativeViewport = {...candidate};
+      this.authoritativeViewportGeneration = viewportGeneration;
       this.viewportDirty = false;
       if (changed) {
         this.placedLabels = [];
@@ -2467,10 +2490,29 @@ export class MundaneMapCanvas extends HTMLElement {
     const reportedGeneration = this.viewportGeneration;
     const settledViewport = {...this.viewport};
     this.viewportGeneration++;
-    await this.$server.acceptTransientViewport(PROTOCOL_VERSION, this.componentGeneration,
+    const accepted = await this.$server.acceptTransientViewport(
+      PROTOCOL_VERSION, this.componentGeneration,
       this.sceneGeneration, reportedGeneration, this.eventSequence++,
       settledViewport.width, settledViewport.height,
       settledViewport.centerX, settledViewport.centerY, settledViewport.worldUnitsPerPixel);
+    if (accepted === false) {
+      this.rollbackRejectedViewport();
+    } else {
+      this.authoritativeViewport = {...settledViewport};
+      this.authoritativeViewportGeneration = reportedGeneration + 1;
+    }
+  }
+
+  rollbackRejectedViewport() {
+    this.viewport = {...this.authoritativeViewport};
+    this.viewportGeneration = this.authoritativeViewportGeneration;
+    this.viewportDirty = false;
+    this.placedLabels = [];
+    this.pendingLabelAcknowledgement = null;
+    this.interactionLayers = this.interactionLayers.filter(layer => layer.id !== '__hover');
+    this.releaseClientPointers();
+    this.setToolState(this.toolActive, false, 'DEFAULT');
+    this.schedulePaint();
   }
 
   sendCancellation(event, reason, required = false) {
@@ -2579,10 +2621,17 @@ export class MundaneMapCanvas extends HTMLElement {
     this.viewportGeneration += 1;
     const operation = async () => {
       if (!this.$server?.acceptSettledViewport || !this.active || !this.scene) return;
-      await this.$server.acceptSettledViewport(PROTOCOL_VERSION, componentGeneration,
+      const accepted = await this.$server.acceptSettledViewport(
+        PROTOCOL_VERSION, componentGeneration,
         sceneGeneration, reportedGeneration, this.eventSequence++,
         settledViewport.width, settledViewport.height,
         settledViewport.centerX, settledViewport.centerY, settledViewport.worldUnitsPerPixel);
+      if (accepted === false) {
+        this.rollbackRejectedViewport();
+      } else {
+        this.authoritativeViewport = {...settledViewport};
+        this.authoritativeViewportGeneration = reportedGeneration + 1;
+      }
     };
     this.pendingToolEvents++;
     const result = this.interactionChain.then(operation, operation);

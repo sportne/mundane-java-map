@@ -41,6 +41,7 @@ import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.PlacedPointLabel;
 import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.api.SnapReferenceSet;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.SymbolRole;
@@ -51,6 +52,8 @@ import io.github.mundanej.map.api.VectorExportSnapshotProblem;
 import io.github.mundanej.map.core.CrsDefinitions;
 import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.HorizontalWrapException;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapToolRouter;
 import io.github.mundanej.map.core.MapViewport;
@@ -85,7 +88,9 @@ import java.util.function.LongSupplier;
  * raster icons and explicit raster/elevation binding windows are served as expiring same-origin
  * session resources. A settled acknowledged vector scene can be captured through the existing
  * detached export snapshot boundary; legacy and custom renderer values are not forwarded to the
- * browser.
+ * browser. Optional horizontal repetition reuses the core checked world-wrap policy and requires an
+ * explicit component profile plus an explicit {@link BrowserHorizontalWrapMode#REPEAT_X} choice on
+ * each repeating binding; ordinary snapshot and {@code NONE} bindings remain local.
  */
 @Tag("mundane-map-canvas")
 @JsModule("./mundane-map-canvas.js")
@@ -156,6 +161,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** CRS of browser viewport and encoded scene coordinates. */
     private CrsDefinition displayCrs = CrsDefinitions.EPSG_3857;
+
+    /** Optional explicit continuous horizontal display-world profile. */
+    private HorizontalWrap horizontalWrap;
 
     /** Pure synchronous feature query engine executed only on the serialized lane. */
     private final FeatureSourceQueryEngine sourceQueryEngine = new FeatureSourceQueryEngine();
@@ -255,6 +263,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** Current reconciled topmost hover identity. */
     private Optional<MapHit> hover = Optional.empty();
+
+    /** Exact current visual feature fragment/copy under the pointer. */
+    private Optional<Feature> hoverVisualFeature = Optional.empty();
 
     /** Current ordinary-scene identities with at least one encoded paint primitive. */
     private Set<FeatureSelection> paintedFeatures = Set.of();
@@ -823,6 +834,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      * @param nextMapCrs exact registered logical map CRS
      * @param nextDisplayCrs exact registered browser display CRS
      * @throws IllegalArgumentException if an installed editable binding has another map CRS
+     * @throws MundaneMapException if an installed repeating raster/elevation is incompatible
+     * @throws HorizontalWrapException if the viewport exceeds the retained wrap profile
      */
     public void setCoordinateReferenceSystems(
             CrsRegistry registry, CrsDefinition nextMapCrs, CrsDefinition nextDisplayCrs) {
@@ -832,6 +845,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         Objects.requireNonNull(nextDisplayCrs, "nextDisplayCrs");
         registry.operation(nextMapCrs, nextDisplayCrs);
         registry.operation(nextDisplayCrs, nextMapCrs);
+        if (horizontalWrap != null) {
+            BrowserWrapSupport.validate(horizontalWrap, nextDisplayCrs, viewport);
+            validateRepeatingBindings(horizontalWrap, nextDisplayCrs);
+        }
         for (FeatureEditBinding binding : editBindings) {
             FeatureEditBinding.requireExactCrs(nextMapCrs, binding.snapshot().crs());
         }
@@ -887,6 +904,147 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      */
     public CrsDefinition mapCrs() {
         return mapCrs;
+    }
+
+    /**
+     * Returns the explicit horizontal display-repetition profile.
+     *
+     * @return configured immutable profile, or empty for ordinary local display behavior
+     */
+    public Optional<HorizontalWrap> horizontalWrap() {
+        return Optional.ofNullable(horizontalWrap);
+    }
+
+    Optional<HorizontalWrap> horizontalWrapFor(FeatureEditBinding binding) {
+        Objects.requireNonNull(binding, "binding");
+        return binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X
+                ? Optional.ofNullable(horizontalWrap)
+                : Optional.empty();
+    }
+
+    Optional<HorizontalWrap> horizontalWrapFor(
+            FeatureEditBinding target, SnapReferenceSet externalReferences) {
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(externalReferences, "externalReferences");
+        return target.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X
+                        || !repeatingSnapLayerIds(target, externalReferences).isEmpty()
+                ? Optional.ofNullable(horizontalWrap)
+                : Optional.empty();
+    }
+
+    Set<String> repeatingSnapLayerIds(
+            FeatureEditBinding target, SnapReferenceSet externalReferences) {
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(externalReferences, "externalReferences");
+        Set<String> declared = new HashSet<>();
+        externalReferences.layers().forEach(layer -> declared.add(layer.layerId()));
+        Set<String> ids = new HashSet<>();
+        featureBindings.stream()
+                .map(FeatureSourceQueryEngine.RequestBinding::binding)
+                .filter(
+                        binding ->
+                                binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X)
+                .forEach(binding -> ids.add(binding.id()));
+        editBindings.stream()
+                .filter(
+                        binding ->
+                                binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X)
+                .filter(binding -> binding != target)
+                .forEach(binding -> ids.add(binding.id()));
+        ids.retainAll(declared);
+        return Set.copyOf(ids);
+    }
+
+    /**
+     * Installs or replaces the checked horizontal display-repetition profile.
+     *
+     * @param profile profile exactly matching the display CRS horizontal domain
+     * @throws IllegalArgumentException if the profile is incompatible with the display CRS
+     * @throws MundaneMapException if an installed repeating raster/elevation is incompatible
+     * @throws HorizontalWrapException if the current viewport exceeds a checked wrap limit
+     */
+    public void setHorizontalWrap(HorizontalWrap profile) {
+        requireOpen();
+        HorizontalWrap requested = Objects.requireNonNull(profile, "profile");
+        BrowserWrapSupport.validate(requested, displayCrs, viewport);
+        validateRepeatingBindings(requested, displayCrs);
+        if (requested.equals(horizontalWrap)) {
+            return;
+        }
+        HorizontalWrap previous = horizontalWrap;
+        List<Layer> previousSourceLayers = sourceLayers;
+        Set<String> previousAvailableSourceBindings = availableSourceBindings;
+        List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
+        horizontalWrap = requested;
+        sourceLayers = List.of();
+        availableSourceBindings = Set.of();
+        rasterWindows = List.of();
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene staged;
+        try {
+            staged =
+                    stageScene(
+                            combine(layers, editableLayers(editBindings)),
+                            background,
+                            nextGeneration);
+        } catch (RuntimeException | Error failure) {
+            horizontalWrap = previous;
+            sourceLayers = previousSourceLayers;
+            availableSourceBindings = previousAvailableSourceBindings;
+            rasterWindows = previousRasterWindows;
+            throw failure;
+        }
+        cancelFeatureQuery();
+        cancelPendingSettledViewport();
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        diagnostic = Optional.empty();
+        Throwable primary = cleanup(null, () -> publishStagedScene(staged));
+        primary =
+                cleanup(
+                        primary,
+                        () -> cancelToolInteraction(MapToolCancelReason.POINTER_STATE_LOST));
+        primary = cleanup(primary, this::publishViewport);
+        primary = cleanup(primary, this::scheduleSourceQuery);
+        if (primary != null) {
+            throwUnchecked(primary);
+        }
+    }
+
+    /**
+     * Clears horizontal repetition when no installed binding requests it.
+     *
+     * @throws IllegalStateException if a repeating binding remains installed
+     */
+    public void clearHorizontalWrap() {
+        requireOpen();
+        if (hasRepeatingBinding()) {
+            throw new IllegalStateException(
+                    "horizontal wrap cannot be cleared while a repeating binding is installed");
+        }
+        if (horizontalWrap == null) {
+            return;
+        }
+        HorizontalWrap previous = horizontalWrap;
+        horizontalWrap = null;
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene staged;
+        try {
+            staged = stageScene(combinedLayers(), background, nextGeneration);
+        } catch (RuntimeException | Error failure) {
+            horizontalWrap = previous;
+            throw failure;
+        }
+        cancelFeatureQuery();
+        cancelPendingSettledViewport();
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        Throwable primary = cleanup(null, () -> publishStagedScene(staged));
+        primary = cleanup(primary, this::publishViewport);
+        primary = cleanup(primary, this::scheduleSourceQuery);
+        if (primary != null) {
+            throwUnchecked(primary);
+        }
     }
 
     /**
@@ -951,11 +1109,16 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      * Replaces the finite projected-world viewport.
      *
      * @param nextViewport immutable viewport
+     * @throws MundaneMapException if the viewport or restaged scene exceeds a browser limit
+     * @throws HorizontalWrapException if the viewport exceeds the configured wrap profile
      */
     public void setViewport(MapViewport nextViewport) {
         requireOpen();
         Objects.requireNonNull(nextViewport, "nextViewport");
         protocol.validateViewport(nextViewport);
+        if (horizontalWrap != null) {
+            BrowserWrapSupport.validate(horizontalWrap, displayCrs, nextViewport);
+        }
         cancelPendingSettledViewport();
         MapViewport previousViewport = viewport;
         List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
@@ -1021,11 +1184,17 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             throw new IllegalArgumentException("Screen coordinates must be finite");
         }
         try {
-            return Optional.of(
-                    crsRegistry
-                            .operation(displayCrs, mapCrs)
-                            .transform(viewport.screenToWorld(screenX, screenY)));
-        } catch (io.github.mundanej.map.api.CrsException | IllegalArgumentException exception) {
+            io.github.mundanej.map.api.Coordinate display =
+                    viewport.screenToWorld(screenX, screenY);
+            if (horizontalWrap != null) {
+                display =
+                        new io.github.mundanej.map.api.Coordinate(
+                                horizontalWrap.canonicalize(display.x()).canonicalX(), display.y());
+            }
+            return Optional.of(crsRegistry.operation(displayCrs, mapCrs).transform(display));
+        } catch (io.github.mundanej.map.api.CrsException
+                | IllegalArgumentException
+                | HorizontalWrapException exception) {
             return Optional.empty();
         }
     }
@@ -1040,10 +1209,18 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             io.github.mundanej.map.api.Coordinate coordinate) {
         Objects.requireNonNull(coordinate, "coordinate");
         try {
-            return Optional.of(
-                    viewport.worldToScreen(
-                            crsRegistry.operation(mapCrs, displayCrs).transform(coordinate)));
-        } catch (io.github.mundanej.map.api.CrsException | IllegalArgumentException exception) {
+            io.github.mundanej.map.api.Coordinate display =
+                    crsRegistry.operation(mapCrs, displayCrs).transform(coordinate);
+            if (horizontalWrap != null) {
+                display =
+                        new io.github.mundanej.map.api.Coordinate(
+                                horizontalWrap.nearestEquivalent(display.x(), viewport.centerX()),
+                                display.y());
+            }
+            return Optional.of(viewport.worldToScreen(display));
+        } catch (io.github.mundanej.map.api.CrsException
+                | IllegalArgumentException
+                | HorizontalWrapException exception) {
             return Optional.empty();
         }
     }
@@ -1624,9 +1801,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      * @param centerX finite projected center x
      * @param centerY finite projected center y
      * @param worldUnitsPerPixel finite positive scale
+     * @return whether the candidate was accepted by the current wrap/generation profile
      */
     @ClientCallable
-    public void acceptTransientViewport(
+    public boolean acceptTransientViewport(
             int protocolVersion,
             double clientComponentGeneration,
             double clientSceneGeneration,
@@ -1645,7 +1823,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         clientSequence,
                         "transientViewport")
                 || (long) clientSequence != transientViewportPermitSequence) {
-            return;
+            return false;
         }
         clientEventSequence = (long) clientSequence;
         transientViewportPermitSequence = -1;
@@ -1653,9 +1831,15 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         try {
             accepted = new MapViewport(width, height, centerX, centerY, worldUnitsPerPixel);
             protocol.validateViewport(accepted);
+            if (horizontalWrap != null) {
+                BrowserWrapSupport.validate(horizontalWrap, displayCrs, accepted);
+            }
         } catch (MundaneMapException exception) {
             diagnostic = Optional.of(exception);
-            return;
+            return false;
+        } catch (HorizontalWrapException exception) {
+            diagnostic = Optional.of(horizontalWrapFailure(exception));
+            return false;
         } catch (IllegalArgumentException exception) {
             diagnostic =
                     Optional.of(
@@ -1664,7 +1848,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                     "Transient browser viewport is not finite and bounded",
                                     "eventClass",
                                     "transientViewport"));
-            return;
+            return false;
         }
         viewportGeneration = Math.incrementExact(viewportGeneration);
         pendingSettledViewport = accepted;
@@ -1673,6 +1857,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             throwUnchecked(primary);
         }
         diagnostic = Optional.empty();
+        return true;
     }
 
     /**
@@ -1691,9 +1876,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
      * @param centerX finite projected center x
      * @param centerY finite projected center y
      * @param worldUnitsPerPixel finite positive scale
+     * @return whether the candidate was accepted by the current wrap/generation profile
      */
     @ClientCallable
-    public void acceptSettledViewport(
+    public boolean acceptSettledViewport(
             int protocolVersion,
             double clientComponentGeneration,
             double clientSceneGeneration,
@@ -1706,11 +1892,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             double worldUnitsPerPixel) {
         if (closed) {
             diagnostic = Optional.of(closedFailure());
-            return;
+            return false;
         }
         if (!isEnabled()) {
             diagnostic = Optional.of(disabledFailure());
-            return;
+            return false;
         }
         if (protocolVersion != SceneProtocol.VERSION) {
             diagnostic =
@@ -1720,7 +1906,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                     "Browser protocol version is unsupported",
                                     "actual",
                                     Integer.toString(protocolVersion)));
-            return;
+            return false;
         }
         if (!exactGeneration(clientComponentGeneration, componentGeneration)
                 || !exactGeneration(clientSceneGeneration, sceneGeneration)
@@ -1732,7 +1918,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                     "Browser viewport belongs to a stale generation",
                                     "sceneGeneration",
                                     Double.toString(clientSceneGeneration)));
-            return;
+            return false;
         }
         if (!exactSequence(clientSequence, clientEventSequence)) {
             diagnostic =
@@ -1742,16 +1928,22 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                     "Browser event sequence is invalid",
                                     "eventClass",
                                     "settledViewport"));
-            return;
+            return false;
         }
         clientEventSequence = (long) clientSequence;
         MapViewport accepted;
         try {
             accepted = new MapViewport(width, height, centerX, centerY, worldUnitsPerPixel);
             protocol.validateViewport(accepted);
+            if (horizontalWrap != null) {
+                BrowserWrapSupport.validate(horizontalWrap, displayCrs, accepted);
+            }
         } catch (MundaneMapException exception) {
             diagnostic = Optional.of(exception);
-            return;
+            return false;
+        } catch (HorizontalWrapException exception) {
+            diagnostic = Optional.of(horizontalWrapFailure(exception));
+            return false;
         } catch (IllegalArgumentException exception) {
             diagnostic =
                     Optional.of(
@@ -1760,16 +1952,17 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                     "Browser viewport is not finite and bounded",
                                     "value",
                                     exception.getMessage()));
-            return;
+            return false;
         }
         viewportGeneration = Math.incrementExact(viewportGeneration);
         if (!takeSettledToken()) {
             pendingSettledViewport = accepted;
             scheduleSettledFlush();
-            return;
+            return true;
         }
         pendingSettledViewport = null;
         acceptViewport(accepted);
+        return true;
     }
 
     /**
@@ -2434,15 +2627,17 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 || probe.viewportGeneration() != viewportGeneration) {
             return;
         }
-        Optional<MapHit> next =
-                BrowserSceneHits.hitTest(
-                                currentSceneLayers,
-                                probe.viewport(),
-                                probe.screenX(),
-                                probe.screenY(),
-                                DEFAULT_HOVER_TOLERANCE_PIXELS)
-                        .topmost();
-        transitionInteraction(selection, next);
+        Optional<BrowserSceneHits.VisualHit> visual =
+                BrowserSceneHits.topmostVisual(
+                        currentSceneLayers,
+                        probe.viewport(),
+                        probe.screenX(),
+                        probe.screenY(),
+                        DEFAULT_HOVER_TOLERANCE_PIXELS);
+        transitionInteraction(
+                selection,
+                visual.map(BrowserSceneHits.VisualHit::logicalHit),
+                visual.map(BrowserSceneHits.VisualHit::feature));
         MapPointerEvent event =
                 new MapPointerEvent(
                         MapPointerEvent.Type.MOVED,
@@ -2526,7 +2721,16 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 selection.filter(value -> contains(value.layerId(), value.featureId()));
         Optional<MapHit> nextHover =
                 hover.filter(value -> contains(value.layerId(), value.featureId()));
-        transitionInteraction(nextSelection, nextHover);
+        Optional<Feature> nextVisual =
+                BrowserSceneHits.topmostVisual(
+                                currentSceneLayers,
+                                viewport,
+                                lastPointerX,
+                                lastPointerY,
+                                DEFAULT_HOVER_TOLERANCE_PIXELS)
+                        .filter(hit -> nextHover.filter(hit.logicalHit()::equals).isPresent())
+                        .map(BrowserSceneHits.VisualHit::feature);
+        transitionInteraction(nextSelection, nextHover, nextVisual);
     }
 
     private boolean contains(String layerId, String featureId) {
@@ -2538,9 +2742,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             if (!layer.id().equals(layerId)) {
                 continue;
             }
-            for (Feature feature : layer.features()) {
-                if (feature.id().equals(featureId)) {
-                    return Optional.of(feature);
+            for (int featureIndex = 0; featureIndex < layer.features().size(); featureIndex++) {
+                if (BrowserLogicalLayer.logicalFeatureId(layer, featureIndex).equals(featureId)) {
+                    return Optional.of(layer.features().get(featureIndex));
                 }
             }
         }
@@ -2549,15 +2753,29 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     private void transitionInteraction(
             Optional<FeatureSelection> nextSelection, Optional<MapHit> nextHover) {
+        transitionInteraction(
+                nextSelection,
+                nextHover,
+                nextHover.equals(hover) ? hoverVisualFeature : Optional.empty());
+    }
+
+    private void transitionInteraction(
+            Optional<FeatureSelection> nextSelection,
+            Optional<MapHit> nextHover,
+            Optional<Feature> nextHoverVisualFeature) {
         Objects.requireNonNull(nextSelection, "nextSelection");
         Objects.requireNonNull(nextHover, "nextHover");
+        Objects.requireNonNull(nextHoverVisualFeature, "nextHoverVisualFeature");
         Optional<FeatureSelection> previousSelection = selection;
         Optional<MapHit> previousHover = hover;
-        if (previousSelection.equals(nextSelection) && previousHover.equals(nextHover)) {
+        if (previousSelection.equals(nextSelection)
+                && previousHover.equals(nextHover)
+                && hoverVisualFeature.equals(nextHoverVisualFeature)) {
             return;
         }
         selection = nextSelection;
         hover = nextHover;
+        hoverVisualFeature = nextHover.isPresent() ? nextHoverVisualFeature : Optional.empty();
         publishInteractionOverlay();
         if (!previousSelection.equals(nextSelection)) {
             interactionNotifications.addLast(
@@ -2630,26 +2848,24 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 .filter(BrowserBoundTool.class::isInstance)
                 .map(BrowserBoundTool.class::cast)
                 .ifPresent(tool -> overlays.addAll(tool.overlayLayers()));
-        hover.ifPresent(
-                value ->
-                        paintedFeature(value.layerId(), value.featureId())
-                                .ifPresent(
-                                        feature ->
-                                                overlays.add(
-                                                        overlayLayer(
-                                                                "__hover",
-                                                                feature,
-                                                                hoverOverlay))));
-        selection.ifPresent(
-                value ->
-                        paintedFeature(value.layerId(), value.featureId())
-                                .ifPresent(
-                                        feature ->
-                                                overlays.add(
-                                                        overlayLayer(
-                                                                "__selection",
-                                                                feature,
-                                                                selectionOverlay))));
+        if (hover.isPresent()) {
+            MapHit value = hover.orElseThrow();
+            Optional<Feature> visual =
+                    paintedFeatures.contains(
+                                    new FeatureSelection(value.layerId(), value.featureId()))
+                            ? hoverVisualFeature
+                            : Optional.empty();
+            if (visual.isPresent()) {
+                overlays.add(overlayLayer("__hover", visual.orElseThrow(), hoverOverlay));
+            }
+        }
+        if (selection.isPresent()) {
+            FeatureSelection value = selection.orElseThrow();
+            List<Feature> copies = paintedFeatureCopies(value.layerId(), value.featureId());
+            if (!copies.isEmpty()) {
+                overlays.add(overlayLayer("__selection", copies, selectionOverlay));
+            }
+        }
         SceneProtocol.Result encoded =
                 protocol.encode(
                         overlays,
@@ -2669,24 +2885,40 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private static Layer overlayLayer(String id, Feature source, FeatureOverlaySymbols symbols) {
-        Geometry geometry = source.geometry();
-        SymbolRole role = source.symbol().role();
-        io.github.mundanej.map.api.Symbol symbol =
-                switch (role) {
-                    case MARKER -> symbols.marker();
-                    case LINE -> symbols.line();
-                    case FILL -> symbols.fill();
-                    case LEGACY_GEOMETRY -> throw new IllegalArgumentException("legacy overlay");
-                };
-        Feature feature =
-                new Feature(source.id(), source.name(), geometry, source.attributes(), symbol);
-        return new InMemoryLayer(id, id, List.of(feature));
+        return overlayLayer(id, List.of(source), symbols);
     }
 
-    private Optional<Feature> paintedFeature(String layerId, String featureId) {
-        return paintedFeatures.contains(new FeatureSelection(layerId, featureId))
-                ? findFeature(layerId, featureId)
-                : Optional.empty();
+    private static Layer overlayLayer(
+            String id, List<Feature> sources, FeatureOverlaySymbols symbols) {
+        List<Feature> features = new ArrayList<>(sources.size());
+        for (int index = 0; index < sources.size(); index++) {
+            Feature source = sources.get(index);
+            Geometry geometry = source.geometry();
+            SymbolRole role = source.symbol().role();
+            io.github.mundanej.map.api.Symbol symbol =
+                    switch (role) {
+                        case MARKER -> symbols.marker();
+                        case LINE -> symbols.line();
+                        case FILL -> symbols.fill();
+                        case LEGACY_GEOMETRY ->
+                                throw new IllegalArgumentException("legacy overlay");
+                    };
+            features.add(
+                    new Feature(
+                            id + "_" + index,
+                            source.name(),
+                            geometry,
+                            source.attributes(),
+                            symbol));
+        }
+        return new InMemoryLayer(id, id, features);
+    }
+
+    private List<Feature> paintedFeatureCopies(String layerId, String featureId) {
+        if (!paintedFeatures.contains(new FeatureSelection(layerId, featureId))) {
+            return List.of();
+        }
+        return BrowserLogicalLayer.matchingFeatures(currentSceneLayers, layerId, featureId);
     }
 
     private static Set<FeatureSelection> paintedFeatures(
@@ -2709,7 +2941,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                 .map(Map.class::cast)
                                 .anyMatch(
                                         primitive -> visiblePrimitive(primitive, visibleRaster))) {
-                    result.add(new FeatureSelection(layerId, (String) feature.get("id")));
+                    result.add(
+                            new FeatureSelection(
+                                    layerId,
+                                    BrowserLogicalLayer.logicalFeatureId(
+                                            sourceLayers.get(layerIndex), featureIndex)));
                 }
             }
         }
@@ -2786,11 +3022,20 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private ToolContextSnapshot toolContext(MapViewport contextViewport) {
-        return new ToolContextSnapshot(contextViewport, crsRegistry, mapCrs, displayCrs);
+        return new ToolContextSnapshot(
+                contextViewport,
+                crsRegistry,
+                mapCrs,
+                displayCrs,
+                Optional.ofNullable(horizontalWrap));
     }
 
     private MapViewport interactionViewport() {
         return pendingSettledViewport == null ? viewport : pendingSettledViewport;
+    }
+
+    double interactionDisplayX(double screenX, double screenY) {
+        return interactionViewport().screenToWorld(screenX, screenY).x();
     }
 
     private MapToolEvent cancelEvent(MapToolCancelReason reason) {
@@ -3119,6 +3364,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private void acceptViewport(MapViewport accepted) {
+        if (horizontalWrap != null) {
+            BrowserWrapSupport.validate(horizontalWrap, displayCrs, accepted);
+        }
         MapViewport previousViewport = viewport;
         List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
         viewport = accepted;
@@ -3184,6 +3432,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         CrsRegistry requestedRegistry = crsRegistry;
         CrsDefinition requestedMapCrs = mapCrs;
         CrsDefinition requestedDisplayCrs = displayCrs;
+        Optional<HorizontalWrap> requestedHorizontalWrap = Optional.ofNullable(horizontalWrap);
         List<RasterSourceBinding> requestedRasters = List.copyOf(rasterBindings);
         List<ElevationSourceBinding> requestedElevations = List.copyOf(elevationBindings);
         queryExecutor.execute(
@@ -3198,6 +3447,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                             requestedRegistry,
                                             requestedMapCrs,
                                             requestedDisplayCrs,
+                                            requestedHorizontalWrap,
                                             cancellation.token());
                     BrowserRasterQueryEngine.Result rasterResult =
                             result.cancelled()
@@ -3207,6 +3457,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                             requestedElevations,
                                             requestedViewport,
                                             requestedDisplayCrs,
+                                            requestedHorizontalWrap,
                                             cancellation.token());
                     queryCompletionDispatcher.accept(
                             () -> applySourceQueryResult(generation, result, rasterResult));
@@ -3640,6 +3891,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         for (FeatureSourceBinding binding : candidates) {
             Objects.requireNonNull(binding, "binding");
+            requireWrapConfigured(binding.horizontalWrapMode());
             if (!ids.add(binding.id())) {
                 throw duplicateLayerIdentity();
             }
@@ -3684,6 +3936,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         elevationBindings.forEach(binding -> ids.add(binding.id()));
         for (FeatureEditBinding binding : candidates) {
             Objects.requireNonNull(binding, "binding");
+            requireWrapConfigured(binding.horizontalWrapMode());
             if (binding.isClosed()) {
                 throw new IllegalStateException("editable binding is closed");
             }
@@ -3713,6 +3966,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         rasterBindings.forEach(binding -> installed.put(binding.source(), binding));
         for (RasterSourceBinding binding : candidates) {
             Objects.requireNonNull(binding, "binding");
+            requireWrapConfigured(binding.horizontalWrapMode());
+            if (binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X) {
+                BrowserWrapSupport.validateRepeatingRaster(
+                        binding.source().metadata(), displayCrs, horizontalWrap);
+            }
             if (!ids.add(binding.id())) {
                 throw duplicateLayerIdentity();
             }
@@ -3739,6 +3997,14 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         elevationBindings.forEach(binding -> installed.put(binding.source(), binding));
         for (ElevationSourceBinding binding : candidates) {
             Objects.requireNonNull(binding, "binding");
+            requireWrapConfigured(binding.horizontalWrapMode());
+            if (binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X) {
+                BrowserWrapSupport.validateRepeatingEnvelope(
+                        binding.source().metadata().sampleBounds(),
+                        binding.source().metadata().crs().definition(),
+                        displayCrs,
+                        horizontalWrap);
+            }
             if (!ids.add(binding.id())) {
                 throw duplicateLayerIdentity();
             }
@@ -3760,6 +4026,54 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         featureBindings.forEach(binding -> ids.add(binding.binding().id()));
         editBindings.forEach(binding -> ids.add(binding.id()));
         return ids;
+    }
+
+    private void requireWrapConfigured(BrowserHorizontalWrapMode mode) {
+        if (mode == BrowserHorizontalWrapMode.REPEAT_X && horizontalWrap == null) {
+            throw new IllegalStateException(
+                    "a repeating binding requires a configured horizontal wrap profile");
+        }
+    }
+
+    private boolean hasRepeatingBinding() {
+        return featureBindings.stream()
+                        .anyMatch(
+                                binding ->
+                                        binding.binding().horizontalWrapMode()
+                                                == BrowserHorizontalWrapMode.REPEAT_X)
+                || editBindings.stream()
+                        .anyMatch(
+                                binding ->
+                                        binding.horizontalWrapMode()
+                                                == BrowserHorizontalWrapMode.REPEAT_X)
+                || rasterBindings.stream()
+                        .anyMatch(
+                                binding ->
+                                        binding.horizontalWrapMode()
+                                                == BrowserHorizontalWrapMode.REPEAT_X)
+                || elevationBindings.stream()
+                        .anyMatch(
+                                binding ->
+                                        binding.horizontalWrapMode()
+                                                == BrowserHorizontalWrapMode.REPEAT_X);
+    }
+
+    private void validateRepeatingBindings(HorizontalWrap profile, CrsDefinition candidateDisplay) {
+        for (RasterSourceBinding binding : rasterBindings) {
+            if (binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X) {
+                BrowserWrapSupport.validateRepeatingRaster(
+                        binding.source().metadata(), candidateDisplay, profile);
+            }
+        }
+        for (ElevationSourceBinding binding : elevationBindings) {
+            if (binding.horizontalWrapMode() == BrowserHorizontalWrapMode.REPEAT_X) {
+                BrowserWrapSupport.validateRepeatingEnvelope(
+                        binding.source().metadata().sampleBounds(),
+                        binding.source().metadata().crs().definition(),
+                        candidateDisplay,
+                        profile);
+            }
+        }
     }
 
     private List<Layer> combinedLayers() {
@@ -3815,7 +4129,19 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private List<Layer> editableLayers(List<FeatureEditBinding> bindings) {
-        return bindings.stream().map(binding -> binding.layer(this)).toList();
+        return bindings.stream()
+                .map(
+                        binding -> {
+                            return binding.horizontalWrapMode()
+                                            == BrowserHorizontalWrapMode.REPEAT_X
+                                    ? binding.wrappedLayer(
+                                            this,
+                                            Objects.requireNonNull(
+                                                    horizontalWrap, "horizontalWrap"),
+                                            viewport)
+                                    : binding.layer(this);
+                        })
+                .toList();
     }
 
     private void resetClientEventState() {
@@ -3884,6 +4210,13 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 MundaneMapException.DISABLED,
                 "MundaneMap is disabled",
                 Map.of("component", MundaneMap.class.getSimpleName()));
+    }
+
+    private static MundaneMapException horizontalWrapFailure(HorizontalWrapException exception) {
+        return new MundaneMapException(
+                exception.problem().code(),
+                "Horizontal world repetition failed",
+                exception.problem().context());
     }
 
     private static MundaneMapException failure(
@@ -3981,16 +4314,19 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         private final CrsRegistry contextRegistry;
         private final CrsDefinition contextMapCrs;
         private final CrsDefinition contextDisplayCrs;
+        private final Optional<HorizontalWrap> contextHorizontalWrap;
 
         private ToolContextSnapshot(
                 MapViewport contextViewport,
                 CrsRegistry contextRegistry,
                 CrsDefinition contextMapCrs,
-                CrsDefinition contextDisplayCrs) {
+                CrsDefinition contextDisplayCrs,
+                Optional<HorizontalWrap> contextHorizontalWrap) {
             this.contextViewport = contextViewport;
             this.contextRegistry = contextRegistry;
             this.contextMapCrs = contextMapCrs;
             this.contextDisplayCrs = contextDisplayCrs;
+            this.contextHorizontalWrap = contextHorizontalWrap;
         }
 
         @Override
@@ -4011,12 +4347,23 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         public Optional<io.github.mundanej.map.api.Coordinate> mapToScreen(
                 io.github.mundanej.map.api.Coordinate coordinate) {
             try {
-                return Optional.of(
-                        contextViewport.worldToScreen(
-                                contextRegistry
-                                        .operation(contextMapCrs, contextDisplayCrs)
-                                        .transform(coordinate)));
-            } catch (io.github.mundanej.map.api.CrsException | IllegalArgumentException exception) {
+                io.github.mundanej.map.api.Coordinate display =
+                        contextRegistry
+                                .operation(contextMapCrs, contextDisplayCrs)
+                                .transform(coordinate);
+                if (contextHorizontalWrap.isPresent()) {
+                    display =
+                            new io.github.mundanej.map.api.Coordinate(
+                                    contextHorizontalWrap
+                                            .orElseThrow()
+                                            .nearestEquivalent(
+                                                    display.x(), contextViewport.centerX()),
+                                    display.y());
+                }
+                return Optional.of(contextViewport.worldToScreen(display));
+            } catch (io.github.mundanej.map.api.CrsException
+                    | IllegalArgumentException
+                    | HorizontalWrapException exception) {
                 return Optional.empty();
             }
         }
@@ -4028,11 +4375,24 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 throw new IllegalArgumentException("Screen coordinates must be finite");
             }
             try {
+                io.github.mundanej.map.api.Coordinate display =
+                        contextViewport.screenToWorld(screenX, screenY);
+                if (contextHorizontalWrap.isPresent()) {
+                    display =
+                            new io.github.mundanej.map.api.Coordinate(
+                                    contextHorizontalWrap
+                                            .orElseThrow()
+                                            .canonicalize(display.x())
+                                            .canonicalX(),
+                                    display.y());
+                }
                 return Optional.of(
                         contextRegistry
                                 .operation(contextDisplayCrs, contextMapCrs)
-                                .transform(contextViewport.screenToWorld(screenX, screenY)));
-            } catch (io.github.mundanej.map.api.CrsException | IllegalArgumentException exception) {
+                                .transform(display));
+            } catch (io.github.mundanej.map.api.CrsException
+                    | IllegalArgumentException
+                    | HorizontalWrapException exception) {
                 return Optional.empty();
             }
         }

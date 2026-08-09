@@ -1,6 +1,6 @@
 # G18-041 — Browser horizontal world wrap
 
-Status: Proposed
+Status: Complete
 Depends on: G18-031, G18-040, G16-006
 Gate: G18
 Type: AFK
@@ -60,3 +60,14 @@ git diff --check
 
 The client draws checked copies supplied by Java. It does not decide whether a source is global or
 apply modulo arithmetic to source geometry.
+
+Completion record (2026-08-09): the Vaadin component now exposes an explicit checked horizontal
+profile and pre-attachment `NONE`/`REPEAT_X` binding modes for feature, editable, raster, and
+elevation sources. Serialized Java queries reuse the core canonical interval plan, stable logical-ID
+deduplication, geographic seam splitting, copy/precision ceilings, and full-period raster
+compatibility. The closed scene protocol carries bounded visual copy references while hit testing,
+selection, measurement, and editing retain canonical logical coordinates. Repeated detached raster
+reads share one generation-scoped resource, and local bindings remain isolated. Java and frontend
+fixtures cover multi-world vector/raster/elevation copies, polygon holes and endpoint suppression,
+logical hits, canonical tool commits, hostile copy indices, incompatible profiles, and resource
+cleanup.

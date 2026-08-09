@@ -47,6 +47,9 @@ public final class MundaneMapException extends RuntimeException {
     /** A component/session-owned raster resource is absent, expired, or invalid. */
     public static final String RESOURCE_UNAVAILABLE = "RESOURCE_UNAVAILABLE";
 
+    /** A raster or elevation source is incompatible with horizontal repetition. */
+    public static final String WORLD_WRAP_RASTER_INCOMPATIBLE = "WORLD_WRAP_RASTER_INCOMPATIBLE";
+
     /** Stable failure code retained with the exception. */
     private final String code;
 

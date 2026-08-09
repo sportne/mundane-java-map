@@ -94,7 +94,7 @@ final class SceneProtocolTest {
                 List.of("point", "line", "polygon"),
                 result.layers().getFirst().features().stream().map(Feature::id).toList());
         assertEquals(new Envelope(-4, -2, 10, 10), result.envelope().orElseThrow());
-        assertEquals(1024, result.logicalBytes());
+        assertEquals(1076, result.logicalBytes());
         assertEquals(SceneProtocol.VERSION, result.scene().get("protocolVersion"));
         assertEquals(3L, result.scene().get("componentGeneration"));
         assertEquals(7L, result.scene().get("sceneGeneration"));

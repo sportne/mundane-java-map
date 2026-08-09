@@ -16,6 +16,7 @@ import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SymbolException;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryLayer;
 import io.github.mundanej.map.core.MapViewport;
 import java.util.ArrayList;
@@ -136,6 +137,34 @@ final class MundaneMapTest {
         map.setEnabled(false);
         map.acceptSettledViewport(9, -1, -1, -1, -1, 1, 1, 0, 0, 1);
         assertEquals(MundaneMapException.DISABLED, map.diagnostic().orElseThrow().code());
+    }
+
+    @Test
+    void rejectedWrappedViewportDoesNotAdvanceTheAuthoritativeGeneration() {
+        MundaneMap map = new MundaneMap();
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        map.setHorizontalWrap(wrap);
+        map.setViewport(new MapViewport(100, 100, 0, 0, 1));
+        long generation = map.viewportGenerationForTest();
+
+        boolean accepted =
+                map.acceptSettledViewport(
+                        1,
+                        (double) map.componentGenerationForTest(),
+                        (double) map.sceneGenerationForTest(),
+                        (double) generation,
+                        0,
+                        100,
+                        100,
+                        wrap.period() * (HorizontalWrap.COPY_INDEX_HARD_MAXIMUM + 1L),
+                        0,
+                        1);
+
+        assertFalse(accepted);
+        assertEquals(generation, map.viewportGenerationForTest());
+        assertEquals(0.0, map.viewport().centerX());
+        assertEquals("WORLD_WRAP_PRECISION_EXCEEDED", map.diagnostic().orElseThrow().code());
+        map.close();
     }
 
     @Test

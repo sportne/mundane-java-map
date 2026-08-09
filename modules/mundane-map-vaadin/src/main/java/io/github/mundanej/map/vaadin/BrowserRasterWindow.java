@@ -13,6 +13,7 @@ import java.util.Optional;
 
 /** One complete detached server-produced RGBA window awaiting scene staging. */
 record BrowserRasterWindow(
+        String displayId,
         String bindingId,
         String bindingName,
         RgbaPixelBuffer pixels,
@@ -20,8 +21,10 @@ record BrowserRasterWindow(
         Envelope clipMapBounds,
         Optional<RasterGridPlacement> placement,
         RasterWindow sourceWindow,
-        BrowserRasterOptions options) {
+        BrowserRasterOptions options,
+        long copyIndex) {
     BrowserRasterWindow {
+        Objects.requireNonNull(displayId, "displayId");
         Objects.requireNonNull(bindingId, "bindingId");
         Objects.requireNonNull(bindingName, "bindingName");
         Objects.requireNonNull(pixels, "pixels");
@@ -30,6 +33,32 @@ record BrowserRasterWindow(
         Objects.requireNonNull(placement, "placement");
         Objects.requireNonNull(sourceWindow, "sourceWindow");
         Objects.requireNonNull(options, "options");
+        if (copyIndex < -io.github.mundanej.map.core.HorizontalWrap.COPY_INDEX_HARD_MAXIMUM
+                || copyIndex > io.github.mundanej.map.core.HorizontalWrap.COPY_INDEX_HARD_MAXIMUM) {
+            throw new IllegalArgumentException("copyIndex exceeds the browser wrap profile");
+        }
+    }
+
+    BrowserRasterWindow(
+            String bindingId,
+            String bindingName,
+            RgbaPixelBuffer pixels,
+            Envelope imageMapBounds,
+            Envelope clipMapBounds,
+            Optional<RasterGridPlacement> placement,
+            RasterWindow sourceWindow,
+            BrowserRasterOptions options) {
+        this(
+                bindingId,
+                bindingId,
+                bindingName,
+                pixels,
+                imageMapBounds,
+                clipMapBounds,
+                placement,
+                sourceWindow,
+                options,
+                0L);
     }
 
     long encodedBytes() {
@@ -42,7 +71,9 @@ record BrowserRasterWindow(
 
     Map<String, Object> encode(String resource) {
         LinkedHashMap<String, Object> value = new LinkedHashMap<>();
-        value.put("id", bindingId);
+        value.put("id", displayId);
+        value.put("logicalId", bindingId);
+        value.put("copyIndex", copyIndex);
         value.put("name", bindingName);
         value.put("resource", resource);
         value.put("width", pixels.width());

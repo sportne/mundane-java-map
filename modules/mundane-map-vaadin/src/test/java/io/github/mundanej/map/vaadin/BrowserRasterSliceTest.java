@@ -3,6 +3,7 @@ package io.github.mundanej.map.vaadin;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -38,6 +39,7 @@ import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.api.VectorMarkerSymbol;
 import io.github.mundanej.map.api.VectorPath;
 import io.github.mundanej.map.core.CrsDefinitions;
+import io.github.mundanej.map.core.HorizontalWrap;
 import io.github.mundanej.map.core.InMemoryFeatureSource;
 import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.core.PackedElevationGrid;
@@ -61,6 +63,258 @@ import org.junit.jupiter.api.Test;
 class BrowserRasterSliceTest {
     private static final CrsMetadata WEB_MERCATOR =
             CrsMetadata.recognized(CrsDefinitions.EPSG_3857, Optional.empty(), Optional.empty());
+
+    @Test
+    void explicitGlobalRasterCopiesReuseOneCanonicalDetachedResource() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        SyntheticRasterSource source =
+                SyntheticRasterSource.open(
+                        new SourceIdentity("world", "World"),
+                        4,
+                        2,
+                        new Envelope(wrap.canonicalMinimumX(), -100, wrap.canonicalMaximumX(), 100),
+                        WEB_MERCATOR);
+        RasterSourceBinding binding = RasterSourceBinding.borrowed("world", "World", source);
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+        MapViewport viewport = new MapViewport(300, 2, 0, 0, wrap.period() / 100.0);
+
+        BrowserRasterQueryEngine.Result result =
+                new BrowserRasterQueryEngine()
+                        .query(
+                                List.of(binding),
+                                List.of(),
+                                viewport,
+                                CrsDefinitions.EPSG_3857,
+                                Optional.of(wrap),
+                                CancellationToken.none());
+
+        assertEquals(
+                List.of(-2L, -1L, 0L, 1L),
+                result.windows().stream().map(BrowserRasterWindow::copyIndex).toList());
+        result.windows()
+                .forEach(
+                        window ->
+                                assertSame(result.windows().getFirst().pixels(), window.pixels()));
+        AtomicInteger registrations = new AtomicInteger();
+        RasterResourceBatch batch =
+                RasterResourceBatch.prepare(
+                        result.windows(),
+                        1,
+                        2,
+                        0,
+                        () -> true,
+                        ignored ->
+                                new RasterResourceBatch.RegisteredResource(
+                                        "./world/" + registrations.incrementAndGet(), () -> {}));
+        assertEquals(1, registrations.get());
+        assertEquals(4, batch.encodedWindows().size());
+        assertEquals(
+                1,
+                batch.encodedWindows().stream()
+                        .map(window -> window.get("resource"))
+                        .distinct()
+                        .count());
+        batch.close();
+        source.close();
+        binding.close();
+    }
+
+    @Test
+    void toleratedGlobalRasterEdgesNormalizeToExactSeamCoordinates() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        SyntheticRasterSource source =
+                SyntheticRasterSource.open(
+                        new SourceIdentity("tolerated-world", "Tolerated world"),
+                        4,
+                        2,
+                        new Envelope(
+                                wrap.canonicalMinimumX() + 0.000001,
+                                -100,
+                                wrap.canonicalMaximumX() - 0.000001,
+                                100),
+                        WEB_MERCATOR);
+        RasterSourceBinding binding =
+                RasterSourceBinding.borrowed("tolerated-world", "Tolerated world", source);
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+
+        BrowserRasterQueryEngine.Result result =
+                new BrowserRasterQueryEngine()
+                        .query(
+                                List.of(binding),
+                                List.of(),
+                                new MapViewport(100, 2, 0, 0, wrap.period() / 100.0),
+                                CrsDefinitions.EPSG_3857,
+                                Optional.of(wrap),
+                                CancellationToken.none());
+
+        BrowserRasterWindow canonical =
+                result.windows().stream()
+                        .filter(window -> window.copyIndex() == 0)
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals(wrap.canonicalMinimumX(), canonical.clipMapBounds().minX());
+        assertEquals(wrap.canonicalMaximumX(), canonical.clipMapBounds().maxX());
+        assertEquals(wrap.canonicalMinimumX(), canonical.imageMapBounds().minX(), 0.000001);
+        assertEquals(wrap.canonicalMaximumX(), canonical.imageMapBounds().maxX(), 0.000001);
+        source.close();
+        binding.close();
+    }
+
+    @Test
+    void laterWrappedRasterFailureDiscardsTheCompleteBindingAndIdsRemainBounded() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        SyntheticRasterSource delegate =
+                SyntheticRasterSource.open(
+                        new SourceIdentity("failing-world", "Failing world"),
+                        4,
+                        2,
+                        new Envelope(wrap.canonicalMinimumX(), -100, wrap.canonicalMaximumX(), 100),
+                        WEB_MERCATOR);
+        FailingSecondReadRasterSource source = new FailingSecondReadRasterSource(delegate);
+        RasterSourceBinding binding =
+                RasterSourceBinding.borrowed("x".repeat(256), "Failing world", source);
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+
+        BrowserRasterQueryEngine.Result result =
+                new BrowserRasterQueryEngine()
+                        .query(
+                                List.of(binding),
+                                List.of(),
+                                new MapViewport(
+                                        100,
+                                        10,
+                                        wrap.canonicalMaximumX(),
+                                        0,
+                                        wrap.period() / 1_000.0),
+                                CrsDefinitions.EPSG_3857,
+                                Optional.of(wrap),
+                                CancellationToken.none());
+
+        assertTrue(result.windows().isEmpty());
+        assertEquals(
+                "SOURCE_QUERY_FAILED",
+                result.reports().get("x".repeat(256)).entries().getLast().code());
+        source.close();
+        binding.close();
+    }
+
+    @Test
+    void wrappedRasterDisplayIdIsBoundedForMaximumBindingIdentity() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        SyntheticRasterSource source =
+                SyntheticRasterSource.open(
+                        new SourceIdentity("bounded-id-source", "Bounded ID source"),
+                        2,
+                        2,
+                        new Envelope(wrap.canonicalMinimumX(), -1, wrap.canonicalMaximumX(), 1),
+                        WEB_MERCATOR);
+        RasterSourceBinding binding =
+                RasterSourceBinding.borrowed("x".repeat(256), "Bounded ID", source);
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+
+        BrowserRasterQueryEngine.Result result =
+                new BrowserRasterQueryEngine()
+                        .query(
+                                List.of(binding),
+                                List.of(),
+                                new MapViewport(10, 2, 0, 0, wrap.period() / 2.0),
+                                CrsDefinitions.EPSG_3857,
+                                Optional.of(wrap),
+                                CancellationToken.none());
+
+        assertTrue(
+                result.windows().stream().allMatch(window -> window.displayId().length() <= 256));
+        source.close();
+        binding.close();
+    }
+
+    @Test
+    void explicitGlobalElevationUsesTheSameBoundedVisibleCopies() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        ElevationSourceMetadata metadata =
+                new ElevationSourceMetadata(
+                        new SourceIdentity("world-elevation", "World elevation"),
+                        4,
+                        2,
+                        new Envelope(wrap.canonicalMinimumX(), -100, wrap.canonicalMaximumX(), 100),
+                        WEB_MERCATOR,
+                        ElevationUnit.METRE);
+        PackedElevationGrid source =
+                PackedElevationGrid.copyOf(
+                        metadata, new double[] {0, 1, 2, 3, 4, 5, 6, 7}, new BitSet());
+        ElevationSourceBinding binding =
+                ElevationSourceBinding.borrowed(
+                        "world-elevation",
+                        "World elevation",
+                        source,
+                        style(),
+                        BrowserRasterOptions.defaults(),
+                        RasterRequestLimits.LEVEL_1);
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+        MapViewport viewport = new MapViewport(300, 2, 0, 0, wrap.period() / 100.0);
+
+        BrowserRasterQueryEngine.Result result =
+                new BrowserRasterQueryEngine()
+                        .query(
+                                List.of(),
+                                List.of(binding),
+                                viewport,
+                                CrsDefinitions.EPSG_3857,
+                                Optional.of(wrap),
+                                CancellationToken.none());
+
+        assertEquals(
+                List.of(-2L, -1L, 0L, 1L),
+                result.windows().stream().map(BrowserRasterWindow::copyIndex).toList());
+        result.windows()
+                .forEach(
+                        window ->
+                                assertSame(result.windows().getFirst().pixels(), window.pixels()));
+        source.close();
+        binding.close();
+    }
+
+    @Test
+    void unrecognizedWrappedElevationCrsUsesTheStableCompatibilityFailure() {
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        ElevationSourceMetadata metadata =
+                new ElevationSourceMetadata(
+                        new SourceIdentity("unknown-elevation", "Unknown elevation"),
+                        2,
+                        2,
+                        new Envelope(wrap.canonicalMinimumX(), -1, wrap.canonicalMaximumX(), 1),
+                        CrsMetadata.unknown(Optional.of("LOCAL:UNKNOWN"), Optional.empty()),
+                        ElevationUnit.METRE);
+        PackedElevationGrid source =
+                PackedElevationGrid.copyOf(metadata, new double[] {0, 1, 2, 3}, new BitSet());
+        ElevationSourceBinding binding =
+                ElevationSourceBinding.borrowed(
+                        "unknown-elevation",
+                        "Unknown elevation",
+                        source,
+                        style(),
+                        BrowserRasterOptions.defaults(),
+                        RasterRequestLimits.LEVEL_1);
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+
+        MundaneMapException failure =
+                assertThrows(
+                        MundaneMapException.class,
+                        () ->
+                                new BrowserRasterQueryEngine()
+                                        .query(
+                                                List.of(),
+                                                List.of(binding),
+                                                new MapViewport(10, 2, 0, 0, wrap.period() / 2),
+                                                CrsDefinitions.EPSG_3857,
+                                                Optional.of(wrap),
+                                                CancellationToken.none()));
+
+        assertEquals(MundaneMapException.WORLD_WRAP_RASTER_INCOMPATIBLE, failure.code());
+        assertEquals("crs", failure.context().get("reason"));
+        source.close();
+        binding.close();
+    }
 
     @Test
     void binaryFramingIsExactAndGenerationAuthorized() {
@@ -760,6 +1014,48 @@ class BrowserRasterSliceTest {
                         List.of(
                                 new ElevationColorStop(0, Rgba.rgb(0, 0, 0)),
                                 new ElevationColorStop(3, Rgba.rgb(255, 255, 255)))));
+    }
+
+    private static final class FailingSecondReadRasterSource implements RasterSource {
+        private final SyntheticRasterSource delegate;
+        private int reads;
+
+        private FailingSecondReadRasterSource(SyntheticRasterSource delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public RasterSourceMetadata metadata() {
+            return delegate.metadata();
+        }
+
+        @Override
+        public RasterSourceLimits limits() {
+            return delegate.limits();
+        }
+
+        @Override
+        public DiagnosticReport openingDiagnostics() {
+            return delegate.openingDiagnostics();
+        }
+
+        @Override
+        public RasterRead read(RasterRequest request, CancellationToken cancellation) {
+            if (++reads == 2) {
+                throw new IllegalStateException("second interval failed");
+            }
+            return delegate.read(request, cancellation);
+        }
+
+        @Override
+        public boolean isClosed() {
+            return delegate.isClosed();
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
     }
 
     private static final class AffineRasterSource implements RasterSource {

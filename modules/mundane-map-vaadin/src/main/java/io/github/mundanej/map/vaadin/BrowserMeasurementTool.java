@@ -28,6 +28,7 @@ import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.core.BuiltInMarkers;
 import io.github.mundanej.map.core.DistanceStrategies;
+import io.github.mundanej.map.core.HorizontalWrap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -65,8 +66,10 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
     private double[] vertices;
     private double[] cumulativeMetres;
     private double[] segmentMetres;
+    private double[] displayReferences;
     private int vertexCount;
     private Optional<Coordinate> preview = Optional.empty();
+    private Optional<Double> previewDisplayReference = Optional.empty();
     private Optional<DistanceResult> previewDistance = Optional.empty();
     private MeasurementPhase phase = MeasurementPhase.EMPTY;
     private MeasurementState state = MeasurementState.empty();
@@ -100,6 +103,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         vertices = new double[initial * 2];
         cumulativeMetres = new double[initial];
         segmentMetres = new double[initial];
+        displayReferences = new double[initial];
     }
 
     /**
@@ -160,6 +164,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         vertexCount--;
         preview = Optional.empty();
         previewDistance = Optional.empty();
+        previewDisplayReference = Optional.empty();
         phase = vertexCount == 0 ? MeasurementPhase.EMPTY : MeasurementPhase.MEASURING;
         publish();
         context.requestRepaint();
@@ -198,7 +203,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
                     new Feature(
                             "path",
                             "Measurement path",
-                            display(new LineStringGeometry(committedSequence())),
+                            displayCommitted(new LineStringGeometry(committedSequence())),
                             Map.of(),
                             LINE));
         }
@@ -206,7 +211,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
                 new Feature(
                         "vertices",
                         "Measurement vertices",
-                        display(new MultiPointGeometry(committedSequence())),
+                        displayCommitted(new MultiPointGeometry(committedSequence())),
                         Map.of(),
                         VERTEX));
         if (preview.isPresent()) {
@@ -215,7 +220,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
                     new Feature(
                             "preview",
                             "Measurement preview",
-                            display(
+                            displayPreview(
                                     new LineStringGeometry(
                                             CoordinateSequence.of(
                                                     last.x(),
@@ -239,6 +244,42 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
                 CancellationToken.none());
     }
 
+    private io.github.mundanej.map.api.Geometry displayCommitted(
+            io.github.mundanej.map.api.Geometry geometry) {
+        return placeWrapped(display(geometry), Arrays.copyOf(displayReferences, vertexCount));
+    }
+
+    private io.github.mundanej.map.api.Geometry displayPreview(
+            io.github.mundanej.map.api.Geometry geometry) {
+        return placeWrapped(
+                display(geometry),
+                new double[] {
+                    displayReferences[vertexCount - 1],
+                    previewDisplayReference.orElse(displayReferences[vertexCount - 1])
+                });
+    }
+
+    private io.github.mundanej.map.api.Geometry placeWrapped(
+            io.github.mundanej.map.api.Geometry geometry, double[] references) {
+        Optional<HorizontalWrap> wrap = host.horizontalWrap();
+        if (wrap.isEmpty()) {
+            return geometry;
+        }
+        CoordinateSequence source =
+                geometry instanceof LineStringGeometry line
+                        ? line.coordinates()
+                        : ((MultiPointGeometry) geometry).coordinates();
+        double[] packed = source.toArray();
+        for (int index = 0; index < references.length; index++) {
+            packed[index * 2] =
+                    wrap.orElseThrow().nearestEquivalent(packed[index * 2], references[index]);
+        }
+        CoordinateSequence placed = CoordinateSequence.of(packed);
+        return geometry instanceof LineStringGeometry
+                ? new LineStringGeometry(placed)
+                : new MultiPointGeometry(placed);
+    }
+
     private CoordinateSequence committedSequence() {
         return CoordinateSequence.of(Arrays.copyOf(vertices, vertexCount * 2));
     }
@@ -255,9 +296,14 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         Coordinate next = requested.orElseThrow();
         DistanceResult distance = strategy.distance(vertex(vertexCount - 1), next);
         new DistanceResult(cumulativeMetres[vertexCount - 1]).plus(distance);
-        if (!preview.equals(requested) || !previewDistance.equals(Optional.of(distance))) {
+        double displayReference = host.interactionDisplayX(event.screenX(), event.screenY());
+        if (!preview.equals(requested)
+                || !previewDistance.equals(Optional.of(distance))
+                || previewDisplayReference.isEmpty()
+                || Double.compare(previewDisplayReference.orElseThrow(), displayReference) != 0) {
             preview = requested;
             previewDistance = Optional.of(distance);
+            previewDisplayReference = Optional.of(displayReference);
             publish();
             context.requestRepaint();
         }
@@ -277,6 +323,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
                 phase = MeasurementPhase.COMPLETE;
                 preview = Optional.empty();
                 previewDistance = Optional.empty();
+                previewDisplayReference = Optional.empty();
                 publish();
                 context.requestRepaint();
             }
@@ -288,7 +335,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
             if (phase == MeasurementPhase.COMPLETE) {
                 clearState();
             }
-            append(coordinate);
+            append(coordinate, host.interactionDisplayX(event.screenX(), event.screenY()));
             if (vertexCount == vertexLimit) {
                 phase = MeasurementPhase.COMPLETE;
             }
@@ -311,7 +358,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         return MapToolResult.PASS;
     }
 
-    private void append(Coordinate coordinate) {
+    private void append(Coordinate coordinate, double displayReference) {
         DistanceResult segment = DistanceResult.ZERO;
         DistanceResult cumulative = DistanceResult.ZERO;
         if (vertexCount > 0) {
@@ -322,10 +369,12 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         vertices[vertexCount * 2] = coordinate.x();
         vertices[vertexCount * 2 + 1] = coordinate.y();
         segmentMetres[vertexCount] = segment.metres();
+        displayReferences[vertexCount] = displayReference;
         cumulativeMetres[vertexCount] = cumulative.metres();
         vertexCount++;
         preview = Optional.empty();
         previewDistance = Optional.empty();
+        previewDisplayReference = Optional.empty();
         phase = MeasurementPhase.MEASURING;
     }
 
@@ -340,6 +389,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         vertices = Arrays.copyOf(vertices, next * 2);
         cumulativeMetres = Arrays.copyOf(cumulativeMetres, next);
         segmentMetres = Arrays.copyOf(segmentMetres, next);
+        displayReferences = Arrays.copyOf(displayReferences, next);
     }
 
     private Coordinate vertex(int index) {
@@ -350,6 +400,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         if (preview.isPresent()) {
             preview = Optional.empty();
             previewDistance = Optional.empty();
+            previewDisplayReference = Optional.empty();
             publish();
             context.requestRepaint();
         }
@@ -363,6 +414,7 @@ public final class BrowserMeasurementTool implements MapTool, BrowserBoundTool {
         phase = MeasurementPhase.EMPTY;
         preview = Optional.empty();
         previewDistance = Optional.empty();
+        previewDisplayReference = Optional.empty();
         state = MeasurementState.empty();
         return true;
     }

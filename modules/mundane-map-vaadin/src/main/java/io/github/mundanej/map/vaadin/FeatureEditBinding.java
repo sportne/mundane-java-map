@@ -21,7 +21,11 @@ import io.github.mundanej.map.api.RasterIconSymbol;
 import io.github.mundanej.map.api.Symbol;
 import io.github.mundanej.map.core.FeatureEditSession;
 import io.github.mundanej.map.core.FeaturePortrayalResolver;
+import io.github.mundanej.map.core.HorizontalWrap;
+import io.github.mundanej.map.core.HorizontalWrapPlan;
 import io.github.mundanej.map.core.InMemoryLayer;
+import io.github.mundanej.map.core.MapViewport;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -46,8 +50,10 @@ public final class FeatureEditBinding implements AutoCloseable {
     private final ExecutorService editExecutor;
     private volatile Thread editThread;
     private final FeatureEditSession session;
+    private final FeatureEditLimits limits;
     private final FeaturePortrayalResolver portrayal;
     private final Set<RasterIconSymbol> authorizedIcons;
+    private BrowserHorizontalWrapMode horizontalWrapMode = BrowserHorizontalWrapMode.NONE;
     private volatile MundaneMap owner;
     private volatile long publishedRevision = -1;
     private volatile boolean closed;
@@ -108,6 +114,7 @@ public final class FeatureEditBinding implements AutoCloseable {
         this.name = requireText(name, "name");
         Objects.requireNonNull(initial, "initial");
         Objects.requireNonNull(limits, "limits");
+        this.limits = limits;
         Objects.requireNonNull(historyLimits, "historyLimits");
         FeaturePortrayalResolver compiledPortrayal =
                 FeaturePortrayalResolver.compile(Objects.requireNonNull(portrayal, "portrayal"));
@@ -175,6 +182,28 @@ public final class FeatureEditBinding implements AutoCloseable {
      */
     public boolean isClosed() {
         return closed;
+    }
+
+    /**
+     * Returns the explicit horizontal display-repetition policy.
+     *
+     * @return current mode, initially {@link BrowserHorizontalWrapMode#NONE}
+     */
+    public synchronized BrowserHorizontalWrapMode horizontalWrapMode() {
+        return horizontalWrapMode;
+    }
+
+    /**
+     * Selects horizontal repetition before the binding is installed.
+     *
+     * @param mode non-null closed policy
+     * @throws IllegalStateException if installed or closed
+     */
+    public synchronized void setHorizontalWrapMode(BrowserHorizontalWrapMode mode) {
+        if (closed || owner != null) {
+            throw new IllegalStateException(closed ? "binding is closed" : "binding is attached");
+        }
+        horizontalWrapMode = Objects.requireNonNull(mode, "mode");
     }
 
     /**
@@ -279,6 +308,127 @@ public final class FeatureEditBinding implements AutoCloseable {
                         .flatMap(Optional::stream)
                         .toList();
         return new InMemoryLayer(id, name, features);
+    }
+
+    Layer wrappedLayer(MundaneMap map, HorizontalWrap wrap, MapViewport viewport) {
+        FeatureEditSnapshot current = snapshot();
+        PortrayalEvaluationContext context =
+                FeatureSourceQueryEngine.portrayalContext(viewport, map.displayCrs());
+        io.github.mundanej.map.core.CrsOperation sourceToMap =
+                map.crsOperation(current.crs(), map.mapCrs());
+        io.github.mundanej.map.core.CrsOperation mapToDisplay =
+                map.crsOperation(map.mapCrs(), map.displayCrs());
+        HorizontalWrapPlan plan = BrowserWrapSupport.validate(wrap, map.displayCrs(), viewport);
+        List<Feature> visual = new ArrayList<>();
+        List<String> logicalIds = new ArrayList<>();
+        List<Long> copyIndices = new ArrayList<>();
+        long coordinateBytes = 0L;
+        int recordIndex = 0;
+        for (FeatureRecord record : current.records()) {
+            Optional<Symbol> selected =
+                    portrayal
+                            .resolveAll(
+                                    record.attributes(),
+                                    context.withGeometryType(
+                                            io.github.mundanej.map.api.PortrayalGeometryType
+                                                    .fromGeometry(record.geometry())))
+                            .forRole(FeatureSourceQueryEngine.role(record.geometry()));
+            if (selected.isEmpty()) {
+                recordIndex++;
+                continue;
+            }
+            List<io.github.mundanej.map.core.GeographicSeamSplitter.Fragment> fragments =
+                    FeatureSourceQueryEngine.wrappedFragments(
+                            record.geometry(), sourceToMap, CancellationToken.none());
+            List<FeatureSourceQueryEngine.WrappedSymbolFragment> renderFragments =
+                    FeatureSourceQueryEngine.wrappedSymbolFragments(
+                            record.geometry(),
+                            sourceToMap,
+                            CancellationToken.none(),
+                            fragments,
+                            selected.orElseThrow());
+            List<FeatureSourceQueryEngine.WrappedSymbolFragment> projected =
+                    new ArrayList<>(renderFragments.size());
+            for (FeatureSourceQueryEngine.WrappedSymbolFragment fragment : renderFragments) {
+                projected.add(
+                        new FeatureSourceQueryEngine.WrappedSymbolFragment(
+                                FeatureSourceQueryEngine.transformGeometry(
+                                        fragment.geometry(),
+                                        sourceToMap,
+                                        mapToDisplay,
+                                        CancellationToken.none()),
+                                fragment.worldOffset(),
+                                fragment.symbol()));
+            }
+            for (long copy = plan.minimumVisibleCopyIndex();
+                    copy <= plan.maximumVisibleCopyIndex();
+                    copy++) {
+                for (int fragmentIndex = 0; fragmentIndex < projected.size(); fragmentIndex++) {
+                    FeatureSourceQueryEngine.WrappedSymbolFragment fragment =
+                            projected.get(fragmentIndex);
+                    long visualCopy = Math.addExact(copy, fragment.worldOffset());
+                    double offset = BrowserWrapSupport.copyOffset(wrap, visualCopy);
+                    if (!BrowserWrapSupport.intersects(
+                            BrowserWrapSupport.translate(fragment.geometry().envelope(), offset),
+                            viewport.visibleWorldEnvelope())) {
+                        continue;
+                    }
+                    int nextFeatures = Math.incrementExact(visual.size());
+                    if (nextFeatures > limits.maximumFeatures()) {
+                        throw editableWrapLimit(
+                                "EDIT_FEATURE_LIMIT_EXCEEDED",
+                                "Wrapped editable visual feature limit exceeded",
+                                limits.maximumFeatures(),
+                                nextFeatures);
+                    }
+                    long nextBytes;
+                    try {
+                        nextBytes =
+                                Math.addExact(
+                                        coordinateBytes,
+                                        Math.multiplyExact(
+                                                BrowserWrapSupport.coordinateCount(
+                                                        fragment.geometry()),
+                                                16L));
+                    } catch (ArithmeticException ignored) {
+                        nextBytes = Long.MAX_VALUE;
+                    }
+                    if (nextBytes > limits.maximumSnapshotBytes()) {
+                        throw editableWrapLimit(
+                                "EDIT_SNAPSHOT_LIMIT_EXCEEDED",
+                                "Wrapped editable visual coordinate budget exceeded",
+                                limits.maximumSnapshotBytes(),
+                                nextBytes);
+                    }
+                    coordinateBytes = nextBytes;
+                    visual.add(
+                            new Feature(
+                                    BrowserWrapSupport.displayId(
+                                            recordIndex, visualCopy, fragmentIndex),
+                                    record.name(),
+                                    BrowserWrapSupport.translate(fragment.geometry(), offset),
+                                    record.attributes(),
+                                    fragment.symbol()));
+                    logicalIds.add(record.id());
+                    copyIndices.add(visualCopy);
+                }
+            }
+            recordIndex++;
+        }
+        return BrowserWrapSupport.wrappedLayer(id, name, visual, logicalIds, copyIndices);
+    }
+
+    private static FeatureEditConfigurationException editableWrapLimit(
+            String code, String message, long maximum, long actual) {
+        return new FeatureEditConfigurationException(
+                new FeatureEditProblem(
+                        code,
+                        message,
+                        Map.of(
+                                "maximum",
+                                Long.toString(maximum),
+                                "actual",
+                                Long.toString(actual))));
     }
 
     private Optional<Feature> feature(

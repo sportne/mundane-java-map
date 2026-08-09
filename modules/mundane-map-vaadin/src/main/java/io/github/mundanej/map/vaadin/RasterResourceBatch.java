@@ -14,6 +14,7 @@ import java.nio.ByteOrder;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,23 +63,32 @@ final class RasterResourceBatch implements AutoCloseable {
             throw limit("rasterWindows", windows.size(), MAX_WINDOWS);
         }
         long bytes = otherResourceBytes;
+        IdentityHashMap<RgbaPixelBuffer, Boolean> uniquePixels = new IdentityHashMap<>();
         for (BrowserRasterWindow window : windows) {
             validateWindow(window);
-            bytes = Math.addExact(bytes, window.encodedBytes());
-            if (bytes > MAX_SCENE_RESOURCE_BYTES) {
-                throw limit("sceneResourceBytes", bytes, MAX_SCENE_RESOURCE_BYTES);
+            if (uniquePixels.put(window.pixels(), Boolean.TRUE) == null) {
+                bytes = Math.addExact(bytes, window.encodedBytes());
+                if (bytes > MAX_SCENE_RESOURCE_BYTES) {
+                    throw limit("sceneResourceBytes", bytes, MAX_SCENE_RESOURCE_BYTES);
+                }
             }
         }
         List<Map<String, Object>> staged = new ArrayList<>(windows.size());
         List<Runnable> removals = new ArrayList<>(windows.size());
         Instant expiresAt = Instant.now().plus(LIFETIME);
+        IdentityHashMap<RgbaPixelBuffer, String> resources = new IdentityHashMap<>();
         try {
             for (BrowserRasterWindow window : windows) {
-                byte[] body = encode(window.pixels(), componentGeneration, sceneGeneration);
-                RegisteredResource resource =
-                        registrar.register(new Payload(body, expiresAt, authorized));
-                removals.add(resource.unregister());
-                staged.add(window.encode(requireRelativeUri(resource.uri())));
+                String resource = resources.get(window.pixels());
+                if (resource == null) {
+                    byte[] body = encode(window.pixels(), componentGeneration, sceneGeneration);
+                    RegisteredResource registered =
+                            registrar.register(new Payload(body, expiresAt, authorized));
+                    removals.add(registered.unregister());
+                    resource = requireRelativeUri(registered.uri());
+                    resources.put(window.pixels(), resource);
+                }
+                staged.add(window.encode(resource));
             }
             return new RasterResourceBatch(staged, removals, bytes - otherResourceBytes);
         } catch (RuntimeException | Error failure) {

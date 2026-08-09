@@ -29,6 +29,7 @@ import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MeasurementPhase;
+import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.NamedSymbol;
 import io.github.mundanej.map.api.NamedSymbolCatalog;
 import io.github.mundanej.map.api.PointFeatureDraft;
@@ -93,6 +94,131 @@ final class BrowserMeasurementAndPointEditingTest {
         assertEquals(1, tool.state().vertexCount());
         interaction(map, 5, "CANCEL", 53, 46, 0, 0, 0, "USER_CANCEL");
         assertEquals(MeasurementPhase.EMPTY, tool.state().phase());
+    }
+
+    @Test
+    void wrappedBrowserMeasurementCommitsCanonicalCoordinateAndRetainsVisualCopy() {
+        MundaneMap map = configuredMap();
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        map.setHorizontalWrap(wrap);
+        map.setViewport(new MapViewport(100, 100, wrap.period(), 0, 1));
+        BrowserMeasurementTool tool =
+                new BrowserMeasurementTool(
+                        map, DistanceStrategies.planarMetres(CrsDefinitions.EPSG_3857));
+        map.setActiveTool(tool);
+
+        interaction(map, 0, "CLICK", 50, 50, 1, 0, 1, "");
+        interaction(map, 1, "MOVE", 50, 50, 0, 0, 0, "");
+
+        assertEquals(new Coordinate(0, 0), tool.state().vertex(0));
+        MultiPointGeometry visual =
+                (MultiPointGeometry)
+                        tool.overlayLayers().getFirst().features().getFirst().geometry();
+        assertEquals(wrap.period(), visual.coordinates().x(0), 0.000001);
+        map.setViewport(new MapViewport(100, 100, 0, 0, 1));
+        interaction(map, 2, "MOVE", 50, 50, 0, 0, 0, "");
+        LineStringGeometry movedPreview =
+                (LineStringGeometry)
+                        tool.overlayLayers().stream()
+                                .flatMap(layer -> layer.features().stream())
+                                .map(Feature::geometry)
+                                .filter(LineStringGeometry.class::isInstance)
+                                .findFirst()
+                                .orElseThrow();
+        assertEquals(0.0, movedPreview.coordinates().x(1), 0.000001);
+        map.close();
+    }
+
+    @Test
+    void repeatingEditBindingAutomaticallyUsesTheHostCanonicalWrapProfile() {
+        MundaneMap map = configuredMap();
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        map.setHorizontalWrap(wrap);
+        map.setViewport(new MapViewport(100, 100, wrap.period(), 0, 1));
+        FeatureEditBinding binding = binding("wrapped-edit", List.of());
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+        FeatureEditBinding unrelated = binding("unrelated-wrapped-edit", List.of());
+        unrelated.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+        map.setFeatureEditBindings(List.of(binding, unrelated));
+        BrowserPointEditController editor = new BrowserPointEditController(map, binding);
+        map.setActiveTool(editor);
+        editor.create(new PointFeatureDraft("created", "Created", Map.of()));
+
+        interaction(map, 0, "MOVE", 50, 50, 0, 0, 0, "");
+        Feature preview = editor.overlayLayers().getFirst().features().getFirst();
+        assertEquals(
+                wrap.period(), ((PointGeometry) preview.geometry()).coordinate().x(), 0.000001);
+        interaction(map, 1, "CLICK", 50, 50, 1, 0, 1, "");
+        assertEquals(new Coordinate(0, 0), point(binding, "created"));
+        map.close();
+        unrelated.close();
+    }
+
+    @Test
+    void wrappedEditableOutputUsesTheConfiguredEditFeatureLimit() {
+        MundaneMap map = configuredMap();
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        map.setHorizontalWrap(wrap);
+        map.setViewport(new MapViewport(300, 20, 0, 0, wrap.period() / 100));
+        FeatureEditBinding binding =
+                FeatureEditBinding.open(
+                        "low-limit-edit",
+                        "Low limit edit",
+                        new FeatureEditSnapshot(
+                                0, CrsDefinitions.EPSG_3857, List.of(record("one", 0, 0))),
+                        FeatureEditLimits.DEFAULT.withMaximumFeatures(1),
+                        FeatureEditHistoryLimits.DEFAULT,
+                        FeaturePortrayal.markers(
+                                new FixedSymbolSelector(
+                                        BuiltInMarkers.filledScreen(
+                                                BuiltInMarker.CIRCLE,
+                                                Rgba.rgb(40, 80, 180),
+                                                12,
+                                                1))),
+                        NamedSymbolCatalog.of(List.of()));
+        binding.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+
+        io.github.mundanej.map.api.FeatureEditConfigurationException failure =
+                assertThrows(
+                        io.github.mundanej.map.api.FeatureEditConfigurationException.class,
+                        () -> map.setFeatureEditBindings(List.of(binding)));
+
+        assertEquals("EDIT_FEATURE_LIMIT_EXCEEDED", failure.problem().code());
+        assertEquals("1", failure.problem().context().get("maximum"));
+        assertEquals("2", failure.problem().context().get("actual"));
+        binding.close();
+        map.close();
+    }
+
+    @Test
+    void localEditTargetAcceptsDeclaredRepeatingExternalSnapLayer() {
+        MundaneMap map = configuredMap();
+        HorizontalWrap wrap = HorizontalWrap.webMercator();
+        map.setHorizontalWrap(wrap);
+        map.setViewport(new MapViewport(100, 100, wrap.period(), 0, 1));
+        FeatureEditBinding target = binding("local-target", List.of());
+        FeatureEditBinding reference =
+                binding("repeating-reference", List.of(record("snap", 20, 0)));
+        reference.setHorizontalWrapMode(BrowserHorizontalWrapMode.REPEAT_X);
+        map.setFeatureEditBindings(List.of(target, reference));
+        SnapFeature snap = new SnapFeature("snap", new PointGeometry(new Coordinate(20, 0)));
+        SnapReferenceSet references =
+                new SnapReferenceSet(
+                        CrsDefinitions.EPSG_3857,
+                        List.of(new SnapReferenceLayer("repeating-reference", List.of(snap))));
+
+        BrowserPointEditController editor =
+                new BrowserPointEditController(
+                        map, target, references, BrowserPointEditController.BROWSER_SNAP_LIMITS, 8);
+        editor.create(new PointFeatureDraft("created", "Created", Map.of()));
+        map.setActiveTool(editor);
+        interaction(map, 0, "MOVE", 70, 50, 0, 0, 0, "");
+        interaction(map, 1, "CLICK", 70, 50, 1, 0, 1, "");
+
+        assertEquals(new Coordinate(20, 0), point(target, "created"));
+        map.close();
+        target.close();
+        reference.close();
     }
 
     @Test

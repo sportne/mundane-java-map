@@ -36,6 +36,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
     private final AttributeSelection attributes;
     private final Optional<FeatureQueryLimits> tighterLimits;
     private final boolean owned;
+    private BrowserHorizontalWrapMode horizontalWrapMode = BrowserHorizontalWrapMode.NONE;
     private MundaneMap owner;
     private boolean closed;
 
@@ -314,6 +315,28 @@ public final class FeatureSourceBinding implements AutoCloseable {
      */
     public boolean owned() {
         return owned;
+    }
+
+    /**
+     * Returns the explicit horizontal display-repetition policy.
+     *
+     * @return current mode, initially {@link BrowserHorizontalWrapMode#NONE}
+     */
+    public synchronized BrowserHorizontalWrapMode horizontalWrapMode() {
+        return horizontalWrapMode;
+    }
+
+    /**
+     * Selects horizontal repetition before the binding is attached.
+     *
+     * @param mode non-null closed policy
+     * @throws IllegalStateException if the binding is attached or closed
+     */
+    public synchronized void setHorizontalWrapMode(BrowserHorizontalWrapMode mode) {
+        if (closed || owner != null) {
+            throw new IllegalStateException(closed ? "binding is closed" : "binding is attached");
+        }
+        horizontalWrapMode = Objects.requireNonNull(mode, "mode");
     }
 
     /**

@@ -39,6 +39,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
@@ -81,7 +82,10 @@ final class BrowserSceneHits {
             for (int featureIndex = features.size() - 1; featureIndex >= 0; featureIndex--) {
                 Feature feature = features.get(featureIndex);
                 if (hitFeature(feature, viewport, queryX, queryY, capped, budget)) {
-                    MapHit hit = new MapHit(layer.id(), feature.id());
+                    MapHit hit =
+                            new MapHit(
+                                    layer.id(),
+                                    BrowserLogicalLayer.logicalFeatureId(layer, featureIndex));
                     if (retained.add(hit)) {
                         hits.add(hit);
                     }
@@ -89,6 +93,53 @@ final class BrowserSceneHits {
             }
         }
         return MapHitResults.of(hits);
+    }
+
+    static Optional<VisualHit> topmostVisual(
+            List<? extends Layer> layers,
+            MapViewport viewport,
+            double queryX,
+            double queryY,
+            double tolerance) {
+        if (!Double.isFinite(queryX)
+                || !Double.isFinite(queryY)
+                || !Double.isFinite(tolerance)
+                || tolerance < 0.0) {
+            throw new IllegalArgumentException("Hit coordinates and tolerance must be finite");
+        }
+        if (queryX < 0.0
+                || queryX >= viewport.width()
+                || queryY < 0.0
+                || queryY >= viewport.height()) {
+            return Optional.empty();
+        }
+        double capped = Math.min(tolerance, Math.hypot(viewport.width(), viewport.height()));
+        HitBudget budget = new HitBudget();
+        for (int layerIndex = layers.size() - 1; layerIndex >= 0; layerIndex--) {
+            Layer layer = layers.get(layerIndex);
+            List<Feature> features = layer.features();
+            for (int featureIndex = features.size() - 1; featureIndex >= 0; featureIndex--) {
+                Feature feature = features.get(featureIndex);
+                if (hitFeature(feature, viewport, queryX, queryY, capped, budget)) {
+                    return Optional.of(
+                            new VisualHit(
+                                    new MapHit(
+                                            layer.id(),
+                                            BrowserLogicalLayer.logicalFeatureId(
+                                                    layer, featureIndex)),
+                                    feature,
+                                    BrowserLogicalLayer.copyIndex(layer, featureIndex)));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    record VisualHit(MapHit logicalHit, Feature feature, long copyIndex) {
+        VisualHit {
+            Objects.requireNonNull(logicalHit, "logicalHit");
+            Objects.requireNonNull(feature, "feature");
+        }
     }
 
     private static boolean hitFeature(
