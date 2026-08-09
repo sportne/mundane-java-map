@@ -116,6 +116,7 @@ final class SceneProtocol {
         budget.addNumbers(5);
         budget.add(Integer.BYTES);
         budget.add(Integer.BYTES);
+        budget.add(Integer.BYTES);
         Set<String> layerIds = new LinkedHashSet<>();
         List<Layer> copies = new ArrayList<>(sourceLayers.size());
         List<Map<String, Object>> encodedLayers = new ArrayList<>(sourceLayers.size());
@@ -302,6 +303,8 @@ final class SceneProtocol {
                         color(background),
                         "viewport",
                         viewport(viewport),
+                        "rasters",
+                        List.of(),
                         "labelCandidates",
                         List.copyOf(encodedLabelCandidates),
                         "layers",
@@ -312,6 +315,72 @@ final class SceneProtocol {
                 envelope,
                 budget.used(),
                 List.copyOf(retainedLabelCandidates));
+    }
+
+    Result withRasterWindows(
+            Result vectorResult,
+            List<BrowserRasterWindow> windows,
+            List<Map<String, Object>> encodedWindows) {
+        Objects.requireNonNull(vectorResult, "vectorResult");
+        Objects.requireNonNull(windows, "windows");
+        Objects.requireNonNull(encodedWindows, "encodedWindows");
+        if (windows.size() != encodedWindows.size()) {
+            throw new IllegalArgumentException("Raster windows and encodings must have equal size");
+        }
+        requireLimit(
+                "layers",
+                Math.addExact(vectorResult.layers().size(), windows.size()),
+                limits.layers());
+        LinkedHashSet<String> identities = new LinkedHashSet<>();
+        for (Layer layer : vectorResult.layers()) {
+            identities.add(layer.id());
+        }
+        long logicalBytes = vectorResult.logicalBytes();
+        Optional<Envelope> envelope = vectorResult.envelope();
+        for (int index = 0; index < windows.size(); index++) {
+            BrowserRasterWindow window = windows.get(index);
+            if (!identities.add(window.bindingId())) {
+                throw failure(
+                        MundaneMapException.DUPLICATE_ID,
+                        "Duplicate layer identity",
+                        "identityNamespace",
+                        "layer");
+            }
+            logicalBytes =
+                    Math.addExact(
+                            logicalBytes, rasterLogicalBytes(window, encodedWindows.get(index)));
+            requireLimit("logicalBytes", logicalBytes, limits.logicalBytes());
+            envelope = union(envelope, window.imageMapBounds());
+        }
+        LinkedHashMap<String, Object> scene = new LinkedHashMap<>(vectorResult.scene());
+        scene.put("rasters", List.copyOf(encodedWindows));
+        return new Result(
+                vectorResult.layers(),
+                Collections.unmodifiableMap(scene),
+                envelope,
+                logicalBytes,
+                vectorResult.labelCandidates());
+    }
+
+    private static long rasterLogicalBytes(
+            BrowserRasterWindow window, Map<String, Object> encoded) {
+        String resource = (String) encoded.get("resource");
+        long bytes = Integer.BYTES;
+        bytes =
+                Math.addExact(
+                        bytes,
+                        Integer.BYTES + window.bindingId().getBytes(StandardCharsets.UTF_8).length);
+        bytes =
+                Math.addExact(
+                        bytes,
+                        Integer.BYTES
+                                + window.bindingName().getBytes(StandardCharsets.UTF_8).length);
+        bytes =
+                Math.addExact(
+                        bytes, Integer.BYTES + resource.getBytes(StandardCharsets.UTF_8).length);
+        bytes = Math.addExact(bytes, 4L * Integer.BYTES);
+        bytes = Math.addExact(bytes, 19L * Double.BYTES);
+        return bytes;
     }
 
     private EncodedFeature encodeFeature(

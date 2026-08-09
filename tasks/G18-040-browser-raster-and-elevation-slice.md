@@ -1,6 +1,6 @@
 # G18-040 — Browser raster and elevation slice
 
-Status: Proposed
+Status: Complete
 Depends on: G18-022, G9-002
 Gate: G18
 Type: AFK
@@ -64,3 +64,10 @@ git diff --check
 
 The framing is a private transport between one adapter and its bundled client. It is not a new map
 format or general binary protocol.
+
+Implemented explicit owned/borrowed raster and elevation bindings, bounded same-origin MMRW
+resources, generation-authorized lifecycle cleanup, and atomic Canvas `ImageData` loading and
+painting for grid and affine windows. Raster requests reuse the core window, accounting,
+resampling, elevation-color, hillshade, and no-data behavior while exact-CRS checks, stable
+diagnostics, hostile-frame validation, and aggregate resource ceilings keep the browser lane
+closed and deterministic.

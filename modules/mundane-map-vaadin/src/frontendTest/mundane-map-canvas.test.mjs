@@ -25,7 +25,7 @@ function createCanvas() {
   const context = {operations};
   for (const name of ['setTransform', 'clearRect', 'fillRect', 'save', 'restore', 'beginPath',
     'moveTo', 'lineTo', 'closePath', 'fill', 'stroke', 'translate', 'scale',
-    'transform', 'clip', 'quadraticCurveTo', 'bezierCurveTo', 'putImageData', 'drawImage',
+    'transform', 'clip', 'rect', 'quadraticCurveTo', 'bezierCurveTo', 'putImageData', 'drawImage',
     'fillText']) {
     context[name] = (...arguments_) => operations.push([name, ...arguments_]);
   }
@@ -42,6 +42,12 @@ function createCanvas() {
     set: value => operations.push(['lineWidth', value]),
     get: () => operations.filter(operation => operation[0] === 'lineWidth').at(-1)?.[1]
   });
+  for (const name of ['imageSmoothingEnabled', 'globalAlpha']) {
+    Object.defineProperty(context, name, {
+      set: value => operations.push([name, value]),
+      get: () => operations.filter(operation => operation[0] === name).at(-1)?.[1]
+    });
+  }
   return {
     dataset: {},
     style: {},
@@ -96,6 +102,27 @@ function flushPaint() {
     animationFrames.delete(id);
     callback();
   }
+}
+
+function streamedResponse(buffer, contentType = null, options = {}) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const chunks = options.chunks || [bytes];
+  let index = 0;
+  return {
+    ok: options.ok ?? true,
+    headers: {get: name => {
+      const lower = name.toLowerCase();
+      if (lower === 'content-type') return contentType;
+      if (lower === 'content-length') return String(options.contentLength ?? bytes.byteLength);
+      return null;
+    }},
+    body: {getReader: () => ({
+      read: async () => index < chunks.length ? {done: false, value: chunks[index++]} :
+        {done: true},
+      cancel: async () => options.onCancel?.(),
+      releaseLock: () => {}
+    })}
+  };
 }
 
 function hatchMovePoints(operations) {
@@ -185,7 +212,7 @@ multipart.layers[0].features[0].primitives.push({
 canvasModule.validateScene(multipart, 2, 3);
 assert.deepEqual(canvasModule.collectDrawOrder(multipart),
   ['layer/point/0', 'layer/point/1', 'layer/line/0', 'layer/polygon/0']);
-assert.equal(canvasModule.logicalSceneBytes(scene), 695);
+assert.equal(canvasModule.logicalSceneBytes(scene), 699);
 assert.throws(() => canvasModule.validateScene({...scene, protocolVersion: 2}, 2, 2),
   /PROTOCOL_VERSION_UNSUPPORTED/);
 assert.throws(() => canvasModule.validateScene({...scene, sceneGeneration: 2}, 2, 2),
@@ -468,7 +495,7 @@ labelScene.labelCandidates = [{
   weight: 'BOLD',
   sizePixels: 14
 }];
-assert.equal(canvasModule.logicalSceneBytes(labelScene), 722);
+assert.equal(canvasModule.logicalSceneBytes(labelScene), 726);
 assert.deepEqual(canvasModule.validateScene(labelScene, 12, 12), labelScene);
 const hostileFontScene = structuredClone(labelScene);
 hostileFontScene.labelCandidates[0].fontFamily = 'url(https://evil.example/font)';
@@ -617,7 +644,7 @@ const iconBytes = new Uint8Array([77, 77, 82, 73, 1, 0, 0, 1, 0, 1, 0, 0,
 const fetches = [];
 globalThis.fetch = async (resource, options) => {
   fetches.push([resource, options]);
-  return {ok: true, arrayBuffer: async () => iconBytes.buffer.slice(0)};
+  return streamedResponse(iconBytes);
 };
 const iconScene = structuredClone(scene);
 iconScene.componentGeneration = 9;
@@ -630,7 +657,7 @@ iconScene.layers[0].features[0].primitives = [{
   endpointBearing: {present: false}, opacity: 1
 }];
 iconScene.layers[0].features.splice(1);
-assert.equal(canvasModule.logicalSceneBytes(iconScene), 303);
+assert.equal(canvasModule.logicalSceneBytes(iconScene), 307);
 const iconFailures = [];
 const iconElement = new ElementClass();
 iconElement.$server = {
@@ -661,7 +688,7 @@ iconElement.interactionLayers = structuredClone(scene.layers.slice(0, 1));
 iconElement.setScene(pendingOverlayScene);
 iconElement.setInteractionOverlay(1, 9, 11, pendingOverlayScene.viewportGeneration, []);
 assert.equal(iconElement.pendingInteractionOverlay.layers.length, 0);
-resolvePendingIconFetch({ok: true, arrayBuffer: async () => iconBytes.buffer.slice(0)});
+resolvePendingIconFetch(streamedResponse(iconBytes));
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(iconElement.sceneGeneration, 11);
 assert.equal(iconElement.interactionLayers.length, 0);
@@ -686,6 +713,157 @@ assert.equal(iconElement.sceneGeneration, 12);
 assert.equal(iconElement.iconResources.size, 0);
 iconElement.deactivateMap(1, 9);
 assert.equal(iconElement.scene, null);
+
+function rasterWindowBytes(width, height, componentGeneration, sceneGeneration, rgba) {
+  const buffer = new ArrayBuffer(32 + width * height * 4);
+  const bytes = new Uint8Array(buffer);
+  bytes.set([77, 77, 82, 87, 1, 0, 0, 32]);
+  const view = new DataView(buffer);
+  view.setUint32(8, width);
+  view.setUint32(12, height);
+  view.setUint32(16, Math.floor(componentGeneration / 4294967296));
+  view.setUint32(20, componentGeneration >>> 0);
+  view.setUint32(24, Math.floor(sceneGeneration / 4294967296));
+  view.setUint32(28, sceneGeneration >>> 0);
+  bytes.set(rgba, 32);
+  return buffer;
+}
+
+const rasterScene = structuredClone(scene);
+rasterScene.componentGeneration = 14;
+rasterScene.sceneGeneration = 15;
+rasterScene.rasters = [{
+  id: 'terrain', name: 'Terrain', resource: './VAADIN/dynamic/resource/token/window.mmrw',
+  width: 2, height: 1, opacity: 0.75, interpolation: 'BILINEAR',
+  sourceWindow: [0, 0, 2, 1], imageMapBounds: [0, 0, 20, 10],
+  clipMapBounds: [2, 0, 18, 10],
+  placement: {kind: 'AFFINE', transform: [10, 0, 0, -10, 5, 5]}
+}];
+const rasterBuffer = rasterWindowBytes(2, 1, 14, 15,
+  new Uint8Array([255, 0, 0, 255, 0, 0, 255, 128]));
+const rasterFetches = [];
+globalThis.fetch = async (resource, options) => {
+  rasterFetches.push([resource, options]);
+  return streamedResponse(rasterBuffer, 'application/vnd.mundane-map.rgba-window');
+};
+const rasterFailures = [];
+const rasterElement = new ElementClass();
+rasterElement.$server = {
+  acceptClientFailure: (...arguments_) => rasterFailures.push(arguments_),
+  acceptLabelMeasurements: () => {}, acceptPlacedLabels: () => {}
+};
+rasterElement.connectedCallback();
+rasterElement.activateMap(1, 14, 15);
+rasterElement.setScene(rasterScene);
+await new Promise(resolve => setTimeout(resolve, 0));
+flushPaint();
+assert.equal(rasterElement.sceneGeneration, 15);
+assert.equal(rasterElement.rasterResources.size, 1);
+assert.equal(rasterFailures.length, 0);
+assert.equal(rasterFetches[0][1].credentials, 'same-origin');
+assert.equal(rasterFetches[0][1].cache, 'no-store');
+const affineRect = rasterElement.canvas.operations.find(operation => operation[0] === 'rect');
+const affineTransform = rasterElement.canvas.operations.find(operation =>
+  operation[0] === 'transform');
+const affineDraw = rasterElement.canvas.operations.findIndex(operation =>
+  operation[0] === 'drawImage');
+const firstVectorPath = rasterElement.canvas.operations.findIndex(operation =>
+  operation[0] === 'moveTo');
+assert.deepEqual(affineRect, ['rect', 396, 305, 8, 5]);
+assert.deepEqual(affineTransform, ['transform', 5, -0, 0, 5, 395, 305]);
+assert.ok(affineDraw >= 0 && affineDraw < firstVectorPath);
+assert.deepEqual(rasterElement.canvas.operations.find(operation =>
+  operation[0] === 'imageSmoothingEnabled'), ['imageSmoothingEnabled', true]);
+assert.deepEqual(rasterElement.canvas.operations.find(operation =>
+  operation[0] === 'globalAlpha'), ['globalAlpha', 0.75]);
+const staleRaster = structuredClone(rasterScene);
+staleRaster.sceneGeneration = 16;
+globalThis.fetch = async () => streamedResponse(
+  rasterWindowBytes(2, 1, 14, 15, new Uint8Array(8)),
+  'application/vnd.mundane-map.rgba-window');
+rasterElement.setScene(staleRaster);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(rasterElement.sceneGeneration, 15);
+assert.equal(rasterFailures.at(-1)[3], 'RESOURCE_UNAVAILABLE');
+const oversizedRaster = structuredClone(rasterScene);
+oversizedRaster.sceneGeneration = 16;
+let oversizedCancelled = false;
+const oversizedBody = new Uint8Array(rasterBuffer.byteLength + 1);
+oversizedBody.set(new Uint8Array(rasterBuffer));
+globalThis.fetch = async () => streamedResponse(oversizedBody,
+  'application/vnd.mundane-map.rgba-window', {
+    contentLength: rasterBuffer.byteLength,
+    onCancel: () => { oversizedCancelled = true; }
+  });
+rasterElement.setScene(oversizedRaster);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(rasterElement.sceneGeneration, 15);
+assert.equal(rasterFailures.at(-1)[3], 'RESOURCE_UNAVAILABLE');
+assert.equal(oversizedCancelled, true);
+const undersizedBody = new Uint8Array(rasterBuffer.byteLength - 1);
+globalThis.fetch = async () => streamedResponse(undersizedBody,
+  'application/vnd.mundane-map.rgba-window', {contentLength: rasterBuffer.byteLength});
+rasterElement.setScene(oversizedRaster);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(rasterElement.sceneGeneration, 15);
+assert.equal(rasterFailures.at(-1)[3], 'RESOURCE_UNAVAILABLE');
+const axisScene = structuredClone(rasterScene);
+axisScene.sceneGeneration = 16;
+axisScene.rasters[0] = {...axisScene.rasters[0],
+  resource: './VAADIN/dynamic/resource/token/axis.mmrw',
+  opacity: 0.5, interpolation: 'NEAREST',
+  imageMapBounds: [0, 0, 40, 20], clipMapBounds: [0, 0, 40, 20],
+  placement: {kind: 'AXIS_ALIGNED', bounds: [0, 0, 40, 20]}};
+globalThis.fetch = async () => streamedResponse(
+  rasterWindowBytes(2, 1, 14, 16, new Uint8Array(8)),
+  'application/vnd.mundane-map.rgba-window');
+const operationStart = rasterElement.canvas.operations.length;
+rasterElement.setScene(axisScene);
+await new Promise(resolve => setTimeout(resolve, 0));
+flushPaint();
+const axisOperations = rasterElement.canvas.operations.slice(operationStart);
+assert.deepEqual(axisOperations.find(operation => operation[0] === 'rect'),
+  ['rect', 395, 300, 20, 10]);
+assert.deepEqual(axisOperations.find(operation => operation[0] === 'transform'),
+  ['transform', 10, -0, 0, 10, 395, 300]);
+assert.deepEqual(axisOperations.find(operation => operation[0] === 'imageSmoothingEnabled'),
+  ['imageSmoothingEnabled', false]);
+assert.deepEqual(axisOperations.find(operation => operation[0] === 'globalAlpha'),
+  ['globalAlpha', 0.5]);
+const partialScene = structuredClone(rasterScene);
+partialScene.sceneGeneration = 17;
+partialScene.layers[0].features[0].primitives = [{
+  ...structuredClone(iconScene.layers[0].features[0].primitives[0]),
+  resource: './VAADIN/dynamic/resource/token/partial.mmri'
+}];
+partialScene.rasters[0].resource = './VAADIN/dynamic/resource/token/partial.mmrw';
+let siblingAborted = false;
+globalThis.fetch = async (resource, options) => {
+  if (resource.endsWith('.mmri')) {
+    return streamedResponse(iconBytes, null, {contentLength: iconBytes.length + 1});
+  }
+  return {ok: true, headers: {get: name => name.toLowerCase() === 'content-type' ?
+    'application/vnd.mundane-map.rgba-window' : name.toLowerCase() === 'content-length' ?
+      String(rasterBuffer.byteLength) : null}, body: {getReader: () => ({
+    read: () => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
+      siblingAborted = true;
+      reject(new Error('aborted'));
+    }, {once: true})),
+    cancel: async () => {}, releaseLock: () => {}
+  })}};
+};
+rasterElement.setScene(partialScene);
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.equal(siblingAborted, true);
+assert.equal(rasterElement.sceneLoadAbort, null);
+assert.equal(rasterElement.sceneGeneration, 16);
+const hostileRaster = structuredClone(rasterScene);
+hostileRaster.sceneGeneration = 17;
+hostileRaster.rasters[0].resource = 'https://evil.example/window';
+rasterElement.setScene(hostileRaster);
+assert.equal(rasterElement.sceneGeneration, 16);
+rasterElement.deactivateMap(1, 14);
+assert.equal(rasterElement.rasterResources.size, 0);
 
 const routedCalls = [];
 const resumeCalls = [];

@@ -74,16 +74,18 @@ import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 /**
- * A Vaadin Flow component that paints bounded toolkit-neutral vectors on a local Canvas.
+ * A Vaadin Flow component that paints bounded toolkit-neutral vectors and rasters on a local
+ * Canvas.
  *
  * <p>All high-frequency navigation runs in the bundled custom element. Java receives only settled,
  * generation-checked viewport values. Snapshot layers and explicitly bound feature sources accept
  * all six Level 1 geometry families and the bounded built-in vector profile: vector markers, solid
  * lines with endpoint markers, solid and hatch fills, outlines, and role-homogeneous composites.
  * Bounded point labels use the bundled Canvas closed-font measurement handshake. Explicit-catalog
- * raster icons are served as expiring same-origin session resources. A settled acknowledged vector
- * scene can be captured through the existing detached export snapshot boundary; legacy and custom
- * renderer values are not forwarded to the browser.
+ * raster icons and explicit raster/elevation binding windows are served as expiring same-origin
+ * session resources. A settled acknowledged vector scene can be captured through the existing
+ * detached export snapshot boundary; legacy and custom renderer values are not forwarded to the
+ * browser.
  */
 @Tag("mundane-map-canvas")
 @JsModule("./mundane-map-canvas.js")
@@ -122,6 +124,18 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     /** Installed fixed-lane editable bindings in deterministic paint order. */
     private List<FeatureEditBinding> editBindings = List.of();
 
+    /** Installed raster bindings in deterministic browser paint order. */
+    private List<RasterSourceBinding> rasterBindings = List.of();
+
+    /** Installed elevation bindings following ordinary raster bindings. */
+    private List<ElevationSourceBinding> elevationBindings = List.of();
+
+    /** Latest complete accepted detached browser raster windows. */
+    private List<BrowserRasterWindow> rasterWindows = List.of();
+
+    /** Pure serialized raster/elevation planner and capture engine. */
+    private final BrowserRasterQueryEngine rasterQueryEngine = new BrowserRasterQueryEngine();
+
     /** Latest non-empty source reports by binding identity. */
     private Map<String, DiagnosticReport> sourceReports = Map.of();
 
@@ -148,6 +162,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     /** Session-owned immutable icon resources for the currently published scene. */
     private IconResourceBatch iconResources = IconResourceBatch.empty();
+
+    /** Generation-scoped immutable RGBA window resources for the published scene. */
+    private RasterResourceBatch rasterResources = RasterResourceBatch.empty();
 
     /** Session access shared by resource registration and destruction cleanup wiring. */
     private final IconSessionAccess iconSessionAccess;
@@ -477,7 +494,6 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         .toList();
         sourceLayers = List.of();
         availableSourceBindings = Set.of();
-        releaseIconResources();
         long replacementGeneration = Math.incrementExact(sceneGeneration);
         StagedScene replacement =
                 stageScene(
@@ -486,21 +502,36 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         replacementGeneration);
         sceneEnvelope = replacement.result().envelope();
         sceneGeneration = replacementGeneration;
-        publishStagedScene(replacement);
+        Throwable completionFailure = cleanup(null, () -> publishStagedScene(replacement));
         for (FeatureSourceBinding removedBinding : removed) {
-            transitionSourceReport(removedBinding.id(), Optional.empty());
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> transitionSourceReport(removedBinding.id(), Optional.empty()));
         }
         for (FeatureSourceBinding candidate : candidates) {
-            DiagnosticReport opening = candidate.source().openingDiagnostics();
-            if (!opening.entries().isEmpty() || opening.omittedWarningCount() != 0) {
-                transitionSourceReport(candidate.id(), Optional.of(opening));
-            }
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> {
+                                DiagnosticReport opening = candidate.source().openingDiagnostics();
+                                if (!opening.entries().isEmpty()
+                                        || opening.omittedWarningCount() != 0) {
+                                    transitionSourceReport(candidate.id(), Optional.of(opening));
+                                }
+                            });
         }
         if (!removed.isEmpty()) {
-            queryExecutor.execute(() -> releaseBindings(removed));
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> queryExecutor.execute(() -> releaseBindings(removed)));
         }
-        scheduleSourceQuery();
-        drainSourceReportNotifications();
+        completionFailure = cleanup(completionFailure, this::scheduleSourceQuery);
+        completionFailure = cleanup(completionFailure, this::drainSourceReportNotifications);
+        if (completionFailure != null) {
+            throwUnchecked(completionFailure);
+        }
     }
 
     /**
@@ -512,6 +543,153 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         return featureBindings.stream()
                 .map(FeatureSourceQueryEngine.RequestBinding::binding)
                 .toList();
+    }
+
+    /**
+     * Atomically replaces the ordered raster-source bindings and starts a superseding capture.
+     *
+     * <p>Removed owned bindings close on the serialized source lane. Borrowed bindings remain
+     * caller-owned.
+     *
+     * @param bindings unique open raster bindings in paint order
+     */
+    public void setRasterSourceBindings(List<RasterSourceBinding> bindings) {
+        requireOpen();
+        List<RasterSourceBinding> candidates = List.copyOf(bindings);
+        validateRasterBindings(candidates, elevationBindings);
+        Set<RasterSourceBinding> retained = identityRasterSet(candidates);
+        Set<RasterSourceBinding> previous = identityRasterSet(rasterBindings);
+        List<RasterSourceBinding> attached = new ArrayList<>();
+        try {
+            for (RasterSourceBinding candidate : candidates) {
+                if (!previous.contains(candidate)) {
+                    candidate.attach(this);
+                    attached.add(candidate);
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            attached.forEach(candidate -> candidate.detach(this));
+            throw failure;
+        }
+        List<RasterSourceBinding> removed =
+                rasterBindings.stream().filter(binding -> !retained.contains(binding)).toList();
+        List<RasterSourceBinding> priorBindings = rasterBindings;
+        List<BrowserRasterWindow> priorWindows = rasterWindows;
+        rasterBindings = candidates;
+        rasterWindows = List.of();
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene staged;
+        try {
+            staged = stageScene(combinedLayers(), background, nextGeneration);
+        } catch (RuntimeException | Error failure) {
+            rasterBindings = priorBindings;
+            rasterWindows = priorWindows;
+            attached.forEach(candidate -> candidate.detach(this));
+            throw failure;
+        }
+        cancelFeatureQuery();
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        diagnostic = Optional.empty();
+        Throwable completionFailure = cleanup(null, () -> publishStagedScene(staged));
+        for (RasterSourceBinding binding : removed) {
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> transitionSourceReport(binding.id(), Optional.empty()));
+        }
+        if (!removed.isEmpty()) {
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> queryExecutor.execute(() -> releaseRasterBindings(removed)));
+        }
+        completionFailure = cleanup(completionFailure, this::scheduleSourceQuery);
+        completionFailure = cleanup(completionFailure, this::drainSourceReportNotifications);
+        if (completionFailure != null) {
+            throwUnchecked(completionFailure);
+        }
+    }
+
+    /**
+     * Returns installed raster-source bindings in paint order.
+     *
+     * @return immutable binding list
+     */
+    public List<RasterSourceBinding> rasterSourceBindings() {
+        return rasterBindings;
+    }
+
+    /**
+     * Atomically replaces ordered elevation bindings and starts a superseding rasterization.
+     *
+     * @param bindings unique open elevation bindings in paint order after ordinary rasters
+     */
+    public void setElevationSourceBindings(List<ElevationSourceBinding> bindings) {
+        requireOpen();
+        List<ElevationSourceBinding> candidates = List.copyOf(bindings);
+        validateElevationBindings(rasterBindings, candidates);
+        Set<ElevationSourceBinding> retained = identityElevationSet(candidates);
+        Set<ElevationSourceBinding> previous = identityElevationSet(elevationBindings);
+        List<ElevationSourceBinding> attached = new ArrayList<>();
+        try {
+            for (ElevationSourceBinding candidate : candidates) {
+                if (!previous.contains(candidate)) {
+                    candidate.attach(this);
+                    attached.add(candidate);
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            attached.forEach(candidate -> candidate.detach(this));
+            throw failure;
+        }
+        List<ElevationSourceBinding> removed =
+                elevationBindings.stream().filter(binding -> !retained.contains(binding)).toList();
+        List<ElevationSourceBinding> priorBindings = elevationBindings;
+        List<BrowserRasterWindow> priorWindows = rasterWindows;
+        elevationBindings = candidates;
+        rasterWindows = List.of();
+        long nextGeneration = Math.incrementExact(sceneGeneration);
+        StagedScene staged;
+        try {
+            staged = stageScene(combinedLayers(), background, nextGeneration);
+        } catch (RuntimeException | Error failure) {
+            elevationBindings = priorBindings;
+            rasterWindows = priorWindows;
+            attached.forEach(candidate -> candidate.detach(this));
+            throw failure;
+        }
+        cancelFeatureQuery();
+        sceneEnvelope = staged.result().envelope();
+        sceneGeneration = nextGeneration;
+        diagnostic = Optional.empty();
+        Throwable completionFailure = cleanup(null, () -> publishStagedScene(staged));
+        for (ElevationSourceBinding binding : removed) {
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> transitionSourceReport(binding.id(), Optional.empty()));
+        }
+        if (!removed.isEmpty()) {
+            completionFailure =
+                    cleanup(
+                            completionFailure,
+                            () -> queryExecutor.execute(() -> releaseElevationBindings(removed)));
+        }
+        completionFailure = cleanup(completionFailure, this::scheduleSourceQuery);
+        completionFailure = cleanup(completionFailure, this::drainSourceReportNotifications);
+        if (completionFailure != null) {
+            throwUnchecked(completionFailure);
+        }
+    }
+
+    /**
+     * Returns installed elevation bindings in paint order.
+     *
+     * @return immutable binding list
+     */
+    public List<ElevationSourceBinding> elevationSourceBindings() {
+        return elevationBindings;
     }
 
     /**
@@ -553,7 +731,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             for (FeatureEditBinding candidate : attached.reversed()) {
                 candidate.detach(this);
             }
-            staged.resources().close();
+            staged.closeResources();
             throw failure;
         }
         List<FeatureEditBinding> previous = editBindings;
@@ -671,9 +849,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         CrsRegistry previousRegistry = crsRegistry;
         CrsDefinition previousMapCrs = mapCrs;
         CrsDefinition previousDisplayCrs = displayCrs;
+        List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
         crsRegistry = registry;
         mapCrs = nextMapCrs;
         displayCrs = nextDisplayCrs;
+        rasterWindows = List.of();
         long nextGeneration = Math.incrementExact(sceneGeneration);
         StagedScene staged;
         try {
@@ -686,6 +866,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             crsRegistry = previousRegistry;
             mapCrs = previousMapCrs;
             displayCrs = previousDisplayCrs;
+            rasterWindows = previousRasterWindows;
             throw failure;
         }
         cancelFeatureQuery();
@@ -777,18 +958,23 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         protocol.validateViewport(nextViewport);
         cancelPendingSettledViewport();
         MapViewport previousViewport = viewport;
+        List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
         viewport = nextViewport;
         long previousViewportGeneration = viewportGeneration;
         viewportGeneration = Math.incrementExact(viewportGeneration);
         StagedScene restaged = null;
         long nextSceneGeneration = sceneGeneration;
         try {
-            if (!editBindings.isEmpty()) {
+            if (!editBindings.isEmpty()
+                    || !rasterBindings.isEmpty()
+                    || !elevationBindings.isEmpty()) {
+                rasterWindows = List.of();
                 nextSceneGeneration = Math.incrementExact(sceneGeneration);
                 restaged = stageScene(combinedLayers(), background, nextSceneGeneration);
             }
         } catch (RuntimeException | Error failure) {
             viewport = previousViewport;
+            rasterWindows = previousRasterWindows;
             viewportGeneration = previousViewportGeneration;
             throw failure;
         }
@@ -1873,6 +2059,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         }
         paintedFeatures = Set.of();
         primary = cleanup(primary, this::releaseIconResources);
+        primary = cleanup(primary, this::releaseRasterResources);
         primary = cleanup(primary, () -> clearBrowserLabelState(true));
         primary = cleanup(primary, this::removeIconSessionCleanup);
         sceneEnvelope = Optional.empty();
@@ -1880,10 +2067,31 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         cancelFeatureQuery();
         List<FeatureSourceBinding> released = featureSourceBindings();
         featureBindings = List.of();
+        List<RasterSourceBinding> releasedRasters = rasterBindings;
+        rasterBindings = List.of();
+        List<ElevationSourceBinding> releasedElevations = elevationBindings;
+        elevationBindings = List.of();
+        rasterWindows = List.of();
         sourceReports = Map.of();
         if (!released.isEmpty()) {
             primary =
                     cleanup(primary, () -> queryExecutor.execute(() -> releaseBindings(released)));
+        }
+        if (!releasedRasters.isEmpty()) {
+            primary =
+                    cleanup(
+                            primary,
+                            () ->
+                                    queryExecutor.execute(
+                                            () -> releaseRasterBindings(releasedRasters)));
+        }
+        if (!releasedElevations.isEmpty()) {
+            primary =
+                    cleanup(
+                            primary,
+                            () ->
+                                    queryExecutor.execute(
+                                            () -> releaseElevationBindings(releasedElevations)));
         }
         if (ownedQueryExecutor != null) {
             primary = cleanup(primary, ownedQueryExecutor::shutdown);
@@ -1929,7 +2137,9 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             resetClientEventState();
             cancelFeatureQuery();
             sourceLayers = List.of();
+            rasterWindows = List.of();
             primary = cleanup(primary, this::releaseIconResources);
+            primary = cleanup(primary, this::releaseRasterResources);
             primary = cleanup(primary, () -> clearBrowserLabelState(true));
             primary = cleanup(primary, this::removeIconSessionCleanup);
         }
@@ -1940,14 +2150,17 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     Map<String, Object> encodedSceneForTest() {
-        return protocol.encode(
-                        combinedLayers(),
-                        background,
-                        viewport,
-                        componentGeneration,
-                        sceneGeneration,
-                        viewportGeneration,
-                        iconResources)
+        return protocol.withRasterWindows(
+                        protocol.encode(
+                                combinedLayers(),
+                                background,
+                                viewport,
+                                componentGeneration,
+                                sceneGeneration,
+                                viewportGeneration,
+                                iconResources),
+                        rasterWindows,
+                        rasterResources.encodedWindows())
                 .scene();
     }
 
@@ -2907,16 +3120,21 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     private void acceptViewport(MapViewport accepted) {
         MapViewport previousViewport = viewport;
+        List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
         viewport = accepted;
         StagedScene restaged = null;
         long nextSceneGeneration = sceneGeneration;
         try {
-            if (!editBindings.isEmpty()) {
+            if (!editBindings.isEmpty()
+                    || !rasterBindings.isEmpty()
+                    || !elevationBindings.isEmpty()) {
+                rasterWindows = List.of();
                 nextSceneGeneration = Math.incrementExact(sceneGeneration);
                 restaged = stageScene(combinedLayers(), background, nextSceneGeneration);
             }
         } catch (RuntimeException | Error failure) {
             viewport = previousViewport;
+            rasterWindows = previousRasterWindows;
             publishViewport();
             throw failure;
         }
@@ -2945,12 +3163,13 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     private void scheduleSourceQuery() {
         cancelFeatureQuery();
-        if (featureBindings.isEmpty()) {
-            if (!sourceLayers.isEmpty()) {
+        if (featureBindings.isEmpty() && rasterBindings.isEmpty() && elevationBindings.isEmpty()) {
+            if (!sourceLayers.isEmpty() || !rasterWindows.isEmpty()) {
                 activeQueryCancellation = new CancellationSource();
                 applySourceQueryResult(
                         queryGeneration,
-                        new FeatureSourceQueryEngine.Result(List.of(), Map.of(), false));
+                        new FeatureSourceQueryEngine.Result(List.of(), Map.of(), false),
+                        new BrowserRasterQueryEngine.Result(List.of(), Map.of(), false));
             }
             return;
         }
@@ -2965,32 +3184,51 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         CrsRegistry requestedRegistry = crsRegistry;
         CrsDefinition requestedMapCrs = mapCrs;
         CrsDefinition requestedDisplayCrs = displayCrs;
+        List<RasterSourceBinding> requestedRasters = List.copyOf(rasterBindings);
+        List<ElevationSourceBinding> requestedElevations = List.copyOf(elevationBindings);
         queryExecutor.execute(
                 () -> {
                     FeatureSourceQueryEngine.Result result =
-                            sourceQueryEngine.query(
-                                    bindings,
-                                    requestedViewport,
-                                    requestedRegistry,
-                                    requestedMapCrs,
-                                    requestedDisplayCrs,
-                                    cancellation.token());
+                            bindings.isEmpty()
+                                    ? new FeatureSourceQueryEngine.Result(
+                                            List.of(), Map.of(), false)
+                                    : sourceQueryEngine.query(
+                                            bindings,
+                                            requestedViewport,
+                                            requestedRegistry,
+                                            requestedMapCrs,
+                                            requestedDisplayCrs,
+                                            cancellation.token());
+                    BrowserRasterQueryEngine.Result rasterResult =
+                            result.cancelled()
+                                    ? BrowserRasterQueryEngine.Result.cancelledResult()
+                                    : rasterQueryEngine.query(
+                                            requestedRasters,
+                                            requestedElevations,
+                                            requestedViewport,
+                                            requestedDisplayCrs,
+                                            cancellation.token());
                     queryCompletionDispatcher.accept(
-                            () -> applySourceQueryResult(generation, result));
+                            () -> applySourceQueryResult(generation, result, rasterResult));
                 });
     }
 
     private void applySourceQueryResult(
-            long generation, FeatureSourceQueryEngine.Result queryResult) {
+            long generation,
+            FeatureSourceQueryEngine.Result queryResult,
+            BrowserRasterQueryEngine.Result rasterResult) {
         if (closed
                 || generation != queryGeneration
                 || queryResult.cancelled()
+                || rasterResult.cancelled()
                 || activeQueryCancellation.token().isCancellationRequested()) {
             return;
         }
         long nextSceneGeneration = Math.incrementExact(sceneGeneration);
         boolean terminalSourceFailure =
-                queryResult.reports().values().stream()
+                java.util.stream.Stream.concat(
+                                queryResult.reports().values().stream(),
+                                rasterResult.reports().values().stream())
                         .flatMap(report -> report.entries().stream())
                         .anyMatch(
                                 entry ->
@@ -2998,13 +3236,16 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                                 == io.github.mundanej.map.api.DiagnosticSeverity
                                                         .ERROR);
         try {
+            List<BrowserRasterWindow> previousRasterWindows = rasterWindows;
+            rasterWindows = rasterResult.windows();
             StagedScene staged =
-                    stageScene(
+                    stageSceneSafely(
                             combine(
                                     combine(layers, queryResult.layers()),
                                     editableLayers(editBindings)),
                             background,
-                            nextSceneGeneration);
+                            nextSceneGeneration,
+                            previousRasterWindows);
             SceneProtocol.Result encoded = staged.result();
             int snapshotCount = layers.size();
             sourceLayers =
@@ -3037,7 +3278,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                                                                     .ERROR))
                             .map(binding -> binding.binding().id())
                             .collect(java.util.stream.Collectors.toUnmodifiableSet());
-            reconcileSourceReports(queryResult.reports());
+            LinkedHashMap<String, DiagnosticReport> combinedReports =
+                    new LinkedHashMap<>(queryResult.reports());
+            combinedReports.putAll(rasterResult.reports());
+            reconcileSourceReports(combinedReports);
             Throwable cancellationFailure = null;
             try {
                 publishStagedScene(staged);
@@ -3080,10 +3324,23 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     private StagedScene stageScene(
             List<? extends Layer> stagedLayers, Rgba stagedBackground, long stagedGeneration) {
         IconResourceBatch.Registrar registrar = iconSessionAccess.resourceRegistrar(this);
-        IconResourceBatch resources =
+        IconResourceBatch icons =
                 IconResourceBatch.prepare(stagedLayers, this::isAuthorizedIcon, registrar);
+        RasterResourceBatch rasters = null;
         try {
-            SceneProtocol.Result result =
+            long stagedComponentGeneration = componentGeneration;
+            rasters =
+                    RasterResourceBatch.prepare(
+                            rasterWindows,
+                            stagedComponentGeneration,
+                            stagedGeneration,
+                            icons.encodedBytes(),
+                            () ->
+                                    !closed
+                                            && componentGeneration == stagedComponentGeneration
+                                            && sceneGeneration == stagedGeneration,
+                            iconSessionAccess.rasterResourceRegistrar(this));
+            SceneProtocol.Result vectorResult =
                     protocol.encode(
                             stagedLayers,
                             stagedBackground,
@@ -3091,10 +3348,29 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             componentGeneration,
                             stagedGeneration,
                             viewportGeneration,
-                            resources);
-            return new StagedScene(result, resources);
+                            icons);
+            SceneProtocol.Result result =
+                    protocol.withRasterWindows(
+                            vectorResult, rasterWindows, rasters.encodedWindows());
+            return new StagedScene(result, icons, rasters);
         } catch (RuntimeException | Error failure) {
-            resources.close();
+            if (rasters != null) {
+                cleanup(failure, rasters::close);
+            }
+            cleanup(failure, icons::close);
+            throw failure;
+        }
+    }
+
+    private StagedScene stageSceneSafely(
+            List<? extends Layer> stagedLayers,
+            Rgba stagedBackground,
+            long stagedGeneration,
+            List<BrowserRasterWindow> fallbackWindows) {
+        try {
+            return stageScene(stagedLayers, stagedBackground, stagedGeneration);
+        } catch (RuntimeException | Error failure) {
+            rasterWindows = fallbackWindows;
             throw failure;
         }
     }
@@ -3105,7 +3381,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             long stagedGeneration,
             List<FeatureEditBinding> candidateEdits) {
         IconResourceBatch.Registrar registrar = iconSessionAccess.resourceRegistrar(this);
-        IconResourceBatch resources =
+        IconResourceBatch icons =
                 IconResourceBatch.prepare(
                         stagedLayers,
                         icon ->
@@ -3113,8 +3389,21 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                         || candidateEdits.stream()
                                                 .anyMatch(binding -> binding.authorizes(icon)),
                         registrar);
+        RasterResourceBatch rasters = null;
         try {
-            SceneProtocol.Result result =
+            long stagedComponentGeneration = componentGeneration;
+            rasters =
+                    RasterResourceBatch.prepare(
+                            rasterWindows,
+                            stagedComponentGeneration,
+                            stagedGeneration,
+                            icons.encodedBytes(),
+                            () ->
+                                    !closed
+                                            && componentGeneration == stagedComponentGeneration
+                                            && sceneGeneration == stagedGeneration,
+                            iconSessionAccess.rasterResourceRegistrar(this));
+            SceneProtocol.Result vectorResult =
                     protocol.encode(
                             stagedLayers,
                             stagedBackground,
@@ -3122,10 +3411,16 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             componentGeneration,
                             stagedGeneration,
                             viewportGeneration,
-                            resources);
-            return new StagedScene(result, resources);
+                            icons);
+            SceneProtocol.Result result =
+                    protocol.withRasterWindows(
+                            vectorResult, rasterWindows, rasters.encodedWindows());
+            return new StagedScene(result, icons, rasters);
         } catch (RuntimeException | Error failure) {
-            resources.close();
+            if (rasters != null) {
+                cleanup(failure, rasters::close);
+            }
+            cleanup(failure, icons::close);
             throw failure;
         }
     }
@@ -3151,12 +3446,6 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         return false;
     }
 
-    private void acceptIconResources(IconResourceBatch replacement) {
-        IconResourceBatch previous = iconResources;
-        iconResources = replacement;
-        previous.close();
-    }
-
     private void publishStagedScene(StagedScene staged) {
         Throwable cancellationFailure = null;
         if (toolRouter.activeTool().isPresent()
@@ -3173,14 +3462,20 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         try {
             publishScene(staged.result().scene());
         } catch (RuntimeException | Error failure) {
-            staged.resources().close();
+            cleanup(failure, staged::closeResources);
             if (cancellationFailure != null && cancellationFailure != failure) {
                 failure.addSuppressed(cancellationFailure);
             }
             throw failure;
         }
+        IconResourceBatch previousIcons = iconResources;
+        RasterResourceBatch previousRasters = rasterResources;
+        iconResources = staged.iconResources();
+        rasterResources = staged.rasterResources();
+        Throwable completionFailure = cancellationFailure;
+        completionFailure = cleanup(completionFailure, previousRasters::close);
+        completionFailure = cleanup(completionFailure, previousIcons::close);
         try {
-            acceptIconResources(staged.resources());
             currentSceneLayers = staged.result().layers();
             editBindings.forEach(binding -> binding.markPublished(this));
             paintedFeatures = paintedFeatures(staged.result().scene(), currentSceneLayers);
@@ -3189,13 +3484,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             reconcileInteractionIdentities();
             publishInteractionOverlay();
         } catch (RuntimeException | Error failure) {
-            if (cancellationFailure != null && cancellationFailure != failure) {
-                failure.addSuppressed(cancellationFailure);
-            }
-            throw failure;
+            completionFailure = cleanup(completionFailure, () -> throwUnchecked(failure));
         }
-        if (cancellationFailure != null) {
-            throwUnchecked(cancellationFailure);
+        if (completionFailure != null) {
+            throwUnchecked(completionFailure);
         }
     }
 
@@ -3205,8 +3497,16 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         previous.close();
     }
 
+    private void releaseRasterResources() {
+        RasterResourceBatch previous = rasterResources;
+        rasterResources = RasterResourceBatch.empty();
+        previous.close();
+    }
+
     void handleIconSessionDestroy() {
         releaseIconResources();
+        releaseRasterResources();
+        rasterWindows = List.of();
         clearBrowserLabelState(true);
     }
 
@@ -3243,6 +3543,26 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         }
     }
 
+    private void releaseRasterBindings(List<RasterSourceBinding> bindingsToRelease) {
+        Throwable primary = null;
+        for (RasterSourceBinding binding : bindingsToRelease) {
+            primary = cleanup(primary, () -> binding.release(this));
+        }
+        if (primary != null) {
+            throwUnchecked(primary);
+        }
+    }
+
+    private void releaseElevationBindings(List<ElevationSourceBinding> bindingsToRelease) {
+        Throwable primary = null;
+        for (ElevationSourceBinding binding : bindingsToRelease) {
+            primary = cleanup(primary, () -> binding.release(this));
+        }
+        if (primary != null) {
+            throwUnchecked(primary);
+        }
+    }
+
     private void reconcileSourceReports(Map<String, DiagnosticReport> nextReports) {
         for (String existing : List.copyOf(sourceReports.keySet())) {
             if (!nextReports.containsKey(existing)) {
@@ -3251,6 +3571,18 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         }
         for (FeatureSourceQueryEngine.RequestBinding binding : featureBindings) {
             String id = binding.binding().id();
+            if (nextReports.containsKey(id)) {
+                transitionSourceReport(id, Optional.ofNullable(nextReports.get(id)));
+            }
+        }
+        for (RasterSourceBinding binding : rasterBindings) {
+            String id = binding.id();
+            if (nextReports.containsKey(id)) {
+                transitionSourceReport(id, Optional.ofNullable(nextReports.get(id)));
+            }
+        }
+        for (ElevationSourceBinding binding : elevationBindings) {
+            String id = binding.id();
             if (nextReports.containsKey(id)) {
                 transitionSourceReport(id, Optional.ofNullable(nextReports.get(id)));
             }
@@ -3297,6 +3629,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         for (FeatureEditBinding binding : editBindings) {
             ids.add(binding.id());
         }
+        rasterBindings.forEach(binding -> ids.add(binding.id()));
+        elevationBindings.forEach(binding -> ids.add(binding.id()));
         IdentityHashMap<io.github.mundanej.map.api.FeatureSource, FeatureSourceBinding> installed =
                 new IdentityHashMap<>();
         for (FeatureSourceBinding binding : featureSourceBindings()) {
@@ -3329,6 +3663,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         for (FeatureEditBinding binding : editBindings) {
             ids.add(binding.id());
         }
+        rasterBindings.forEach(binding -> ids.add(binding.id()));
+        elevationBindings.forEach(binding -> ids.add(binding.id()));
         for (Layer snapshot : snapshots) {
             if (!ids.add(snapshot.id())) {
                 throw duplicateLayerIdentity();
@@ -3344,6 +3680,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         for (FeatureSourceQueryEngine.RequestBinding binding : featureBindings) {
             ids.add(binding.binding().id());
         }
+        rasterBindings.forEach(binding -> ids.add(binding.id()));
+        elevationBindings.forEach(binding -> ids.add(binding.id()));
         for (FeatureEditBinding binding : candidates) {
             Objects.requireNonNull(binding, "binding");
             if (binding.isClosed()) {
@@ -3361,6 +3699,67 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 MundaneMapException.DUPLICATE_ID,
                 "Duplicate browser layer identity",
                 Map.of("identityNamespace", "layer"));
+    }
+
+    private void validateRasterBindings(
+            List<RasterSourceBinding> candidates,
+            List<ElevationSourceBinding> candidateElevations) {
+        Set<String> ids = configuredNonRasterIds();
+        candidateElevations.forEach(binding -> ids.add(binding.id()));
+        Set<io.github.mundanej.map.api.RasterSource> sources =
+                java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        IdentityHashMap<io.github.mundanej.map.api.RasterSource, RasterSourceBinding> installed =
+                new IdentityHashMap<>();
+        rasterBindings.forEach(binding -> installed.put(binding.source(), binding));
+        for (RasterSourceBinding binding : candidates) {
+            Objects.requireNonNull(binding, "binding");
+            if (!ids.add(binding.id())) {
+                throw duplicateLayerIdentity();
+            }
+            if (!sources.add(binding.source())) {
+                throw new IllegalArgumentException(
+                        "A raster source may appear in only one installed binding");
+            }
+            RasterSourceBinding existing = installed.get(binding.source());
+            if (existing != null && existing != binding) {
+                throw new IllegalArgumentException(
+                        "An installed raster source must retain its binding instance");
+            }
+        }
+    }
+
+    private void validateElevationBindings(
+            List<RasterSourceBinding> candidateRasters, List<ElevationSourceBinding> candidates) {
+        Set<String> ids = configuredNonRasterIds();
+        candidateRasters.forEach(binding -> ids.add(binding.id()));
+        Set<io.github.mundanej.map.api.ElevationSource> sources =
+                java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        IdentityHashMap<io.github.mundanej.map.api.ElevationSource, ElevationSourceBinding>
+                installed = new IdentityHashMap<>();
+        elevationBindings.forEach(binding -> installed.put(binding.source(), binding));
+        for (ElevationSourceBinding binding : candidates) {
+            Objects.requireNonNull(binding, "binding");
+            if (!ids.add(binding.id())) {
+                throw duplicateLayerIdentity();
+            }
+            if (!sources.add(binding.source())) {
+                throw new IllegalArgumentException(
+                        "An elevation source may appear in only one installed binding");
+            }
+            ElevationSourceBinding existing = installed.get(binding.source());
+            if (existing != null && existing != binding) {
+                throw new IllegalArgumentException(
+                        "An installed elevation source must retain its binding instance");
+            }
+        }
+    }
+
+    private Set<String> configuredNonRasterIds() {
+        Set<String> ids = new HashSet<>();
+        layers.forEach(layer -> ids.add(layer.id()));
+        featureBindings.forEach(binding -> ids.add(binding.binding().id()));
+        editBindings.forEach(binding -> ids.add(binding.id()));
+        return ids;
     }
 
     private List<Layer> combinedLayers() {
@@ -3383,6 +3782,21 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
 
     private static Set<FeatureEditBinding> identityEditSet(List<FeatureEditBinding> values) {
         Set<FeatureEditBinding> identities =
+                java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        identities.addAll(values);
+        return identities;
+    }
+
+    private static Set<RasterSourceBinding> identityRasterSet(List<RasterSourceBinding> values) {
+        Set<RasterSourceBinding> identities =
+                java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        identities.addAll(values);
+        return identities;
+    }
+
+    private static Set<ElevationSourceBinding> identityElevationSet(
+            List<ElevationSourceBinding> values) {
+        Set<ElevationSourceBinding> identities =
                 java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         identities.addAll(values);
         return identities;
@@ -3641,15 +4055,49 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         }
     }
 
-    private record StagedScene(SceneProtocol.Result result, IconResourceBatch resources) {
+    private record StagedScene(
+            SceneProtocol.Result result,
+            IconResourceBatch iconResources,
+            RasterResourceBatch rasterResources) {
         private StagedScene {
             Objects.requireNonNull(result, "result");
-            Objects.requireNonNull(resources, "resources");
+            Objects.requireNonNull(iconResources, "iconResources");
+            Objects.requireNonNull(rasterResources, "rasterResources");
+        }
+
+        private void closeResources() {
+            Throwable failure = null;
+            try {
+                rasterResources.close();
+            } catch (RuntimeException | Error closeFailure) {
+                failure = closeFailure;
+            }
+            try {
+                iconResources.close();
+            } catch (RuntimeException | Error closeFailure) {
+                if (failure == null) {
+                    failure = closeFailure;
+                } else if (failure != closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            if (failure != null) {
+                throwUnchecked(failure);
+            }
         }
     }
 
     interface IconSessionAccess {
         IconResourceBatch.Registrar resourceRegistrar(MundaneMap map);
+
+        default RasterResourceBatch.Registrar rasterResourceRegistrar(MundaneMap map) {
+            return payload -> {
+                IconResourceBatch.RegisteredResource resource =
+                        resourceRegistrar(map).register(payload.body());
+                return new RasterResourceBatch.RegisteredResource(
+                        resource.uri(), resource.unregister());
+            };
+        }
 
         Registration addDestroyListener(MundaneMap map, Runnable listener);
 
@@ -3666,6 +4114,22 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                                 MundaneMapException.RESOURCE_UNAVAILABLE,
                                                 "Raster icon resources require an attached session",
                                                 Map.of("resourceKind", "catalog-icon"));
+                                    });
+                }
+
+                @Override
+                public RasterResourceBatch.Registrar rasterResourceRegistrar(MundaneMap map) {
+                    return map.getUI()
+                            .<RasterResourceBatch.Registrar>map(
+                                    ui ->
+                                            RasterResourceBatch.vaadin(
+                                                    ui.getSession(), map.getElement()))
+                            .orElse(
+                                    payload -> {
+                                        throw new MundaneMapException(
+                                                MundaneMapException.RESOURCE_UNAVAILABLE,
+                                                "Raster window resources require an attached session",
+                                                Map.of("resourceKind", "raster-window"));
                                     });
                 }
 

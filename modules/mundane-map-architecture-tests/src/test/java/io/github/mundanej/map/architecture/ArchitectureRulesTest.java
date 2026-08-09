@@ -744,8 +744,13 @@ class ArchitectureRulesTest {
                         .filter(
                                 type ->
                                         !type.getName()
-                                                .equals(
-                                                        "io.github.mundanej.map.io.geotiff.GeoTiffElevationOptions"))
+                                                        .equals(
+                                                                "io.github.mundanej.map.io.geotiff."
+                                                                        + "GeoTiffElevationOptions")
+                                                && !type.getName()
+                                                        .equals(
+                                                                "io.github.mundanej.map.vaadin."
+                                                                        + "ElevationSourceBinding"))
                         .map(JavaClass::getName)
                         .sorted()
                         .toList();

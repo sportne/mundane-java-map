@@ -8,6 +8,11 @@ const MAX_PATH_COMMANDS = 2000000;
 const MAX_LOGICAL_BYTES = 64 * 1024 * 1024;
 const MAX_ICON_RESOURCES = 4096;
 const MAX_ICON_RESOURCE_BYTES = 64 * 1024 * 1024;
+const MAX_RASTER_WINDOWS = 4096;
+const MAX_RASTER_EDGE = 16384;
+const MAX_RASTER_PIXELS = 16777216;
+const MAX_RASTER_WINDOW_BYTES = 64 * 1024 * 1024;
+const MAX_SCENE_RESOURCE_BYTES = 128 * 1024 * 1024;
 const MAX_LABELS = 4096;
 const MAX_LABEL_CODE_POINTS = 262144;
 const MAX_LABEL_METRIC_MAGNITUDE = 1000000;
@@ -86,6 +91,106 @@ function rgba(channels, opacity = 1) {
 
 function validateGeneration(value) {
   return Number.isSafeInteger(value) && value >= 0;
+}
+
+function validateRelativeResource(resource) {
+  const base = globalThis.location?.href;
+  let resolved;
+  try {
+    if (!base || typeof resource !== 'string' || !resource || resource.length > 4096 ||
+        !(resource.startsWith('/') || resource.startsWith('./')) ||
+        resource.startsWith('//') || resource.includes('\\')) {
+      throw new Error('RESOURCE_UNAVAILABLE');
+    }
+    resolved = new URL(resource, base);
+  } catch (_error) {
+    throw new Error('RESOURCE_UNAVAILABLE');
+  }
+  if (resolved.origin !== new URL(base).origin || resolved.hash ||
+      !['http:', 'https:'].includes(resolved.protocol)) {
+    throw new Error('RESOURCE_UNAVAILABLE');
+  }
+}
+
+async function readExactResponse(response, expectedBytes) {
+  const contentLength = response.headers?.get?.('content-length');
+  if (contentLength !== null && contentLength !== undefined &&
+      (!/^(0|[1-9][0-9]*)$/.test(contentLength) ||
+       !Number.isSafeInteger(Number(contentLength)) || Number(contentLength) !== expectedBytes)) {
+    throw new Error('RESOURCE_UNAVAILABLE');
+  }
+  const reader = response.body?.getReader?.();
+  if (!reader) throw new Error('BROWSER_CAPABILITY_UNSUPPORTED');
+  const result = new Uint8Array(expectedBytes);
+  let offset = 0;
+  let chunks = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (!(next.value instanceof Uint8Array) || next.value.length === 0 ||
+          ++chunks > 65_536 || next.value.length > expectedBytes - offset) {
+        reader.cancel().catch(() => {});
+        throw new Error('RESOURCE_UNAVAILABLE');
+      }
+      result.set(next.value, offset);
+      offset += next.value.length;
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  if (offset !== expectedBytes) throw new Error('RESOURCE_UNAVAILABLE');
+  return result;
+}
+
+function validateBounds(value) {
+  if (!Array.isArray(value) || value.length !== 4 || !value.every(Number.isFinite) ||
+      !(value[0] < value[2]) || !(value[1] < value[3])) {
+    throw new Error('NON_FINITE_VALUE');
+  }
+}
+
+function validateRaster(raster) {
+  if (!raster || typeof raster.id !== 'string' || !raster.id || raster.id.length > 256 ||
+      typeof raster.name !== 'string' || raster.name.length > 4096 ||
+      !Number.isInteger(raster.width) || raster.width <= 0 || raster.width > MAX_RASTER_EDGE ||
+      !Number.isInteger(raster.height) || raster.height <= 0 || raster.height > MAX_RASTER_EDGE ||
+      raster.width * raster.height > MAX_RASTER_PIXELS ||
+      !Number.isFinite(raster.opacity) || raster.opacity < 0 || raster.opacity > 1 ||
+      !['NEAREST', 'BILINEAR'].includes(raster.interpolation) ||
+      !Array.isArray(raster.sourceWindow) || raster.sourceWindow.length !== 4 ||
+      !raster.sourceWindow.every(Number.isSafeInteger) ||
+      raster.sourceWindow.some(value => value < 0) ||
+      raster.sourceWindow[2] <= 0 || raster.sourceWindow[3] <= 0 || !raster.placement) {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  validateRelativeResource(raster.resource);
+  validateBounds(raster.imageMapBounds);
+  validateBounds(raster.clipMapBounds);
+  if (raster.clipMapBounds[0] < raster.imageMapBounds[0] ||
+      raster.clipMapBounds[1] < raster.imageMapBounds[1] ||
+      raster.clipMapBounds[2] > raster.imageMapBounds[2] ||
+      raster.clipMapBounds[3] > raster.imageMapBounds[3]) {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
+  if (raster.placement.kind === 'AXIS_ALIGNED') {
+    validateBounds(raster.placement.bounds);
+    if (!raster.placement.bounds.every((value, index) => value === raster.imageMapBounds[index])) {
+      throw new Error('SYMBOL_UNSUPPORTED');
+    }
+  } else if (raster.placement.kind === 'AFFINE') {
+    const transform = raster.placement.transform;
+    if (!Array.isArray(transform) || transform.length !== 6 ||
+        !transform.every(Number.isFinite)) {
+      throw new Error('NON_FINITE_VALUE');
+    }
+    const determinant = transform[0] * transform[3] - transform[2] * transform[1];
+    if (!Number.isFinite(determinant) || determinant === 0) {
+      throw new Error('NON_FINITE_VALUE');
+    }
+  } else {
+    throw new Error('SYMBOL_UNSUPPORTED');
+  }
 }
 
 function validateColor(value) {
@@ -303,6 +408,15 @@ function detachScene(scene) {
     viewportGeneration: scene.viewportGeneration,
     background: [...scene.background],
     viewport: {...scene.viewport},
+    ...(scene.rasters ? {rasters: scene.rasters.map(raster => ({
+      ...raster,
+      sourceWindow: [...raster.sourceWindow],
+      imageMapBounds: [...raster.imageMapBounds],
+      clipMapBounds: [...raster.clipMapBounds],
+      placement: raster.placement.kind === 'AFFINE' ?
+        {...raster.placement, transform: [...raster.placement.transform]} :
+        {...raster.placement, bounds: [...raster.placement.bounds]}
+    }))} : {}),
     labelCandidates: scene.labelCandidates.map(candidate => ({...candidate})),
     layers: scene.layers.map(layer => ({
       id: layer.id,
@@ -327,7 +441,11 @@ function deepFreeze(value) {
 }
 
 export function logicalSceneBytes(scene) {
-  let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4 + 4;
+  let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4 + 4 + 4;
+  for (const raster of scene.rasters || []) {
+    size += logicalStringBytes(raster.id) + logicalStringBytes(raster.name) +
+      logicalStringBytes(raster.resource) + 4 * 4 + 19 * 8;
+  }
   for (const candidate of scene.labelCandidates) {
     size += 2 * 8 + logicalStringBytes(candidate.text) + 2;
   }
@@ -389,6 +507,7 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
   validateSceneIdentity(candidate, currentComponentGeneration, currentSceneGeneration);
   validateViewport(candidate.viewport);
   if (!validateColor(candidate.background) || !Array.isArray(candidate.layers) ||
+      (candidate.rasters !== undefined && !Array.isArray(candidate.rasters)) ||
       !Array.isArray(candidate.labelCandidates)) {
     throw new Error('SYMBOL_UNSUPPORTED');
   }
@@ -412,10 +531,16 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
     labelCodePoints += codePoints;
     if (labelCodePoints > MAX_LABEL_CODE_POINTS) throw new Error('LIMIT_EXCEEDED');
   }
-  if (candidate.layers.length > MAX_LAYERS) {
+  const rasters = candidate.rasters || [];
+  if (rasters.length > MAX_RASTER_WINDOWS || candidate.layers.length + rasters.length > MAX_LAYERS) {
     throw new Error('LIMIT_EXCEEDED');
   }
   const layerIds = new Set();
+  for (const raster of rasters) {
+    validateRaster(raster);
+    if (layerIds.has(raster.id)) throw new Error('DUPLICATE_ID');
+    layerIds.add(raster.id);
+  }
   let featureCount = 0;
   let primitiveCount = 0;
   let coordinatePairs = 0;
@@ -476,22 +601,7 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
               !['NEAREST', 'BILINEAR'].includes(primitive.interpolation)) {
             throw new Error('SYMBOL_UNSUPPORTED');
           }
-          const base = globalThis.location?.href;
-          let resolved;
-          try {
-            if (!base) throw new Error('RESOURCE_UNAVAILABLE');
-            if (!(primitive.resource.startsWith('/') || primitive.resource.startsWith('./')) ||
-                primitive.resource.startsWith('//') || primitive.resource.includes('\\')) {
-              throw new Error('RESOURCE_UNAVAILABLE');
-            }
-            resolved = new URL(primitive.resource, base);
-          } catch (_error) {
-            throw new Error('RESOURCE_UNAVAILABLE');
-          }
-          if (resolved.origin !== new URL(base).origin || resolved.hash ||
-              !['http:', 'https:'].includes(resolved.protocol)) {
-            throw new Error('RESOURCE_UNAVAILABLE');
-          }
+          validateRelativeResource(primitive.resource);
           if (!primitive.size.every(Number.isFinite) ||
               !primitive.offset.every(Number.isFinite) ||
               !Number.isFinite(primitive.rotationDegrees)) {
@@ -620,6 +730,7 @@ export class MundaneMapCanvas extends HTMLElement {
     this.interactionLayers = [];
     this.pendingInteractionOverlay = null;
     this.iconResources = new Map();
+    this.rasterResources = new Map();
     this.sceneLoadAbort = null;
     this.sceneLoadSequence = 0;
     this.pendingSceneGeneration = -1;
@@ -700,6 +811,7 @@ export class MundaneMapCanvas extends HTMLElement {
     this.lastLabelMeasurementKey = null;
     this.pendingLabelAcknowledgement = null;
     this.iconResources.clear();
+    this.rasterResources.clear();
     this.scene = null;
     this.interactionLayers = [];
     this.pendingInteractionOverlay = null;
@@ -732,6 +844,7 @@ export class MundaneMapCanvas extends HTMLElement {
       this.lastLabelMeasurementKey = null;
       this.pendingLabelAcknowledgement = null;
       this.iconResources.clear();
+      this.rasterResources.clear();
       this.scene = null;
       this.interactionLayers = [];
       this.pendingInteractionOverlay = null;
@@ -756,6 +869,7 @@ export class MundaneMapCanvas extends HTMLElement {
     this.lastLabelMeasurementKey = null;
     this.pendingLabelAcknowledgement = null;
     this.iconResources.clear();
+    this.rasterResources.clear();
     this.teardown();
     if (this.context) {
       this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -852,7 +966,8 @@ export class MundaneMapCanvas extends HTMLElement {
     }
     let resources;
     try {
-      resources = this.sceneIconMetadata(accepted);
+      const icons = this.sceneIconMetadata(accepted);
+      resources = {icons, rasters: this.sceneRasterMetadata(accepted, icons)};
     } catch (error) {
       this.reportFailure(error.message, candidate.sceneGeneration);
       return;
@@ -868,16 +983,21 @@ export class MundaneMapCanvas extends HTMLElement {
     this.pendingViewport = null;
     this.pendingInteractionOverlay = null;
     const sequence = ++this.sceneLoadSequence;
-    if (!resources.size) {
-      this.acceptLoadedScene(accepted, acceptedViewport, new Map(), sequence);
+    if (!resources.icons.size && !resources.rasters.size) {
+      this.acceptLoadedScene(accepted, acceptedViewport, new Map(), new Map(), sequence);
       return;
     }
     const controller = new AbortController();
     this.sceneLoadAbort = controller;
-    this.loadSceneIcons(resources, controller.signal)
-      .then(icons => this.acceptLoadedScene(accepted, acceptedViewport, icons, sequence))
+    Promise.all([
+      this.loadSceneIcons(resources.icons, controller.signal),
+      this.loadSceneRasters(resources.rasters, accepted, controller.signal)
+    ]).then(([icons, rasters]) =>
+      this.acceptLoadedScene(accepted, acceptedViewport, icons, rasters, sequence))
       .catch(error => {
         if (!controller.signal.aborted && sequence === this.sceneLoadSequence) {
+          controller.abort();
+          if (this.sceneLoadAbort === controller) this.sceneLoadAbort = null;
           this.pendingSceneGeneration = -1;
           this.pendingViewport = null;
           const code = error?.message === 'BROWSER_CAPABILITY_UNSUPPORTED' ?
@@ -919,15 +1039,29 @@ export class MundaneMapCanvas extends HTMLElement {
     return resources;
   }
 
+  sceneRasterMetadata(scene, icons) {
+    const resources = new Map();
+    let total = [...icons.values()].reduce((sum, metadata) => sum + metadata.bytes, 0);
+    for (const raster of scene.rasters || []) {
+      if (resources.has(raster.resource)) throw new Error('RESOURCE_UNAVAILABLE');
+      const bytes = 32 + raster.width * raster.height * 4;
+      if (bytes - 32 > MAX_RASTER_WINDOW_BYTES) throw new Error('LIMIT_EXCEEDED');
+      total += bytes;
+      if (resources.size >= MAX_RASTER_WINDOWS || total > MAX_SCENE_RESOURCE_BYTES) {
+        throw new Error('LIMIT_EXCEEDED');
+      }
+      resources.set(raster.resource, {width: raster.width, height: raster.height, bytes});
+    }
+    return resources;
+  }
+
   async loadSceneIcons(resources, signal) {
     const loaded = new Map();
     for (const [resource, metadata] of resources) {
       const response = await fetch(resource,
         {credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal});
       if (!response.ok) throw new Error('RESOURCE_UNAVAILABLE');
-      const buffer = await response.arrayBuffer();
-      if (buffer.byteLength !== metadata.bytes) throw new Error('RESOURCE_UNAVAILABLE');
-      const bytes = new Uint8Array(buffer);
+      const bytes = await readExactResponse(response, metadata.bytes);
       if (bytes[0] !== 77 || bytes[1] !== 77 || bytes[2] !== 82 || bytes[3] !== 73 ||
           bytes[4] !== 1 || bytes[5] !== 0 || bytes[10] !== 0 || bytes[11] !== 0 ||
           (bytes[6] << 8 | bytes[7]) !== metadata.width ||
@@ -950,7 +1084,45 @@ export class MundaneMapCanvas extends HTMLElement {
     return loaded;
   }
 
-  acceptLoadedScene(accepted, acceptedViewport, icons, sequence) {
+  async loadSceneRasters(resources, scene, signal) {
+    const loaded = new Map();
+    for (const [resource, metadata] of resources) {
+      const response = await fetch(resource,
+        {credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal});
+      if (!response.ok) throw new Error('RESOURCE_UNAVAILABLE');
+      const contentType = response.headers?.get?.('content-type')?.split(';')[0]?.trim();
+      if (contentType !== 'application/vnd.mundane-map.rgba-window') {
+        throw new Error('RESOURCE_UNAVAILABLE');
+      }
+      const bytes = await readExactResponse(response, metadata.bytes);
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const componentGeneration = view.getUint32(16) * 4294967296 + view.getUint32(20);
+      const sceneGeneration = view.getUint32(24) * 4294967296 + view.getUint32(28);
+      if (bytes[0] !== 77 || bytes[1] !== 77 || bytes[2] !== 82 || bytes[3] !== 87 ||
+          bytes[4] !== 1 || bytes[5] !== 0 || view.getUint16(6) !== 32 ||
+          view.getUint32(8) !== metadata.width || view.getUint32(12) !== metadata.height ||
+          !Number.isSafeInteger(componentGeneration) || !Number.isSafeInteger(sceneGeneration) ||
+          componentGeneration !== scene.componentGeneration ||
+          sceneGeneration !== scene.sceneGeneration) {
+        throw new Error('RESOURCE_UNAVAILABLE');
+      }
+      const image = document.createElement('canvas');
+      image.width = metadata.width;
+      image.height = metadata.height;
+      const context = image.getContext('2d');
+      if (!context || typeof context.createImageData !== 'function' ||
+          typeof context.putImageData !== 'function') {
+        throw new Error('BROWSER_CAPABILITY_UNSUPPORTED');
+      }
+      const pixels = context.createImageData(metadata.width, metadata.height);
+      pixels.data.set(bytes.subarray(32));
+      context.putImageData(pixels, 0, 0);
+      loaded.set(resource, image);
+    }
+    return loaded;
+  }
+
+  acceptLoadedScene(accepted, acceptedViewport, icons, rasters, sequence) {
     if (sequence !== this.sceneLoadSequence || accepted.componentGeneration !==
         this.componentGeneration || accepted.sceneGeneration <= this.sceneGeneration) return;
     const queued = this.pendingSceneGeneration === accepted.sceneGeneration ?
@@ -965,7 +1137,7 @@ export class MundaneMapCanvas extends HTMLElement {
     this.viewport = finalViewport;
     this.interactionLayers = [];
     try {
-      this.preflightPaint(accepted, icons);
+      this.preflightPaint(accepted, icons, rasters);
     } catch (error) {
       this.viewport = previousViewport;
       this.interactionLayers = previousInteractionLayers;
@@ -977,6 +1149,7 @@ export class MundaneMapCanvas extends HTMLElement {
     this.sceneLoadAbort = null;
     this.scene = accepted;
     this.iconResources = icons;
+    this.rasterResources = rasters;
     this.placedLabels = [];
     this.lastLabelMeasurementKey = null;
     this.pendingLabelAcknowledgement = null;
@@ -1272,6 +1445,9 @@ export class MundaneMapCanvas extends HTMLElement {
       }
       this.context.fillStyle = rgba(this.scene.background);
       this.context.fillRect(0, 0, this.viewport.width, this.viewport.height);
+      for (const raster of this.scene.rasters || []) {
+        this.drawRaster(raster);
+      }
       for (const layer of this.scene.layers) {
         for (const feature of layer.features) {
           for (const primitive of feature.primitives) {
@@ -1331,6 +1507,78 @@ export class MundaneMapCanvas extends HTMLElement {
     } finally {
       this.context.restore();
     }
+  }
+
+  drawRaster(raster) {
+    if (raster.opacity === 0) return;
+    const image = this.rasterResources.get(raster.resource);
+    if (!image) throw new Error('RESOURCE_UNAVAILABLE');
+    const matrix = this.rasterTransform(raster);
+    const clip = raster.clipMapBounds;
+    const northWest = this.screen([clip[0], clip[3]], 0);
+    const southEast = this.screen([clip[2], clip[1]], 0);
+    this.context.save();
+    try {
+      this.context.beginPath();
+      this.context.rect(northWest[0], northWest[1],
+        southEast[0] - northWest[0], southEast[1] - northWest[1]);
+      this.context.clip();
+      this.context.imageSmoothingEnabled = raster.interpolation === 'BILINEAR';
+      this.context.globalAlpha = raster.opacity;
+      this.context.transform(matrix.m00, matrix.m10, matrix.m01, matrix.m11,
+        matrix.m02, matrix.m12);
+      this.context.drawImage(image, 0, 0);
+    } finally {
+      this.context.restore();
+    }
+  }
+
+  rasterTransform(raster) {
+    let mapOriginX;
+    let mapOriginY;
+    let mapColumnX;
+    let mapColumnY;
+    let mapRowX;
+    let mapRowY;
+    if (raster.placement.kind === 'AXIS_ALIGNED') {
+      const bounds = raster.placement.bounds;
+      mapOriginX = bounds[0];
+      mapOriginY = bounds[3];
+      mapColumnX = (bounds[2] - bounds[0]) / raster.width;
+      mapColumnY = 0;
+      mapRowX = 0;
+      mapRowY = (bounds[1] - bounds[3]) / raster.height;
+    } else {
+      const [a, d, b, e, c, f] = raster.placement.transform;
+      const [column, row, width, height] = raster.sourceWindow;
+      const firstColumnEdge = column - 0.5;
+      const firstRowEdge = row - 0.5;
+      mapOriginX = a * firstColumnEdge + b * firstRowEdge + c;
+      mapOriginY = d * firstColumnEdge + e * firstRowEdge + f;
+      mapColumnX = a * width / raster.width;
+      mapColumnY = d * width / raster.width;
+      mapRowX = b * height / raster.height;
+      mapRowY = e * height / raster.height;
+    }
+    const m00 = mapColumnX / this.viewport.worldUnitsPerPixel;
+    const m10 = -mapColumnY / this.viewport.worldUnitsPerPixel;
+    const m01 = mapRowX / this.viewport.worldUnitsPerPixel;
+    const m11 = -mapRowY / this.viewport.worldUnitsPerPixel;
+    const m02 = this.viewport.width / 2 +
+      (mapOriginX - this.viewport.centerX) / this.viewport.worldUnitsPerPixel;
+    const m12 = this.viewport.height / 2 -
+      (mapOriginY - this.viewport.centerY) / this.viewport.worldUnitsPerPixel;
+    const values = [mapOriginX, mapOriginY, mapColumnX, mapColumnY, mapRowX, mapRowY,
+      m00, m10, m01, m11, m02, m12];
+    if (!values.every(Number.isFinite)) throw new Error('NON_FINITE_VALUE');
+    for (const x of [0, raster.width]) for (const y of [0, raster.height]) {
+      const cornerX = m00 * x + m01 * y + m02;
+      const cornerY = m10 * x + m11 * y + m12;
+      if (!Number.isFinite(cornerX) || !Number.isFinite(cornerY)) {
+        throw new Error('NON_FINITE_VALUE');
+      }
+    }
+    return {m00, m10, m01, m11, m02, m12};
   }
 
   screen(coordinates, index) {
@@ -1556,9 +1804,16 @@ export class MundaneMapCanvas extends HTMLElement {
     return {bounds, origin, spacing, orientations, required};
   }
 
-  preflightPaint(scene = this.scene, iconResources = this.iconResources) {
+  preflightPaint(scene = this.scene, iconResources = this.iconResources,
+      rasterResources = this.rasterResources) {
     if (!scene) {
       return;
+    }
+    for (const raster of scene.rasters || []) {
+      if (!rasterResources.has(raster.resource)) throw new Error('RESOURCE_UNAVAILABLE');
+      this.rasterTransform(raster);
+      const clip = raster.clipMapBounds;
+      this.preflightCoordinates([clip[0], clip[1], clip[2], clip[3]]);
     }
     this.preflightLayers([...scene.layers, ...this.interactionLayers], iconResources);
   }

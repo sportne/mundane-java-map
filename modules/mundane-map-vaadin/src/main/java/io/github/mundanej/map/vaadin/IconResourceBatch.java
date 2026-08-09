@@ -31,15 +31,18 @@ final class IconResourceBatch implements AutoCloseable, SceneProtocol.IconResour
 
     private final Map<RasterIconSymbol, String> uris;
     private final List<Runnable> unregister;
+    private final long encodedBytes;
     private boolean closed;
 
-    private IconResourceBatch(Map<RasterIconSymbol, String> uris, List<Runnable> unregister) {
+    private IconResourceBatch(
+            Map<RasterIconSymbol, String> uris, List<Runnable> unregister, long encodedBytes) {
         this.uris = uris;
         this.unregister = unregister;
+        this.encodedBytes = encodedBytes;
     }
 
     static IconResourceBatch empty() {
-        return new IconResourceBatch(Map.of(), List.of());
+        return new IconResourceBatch(Map.of(), List.of(), 0);
     }
 
     static IconResourceBatch prepare(
@@ -78,7 +81,7 @@ final class IconResourceBatch implements AutoCloseable, SceneProtocol.IconResour
                 staged.put(icon, uri);
             }
             return new IconResourceBatch(
-                    Collections.unmodifiableMap(staged), List.copyOf(removals));
+                    Collections.unmodifiableMap(staged), List.copyOf(removals), bytes);
         } catch (RuntimeException | Error failure) {
             closeAll(removals, failure);
             throw failure;
@@ -114,6 +117,10 @@ final class IconResourceBatch implements AutoCloseable, SceneProtocol.IconResour
                     Map.of("resourceKind", "catalog-icon"));
         }
         return uri;
+    }
+
+    long encodedBytes() {
+        return encodedBytes;
     }
 
     @Override
