@@ -9,7 +9,11 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.shared.Registration;
 import io.github.mundanej.map.api.Layer;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.Locale;
+import java.util.concurrent.CompletionStage;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /** Responsive, keyboard-ordered application shell for the in-memory browser map. */
 @Tag("main")
@@ -33,6 +37,7 @@ public final class ViewerRoute extends Component implements AutoCloseable {
             .map{min-width:0;min-height:28rem;padding:.75rem}
             .layer{display:grid;grid-template-columns:1fr auto auto;gap:.3rem;
                 align-items:center;margin:.45rem 0}
+            .source-open{display:grid;gap:.4rem;margin:.8rem 0}.source-open input{min-height:2.2rem}
             .status{display:grid;gap:.35rem;margin-top:1rem}
             footer{padding:.6rem 1rem;background:#e7edf2}
             .hint{font-size:.86rem;color:#405264}.sr-status{min-height:1.2rem}
@@ -48,6 +53,9 @@ public final class ViewerRoute extends Component implements AutoCloseable {
     /** Session-destruction registration seam used by production and lifecycle tests. */
     private final SessionAccess sessionAccess;
 
+    /** Application-stop owner registration. */
+    private final Registration applicationRegistration;
+
     /** Current idempotent Vaadin session-destruction registration. */
     private Registration sessionDestroyRegistration = () -> {};
 
@@ -56,6 +64,12 @@ public final class ViewerRoute extends Component implements AutoCloseable {
 
     /** Native layer visibility and ordering control container. */
     private final NativeElement layerList = element("div", "layers");
+
+    /** Native opened-source visibility and ordering control container. */
+    private final NativeElement sourceList = element("div", "sources");
+
+    /** Caller-selected trusted server-local path input. */
+    private final NativeElement sourcePath = element("input", "");
 
     /** Screen-reader-visible coordinate status. */
     private final NativeElement coordinates = element("output", "sr-status");
@@ -70,11 +84,16 @@ public final class ViewerRoute extends Component implements AutoCloseable {
     private final NativeElement measurement = element("output", "sr-status");
 
     /** Guards the idempotent route-owned lifecycle. */
-    private boolean closed;
+    private volatile boolean closed;
 
-    /** Creates one route-local map session and its native HTML control surface. */
-    public ViewerRoute() {
-        this(SessionAccess.production());
+    /**
+     * Creates one route-local map session and registers application-stop cleanup.
+     *
+     * @param registry application viewer-session registry
+     */
+    @Autowired
+    public ViewerRoute(ViewerSessionRegistry registry) {
+        this(registry, SessionAccess.production());
     }
 
     /**
@@ -83,8 +102,15 @@ public final class ViewerRoute extends Component implements AutoCloseable {
      * @param sessionAccess non-null session lifecycle seam
      */
     ViewerRoute(SessionAccess sessionAccess) {
+        this(new ViewerSessionRegistry(), sessionAccess);
+    }
+
+    ViewerRoute(ViewerSessionRegistry registry, SessionAccess sessionAccess) {
         this.sessionAccess = java.util.Objects.requireNonNull(sessionAccess, "sessionAccess");
-        session = new ViewerSession();
+        session = new ViewerSession(this::dispatch);
+        applicationRegistration =
+                java.util.Objects.requireNonNull(registry, "registry")
+                        .register(session, this::closeFromApplicationStop);
         getElement().getClassList().add("viewer-root");
         getElement().setAttribute("aria-label", "Mundane Java Map viewer");
         getElement().getStyle().set("display", "block");
@@ -105,6 +131,9 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         sidebar.getElement().setAttribute("aria-label", "Layers and map status");
         NativeElement layerHeading = element("h2", "");
         layerHeading.text("Layers");
+        NativeElement sourceHeading = element("h2", "");
+        sourceHeading.text("Server-local sources");
+        NativeElement sourceOpen = sourceControls();
         NativeElement status = element("section", "status");
         status.getElement().setAttribute("aria-label", "Map status");
         status.add(label("Coordinates", coordinates), label("Selection", selection));
@@ -113,7 +142,7 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         hint.text(
                 "No basemap or network map data is used. Select a tool, then focus the map "
                         + "and use pointer or keyboard input.");
-        sidebar.add(layerHeading, layerList, status, hint);
+        sidebar.add(layerHeading, layerList, sourceHeading, sourceOpen, sourceList, status, hint);
 
         NativeElement mapRegion = element("section", "map");
         mapRegion.getElement().setAttribute("aria-label", "Interactive map");
@@ -121,7 +150,8 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         body.add(sidebar, mapRegion);
 
         NativeElement footer = element("footer", "");
-        footer.text("All sample geometry is created in memory for this UI session.");
+        footer.text(
+                "Source paths are read by the trusted server process; browsers receive only bounded map payloads.");
         shell.add(header, body, footer);
         getElement().appendChild(shell.getElement());
         session.addObserver(this::refresh);
@@ -149,13 +179,17 @@ public final class ViewerRoute extends Component implements AutoCloseable {
 
     /** Releases the route-owned component, edit lane, resources, and listeners exactly once. */
     @Override
-    public void close() {
-        if (!closed) {
-            closed = true;
-            sessionDestroyRegistration.remove();
-            sessionDestroyRegistration = () -> {};
-            session.close();
+    public synchronized void close() {
+        if (closed) {
+            return;
         }
+        closed = true;
+        Throwable primary = null;
+        primary = cleanup(primary, sessionDestroyRegistration::remove);
+        sessionDestroyRegistration = () -> {};
+        primary = cleanup(primary, applicationRegistration::remove);
+        primary = cleanup(primary, session::close);
+        throwIfPresent(primary);
     }
 
     private void addToolbarButtons() {
@@ -249,6 +283,189 @@ public final class ViewerRoute extends Component implements AutoCloseable {
             }
         }
         rebuildLayerList();
+        rebuildSourceList();
+    }
+
+    private NativeElement sourceControls() {
+        NativeElement controls = element("div", "source-open");
+        sourcePath.getElement().setAttribute("type", "text");
+        sourcePath.getElement().setAttribute("aria-label", "Trusted server-local source path");
+        sourcePath.getElement().setAttribute("placeholder", "/server/path/data.shp");
+        sourcePath
+                .getElement()
+                .addEventListener(
+                        "change",
+                        event ->
+                                synchronizeSourcePath(
+                                        event.getEventData()
+                                                .get("event.target.value")
+                                                .stringValue()))
+                .addEventData("event.target.value");
+        controls.add(sourcePath);
+        NativeElement actions = element("div", "toolbar");
+        actions.add(
+                button("open-shapefile", "Open shapefile", () -> openPath(SourceKind.SHAPEFILE)));
+        actions.add(button("open-raster", "Open GeoTIFF", () -> openPath(SourceKind.RASTER)));
+        actions.add(
+                button("open-elevation", "Open elevation", () -> openPath(SourceKind.ELEVATION)));
+        actions.add(
+                button("open-workspace", "Open workspace", () -> openPath(SourceKind.WORKSPACE)));
+        actions.add(button("clear-sources", "Clear sources", session::clearSources));
+        controls.add(actions);
+        NativeElement fixtures = element("div", "toolbar");
+        fixtures.add(
+                button(
+                        "fixture-shapefile",
+                        "Fixture shapefile",
+                        () -> openFixture(SourceKind.SHAPEFILE)));
+        fixtures.add(
+                button("fixture-raster", "Fixture raster", () -> openFixture(SourceKind.RASTER)));
+        fixtures.add(
+                button(
+                        "fixture-elevation",
+                        "Fixture elevation",
+                        () -> openFixture(SourceKind.ELEVATION)));
+        fixtures.add(
+                button(
+                        "fixture-workspace",
+                        "Fixture workspace",
+                        () -> openFixture(SourceKind.WORKSPACE)));
+        controls.add(fixtures);
+        return controls;
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openPath(SourceKind kind) {
+        try {
+            return open(kind, Path.of(sourcePath.getElement().getProperty("value", "")));
+        } catch (InvalidPathException failure) {
+            return session.rejectInvalidSourcePath();
+        }
+    }
+
+    void synchronizeSourcePath(String value) {
+        String checked = java.util.Objects.requireNonNull(value, "value");
+        sourcePath
+                .getElement()
+                .setProperty(
+                        "value", checked.length() <= 4096 ? checked : String.valueOf((char) 0));
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openFixture(SourceKind kind) {
+        Path root =
+                Path.of(
+                        System.getProperty(
+                                "mundane.viewer.fixtures",
+                                "examples/vaadin-viewer/build/source-fixtures"));
+        Path path =
+                switch (kind) {
+                    case SHAPEFILE ->
+                            root.resolve("shapefile/generated-polygon-hole-windows1252-3857.shp");
+                    case RASTER -> root.resolve("geotiff/gdal-rgb-strip-none-4326.tif");
+                    case ELEVATION -> root.resolve("geotiff/gdal-int16-strip-packbits-4326.tif");
+                    case WORKSPACE -> root.resolve("workspace/example.mmap.xml");
+                };
+        sourcePath.getElement().setProperty("value", path.toString());
+        return open(kind, path);
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> open(SourceKind kind, Path path) {
+        return switch (kind) {
+            case SHAPEFILE -> session.openShapefile(path);
+            case RASTER -> session.openRaster(path);
+            case ELEVATION -> session.openElevation(path);
+            case WORKSPACE -> session.openWorkspace(path);
+        };
+    }
+
+    private void rebuildSourceList() {
+        sourceList.getElement().removeAllChildren();
+        if (session.sourceLayers().isEmpty()) {
+            NativeElement empty = element("p", "hint");
+            empty.text(session.sourceBusy() ? "Opening source…" : "No local source opened");
+            sourceList.add(empty);
+            return;
+        }
+        for (ViewerSourceWorkflows.SourceLayer layer : session.sourceLayers()) {
+            NativeElement row = element("div", "layer");
+            NativeElement visible = element("input", "");
+            visible.getElement().setAttribute("type", "checkbox");
+            visible.getElement().setAttribute("aria-label", "Show " + layer.name());
+            visible.getElement().setProperty("checked", layer.visible());
+            visible.getElement()
+                    .addEventListener(
+                            "change",
+                            event -> {
+                                session.setSourceVisible(
+                                        layer.id(),
+                                        event.getEventData()
+                                                .get("event.target.checked")
+                                                .asBoolean());
+                                refresh();
+                            })
+                    .addEventData("event.target.checked");
+            NativeElement name = element("span", "");
+            name.text(layer.name() + " (" + layer.kind().name().toLowerCase(Locale.ROOT) + ")");
+            NativeElement actions = element("span", "");
+            actions.add(
+                    button(
+                            "source-up-" + layer.id(),
+                            "↑",
+                            () -> session.moveSource(layer.id(), -1)));
+            actions.add(
+                    button(
+                            "source-down-" + layer.id(),
+                            "↓",
+                            () -> session.moveSource(layer.id(), 1)));
+            row.add(visible, name, actions);
+            sourceList.add(row);
+        }
+    }
+
+    private void dispatch(Runnable operation) {
+        getUI().ifPresentOrElse(ui -> ui.accessSynchronously(operation::run), operation);
+    }
+
+    private void closeFromApplicationStop() {
+        try {
+            dispatch(this::close);
+        } catch (RuntimeException | Error dispatchFailure) {
+            try {
+                close();
+            } catch (RuntimeException | Error cleanupFailure) {
+                dispatchFailure.addSuppressed(cleanupFailure);
+            }
+            throw dispatchFailure;
+        }
+    }
+
+    private static Throwable cleanup(Throwable primary, Runnable operation) {
+        try {
+            operation.run();
+        } catch (RuntimeException | Error failure) {
+            if (primary == null) {
+                return failure;
+            }
+            if (primary != failure) {
+                primary.addSuppressed(failure);
+            }
+        }
+        return primary;
+    }
+
+    private static void throwIfPresent(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+    }
+
+    enum SourceKind {
+        SHAPEFILE,
+        RASTER,
+        ELEVATION,
+        WORKSPACE
     }
 
     private void rebuildLayerList() {

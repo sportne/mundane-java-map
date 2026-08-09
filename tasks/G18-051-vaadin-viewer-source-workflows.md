@@ -1,6 +1,6 @@
 # G18-051 — Vaadin viewer source workflows
 
-Status: Proposed
+Status: Complete
 Depends on: G18-050, G11-034
 Gate: G18
 Type: AFK
@@ -42,3 +42,15 @@ detach, and session-close cases.
 ./gradlew qualityGate --console=plain
 git diff --check
 ```
+
+Completion record (2026-08-09): the Vaadin viewer now opens checked-fixture or explicitly selected
+server-local shapefiles, display GeoTIFFs, metre elevation GeoTIFFs, and feature workspaces through
+their existing Java source and workspace boundaries. One cancellable route-owned opening lane
+installs component-owned serialized leases while retaining exact source/workspace ownership, so
+replacement, visibility/order changes, clear, detach, Vaadin session destruction, and Spring
+application shutdown close each owner exactly once. Explicit tighter query, raster, and workspace
+limits and a closed workspace opener/catalog registry bound all input and rendering work. The UI
+reports stable codes without paths, source values, or stacks, and documentation records the trusted
+server-local path boundary, supported decoders, absence of browser format code, and cleanup model.
+Real checked fixtures plus cancellation, limits/diagnostics, replacement, ordering/visibility,
+route/session, and application-stop tests cover the workflow.

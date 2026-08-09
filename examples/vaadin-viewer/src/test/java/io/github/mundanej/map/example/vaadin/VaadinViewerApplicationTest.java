@@ -19,6 +19,7 @@ import io.github.mundanej.map.api.MeasurementPhase;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,7 @@ final class VaadinViewerApplicationTest {
     @Test
     void rootRouteOwnsResponsiveMapShellAndClosesOnDetachExactlyOnce() {
         assertEquals("", ViewerRoute.class.getAnnotation(Route.class).value());
-        ViewerRoute route = new ViewerRoute();
+        ViewerRoute route = new ViewerRoute(new ViewerSessionRegistry());
         assertEquals("main", route.getElement().getTag());
         assertTrue(route.getElement().getClassList().contains("viewer-root"));
         assertTrue(route.getElement().getTextRecursively().contains("No basemap"));
@@ -91,6 +92,151 @@ final class VaadinViewerApplicationTest {
 
         assertEquals(1, registrations.get());
         assertEquals(1, removals.get());
+    }
+
+    @Test
+    void applicationRegistryClosesLiveRoutesExactlyOnce() {
+        ViewerSessionRegistry registry = new ViewerSessionRegistry();
+        ViewerRoute route = new ViewerRoute(registry, (ignored, listener) -> () -> {});
+
+        registry.close();
+        registry.close();
+        route.close();
+
+        assertTrue(route.session().isClosed());
+    }
+
+    @Test
+    void closedApplicationRegistryRejectsAndClosesLateSession() {
+        ViewerSessionRegistry registry = new ViewerSessionRegistry();
+        ViewerSession late = new ViewerSession();
+        registry.close();
+
+        assertThrows(IllegalStateException.class, () -> registry.register(late));
+
+        assertTrue(late.isClosed());
+    }
+
+    @Test
+    void applicationRegistryRemovesClosedSessionsAndAggregatesShutdownFailures() {
+        ViewerSessionRegistry registry = new ViewerSessionRegistry();
+        ViewerSession removed = new ViewerSession();
+        ViewerSession failing = new ViewerSession();
+        ViewerSession alsoFailing = new ViewerSession();
+        AtomicInteger calls = new AtomicInteger();
+        registry.register(removed, calls::incrementAndGet).remove();
+        registry.register(
+                failing,
+                () -> {
+                    calls.incrementAndGet();
+                    throw new IllegalStateException("first");
+                });
+        registry.register(
+                alsoFailing,
+                () -> {
+                    calls.incrementAndGet();
+                    throw new IllegalArgumentException("second");
+                });
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, registry::close);
+
+        assertEquals(1, failure.getSuppressed().length);
+        assertEquals(2, calls.get());
+    }
+
+    @Test
+    void routeFixtureControlsOpenEverySupportedServerBoundary() {
+        ViewerRoute route = new ViewerRoute(new ViewerSessionRegistry());
+
+        route.session().setWrapEnabled(true);
+        assertTrue(
+                route.openFixture(ViewerRoute.SourceKind.SHAPEFILE)
+                        .toCompletableFuture()
+                        .join()
+                        .opened());
+        route.session().setWrapEnabled(false);
+        for (ViewerRoute.SourceKind kind : ViewerRoute.SourceKind.values()) {
+            if (kind == ViewerRoute.SourceKind.SHAPEFILE) {
+                continue;
+            }
+            assertTrue(route.openFixture(kind).toCompletableFuture().join().opened());
+            assertFalse(route.session().sourceLayers().isEmpty());
+        }
+
+        route.close();
+    }
+
+    @Test
+    void typedNativePathIsSynchronizedAndInvalidSyntaxUsesStableDiagnostic() {
+        ViewerRoute route = new ViewerRoute(new ViewerSessionRegistry());
+        route.synchronizeSourcePath(new String(new char[] {0, 'x'}));
+
+        ViewerSourceWorkflows.OpenResult result =
+                route.openPath(ViewerRoute.SourceKind.SHAPEFILE).toCompletableFuture().join();
+
+        assertEquals("SOURCE_PATH_INVALID", result.diagnosticCode());
+        assertEquals("SOURCE_PATH_INVALID", route.session().diagnosticText());
+        route.close();
+    }
+
+    @Test
+    void detachAndApplicationStopCloseRoutesWithLiveSources() {
+        ViewerSessionRegistry detachRegistry = new ViewerSessionRegistry();
+        ViewerRoute detached = new ViewerRoute(detachRegistry);
+        assertTrue(
+                detached.openFixture(ViewerRoute.SourceKind.SHAPEFILE)
+                        .toCompletableFuture()
+                        .join()
+                        .opened());
+        detached.onDetach(new DetachEvent(detached));
+        assertTrue(detached.session().isClosed());
+
+        ViewerSessionRegistry stopRegistry = new ViewerSessionRegistry();
+        ViewerRoute stopped = new ViewerRoute(stopRegistry);
+        assertTrue(
+                stopped.openFixture(ViewerRoute.SourceKind.WORKSPACE)
+                        .toCompletableFuture()
+                        .join()
+                        .opened());
+        stopRegistry.close();
+        assertTrue(stopped.session().isClosed());
+        stopped.close();
+    }
+
+    @Test
+    void concurrentDetachAndApplicationStopSerializeExactCleanup() throws Exception {
+        ViewerSessionRegistry registry = new ViewerSessionRegistry();
+        ViewerRoute route = new ViewerRoute(registry);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread detach =
+                new Thread(
+                        () -> {
+                            await(start);
+                            try {
+                                route.close();
+                            } catch (RuntimeException | Error thrown) {
+                                failure.compareAndSet(null, thrown);
+                            }
+                        });
+        Thread stop =
+                new Thread(
+                        () -> {
+                            await(start);
+                            try {
+                                registry.close();
+                            } catch (RuntimeException | Error thrown) {
+                                failure.compareAndSet(null, thrown);
+                            }
+                        });
+        detach.start();
+        stop.start();
+        start.countDown();
+        detach.join();
+        stop.join();
+
+        assertEquals(null, failure.get());
+        assertTrue(route.session().isClosed());
     }
 
     @Test
@@ -191,5 +337,14 @@ final class VaadinViewerApplicationTest {
             @Override
             public void requestRepaint() {}
         };
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("test interrupted", failure);
+        }
     }
 }

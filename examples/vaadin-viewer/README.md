@@ -1,9 +1,9 @@
 # Vaadin viewer example
 
 This non-published Spring Boot application demonstrates `MundaneMap` with an in-memory study area,
-route, and editable points. It deliberately has no basemap, map-data download, API key, account, or
-commercial Vaadin component. Starting the example does not open a source path or contact a remote
-map service.
+route, editable points, and explicitly opened server-local sources. It deliberately has no basemap,
+map-data download, API key, account, or commercial Vaadin component. Starting the example does not
+open a source path or contact a remote map service.
 
 ## Development launch
 
@@ -25,13 +25,33 @@ compatible horizontal-wrap toggle. The sidebar provides ordered visibility contr
 selection identity, source-diagnostic status, and measurement status. All controls use native HTML
 focus order and the map exposes its own keyboard help and interaction semantics.
 
+## Server-local source workflows
+
+The four fixture buttons open checked repository data: a shapefile, a display GeoTIFF, a signed
+integer elevation GeoTIFF interpreted as metres, and a feature-only workspace. The adjacent path
+field opens the same supported formats from a caller-selected path on the server. It is not a
+browser upload: the value names a file readable by the application process and must therefore be
+treated as trusted administrative input. Do not expose this control to untrusted users without an
+application-specific authorization and path policy.
+
+Shapefiles are opened by `mundane-map-io-shapefile`, GeoTIFF raster/elevation files by
+`mundane-map-io-geotiff`, and `.mmap.xml` files by `mundane-map-workspace`. The workspace registry is
+closed and permits only its versioned shapefile opener and checked symbol catalog. It does not scan
+directories or infer decoders. Every boundary applies tighter query, raster, or workspace ceilings,
+uses cooperative cancellation, and reports only stable diagnostic codes—never local paths, source
+values, stack traces, or format-specific data to the browser. Decoding remains in Java; the Flow
+frontend receives only the component's bounded vector/raster protocol.
+
 ## Ownership and limits
 
-Every route instance owns one `MundaneMap` and one fixed-lane edit binding. Route detach or Vaadin
-session destruction closes component resources, registrations, pending work, and the edit lane.
-State is per UI session: it is neither persisted nor shared with another user or browser tab.
+Every route instance owns one `MundaneMap`, one fixed-lane edit binding, one source-opening lane,
+and every directly opened source or workspace session. Replacement first cancels superseded work,
+retires component-owned serialized leases, and closes the prior owner after its final query-bound
+lease releases. Route detach, Vaadin session
+destruction, or Spring application shutdown closes sources, component resources, registrations,
+pending work, and the edit lane exactly once. State is per UI session: it is neither persisted nor
+shared with another user or browser tab.
 
 This is a development example, not a production security or scalability profile. It provides no
 authentication, authorization, persistence, collaboration, remote basemap, cross-browser pixel
-identity, map-data completeness, or cloud-deployment claim. Server-local sources, uploads, export,
-and production deployment are introduced only by the later bounded viewer tasks.
+identity, map-data completeness, browser upload, export, or cloud-deployment claim.

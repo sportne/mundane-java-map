@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workspace xmlns="urn:mundanej:map:workspace" version="1">
+  <view map-crs="EPSG:3857" display-crs="EPSG:3857" center-x="0" center-y="0" units-per-pixel="1000"/>
+  <layers>
+    <feature-layer id="workspace-areas" name="Workspace areas">
+      <source opener="viewer.shapefile.v1" id="workspace-areas-source" name="Workspace shapefile" path="data/generated-polygon-hole-windows1252-3857.shp"/>
+      <symbols catalog="viewer.default" marker="point" line="boundary" fill="area"/>
+    </feature-layer>
+    <feature-layer id="workspace-outline" name="Workspace outline">
+      <source opener="viewer.shapefile.v1" id="workspace-outline-source" name="Workspace outline shapefile" path="data/generated-polygon-hole-windows1252-3857.shp"/>
+      <symbols catalog="viewer.default" marker="point" line="boundary" fill="area"/>
+    </feature-layer>
+  </layers>
+</workspace>

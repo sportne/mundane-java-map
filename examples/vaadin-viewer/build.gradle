@@ -7,7 +7,10 @@ plugins {
 dependencies {
     implementation project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
+    implementation project(':modules:mundane-map-io-geotiff')
+    implementation project(':modules:mundane-map-io-shapefile')
     implementation project(':modules:mundane-map-vaadin')
+    implementation project(':modules:mundane-map-workspace')
     implementation platform('org.springframework.boot:spring-boot-dependencies:4.1.0')
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'com.vaadin:vaadin-spring:25.2.4'
@@ -15,6 +18,45 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'com.vaadin:vaadin-dev-server:25.2.4'
+}
+
+def viewerSourceFixtures = layout.buildDirectory.dir('source-fixtures')
+def prepareViewerSourceFixtures = tasks.register('prepareViewerSourceFixtures', Sync) {
+    into viewerSourceFixtures
+    from(rootProject.file(
+            'modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/'
+            + 'shapefile-corpus/data/generated-polygon-hole-windows1252-3857')) {
+                into 'shapefile'
+            }
+    from(rootProject.file(
+            'modules/mundane-map-io-shapefile/src/shapefileCorpusTest/resources/'
+            + 'shapefile-corpus/data/generated-polygon-hole-windows1252-3857')) {
+                into 'workspace/data'
+            }
+    from(rootProject.file(
+            'modules/mundane-map-io-geotiff/src/test/resources/geotiff-corpus/data')) {
+                include 'gdal-rgb-strip-none-4326.tif'
+                include 'gdal-int16-strip-packbits-4326.tif'
+                into 'geotiff'
+            }
+    from(layout.projectDirectory.dir('src/main/workspace')) {
+        into 'workspace'
+    }
+}
+
+tasks.withType(Test).configureEach {
+    dependsOn prepareViewerSourceFixtures
+    systemProperty 'mundane.viewer.fixtures', viewerSourceFixtures.get().asFile.absolutePath
+}
+
+tasks.named('bootRun') {
+    dependsOn prepareViewerSourceFixtures
+    systemProperty 'mundane.viewer.fixtures', viewerSourceFixtures.get().asFile.absolutePath
+}
+
+tasks.named('run') {
+    dependsOn prepareViewerSourceFixtures
+    systemProperty 'mundane.viewer.fixtures', viewerSourceFixtures.get().asFile.absolutePath
 }
 
 dependencyLocking {

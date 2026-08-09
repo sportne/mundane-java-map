@@ -339,8 +339,9 @@ present structured diagnostics under fixed non-path source identities, and trans
 ownership according to their documented view/session lifecycle. The
 [SE viewer](examples/se-viewer) is a project-authored vector-profile gallery with scale controls,
 ordered rules, an explicit catalog marker, lines, polygon fills/outlines, and a visible hole. The
-[Vaadin viewer](examples/vaadin-viewer/README.md) is an offline-by-default in-memory Spring Boot and
-Flow shell with native HTML controls and no remote basemap or commercial map component. The
+[Vaadin viewer](examples/vaadin-viewer/README.md) is an offline-by-default Spring Boot and Flow shell
+with native HTML controls plus bounded, explicitly opened server-local shapefile, GeoTIFF,
+elevation, and workspace workflows; it has no remote basemap or commercial map component. The
 [live-track stress example](examples/live-track-stress/README.md) is a JVM-only packed simulation,
 estimation, rendering, and evidence workload rather than a public tracking API.
 

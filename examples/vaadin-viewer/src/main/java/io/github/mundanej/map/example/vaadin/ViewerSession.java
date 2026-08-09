@@ -33,6 +33,7 @@ import io.github.mundanej.map.vaadin.BrowserMeasurementTool;
 import io.github.mundanej.map.vaadin.BrowserPointEditController;
 import io.github.mundanej.map.vaadin.FeatureEditBinding;
 import io.github.mundanej.map.vaadin.MundaneMap;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,7 +41,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /** Per-route owner of the example component, edit lane, controls, and listener registrations. */
 final class ViewerSession implements AutoCloseable {
@@ -58,15 +61,20 @@ final class ViewerSession implements AutoCloseable {
     private final BrowserPointEditController editor;
     private final BrowserMeasurementTool measurement;
     private final Registration measurementRegistration;
+    private final ViewerSourceWorkflows sources;
     private final List<Runnable> observers = new CopyOnWriteArrayList<>();
     private String coordinateText = "Move the pointer over the map";
     private String selectionText = "Nothing selected";
     private String diagnosticText = "No source diagnostics";
     private ToolMode toolMode = ToolMode.NAVIGATE;
     private long nextPointId = 1;
-    private boolean closed;
+    private volatile boolean closed;
 
     ViewerSession() {
+        this(Runnable::run);
+    }
+
+    ViewerSession(Consumer<Runnable> dispatcher) {
         allLayers.add(regionLayer());
         allLayers.add(routeLayer());
         for (Layer layer : allLayers) {
@@ -109,6 +117,7 @@ final class ViewerSession implements AutoCloseable {
                     diagnosticText = summarizeDiagnostics();
                     notifyObservers();
                 });
+        sources = new ViewerSourceWorkflows(map, dispatcher, this::sourceWorkflowChanged);
         map.fitToContents(48);
     }
 
@@ -154,6 +163,51 @@ final class ViewerSession implements AutoCloseable {
 
     boolean isClosed() {
         return closed;
+    }
+
+    List<ViewerSourceWorkflows.SourceLayer> sourceLayers() {
+        return sources.layers();
+    }
+
+    boolean sourceBusy() {
+        return sources.busy();
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openShapefile(Path path) {
+        requireOpen();
+        return sources.openShapefile(path);
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openRaster(Path path) {
+        requireOpen();
+        return sources.openRaster(path);
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openElevation(Path path) {
+        requireOpen();
+        return sources.openElevation(path);
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> openWorkspace(Path path) {
+        requireOpen();
+        return sources.openWorkspace(path);
+    }
+
+    CompletionStage<ViewerSourceWorkflows.OpenResult> rejectInvalidSourcePath() {
+        requireOpen();
+        return sources.rejectInvalidPath();
+    }
+
+    void clearSources() {
+        sources.clear();
+    }
+
+    void setSourceVisible(String id, boolean visible) {
+        sources.setVisible(id, visible);
+    }
+
+    void moveSource(String id, int delta) {
+        sources.move(id, delta);
     }
 
     void addObserver(Runnable observer) {
@@ -202,7 +256,14 @@ final class ViewerSession implements AutoCloseable {
         requireOpen();
         if (enabled) {
             map.setHorizontalWrap(HorizontalWrap.webMercator());
+            try {
+                sources.setWrapEnabled(true);
+            } catch (RuntimeException | Error failure) {
+                map.clearHorizontalWrap();
+                throw failure;
+            }
         } else {
+            sources.setWrapEnabled(false);
             map.clearHorizontalWrap();
         }
         notifyObservers();
@@ -261,15 +322,18 @@ final class ViewerSession implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (closed) {
             return;
         }
         closed = true;
         observers.clear();
-        measurementRegistration.remove();
-        map.close();
-        editBinding.close();
+        Throwable primary = null;
+        primary = cleanup(primary, measurementRegistration::remove);
+        primary = cleanup(primary, sources::close);
+        primary = cleanup(primary, map::close);
+        primary = cleanup(primary, editBinding::close);
+        throwIfPresent(primary);
     }
 
     private void publishLayers() {
@@ -292,6 +356,14 @@ final class ViewerSession implements AutoCloseable {
             endpoint = Optional.of(state.vertex(state.vertexCount() - 1));
         }
         endpoint.map(ViewerSession::formatCoordinate).ifPresent(value -> coordinateText = value);
+        notifyObservers();
+    }
+
+    private void sourceWorkflowChanged() {
+        diagnosticText =
+                "NO_SOURCE_DIAGNOSTICS".equals(sources.diagnosticCode())
+                        ? summarizeDiagnostics()
+                        : sources.diagnosticCode();
         notifyObservers();
     }
 
@@ -328,6 +400,29 @@ final class ViewerSession implements AutoCloseable {
     private void notifyObservers() {
         for (Runnable observer : observers) {
             observer.run();
+        }
+    }
+
+    private static Throwable cleanup(Throwable primary, Runnable operation) {
+        try {
+            operation.run();
+        } catch (RuntimeException | Error failure) {
+            if (primary == null) {
+                return failure;
+            }
+            if (primary != failure) {
+                primary.addSuppressed(failure);
+            }
+        }
+        return primary;
+    }
+
+    private static void throwIfPresent(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
         }
     }
 
