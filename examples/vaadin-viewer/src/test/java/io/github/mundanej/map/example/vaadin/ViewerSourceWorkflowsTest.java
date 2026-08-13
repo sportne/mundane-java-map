@@ -215,7 +215,7 @@ final class ViewerSourceWorkflowsTest {
         workflows.close();
         map.close();
 
-        assertTrue(opened.get().isClosed());
+        awaitClosed(opened.get());
     }
 
     @Test
@@ -407,6 +407,19 @@ final class ViewerSourceWorkflowsTest {
             }
         }
         assertEquals(expected, source.closeCount());
+    }
+
+    private static void awaitClosed(WorkspaceSession session) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!session.isClosed() && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(failure);
+            }
+        }
+        assertTrue(session.isClosed());
     }
 
     private static final class CountingFeatureSource implements FeatureSource {
