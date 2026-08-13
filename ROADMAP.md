@@ -811,29 +811,28 @@ unchanged.
 
 ### G18 — Open-source Vaadin browser component
 
-- Add one optional, JVM/browser-only `mundane-map-vaadin` adapter after exact dependency and license
-  approval. Vaadin Flow supplies application/component plumbing; a project-authored bundled Canvas
-  custom element supplies map drawing and local gestures.
-- Explicitly exclude Vaadin Map, TestBench, commercial artifacts, remote basemaps, credentials, and
-  another JavaScript map engine. Preserve the JDK-only Level 1 graph and keep Vaadin/browser/private
-  protocol types out of API, core, format, workspace, and AWT modules.
-- Start with a real reusable point/line/polygon component, then add common bounded feature-source
-  queries, explicit CRS operations, all geometry families, existing symbols/portrayals/labels,
-  selection and toolkit-neutral tools, measurement, and immutable point editing.
-- Transport existing detached raster/elevation RGBA windows through one bounded same-origin binary
-  resource and render them as Canvas `ImageData`; reuse the explicit G16 horizontal-wrap profile
-  rather than inferring global layers in JavaScript.
-- Deliver `examples/vaadin-viewer` as an offline-by-default Spring Boot/Vaadin consumer with
+- G18-001 through G18-060 are complete. G18-061 remains proposed as the publication, staged-consumer,
+  and isolated offline-frontend closeout.
+- The implemented optional, JVM/browser-only `mundane-map-vaadin` adapter uses Vaadin Flow for
+  application/component plumbing and a project-authored bundled Canvas custom element for map
+  drawing and local gestures.
+- The profile excludes Vaadin Map, TestBench, commercial artifacts, remote basemaps, credentials,
+  and another JavaScript map engine. It preserves the JDK-only Level 1 graph and keeps
+  Vaadin/browser/private protocol types out of API, core, format, workspace, and AWT modules.
+- The reusable component now covers bounded feature-source queries, explicit CRS operations, every
+  geometry family, built-in symbols and portrayals, labels, selection, toolkit-neutral tools,
+  measurement, immutable point editing, raster/elevation windows, and explicit horizontal wrap.
+- `examples/vaadin-viewer` is an offline-by-default Spring Boot/Vaadin consumer with
   responsive controls, layer/diagnostic inspection, guarded uploads, workspace loading,
   measurement/editing, and SVG download.
-- Create a separate open-source Playwright Chromium/Firefox lane for real browser behavior,
+- A separate open-source Playwright Chromium/Firefox lane verifies real browser behavior,
   tolerant rendering, hostile client/resource cases, accessibility, lifecycle, and
   environment-labelled performance evidence. Normal `qualityGate` must not download browsers.
-- Finish with staged Maven consumption and an isolated offline Maven/frontend build. G18 remains
-  non-native and makes no production map-data, authentication, cloud, cross-platform pixel, or
-  portable latency/FPS claim.
-- The sequence is G18-001, G18-010, G18-011, G18-020, G18-021, G18-022; interaction/editing and
-  raster/elevation/wrap then form two logical branches that converge through G18-050 to G18-052. G18-060 owns
-  browser evidence and G18-061 owns publication/offline closeout.
+- G18-061 must finish staged Maven consumption and the isolated offline Maven/frontend build. G18
+  remains non-native and makes no production map-data, authentication, cloud, cross-platform pixel,
+  or portable latency/FPS claim.
+- The completed sequence through G18-060 is G18-001, G18-010, G18-011, G18-020, G18-021, G18-022;
+  interaction/editing and raster/elevation/wrap then form two logical branches that converge through
+  G18-050 to G18-052. G18-060 owns browser evidence and G18-061 owns publication/offline closeout.
 - See the [G18 detailed design](design/G18-vaadin-browser-frontend.md) and the
   [G18 task set](tasks/README.md#g18--open-source-vaadin-browser-component).

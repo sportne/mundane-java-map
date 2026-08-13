@@ -40,6 +40,12 @@ First useful Level 1 release candidate.
   covered. The bounded support statement is Java 21 Linux x86-64 with glibc 2.35 or newer, evidenced
   on pinned Ubuntu 22.04 and 24.04; Alpine/musl is rejected and both Xerial adapters are Native Image
   `not-targeted`.
+- An optional non-native Vaadin Flow adapter with a project-authored bundled Canvas renderer,
+  bounded vector/label/raster/elevation scenes, explicit source and CRS bindings, horizontal wrap,
+  interaction, measurement, immutable point editing, guarded expiring resources, and detached SVG
+  capture. The non-published Spring Boot viewer demonstrates bounded local/uploaded source
+  workflows, and a separate pinned Playwright lane records real-browser evidence without TestBench,
+  Vaadin Map, commercial components, or remote basemaps.
 - Runnable examples for the implemented map, symbol, interaction, format, editing, styling, and
   workspace slices, plus independent corpus, rendering-regression, performance, Native Image,
   publication, and downstream-consumer verification lanes.
@@ -65,7 +71,9 @@ First useful Level 1 release candidate.
   DTED, GeoTIFF, the static SVG subset, the optional Jackson Core GeoJSON adapter, editing/styling,
   and local workspace persistence are implemented Level 2 capabilities and do not broaden Level 1.
   Optional JTS/PROJ/GDAL adapters remain future work. The GeoPackage and MBTiles adapters are
-  Linux JVM-only and do not broaden Native Image claims.
+  Linux JVM-only and do not broaden Native Image claims. The Vaadin adapter is a Level 2 JVM/browser
+  capability, is not Native Image targeted, and does not broaden the Level 1 or production browser
+  support claims; publication and isolated offline-frontend closeout remain pending.
 - Performance evidence is scenario- and environment-specific. It establishes correctness and the
   retained Level 1 optimization decisions, not portable latency or throughput guarantees.
 - The intended Native Image claim is limited to the separately recorded Ubuntu 24.04 Linux x86_64

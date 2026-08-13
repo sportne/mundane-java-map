@@ -2,12 +2,14 @@
 
 ## Status and objective
 
-This document is the approved implementation profile for a reusable browser map component and a runnable
-Vaadin example. It records the user's decision that a commercial map component is unacceptable.
-G18 therefore uses Vaadin Flow's open component-integration surface but does not use Vaadin Map,
-Vaadin TestBench, or another commercial Vaadin artifact.
+This document is the approved implementation profile for a reusable browser map component and a
+runnable Vaadin example. G18-001 through G18-060 are implemented and complete; G18-061 remains the
+proposed publication and isolated offline-frontend closeout. The profile records the user's decision
+that a commercial map component is unacceptable. G18 therefore uses Vaadin Flow's open
+component-integration surface but does not use Vaadin Map, Vaadin TestBench, or another commercial
+Vaadin artifact.
 
-The intended result is one optional `mundane-map-vaadin` adapter backed by a project-authored HTML
+The implemented result is one optional `mundane-map-vaadin` adapter backed by a project-authored HTML
 Canvas web component. The adapter reuses the existing geometry, CRS, source, portrayal, symbol,
 interaction, editing, raster, elevation, workspace, diagnostics, cancellation, and limit contracts.
 It does not turn Vaadin, JavaScript, browser, or JSON types into general `mundane-map-api` contracts.

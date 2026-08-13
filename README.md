@@ -22,7 +22,7 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 | `mundane-map-api` | Immutable geometry, feature, symbol, interaction, CRS, source, diagnostic, cancellation, and limit contracts. |
 | `mundane-map-core` | JDK-only viewport/projection, source, hit-testing, measurement, indexing, clipping, simplification, and symbol algorithms. |
 | `mundane-map-awt` | Swing `MapView`, Java2D renderers, explicit symbol/decoder registries, interaction routing, and measurement UI. |
-| `mundane-map-vaadin` | Optional Flow component with a bundled local Canvas renderer, browser-local navigation and label measurement, server-resolved portrayals, expiring catalog-icon resources, serialized common feature-source/CRS bindings, and acknowledged detached vector capture. |
+| `mundane-map-vaadin` | Optional non-native Flow component with a bundled Canvas renderer; bounded vector, label, raster/elevation, wrap, interaction, measurement, and point-editing behavior; explicit source/CRS bindings; expiring binary/icon resources; and acknowledged detached vector capture. |
 | `mundane-map-io-shapefile` | Bounded read-only SHP/SHX/DBF/CPG/PRJ feature sources. |
 | `mundane-map-io-image` | Bounded PNG/JPEG metadata, world-file placement, requests, lifecycle, and caches through an explicit decoder boundary. |
 | `mundane-map-io-http-tiles` | Bounded JVM-only fixed-host HTTP XYZ acquisition into detached PNG/JPEG raster snapshots. |
@@ -81,6 +81,7 @@ raster evidence, a corpus, profiling, publication staging, or a native toolchain
 ./gradlew liveTrackSmoke --console=plain
 ./gradlew nativeSmoke --console=plain
 ./gradlew publicationDryRun consumerSmoke --console=plain
+./gradlew :examples:vaadin-viewer:vaadinBrowserTest --console=plain
 ```
 
 `renderRegression` uses bounds, topology, tolerant color regions, ordering, clipping, and
@@ -94,9 +95,15 @@ repository verification, and the exact glibc/musl SQLite-adapter platform matrix
 lanes remain separate because they require cold homes, corpus data, external tools, containers,
 platform-specific behavior, or deliberately expensive evidence.
 
+The opt-in Vaadin browser lane uses explicitly installed pinned Playwright Chromium and Firefox
+binaries; normal verification never downloads browsers. It records tolerant rendering,
+hostile-client, accessibility, lifecycle, resource, query, paint, transfer, and memory evidence
+without making portable pixel, latency, or frame-rate claims.
+
 The non-published `examples:vaadin-viewer` application combines the optional Flow adapter with
-bounded server-local or per-session uploaded shapefile/GeoTIFF/workspace data and route-scoped
-canonical SVG downloads. Its own README records the exact limits, production build command, and
+bounded server-local or per-session uploaded shapefile/GeoTIFF/workspace data, explicit horizontal
+wrap, selection, measurement, point editing, and route-scoped canonical SVG downloads. Its own
+README records the exact limits, production build and browser-evidence commands, and
 security/deployment exclusions; this example does not extend the Level 1 runtime support claim.
 
 The Java 21 CI job owns the complete `qualityGate`, including formatting, Checkstyle, SpotBugs,
@@ -346,7 +353,8 @@ ownership according to their documented view/session lifecycle. The
 ordered rules, an explicit catalog marker, lines, polygon fills/outlines, and a visible hole. The
 [Vaadin viewer](examples/vaadin-viewer/README.md) is an offline-by-default Spring Boot and Flow shell
 with native HTML controls plus bounded, explicitly opened server-local shapefile, GeoTIFF,
-elevation, and workspace workflows; it has no remote basemap or commercial map component. The
+elevation, and workspace workflows, guarded uploads, selection, measurement, point editing,
+horizontal wrap, and SVG export; it has no remote basemap or commercial map component. The
 [live-track stress example](examples/live-track-stress/README.md) is a JVM-only packed simulation,
 estimation, rendering, and evidence workload rather than a public tracking API.
 
