@@ -416,11 +416,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                         viewportGeneration);
         validateSnapshotBindingIds(snapshot.layers());
         protocol.encode(
-                combine(
-                        combine(
-                                snapshot.layers(),
-                                configuredFeatureLayers(featureSourceBindings())),
-                        configuredEditLayers(editBindings)),
+                composeLayers(
+                        snapshot.layers(),
+                        configuredFeatureLayers(featureSourceBindings()),
+                        configuredEditLayers(editBindings),
+                        basemapLayerIds()),
                 background,
                 viewport,
                 componentGeneration,
@@ -428,9 +428,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                 viewportGeneration);
         StagedScene staged =
                 stageScene(
-                        combine(
-                                combine(snapshot.layers(), this.sourceLayers),
-                                editableLayers(editBindings)),
+                        composeLayers(
+                                snapshot.layers(),
+                                this.sourceLayers,
+                                editableLayers(editBindings),
+                                basemapLayerIds()),
                         background,
                         nextGeneration);
         SceneProtocol.Result result = staged.result();
@@ -464,9 +466,11 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         List<FeatureSourceBinding> candidates = List.copyOf(bindings);
         validateFeatureBindings(candidates);
         protocol.encode(
-                combine(
-                        combine(layers, configuredFeatureLayers(candidates)),
-                        configuredEditLayers(editBindings)),
+                composeLayers(
+                        layers,
+                        configuredFeatureLayers(candidates),
+                        configuredEditLayers(editBindings),
+                        basemapLayerIds(candidates)),
                 background,
                 viewport,
                 componentGeneration,
@@ -724,7 +728,7 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
         List<Layer> candidateLayers = editableLayers(candidates);
         StagedScene staged =
                 stageSceneForEdits(
-                        combine(combine(layers, sourceLayers), candidateLayers),
+                        composeLayers(layers, sourceLayers, candidateLayers, basemapLayerIds()),
                         background,
                         nextGeneration,
                         candidates);
@@ -2358,7 +2362,8 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                                 viewportGeneration,
                                 iconResources),
                         rasterWindows,
-                        rasterResources.encodedWindows())
+                        rasterResources.encodedWindows(),
+                        basemapLayerIds())
                 .scene();
     }
 
@@ -3496,20 +3501,27 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
             rasterWindows = rasterResult.windows();
             StagedScene staged =
                     stageSceneSafely(
-                            combine(
-                                    combine(layers, queryResult.layers()),
-                                    editableLayers(editBindings)),
+                            composeLayers(
+                                    layers,
+                                    queryResult.layers(),
+                                    editableLayers(editBindings),
+                                    basemapLayerIds()),
                             background,
                             nextSceneGeneration,
                             previousRasterWindows);
             SceneProtocol.Result encoded = staged.result();
-            int snapshotCount = layers.size();
+            Map<String, Layer> encodedById =
+                    encoded.layers().stream()
+                            .collect(
+                                    java.util.stream.Collectors.toMap(
+                                            Layer::id,
+                                            java.util.function.Function.identity(),
+                                            (first, ignored) -> first,
+                                            LinkedHashMap::new));
             sourceLayers =
-                    List.copyOf(
-                            encoded.layers()
-                                    .subList(
-                                            snapshotCount,
-                                            snapshotCount + queryResult.layers().size()));
+                    queryResult.layers().stream()
+                            .map(layer -> encodedById.get(layer.id()))
+                            .toList();
             sceneEnvelope = encoded.envelope();
             sceneGeneration = nextSceneGeneration;
             diagnostic = Optional.empty();
@@ -3607,7 +3619,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             icons);
             SceneProtocol.Result result =
                     protocol.withRasterWindows(
-                            vectorResult, rasterWindows, rasters.encodedWindows());
+                            vectorResult,
+                            rasterWindows,
+                            rasters.encodedWindows(),
+                            basemapLayerIds());
             return new StagedScene(result, icons, rasters);
         } catch (RuntimeException | Error failure) {
             if (rasters != null) {
@@ -3670,7 +3685,10 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
                             icons);
             SceneProtocol.Result result =
                     protocol.withRasterWindows(
-                            vectorResult, rasterWindows, rasters.encodedWindows());
+                            vectorResult,
+                            rasterWindows,
+                            rasters.encodedWindows(),
+                            basemapLayerIds());
             return new StagedScene(result, icons, rasters);
         } catch (RuntimeException | Error failure) {
             if (rasters != null) {
@@ -4082,7 +4100,32 @@ public final class MundaneMap extends Component implements HasSize, HasEnabled, 
     }
 
     private List<Layer> combinedLayers() {
-        return combine(combine(layers, sourceLayers), editableLayers(editBindings));
+        return composeLayers(layers, sourceLayers, editableLayers(editBindings), basemapLayerIds());
+    }
+
+    private Set<String> basemapLayerIds() {
+        return basemapLayerIds(featureSourceBindings());
+    }
+
+    private static Set<String> basemapLayerIds(List<FeatureSourceBinding> bindings) {
+        return bindings.stream()
+                .filter(binding -> binding.layerPlacement() == BrowserFeatureLayerPlacement.BASEMAP)
+                .map(FeatureSourceBinding::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static List<Layer> composeLayers(
+            List<? extends Layer> snapshots,
+            List<? extends Layer> sources,
+            List<? extends Layer> edits,
+            Set<String> basemapIds) {
+        ArrayList<Layer> combined =
+                new ArrayList<>(snapshots.size() + sources.size() + edits.size());
+        sources.stream().filter(layer -> basemapIds.contains(layer.id())).forEach(combined::add);
+        combined.addAll(snapshots);
+        sources.stream().filter(layer -> !basemapIds.contains(layer.id())).forEach(combined::add);
+        combined.addAll(edits);
+        return List.copyOf(combined);
     }
 
     private static List<Layer> combine(List<? extends Layer> first, List<? extends Layer> second) {

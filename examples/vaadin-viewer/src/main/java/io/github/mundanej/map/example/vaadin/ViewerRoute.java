@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.concurrent.CompletionStage;
 import org.springframework.beans.factory.annotation.Autowired;
 
-/** Responsive, keyboard-ordered application shell for the in-memory browser map. */
+/** Responsive, keyboard-ordered application shell for the offline whole-world browser map. */
 @Tag("main")
 @Route("")
 @PageTitle("Mundane Java Map — Vaadin viewer")
@@ -132,7 +132,7 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         NativeElement shell = element("div", "shell");
         NativeElement header = element("header", "top");
         NativeElement title = element("h1", "");
-        title.text("Mundane Java Map — in-memory Vaadin viewer");
+        title.text("Mundane Java Map — whole-world Vaadin viewer");
         toolbar.getElement().setAttribute("aria-label", "Map tools");
         addToolbarButtons();
         header.add(title, toolbar);
@@ -162,8 +162,8 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         status.add(label("Diagnostics", diagnostics), label("Measurement", measurement));
         NativeElement hint = element("p", "hint");
         hint.text(
-                "No basemap or network map data is used. Select a tool, then focus the map "
-                        + "and use pointer or keyboard input.");
+                "The bundled Natural Earth land layer is offline; no network map service is used. "
+                        + "Select a tool, then focus the map and use pointer or keyboard input.");
         sidebar.add(
                 layerHeading,
                 layerList,
@@ -260,17 +260,10 @@ public final class ViewerRoute extends Component implements AutoCloseable {
         input.getElement().setAttribute("type", "checkbox");
         input.getElement().setAttribute("id", "wrap-world");
         input.getElement().setAttribute("aria-label", "Repeat horizontal world");
-        input.getElement()
-                .addEventListener(
-                        "change",
-                        event -> {
-                            session.setWrapEnabled(
-                                    event.getEventData().get("event.target.checked").asBoolean());
-                            refresh();
-                        })
-                .addEventData("event.target.checked");
+        input.getElement().setProperty("checked", true);
+        input.getElement().setAttribute("disabled", true);
         NativeElement caption = element("span", "");
-        caption.text("Repeat world");
+        caption.text("World wrap on");
         wrap.add(input, caption);
         toolbar.add(wrap);
     }

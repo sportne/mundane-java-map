@@ -435,10 +435,16 @@ final class MundaneMapFeatureSourceTest {
         assertEquals(Optional.empty(), borrowed.tighterLimits());
         assertFalse(borrowed.owned());
         assertFalse(borrowed.isClosed());
+        assertEquals(BrowserFeatureLayerPlacement.OVERLAY, borrowed.layerPlacement());
+        borrowed.setLayerPlacement(BrowserFeatureLayerPlacement.BASEMAP);
+        assertEquals(BrowserFeatureLayerPlacement.BASEMAP, borrowed.layerPlacement());
         borrowed.close();
         borrowed.close();
         assertTrue(borrowed.isClosed());
         assertFalse(borrowedSource.isClosed());
+        assertThrows(
+                IllegalStateException.class,
+                () -> borrowed.setLayerPlacement(BrowserFeatureLayerPlacement.OVERLAY));
 
         assertThrows(IllegalArgumentException.class, () -> binding(" ", borrowedSource, false));
         FeatureQueryLimits tooLoose =
@@ -469,6 +475,9 @@ final class MundaneMapFeatureSourceTest {
         MundaneMap other = map(new ArrayDeque<>(), new ArrayDeque<>());
         assertTrue(owned.owned());
         owned.attach(owner);
+        assertThrows(
+                IllegalStateException.class,
+                () -> owned.setLayerPlacement(BrowserFeatureLayerPlacement.BASEMAP));
         assertThrows(IllegalStateException.class, () -> owned.attach(owner));
         assertThrows(IllegalStateException.class, owned::close);
         assertThrows(IllegalStateException.class, () -> owned.attach(other));

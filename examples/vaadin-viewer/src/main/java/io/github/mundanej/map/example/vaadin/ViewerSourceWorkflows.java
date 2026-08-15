@@ -3,6 +3,7 @@ package io.github.mundanej.map.example.vaadin;
 import io.github.mundanej.map.api.BuiltInMarker;
 import io.github.mundanej.map.api.CancellationSource;
 import io.github.mundanej.map.api.CancellationToken;
+import io.github.mundanej.map.api.CrsDefinition;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.ElevationColorRamp;
 import io.github.mundanej.map.api.ElevationColorStop;
@@ -11,6 +12,7 @@ import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.ElevationSourceLimits;
 import io.github.mundanej.map.api.ElevationSourceMetadata;
 import io.github.mundanej.map.api.ElevationUnit;
+import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureCursor;
 import io.github.mundanej.map.api.FeaturePortrayal;
 import io.github.mundanej.map.api.FeatureQuery;
@@ -34,7 +36,9 @@ import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolStroke;
 import io.github.mundanej.map.api.SymbolUnit;
 import io.github.mundanej.map.core.BuiltInMarkers;
+import io.github.mundanej.map.core.CrsOperation;
 import io.github.mundanej.map.core.CrsRegistry;
+import io.github.mundanej.map.core.MapViewport;
 import io.github.mundanej.map.io.geotiff.GeoTiffElevationOptions;
 import io.github.mundanej.map.io.geotiff.GeoTiffFiles;
 import io.github.mundanej.map.io.geotiff.GeoTiffRasterOptions;
@@ -113,6 +117,8 @@ final class ViewerSourceWorkflows implements AutoCloseable {
     private final Openers openers;
     private final Runnable changed;
     private final ExecutorService ownedExecutor;
+    private final List<FeatureSourceBinding> baseFeatures;
+    private final Optional<Envelope> baseDisplayExtent;
     private Active active = Active.empty();
     private volatile CancellationSource pendingCancellation;
     private final AtomicLong generation = new AtomicLong();
@@ -122,7 +128,32 @@ final class ViewerSourceWorkflows implements AutoCloseable {
     private boolean wrapEnabled;
 
     ViewerSourceWorkflows(MundaneMap map, Consumer<Runnable> dispatcher, Runnable changed) {
-        this(map, createExecutor(), dispatcher, Openers.production(), changed, true);
+        this(map, dispatcher, changed, List.of());
+    }
+
+    ViewerSourceWorkflows(
+            MundaneMap map,
+            Consumer<Runnable> dispatcher,
+            Runnable changed,
+            List<FeatureSourceBinding> baseFeatures) {
+        this(map, dispatcher, changed, baseFeatures, Optional.empty());
+    }
+
+    ViewerSourceWorkflows(
+            MundaneMap map,
+            Consumer<Runnable> dispatcher,
+            Runnable changed,
+            List<FeatureSourceBinding> baseFeatures,
+            Optional<Envelope> baseDisplayExtent) {
+        this(
+                map,
+                createExecutor(),
+                dispatcher,
+                Openers.production(),
+                changed,
+                true,
+                baseFeatures,
+                baseDisplayExtent);
     }
 
     ViewerSourceWorkflows(
@@ -131,7 +162,7 @@ final class ViewerSourceWorkflows implements AutoCloseable {
             Consumer<Runnable> dispatcher,
             Openers openers,
             Runnable changed) {
-        this(map, executor, dispatcher, openers, changed, false);
+        this(map, executor, dispatcher, openers, changed, false, List.of(), Optional.empty());
     }
 
     ViewerSourceWorkflows(
@@ -141,12 +172,42 @@ final class ViewerSourceWorkflows implements AutoCloseable {
             Openers openers,
             Runnable changed,
             boolean ownsExecutor) {
+        this(
+                map,
+                executor,
+                dispatcher,
+                openers,
+                changed,
+                ownsExecutor,
+                List.of(),
+                Optional.empty());
+    }
+
+    ViewerSourceWorkflows(
+            MundaneMap map,
+            Executor executor,
+            Consumer<Runnable> dispatcher,
+            Openers openers,
+            Runnable changed,
+            boolean ownsExecutor,
+            List<FeatureSourceBinding> baseFeatures,
+            Optional<Envelope> baseDisplayExtent) {
         this.map = Objects.requireNonNull(map, "map");
         this.executor = Objects.requireNonNull(executor, "executor");
         this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
         this.openers = Objects.requireNonNull(openers, "openers");
         this.changed = Objects.requireNonNull(changed, "changed");
         ownedExecutor = ownsExecutor ? (ExecutorService) executor : null;
+        this.baseFeatures = List.copyOf(Objects.requireNonNull(baseFeatures, "baseFeatures"));
+        this.baseDisplayExtent = Objects.requireNonNull(baseDisplayExtent, "baseDisplayExtent");
+        if (!this.baseFeatures.isEmpty()) {
+            try {
+                map.setFeatureSourceBindings(this.baseFeatures);
+            } catch (RuntimeException | Error failure) {
+                closeBindingsSuppressing(this.baseFeatures, failure);
+                throw failure;
+            }
+        }
     }
 
     synchronized CompletionStage<OpenResult> openShapefile(Path path) {
@@ -212,6 +273,11 @@ final class ViewerSourceWorkflows implements AutoCloseable {
         active = active.moved(id, delta);
         installBindings(active);
         notifyChanged();
+    }
+
+    synchronized boolean fit(double paddingPixels) {
+        requireOpen();
+        return fit(active, paddingPixels);
     }
 
     synchronized void clear() {
@@ -349,6 +415,7 @@ final class ViewerSourceWorkflows implements AutoCloseable {
         previous.close();
         try {
             installBindings(candidate);
+            fit(candidate, 48);
             active = candidate;
         } catch (RuntimeException | Error failure) {
             detachBindingsSuppressing(failure);
@@ -356,8 +423,25 @@ final class ViewerSourceWorkflows implements AutoCloseable {
         }
     }
 
+    private boolean fit(Active candidate, double paddingPixels) {
+        Optional<Envelope> extent =
+                candidate
+                        .displayExtent(CrsRegistry.level1(), map.mapCrs(), map.displayCrs())
+                        .or(() -> baseDisplayExtent);
+        if (extent.isEmpty()) {
+            return map.fitToContents(paddingPixels);
+        }
+        MapViewport current = map.viewport();
+        map.setViewport(
+                MapViewport.fit(
+                        current.width(), current.height(), extent.orElseThrow(), paddingPixels));
+        return true;
+    }
+
     private void installBindings(Active value) {
-        map.setFeatureSourceBindings(value.visibleFeatures());
+        List<FeatureSourceBinding> features = new ArrayList<>(baseFeatures);
+        features.addAll(value.visibleFeatures());
+        map.setFeatureSourceBindings(features);
         map.setRasterSourceBindings(value.visibleRasters());
         map.setElevationSourceBindings(value.visibleElevations());
     }
@@ -365,7 +449,7 @@ final class ViewerSourceWorkflows implements AutoCloseable {
     private void detachBindings() {
         Throwable primary = null;
         try {
-            map.setFeatureSourceBindings(List.of());
+            map.setFeatureSourceBindings(baseFeatures);
         } catch (RuntimeException | Error failure) {
             primary = failure;
         }
@@ -431,6 +515,17 @@ final class ViewerSourceWorkflows implements AutoCloseable {
             }
         }
         return primary;
+    }
+
+    private static void closeBindingsSuppressing(
+            List<FeatureSourceBinding> bindings, Throwable primary) {
+        for (FeatureSourceBinding binding : bindings.reversed()) {
+            try {
+                binding.close();
+            } catch (RuntimeException | Error cleanup) {
+                primary.addSuppressed(cleanup);
+            }
+        }
     }
 
     private static void complete(CompletableFuture<OpenResult> result, OpenResult completion) {
@@ -812,6 +907,19 @@ final class ViewerSourceWorkflows implements AutoCloseable {
             return entries.stream().map(Entry::elevation).flatMap(Optional::stream).toList();
         }
 
+        Optional<Envelope> displayExtent(
+                CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs) {
+            Envelope combined = null;
+            for (Entry entry : entries) {
+                Optional<Envelope> candidate = entry.displayExtent(registry, mapCrs, displayCrs);
+                if (candidate.isPresent()) {
+                    Envelope value = candidate.orElseThrow();
+                    combined = combined == null ? value : combined.union(value);
+                }
+            }
+            return Optional.ofNullable(combined);
+        }
+
         Active withVisibility(String id, boolean visible) {
             boolean found = false;
             List<Entry> copy = new ArrayList<>(entries.size());
@@ -952,6 +1060,59 @@ final class ViewerSourceWorkflows implements AutoCloseable {
             return kind == Kind.ELEVATION
                     ? Optional.ofNullable((ElevationSourceBinding) binding)
                     : Optional.empty();
+        }
+
+        Optional<Envelope> displayExtent(
+                CrsRegistry registry, CrsDefinition mapCrs, CrsDefinition displayCrs) {
+            if (binding == null) {
+                return Optional.empty();
+            }
+            return switch (kind) {
+                case FEATURE ->
+                        featureDisplayExtent(
+                                (FeatureSourceBinding) binding, registry, mapCrs, displayCrs);
+                case RASTER ->
+                        rasterDisplayExtent((RasterSourceBinding) binding, registry, displayCrs);
+                case ELEVATION ->
+                        elevationDisplayExtent(
+                                (ElevationSourceBinding) binding, registry, displayCrs);
+            };
+        }
+
+        private static Optional<Envelope> featureDisplayExtent(
+                FeatureSourceBinding binding,
+                CrsRegistry registry,
+                CrsDefinition mapCrs,
+                CrsDefinition displayCrs) {
+            FeatureSourceMetadata metadata = binding.source().metadata();
+            if (metadata.extent().isEmpty()) {
+                return Optional.empty();
+            }
+            CrsOperation sourceToMap = registry.operationFromMetadata(metadata.crs(), mapCrs);
+            CrsOperation mapToDisplay = registry.operation(mapCrs, displayCrs);
+            return Optional.of(
+                    mapToDisplay.transformEnvelopeStrict(
+                            sourceToMap.transformEnvelopeStrict(metadata.extent().orElseThrow())));
+        }
+
+        private static Optional<Envelope> rasterDisplayExtent(
+                RasterSourceBinding binding, CrsRegistry registry, CrsDefinition displayCrs) {
+            RasterSourceMetadata metadata = binding.source().metadata();
+            if (metadata.mapBounds().isEmpty()) {
+                return Optional.empty();
+            }
+            CrsOperation sourceToDisplay =
+                    registry.operationFromMetadata(metadata.crs(), displayCrs);
+            return Optional.of(
+                    sourceToDisplay.transformEnvelopeStrict(metadata.mapBounds().orElseThrow()));
+        }
+
+        private static Optional<Envelope> elevationDisplayExtent(
+                ElevationSourceBinding binding, CrsRegistry registry, CrsDefinition displayCrs) {
+            ElevationSourceMetadata metadata = binding.source().metadata();
+            CrsOperation sourceToDisplay =
+                    registry.operationFromMetadata(Optional.of(metadata.crs()), displayCrs);
+            return Optional.of(sourceToDisplay.transformEnvelopeStrict(metadata.sampleBounds()));
         }
 
         Entry withVisible(boolean visible) {

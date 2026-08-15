@@ -144,6 +144,10 @@ final class VaadinBrowserEvidenceTest {
 
             page.navigate(baseUrl);
             waitForMap(page);
+            page.waitForFunction(
+                    "() => document.querySelector('mundane-map-canvas').scene.layers"
+                            + ".some(layer => layer.id === 'world-land'"
+                            + " && layer.features.length > 100)");
             observations.put("browserVersion", browser.version());
             assertEquals(
                     engine.equals("chromium") ? "148.0.7778.96" : "150.0.2", browser.version());
@@ -160,13 +164,34 @@ final class VaadinBrowserEvidenceTest {
                                       return {sceneGeneration:map.sceneGeneration,
                                         viewportGeneration:map.viewportGeneration,
                                         layerCount:map.scene.layers.length,
+                                        worldFeatures:map.scene.layers
+                                          .find(layer=>layer.id==='world-land').features.length,
+                                        worldCopyIndexes:[...new Set(map.scene.layers
+                                          .find(layer=>layer.id==='world-land').features
+                                          .map(feature=>feature.copyIndex))],
+                                        basemapLayerIds:map.scene.basemapLayerIds,
+                                        layerIds:map.scene.layers.map(layer=>layer.id),
+                                        background:map.scene.background,
+                                        worldUnitsPerPixel:map.viewport.worldUnitsPerPixel,
                                         utf8SceneBytes:new TextEncoder().encode(
                                           JSON.stringify(map.scene)).byteLength,
                                         kinds:[...new Set(map.scene.layers.flatMap(l=>l.features)
                                           .flatMap(f=>f.primitives).map(p=>p.kind))]}; }
                                     """);
             assertTrue(((Number) initialScene.get("layerCount")).intValue() >= 3);
+            assertTrue(((Number) initialScene.get("worldFeatures")).intValue() > 100);
+            assertTrue(((List<?>) initialScene.get("worldCopyIndexes")).size() >= 2);
+            assertEquals(List.of(190, 216, 232, 255), initialScene.get("background"));
+            assertEquals(List.of("world-land"), initialScene.get("basemapLayerIds"));
+            assertEquals("world-land", ((List<?>) initialScene.get("layerIds")).getFirst());
+            assertTrue(((Number) initialScene.get("worldUnitsPerPixel")).doubleValue() > 80_000);
             observations.put("initialScene", initialScene);
+            page.locator("mundane-map-canvas canvas")
+                    .screenshot(
+                            new Locator.ScreenshotOptions()
+                                    .setPath(
+                                            evidenceDirectory.resolve(
+                                                    engine + "-whole-world.png")));
 
             exercisePointerSelectionMeasurementAndEditing(page, observations);
             exerciseStandaloneRenderAndProtocolFixture(
@@ -353,6 +378,11 @@ final class VaadinBrowserEvidenceTest {
         page.waitForFunction(
                 "previous => document.querySelector('mundane-map-canvas').viewport.centerX > previous",
                 keyboardCenter);
+        page.waitForFunction(
+                "() => {const m=document.querySelector('mundane-map-canvas');"
+                        + " return m.scene.layers.some(layer=>layer.id==='world-land')"
+                        + " && m.scene.viewportGeneration===m.viewportGeneration;}");
+        waitForSceneStable(page);
         BoundingBox box = canvas.boundingBox();
         assertNotNull(box);
         double priorCenter = viewportNumber(page, "centerX");
@@ -365,9 +395,20 @@ final class VaadinBrowserEvidenceTest {
                         box.y + 330,
                         new com.microsoft.playwright.Mouse.MoveOptions().setSteps(4));
         page.mouse().up();
-        page.waitForFunction(
-                "previous => document.querySelector('mundane-map-canvas').viewport.centerX !== previous",
-                priorCenter);
+        waitForInteractionIdle(page);
+        Object navigationState =
+                page.evaluate(
+                        """
+                        () => {const m=document.querySelector('mundane-map-canvas'); return {
+                          centerX:m.viewport.centerX,priorCenter:m.__priorCenter,
+                          pointers:m.pointers.size,pending:m.pendingToolEvents,
+                          dirty:m.viewportDirty,toolActive:m.toolActive,
+                          enabled:m.enabled,active:m.active,eventSequence:m.eventSequence,
+                          interactions:m.__evidenceInteractions.slice(-10)};}
+                        """);
+        assertTrue(
+                Double.compare(viewportNumber(page, "centerX"), priorCenter) != 0,
+                navigationState::toString);
         observations.put("navigationViewportGeneration", viewportGeneration(page));
     }
 
@@ -395,6 +436,7 @@ final class VaadinBrowserEvidenceTest {
                                   const scene=structuredClone(source.scene);
                                   scene.componentGeneration=900; scene.sceneGeneration=0;
                                   scene.viewportGeneration=0; scene.rasters=[]; scene.labelCandidates=[];
+                                  scene.basemapLayerIds=[];
                                   scene.viewport={...scene.viewport,width:600,height:400};
                                   const cx=scene.viewport.centerX, cy=scene.viewport.centerY;
                                   const w=scene.viewport.worldUnitsPerPixel;
@@ -568,9 +610,8 @@ final class VaadinBrowserEvidenceTest {
         assertEquals(1, ((Number) fixture.get("interactionLayers")).intValue());
         @SuppressWarnings("unchecked")
         List<Number> holePixel = (List<Number>) fixture.get("holePixel");
-        assertTrue(
-                holePixel.subList(0, 3).stream().allMatch(channel -> channel.intValue() >= 245),
-                holePixel::toString);
+        assertEquals(
+                List.of(190, 216, 232, 255), holePixel.stream().map(Number::intValue).toList());
         assertTrue(((List<?>) fixture.get("copyIndexes")).contains(1));
         assertTrue(((Number) fixture.get("labelMeasurements")).intValue() == 1);
         assertTrue(
@@ -627,7 +668,6 @@ final class VaadinBrowserEvidenceTest {
         page.locator("#fixture-raster").click();
         page.waitForFunction(
                 "() => document.querySelector('.sources').textContent.toLowerCase().includes('raster')");
-        navigateToMap(page, 108_000, 192_000, 30);
         page.waitForFunction(
                 "() => document.querySelector('mundane-map-canvas').scene.rasters?.length > 0");
         observations.put(
@@ -697,7 +737,6 @@ final class VaadinBrowserEvidenceTest {
         page.locator("#fixture-elevation").click();
         page.waitForFunction(
                 "() => document.querySelector('.sources').textContent.toLowerCase().includes('elevation')");
-        navigateToMap(page, 1_750, 1_250, 4);
         page.waitForFunction(
                 "() => document.querySelector('.sources').textContent.toLowerCase().includes('elevation')"
                         + " && document.querySelector('mundane-map-canvas').scene.rasters?.length > 0");
@@ -763,8 +802,8 @@ final class VaadinBrowserEvidenceTest {
         page.locator("#fixture-shapefile").click();
         page.waitForFunction(
                 "() => document.querySelector('.sources').textContent.toLowerCase().includes('feature')");
-        page.locator("#wrap-world").check();
         assertTrue(page.locator("#wrap-world").isChecked());
+        assertTrue(page.locator("#wrap-world").isDisabled());
         long initialScene = sceneGeneration(page);
         for (int iteration = 0; iteration < 8; iteration++) {
             page.locator("#zoom-out").click();
@@ -955,28 +994,31 @@ final class VaadinBrowserEvidenceTest {
                         + " && m.viewportGeneration===m.authoritativeViewportGeneration;}");
     }
 
+    private static void waitForSceneStable(Page page) {
+        long generation = sceneGeneration(page);
+        int stableSamples = 0;
+        for (int attempt = 0; attempt < 30; attempt++) {
+            page.waitForTimeout(100);
+            long current = sceneGeneration(page);
+            if (current == generation) {
+                stableSamples++;
+                if (stableSamples == 3) {
+                    return;
+                }
+            } else {
+                generation = current;
+                stableSamples = 0;
+            }
+        }
+        throw new AssertionError("browser scene did not settle");
+    }
+
     private static int editableFeatureCount(Page page) {
         return ((Number)
                         page.evaluate(
                                 "() => document.querySelector('mundane-map-canvas').scene.layers"
                                         + ".find(l=>l.id==='editable-points').features.length"))
                 .intValue();
-    }
-
-    private static void navigateToMap(
-            Page page, double centerX, double centerY, double worldUnitsPerPixel) {
-        page.evaluate(
-                """
-                a => {const m=document.querySelector('mundane-map-canvas');
-                  m.viewport={...m.viewport,centerX:a.centerX,centerY:a.centerY,
-                    worldUnitsPerPixel:a.worldUnitsPerPixel};
-                  m.afterLocalNavigation(true);}
-                """,
-                Map.of(
-                        "centerX", centerX,
-                        "centerY", centerY,
-                        "worldUnitsPerPixel", worldUnitsPerPixel));
-        page.waitForTimeout(250);
     }
 
     private static long sceneGeneration(Page page) {

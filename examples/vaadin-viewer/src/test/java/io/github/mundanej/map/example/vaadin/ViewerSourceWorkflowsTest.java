@@ -51,14 +51,25 @@ final class ViewerSourceWorkflowsTest {
         assertTrue(workflows.layers().getFirst().visible());
         map.setHorizontalWrap(HorizontalWrap.webMercator());
         workflows.setWrapEnabled(true);
+        workflows.clear();
+        assertTrue(workflows.openShapefile(shapefile()).toCompletableFuture().join().opened());
         workflows.setWrapEnabled(false);
         map.clearHorizontalWrap();
 
         assertTrue(workflows.openRaster(raster()).toCompletableFuture().join().opened());
         assertEquals(List.of("opened-raster"), ids(workflows));
+        assertEquals(108_000, map.viewport().centerX());
+        assertEquals(192_000, map.viewport().centerY());
+
+        map.setViewport(new io.github.mundanej.map.core.MapViewport(800, 600, 0, 0, 1));
+        assertTrue(workflows.fit(48));
+        assertEquals(108_000, map.viewport().centerX());
+        assertEquals(192_000, map.viewport().centerY());
 
         assertTrue(workflows.openElevation(elevation()).toCompletableFuture().join().opened());
         assertEquals(List.of("opened-elevation"), ids(workflows));
+        assertEquals(1_750, map.viewport().centerX());
+        assertEquals(1_250, map.viewport().centerY());
 
         assertTrue(workflows.openWorkspace(workspace()).toCompletableFuture().join().opened());
         assertEquals(List.of("workspace-areas", "workspace-outline"), ids(workflows));

@@ -1,9 +1,18 @@
 # Vaadin viewer example
 
-This non-published Spring Boot application demonstrates `MundaneMap` with an in-memory study area,
-route, editable points, and explicitly opened server-local sources. It deliberately has no basemap,
-map-data download, API key, account, or commercial Vaadin component. Starting the example does not
-open a source path or contact a remote map service.
+This non-published Spring Boot application demonstrates `MundaneMap` with a whole-world Natural
+Earth land background, an in-memory study area and route, editable city points, and explicitly
+opened server-local sources. The background is a bundled, hash-verified Natural Earth 1:110m
+shapefile rather than a remote basemap, so starting the example requires no map-data download, API
+key, account, or commercial Vaadin component and does not contact a remote map service.
+
+The five unmodified Natural Earth 4.1.0 sidecars are packaged into the executable application from
+the repository's canonical resource copy. Their source, public-domain redistribution terms, exact
+sizes, and SHA-256 checksums are recorded in
+[`../live-track-stress/NATURAL_EARTH_PROVENANCE.md`](../live-track-stress/NATURAL_EARTH_PROVENANCE.md).
+The application verifies those bytes once before opening and projecting the shapefile, removes the
+temporary staged copy immediately, and gives each route an independently closable indexed view of
+the immutable projected records.
 
 ## Development launch
 
@@ -44,8 +53,12 @@ written under `examples/vaadin-viewer/build/reports/vaadin-browser/`. Timings, t
 resource observations describe only the executing environment; they are not portable performance
 claims.
 
-The toolbar provides fit/zoom, navigation, measurement, point creation/movement, undo/redo, a
-compatible horizontal-wrap toggle, and server-side SVG preparation/download. The sidebar provides
+The initial viewport frames the full Web Mercator world with checked horizontal repetition enabled.
+The ocean color and repeating Natural Earth land/coast are a dedicated basemap below raster,
+elevation, ordinary vector, label, and interaction content. Server-local datasets remain local
+unless an application explicitly opts their bindings into repetition. The toolbar provides
+fit/zoom, navigation, measurement, point creation/movement, undo/redo, a visible wrap-on status,
+and server-side SVG preparation/download. The sidebar provides
 ordered visibility controls, browser upload, coordinates, selection identity, source-diagnostic
 status, and measurement status. All controls use native HTML focus order and the map exposes its
 own keyboard help and interaction semantics.
@@ -59,6 +72,7 @@ browser upload: the value names a file readable by the application process and m
 treated as trusted administrative input. Do not expose this control to untrusted users without an
 application-specific authorization and path policy.
 
+The bundled land background remains present when an additional server-local source is opened.
 Shapefiles are opened by `mundane-map-io-shapefile`, GeoTIFF raster/elevation files by
 `mundane-map-io-geotiff`, and `.mmap.xml` files by `mundane-map-workspace`. The workspace registry is
 closed and permits only its versioned shapefile opener and checked symbol catalog. It does not scan

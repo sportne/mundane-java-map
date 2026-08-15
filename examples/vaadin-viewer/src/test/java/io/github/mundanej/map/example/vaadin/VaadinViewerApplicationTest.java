@@ -13,12 +13,18 @@ import com.vaadin.flow.component.page.Push;
 import com.vaadin.flow.router.Route;
 import com.vaadin.flow.shared.communication.PushMode;
 import com.vaadin.flow.spring.SpringServlet;
+import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.Coordinate;
+import io.github.mundanej.map.api.FeatureCursor;
+import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureSelection;
+import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.MapPointerButton;
 import io.github.mundanej.map.api.MapToolContext;
 import io.github.mundanej.map.api.MapToolEvent;
 import io.github.mundanej.map.api.MeasurementPhase;
+import io.github.mundanej.map.api.Rgba;
+import io.github.mundanej.map.core.CrsDefinitions;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -33,6 +39,26 @@ import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.ConfigurableApplicationContext;
 
 final class VaadinViewerApplicationTest {
+    @Test
+    void bundledNaturalEarthSourceIsVerifiedQueryableAndOwned() {
+        int records = 0;
+        try (FeatureSource source = ViewerWorldMap.openSource()) {
+            assertEquals(
+                    CrsDefinitions.EPSG_3857.canonicalIdentifier(),
+                    source.metadata()
+                            .crs()
+                            .flatMap(value -> value.canonicalIdentifier())
+                            .orElseThrow());
+            try (FeatureCursor cursor =
+                    source.openCursor(FeatureQuery.all(), CancellationToken.none())) {
+                while (cursor.advance()) {
+                    records++;
+                }
+            }
+        }
+        assertTrue(records > 100);
+    }
+
     @Test
     void applicationContextStartsWithoutNetworkMapData() {
         assertEquals(
@@ -72,7 +98,7 @@ final class VaadinViewerApplicationTest {
         ViewerRoute route = new ViewerRoute(new ViewerSessionRegistry());
         assertEquals("main", route.getElement().getTag());
         assertTrue(route.getElement().getClassList().contains("viewer-root"));
-        assertTrue(route.getElement().getTextRecursively().contains("No basemap"));
+        assertTrue(route.getElement().getTextRecursively().contains("Natural Earth land layer"));
         assertTrue(route.getElement().getTextRecursively().contains("Upload and open"));
         assertTrue(route.getElement().getTextRecursively().contains("Download SVG"));
         assertFalse(route.session().isClosed());
@@ -180,20 +206,33 @@ final class VaadinViewerApplicationTest {
     @Test
     void routeFixtureControlsOpenEverySupportedServerBoundary() {
         ViewerRoute route = new ViewerRoute(new ViewerSessionRegistry());
+        assertEquals(
+                List.of("world-land"),
+                route.session().map().featureSourceBindings().stream()
+                        .map(binding -> binding.id())
+                        .toList());
+        assertEquals(
+                io.github.mundanej.map.vaadin.BrowserFeatureLayerPlacement.BASEMAP,
+                route.session().map().featureSourceBindings().getFirst().layerPlacement());
+        assertEquals(
+                io.github.mundanej.map.vaadin.BrowserHorizontalWrapMode.REPEAT_X,
+                route.session().map().featureSourceBindings().getFirst().horizontalWrapMode());
 
-        route.session().setWrapEnabled(true);
+        assertTrue(route.session().wrapEnabled());
         assertTrue(
                 route.openFixture(ViewerRoute.SourceKind.SHAPEFILE)
                         .toCompletableFuture()
                         .join()
                         .opened());
-        route.session().setWrapEnabled(false);
         for (ViewerRoute.SourceKind kind : ViewerRoute.SourceKind.values()) {
             if (kind == ViewerRoute.SourceKind.SHAPEFILE) {
                 continue;
             }
             assertTrue(route.openFixture(kind).toCompletableFuture().join().opened());
             assertFalse(route.session().sourceLayers().isEmpty());
+            assertTrue(
+                    route.session().map().featureSourceBindings().stream()
+                            .anyMatch(binding -> binding.id().equals("world-land")));
         }
 
         route.close();
@@ -280,6 +319,10 @@ final class VaadinViewerApplicationTest {
                 session.layers().stream().map(layer -> layer.id()).toList());
         assertEquals(2, session.editSnapshot().records().size());
         assertEquals("No source diagnostics", session.diagnosticText());
+        assertEquals(Rgba.rgb(190, 216, 232), session.map().background());
+        assertEquals(0, session.map().viewport().centerX());
+        assertEquals(0, session.map().viewport().centerY());
+        assertTrue(session.map().viewport().worldUnitsPerPixel() > 80_000);
         assertTrue(session.map().fitToContents(32));
 
         session.setLayerVisible("route", false);
@@ -287,9 +330,11 @@ final class VaadinViewerApplicationTest {
         session.moveLayer("route", -1);
         assertEquals("route", session.layers().getFirst().id());
         session.zoom(0.5);
-        session.setWrapEnabled(true);
+        session.fit();
+        assertEquals(0, session.map().viewport().centerX());
+        assertEquals(0, session.map().viewport().centerY());
+        assertTrue(session.map().viewport().worldUnitsPerPixel() > 80_000);
         assertTrue(session.wrapEnabled());
-        session.setWrapEnabled(false);
 
         session.measure();
         assertEquals(ViewerSession.ToolMode.MEASURE, session.toolMode());

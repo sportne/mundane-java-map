@@ -37,6 +37,7 @@ public final class FeatureSourceBinding implements AutoCloseable {
     private final Optional<FeatureQueryLimits> tighterLimits;
     private final boolean owned;
     private BrowserHorizontalWrapMode horizontalWrapMode = BrowserHorizontalWrapMode.NONE;
+    private BrowserFeatureLayerPlacement layerPlacement = BrowserFeatureLayerPlacement.OVERLAY;
     private MundaneMap owner;
     private boolean closed;
 
@@ -337,6 +338,32 @@ public final class FeatureSourceBinding implements AutoCloseable {
             throw new IllegalStateException(closed ? "binding is closed" : "binding is attached");
         }
         horizontalWrapMode = Objects.requireNonNull(mode, "mode");
+    }
+
+    /**
+     * Returns the explicit browser paint lane.
+     *
+     * @return current placement, initially {@link BrowserFeatureLayerPlacement#OVERLAY}
+     */
+    public synchronized BrowserFeatureLayerPlacement layerPlacement() {
+        return layerPlacement;
+    }
+
+    /**
+     * Selects the browser paint lane before the binding is attached.
+     *
+     * <p>A {@link BrowserFeatureLayerPlacement#BASEMAP} binding paints after the component
+     * background but before raster and elevation windows. Ordinary overlay bindings paint after
+     * those windows.
+     *
+     * @param placement non-null closed placement
+     * @throws IllegalStateException if the binding is attached or closed
+     */
+    public synchronized void setLayerPlacement(BrowserFeatureLayerPlacement placement) {
+        if (closed || owner != null) {
+            throw new IllegalStateException(closed ? "binding is closed" : "binding is attached");
+        }
+        layerPlacement = Objects.requireNonNull(placement, "placement");
     }
 
     /**

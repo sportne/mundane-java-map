@@ -37,6 +37,7 @@ import io.github.mundanej.map.io.svg.SvgMapExports;
 import io.github.mundanej.map.vaadin.BrowserMeasurementTool;
 import io.github.mundanej.map.vaadin.BrowserPointEditController;
 import io.github.mundanej.map.vaadin.FeatureEditBinding;
+import io.github.mundanej.map.vaadin.FeatureSourceBinding;
 import io.github.mundanej.map.vaadin.MundaneMap;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -85,6 +86,7 @@ final class ViewerSession implements AutoCloseable {
     }
 
     ViewerSession(Consumer<Runnable> dispatcher) {
+        map.setBackground(Rgba.rgb(190, 216, 232));
         allLayers.add(regionLayer());
         allLayers.add(routeLayer());
         for (Layer layer : allLayers) {
@@ -98,8 +100,8 @@ final class ViewerSession implements AutoCloseable {
                                 0,
                                 CrsDefinitions.EPSG_3857,
                                 List.of(
-                                        record("point-a", "Editable A", -260, 100),
-                                        record("point-b", "Editable B", 280, -120))),
+                                        record("point-a", "New York", -8_237_642, 4_970_351),
+                                        record("point-b", "London", -14_225, 6_711_542))),
                         FeaturePortrayal.markers(
                                 new FixedSymbolSelector(
                                         BuiltInMarkers.filledScreen(
@@ -107,7 +109,8 @@ final class ViewerSession implements AutoCloseable {
                                                 Rgba.rgb(32, 112, 196),
                                                 13,
                                                 1))));
-        map.setViewport(new MapViewport(800, 560, 0, 0, 2));
+        map.setViewport(worldViewport());
+        map.setHorizontalWrap(HorizontalWrap.webMercator());
         map.setSnapshotLayers(allLayers);
         map.setFeatureEditBindings(List.of(editBinding));
         editor = new BrowserPointEditController(map, editBinding);
@@ -127,8 +130,14 @@ final class ViewerSession implements AutoCloseable {
                     diagnosticText = summarizeDiagnostics();
                     notifyObservers();
                 });
-        sources = new ViewerSourceWorkflows(map, dispatcher, this::sourceWorkflowChanged);
-        map.fitToContents(48);
+        FeatureSourceBinding world = ViewerWorldMap.openBinding();
+        sources =
+                new ViewerSourceWorkflows(
+                        map,
+                        dispatcher,
+                        this::sourceWorkflowChanged,
+                        List.of(world),
+                        Optional.of(ViewerWorldMap.displayExtent()));
     }
 
     MundaneMap map() {
@@ -302,7 +311,7 @@ final class ViewerSession implements AutoCloseable {
 
     void fit() {
         requireOpen();
-        map.fitToContents(48);
+        sources.fit(48);
     }
 
     void zoom(double factor) {
@@ -318,23 +327,6 @@ final class ViewerSession implements AutoCloseable {
                         current.centerX(),
                         current.centerY(),
                         current.worldUnitsPerPixel() * factor));
-    }
-
-    void setWrapEnabled(boolean enabled) {
-        requireOpen();
-        if (enabled) {
-            map.setHorizontalWrap(HorizontalWrap.webMercator());
-            try {
-                sources.setWrapEnabled(true);
-            } catch (RuntimeException | Error failure) {
-                map.clearHorizontalWrap();
-                throw failure;
-            }
-        } else {
-            sources.setWrapEnabled(false);
-            map.clearHorizontalWrap();
-        }
-        notifyObservers();
     }
 
     boolean wrapEnabled() {
@@ -442,8 +434,9 @@ final class ViewerSession implements AutoCloseable {
             return "No source diagnostics";
         }
         String codes =
-                map.sourceReports().values().stream()
-                        .flatMap(report -> report.entries().stream())
+                map.sourceReports().entrySet().stream()
+                        .filter(entry -> !entry.getKey().equals("world-land"))
+                        .flatMap(entry -> entry.getValue().entries().stream())
                         .map(diagnostic -> diagnostic.code())
                         .distinct()
                         .sorted()
@@ -519,7 +512,16 @@ final class ViewerSession implements AutoCloseable {
                         "In-memory study area",
                         new PolygonGeometry(
                                 CoordinateSequence.of(
-                                        -520, -320, 520, -320, 520, 320, -520, 320, -520, -320)),
+                                        -2_000_000,
+                                        -2_000_000,
+                                        4_000_000,
+                                        -2_000_000,
+                                        4_000_000,
+                                        8_000_000,
+                                        -2_000_000,
+                                        8_000_000,
+                                        -2_000_000,
+                                        -2_000_000)),
                         Map.of("kind", "area"),
                         SolidFillSymbol.of(
                                 new Rgba(70, 150, 96, 65),
@@ -533,12 +535,26 @@ final class ViewerSession implements AutoCloseable {
         Feature route =
                 new Feature(
                         "route",
-                        "In-memory route",
+                        "In-memory world route",
                         new LineStringGeometry(
-                                CoordinateSequence.of(-420, -170, -120, 180, 150, 60, 430, 220)),
+                                CoordinateSequence.of(
+                                        -8_237_642,
+                                        4_970_351,
+                                        -14_225,
+                                        6_711_542,
+                                        261_846,
+                                        6_250_564,
+                                        3_477_629,
+                                        3_498_880,
+                                        4_105_471,
+                                        -142_986)),
                         Map.of("kind", "route"),
                         SolidLineSymbol.of(stroke(Rgba.rgb(194, 58, 52), 4), 1));
         return new InMemoryLayer("route", "Route", List.of(route));
+    }
+
+    private static MapViewport worldViewport() {
+        return MapViewport.fit(800, 560, ViewerWorldMap.displayExtent(), 48);
     }
 
     private static SymbolStroke stroke(Rgba color, double width) {

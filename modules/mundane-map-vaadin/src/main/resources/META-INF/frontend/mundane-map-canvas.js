@@ -81,7 +81,10 @@ function sameViewport(first, second) {
 }
 
 export function collectDrawOrder(scene) {
-  return scene.layers.flatMap(layer => layer.features.flatMap(feature =>
+  const basemaps = new Set(scene.basemapLayerIds || []);
+  return [...scene.layers.filter(layer => basemaps.has(layer.id)),
+    ...scene.layers.filter(layer => !basemaps.has(layer.id))]
+    .flatMap(layer => layer.features.flatMap(feature =>
     feature.primitives.map((_primitive, index) => `${layer.id}/${feature.id}/${index}`)));
 }
 
@@ -410,6 +413,7 @@ function detachScene(scene) {
     sceneGeneration: scene.sceneGeneration,
     viewportGeneration: scene.viewportGeneration,
     background: [...scene.background],
+    basemapLayerIds: [...(scene.basemapLayerIds || [])],
     viewport: {...scene.viewport},
     ...(scene.rasters ? {rasters: scene.rasters.map(raster => ({
       ...raster,
@@ -446,7 +450,8 @@ function deepFreeze(value) {
 }
 
 export function logicalSceneBytes(scene) {
-  let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4 + 4 + 4;
+  let size = 4 * 8 + logicalNumberArrayBytes(scene.background) + 5 * 8 + 4 + 4 + 4 + 4;
+  for (const id of scene.basemapLayerIds || []) size += logicalStringBytes(id);
   for (const raster of scene.rasters || []) {
     size += logicalStringBytes(raster.id) + logicalStringBytes(raster.name) +
       logicalStringBytes(raster.logicalId) + logicalStringBytes(raster.resource) +
@@ -701,6 +706,11 @@ export function validateScene(candidate, currentComponentGeneration, currentScen
         validateOpacity(primitive.opacity);
       }
     }
+  }
+  const basemapLayerIds = candidate.basemapLayerIds || [];
+  if (!Array.isArray(basemapLayerIds) || new Set(basemapLayerIds).size !== basemapLayerIds.length ||
+      basemapLayerIds.some(id => typeof id !== 'string' || !layerIds.has(id))) {
+    throw new Error('SYMBOL_UNSUPPORTED');
   }
   if (featureCount > MAX_FEATURES || primitiveCount > MAX_PRIMITIVES ||
       coordinatePairs > MAX_COORDINATE_PAIRS || pathCommands > MAX_PATH_COMMANDS) {
@@ -1476,15 +1486,15 @@ export class MundaneMapCanvas extends HTMLElement {
       }
       this.context.fillStyle = rgba(this.scene.background);
       this.context.fillRect(0, 0, this.viewport.width, this.viewport.height);
+      const basemaps = new Set(this.scene.basemapLayerIds || []);
+      for (const layer of this.scene.layers) {
+        if (basemaps.has(layer.id)) this.drawLayer(layer);
+      }
       for (const raster of this.scene.rasters || []) {
         this.drawRaster(raster);
       }
       for (const layer of this.scene.layers) {
-        for (const feature of layer.features) {
-          for (const primitive of feature.primitives) {
-            this.drawPrimitive(primitive);
-          }
-        }
+        if (!basemaps.has(layer.id)) this.drawLayer(layer);
       }
       for (const label of this.placedLabels) {
         this.context.save();
@@ -1518,6 +1528,12 @@ export class MundaneMapCanvas extends HTMLElement {
       this.pendingLabelAcknowledgement = null;
       this.$server?.acceptPlacedLabels?.(PROTOCOL_VERSION, this.componentGeneration,
         this.sceneGeneration, this.viewportGeneration);
+    }
+  }
+
+  drawLayer(layer) {
+    for (const feature of layer.features) {
+      for (const primitive of feature.primitives) this.drawPrimitive(primitive);
     }
   }
 

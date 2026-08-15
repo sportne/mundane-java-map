@@ -172,6 +172,7 @@ const scene = {
   sceneGeneration: 3,
   viewportGeneration: 4,
   background: [255, 255, 255, 255],
+  basemapLayerIds: [],
   viewport: initial,
   labelCandidates: [],
   layers: [{id: 'layer', name: 'Layer', features: [
@@ -205,6 +206,12 @@ assert.equal(acceptedScene.layers[0].features[2].primitives[0].rings[0][0], 0);
 scene.layers[0].features[2].primitives[0].rings[0][0] = 0;
 assert.deepEqual(canvasModule.collectDrawOrder(scene),
   ['layer/point/0', 'layer/line/0', 'layer/polygon/0']);
+const reordered = structuredClone(scene);
+reordered.layers.push({...structuredClone(reordered.layers[0]), id: 'base'});
+reordered.basemapLayerIds = ['base'];
+assert.deepEqual(canvasModule.collectDrawOrder(reordered),
+  ['base/point/0', 'base/line/0', 'base/polygon/0',
+    'layer/point/0', 'layer/line/0', 'layer/polygon/0']);
 const hostileCopy = structuredClone(scene);
 hostileCopy.sceneGeneration = 4;
 hostileCopy.layers[0].features[0].copyIndex = 1048577;
@@ -218,7 +225,7 @@ multipart.layers[0].features[0].primitives.push({
 canvasModule.validateScene(multipart, 2, 3);
 assert.deepEqual(canvasModule.collectDrawOrder(multipart),
   ['layer/point/0', 'layer/point/1', 'layer/line/0', 'layer/polygon/0']);
-assert.equal(canvasModule.logicalSceneBytes(scene), 751);
+assert.equal(canvasModule.logicalSceneBytes(scene), 755);
 assert.throws(() => canvasModule.validateScene({...scene, protocolVersion: 2}, 2, 2),
   /PROTOCOL_VERSION_UNSUPPORTED/);
 assert.throws(() => canvasModule.validateScene({...scene, sceneGeneration: 2}, 2, 2),
@@ -507,7 +514,7 @@ labelScene.labelCandidates = [{
   weight: 'BOLD',
   sizePixels: 14
 }];
-assert.equal(canvasModule.logicalSceneBytes(labelScene), 778);
+assert.equal(canvasModule.logicalSceneBytes(labelScene), 782);
 assert.deepEqual(canvasModule.validateScene(labelScene, 12, 12), labelScene);
 const hostileFontScene = structuredClone(labelScene);
 hostileFontScene.labelCandidates[0].fontFamily = 'url(https://evil.example/font)';
@@ -673,7 +680,7 @@ iconScene.layers[0].features[0].primitives = [{
   endpointBearing: {present: false}, opacity: 1
 }];
 iconScene.layers[0].features.splice(1);
-assert.equal(canvasModule.logicalSceneBytes(iconScene), 324);
+assert.equal(canvasModule.logicalSceneBytes(iconScene), 328);
 const iconFailures = [];
 const iconElement = new ElementClass();
 iconElement.$server = {
@@ -748,6 +755,8 @@ function rasterWindowBytes(width, height, componentGeneration, sceneGeneration, 
 const rasterScene = structuredClone(scene);
 rasterScene.componentGeneration = 14;
 rasterScene.sceneGeneration = 15;
+rasterScene.layers.push({...structuredClone(rasterScene.layers[0]), id: 'overlay'});
+rasterScene.basemapLayerIds = ['layer'];
 rasterScene.rasters = [{
   id: 'terrain', logicalId: 'terrain', copyIndex: 0, name: 'Terrain',
   resource: './VAADIN/dynamic/resource/token/window.mmrw',
@@ -785,15 +794,17 @@ assert.equal(rasterFailures.length, 0);
 assert.equal(rasterFetches[0][1].credentials, 'same-origin');
 assert.equal(rasterFetches[0][1].cache, 'no-store');
 const affineRect = rasterElement.canvas.operations.find(operation => operation[0] === 'rect');
-const affineTransform = rasterElement.canvas.operations.find(operation =>
-  operation[0] === 'transform');
 const affineDraw = rasterElement.canvas.operations.findIndex(operation =>
   operation[0] === 'drawImage');
+const affineTransform = rasterElement.canvas.operations.slice(0, affineDraw).findLast(operation =>
+  operation[0] === 'transform');
 const firstVectorPath = rasterElement.canvas.operations.findIndex(operation =>
+  operation[0] === 'moveTo');
+const lastVectorPath = rasterElement.canvas.operations.findLastIndex(operation =>
   operation[0] === 'moveTo');
 assert.deepEqual(affineRect, ['rect', 396, 305, 8, 5]);
 assert.deepEqual(affineTransform, ['transform', 5, -0, 0, 5, 395, 305]);
-assert.ok(affineDraw >= 0 && affineDraw < firstVectorPath);
+assert.ok(firstVectorPath >= 0 && firstVectorPath < affineDraw && affineDraw < lastVectorPath);
 assert.deepEqual(rasterElement.canvas.operations.find(operation =>
   operation[0] === 'imageSmoothingEnabled'), ['imageSmoothingEnabled', true]);
 assert.deepEqual(rasterElement.canvas.operations.find(operation =>
@@ -846,7 +857,8 @@ flushPaint();
 const axisOperations = rasterElement.canvas.operations.slice(operationStart);
 assert.deepEqual(axisOperations.find(operation => operation[0] === 'rect'),
   ['rect', 395, 300, 20, 10]);
-assert.deepEqual(axisOperations.find(operation => operation[0] === 'transform'),
+assert.deepEqual(axisOperations.find(operation =>
+  operation[0] === 'transform' && operation[1] === 10),
   ['transform', 10, -0, 0, 10, 395, 300]);
 assert.deepEqual(axisOperations.find(operation => operation[0] === 'imageSmoothingEnabled'),
   ['imageSmoothingEnabled', false]);

@@ -349,10 +349,12 @@ final class SceneProtocol {
     Result withRasterWindows(
             Result vectorResult,
             List<BrowserRasterWindow> windows,
-            List<Map<String, Object>> encodedWindows) {
+            List<Map<String, Object>> encodedWindows,
+            Set<String> basemapLayerIds) {
         Objects.requireNonNull(vectorResult, "vectorResult");
         Objects.requireNonNull(windows, "windows");
         Objects.requireNonNull(encodedWindows, "encodedWindows");
+        Objects.requireNonNull(basemapLayerIds, "basemapLayerIds");
         if (windows.size() != encodedWindows.size()) {
             throw new IllegalArgumentException("Raster windows and encodings must have equal size");
         }
@@ -364,7 +366,8 @@ final class SceneProtocol {
         for (Layer layer : vectorResult.layers()) {
             identities.add(layer.id());
         }
-        long logicalBytes = vectorResult.logicalBytes();
+        long logicalBytes = Math.addExact(vectorResult.logicalBytes(), Integer.BYTES);
+        requireLimit("logicalBytes", logicalBytes, limits.logicalBytes());
         Optional<Envelope> envelope = vectorResult.envelope();
         for (int index = 0; index < windows.size(); index++) {
             BrowserRasterWindow window = windows.get(index);
@@ -383,12 +386,27 @@ final class SceneProtocol {
         }
         LinkedHashMap<String, Object> scene = new LinkedHashMap<>(vectorResult.scene());
         scene.put("rasters", List.copyOf(encodedWindows));
+        List<String> retainedBasemaps =
+                vectorResult.layers().stream()
+                        .map(Layer::id)
+                        .filter(basemapLayerIds::contains)
+                        .toList();
+        for (String id : retainedBasemaps) {
+            logicalBytes = Math.addExact(logicalBytes, textLogicalBytes(id));
+            requireLimit("logicalBytes", logicalBytes, limits.logicalBytes());
+        }
+        scene.put("basemapLayerIds", retainedBasemaps);
         return new Result(
                 vectorResult.layers(),
                 Collections.unmodifiableMap(scene),
                 envelope,
                 logicalBytes,
                 vectorResult.labelCandidates());
+    }
+
+    private static long textLogicalBytes(String value) {
+        return (long) Integer.BYTES
+                + value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
     }
 
     private static long rasterLogicalBytes(
