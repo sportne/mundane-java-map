@@ -5,6 +5,7 @@
  * registration, viewport and symbol layout, hit testing and measurement, bounded query accounting,
  * packed spatial indexing, packed elevation grids, stateless elevation rasterization, and screen
  * clipping/simplification. It depends only on {@code mundane-map-api}; it exposes neither AWT nor
- * external-library types and performs no automatic implementation discovery.
+ * external-library types and performs no automatic implementation discovery. The module's current,
+ * target, and excluded algorithm profile is recorded in {@code CAPABILITIES.md}.
  */
 package io.github.mundanej.map.core;

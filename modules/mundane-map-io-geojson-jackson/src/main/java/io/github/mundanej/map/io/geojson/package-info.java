@@ -1,2 +1,2 @@
-/** Bounded RFC 7946 feature sources backed by an explicitly constructed Jackson Core parser. */
+/** Bounded RFC 7946 feature-source reading and writing using explicit Jackson Core factories. */
 package io.github.mundanej.map.io.geojson;

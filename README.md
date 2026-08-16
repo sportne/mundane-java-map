@@ -45,6 +45,12 @@ feature/raster sources; owned `MapLayerBinding` instances transfer that responsi
 whose `close()` cancels current work and releases its owned bindings. Public values make defensive
 copies of mutable inputs.
 
+These are intentionally bounded support profiles, not claims that every named format or protocol is
+fully implemented. A module-by-module expert review records the missing standards surface and
+turns it into the proposed [G19 feature-completeness backlog](tasks/modules/README.md). The current
+module table remains authoritative until the corresponding G19 cards and external closeout are
+complete.
+
 ## Build and verification
 
 The normal local gate is:

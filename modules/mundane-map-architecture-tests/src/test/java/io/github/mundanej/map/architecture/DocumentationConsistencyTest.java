@@ -37,7 +37,7 @@ class DocumentationConsistencyTest {
             Pattern.compile("^\\|\\s+`([^`]+)`\\s+\\|", Pattern.MULTILINE);
     private static final Pattern EXAMPLE_RUN = Pattern.compile(":examples:([a-z0-9-]+):run");
     private static final Pattern INDEXED_TASK =
-            Pattern.compile("\\((closed/)?(G\\d+-\\d+[^)]*\\.md)\\)");
+            Pattern.compile("\\(((?:[a-zA-Z0-9._-]+/)*)(G\\d+-\\d+[^)]*\\.md)\\)");
     private static final Pattern COMMA = Pattern.compile(",");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
@@ -125,6 +125,25 @@ class DocumentationConsistencyTest {
             indexed.add((links.group(1) == null ? "" : links.group(1)) + links.group(2));
         }
         assertExactInventory("task index", cards, indexed);
+    }
+
+    @Test
+    void everyCurrentModuleOwnsACapabilityProfile() {
+        List<String> violations = new ArrayList<>();
+        for (InventoryEntry entry : inventory) {
+            if (!entry.path.startsWith(":modules:")) {
+                continue;
+            }
+            Path module = repositoryRoot.resolve(entry.path.substring(1).replace(':', '/'));
+            if (!Files.isRegularFile(module.resolve("CAPABILITIES.md"))) {
+                violations.add(entry.path);
+            }
+        }
+        assertTrue(
+                violations.isEmpty(),
+                () ->
+                        "Current modules without module-local CAPABILITIES.md:\n"
+                                + String.join("\n", violations));
     }
 
     @Test

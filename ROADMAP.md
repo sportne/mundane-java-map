@@ -836,3 +836,26 @@ unchanged.
   G18-050 to G18-052. G18-060 owns browser evidence and G18-061 owns publication/offline closeout.
 - See the [G18 detailed design](design/G18-vaadin-browser-frontend.md) and the
   [G18 task set](tasks/README.md#g18--open-source-vaadin-browser-component).
+
+## Expert feature completeness
+
+### G19 — Module-by-module standards and domain completion
+
+- G19 reviews every Gradle project against its declared domain and the current primary standards,
+  with particular attention to formats and protocols that intentionally implement subsets today.
+- The review found foundational gaps in dimensional/collection geometry, structured portrayal,
+  common CRS operations, topology, raster warping, labels, and tile matrices. Format cards build on
+  those foundations rather than adding private parallel models.
+- Adapter cards account for the remaining Shapefile, PNG/JPEG, optional static WebP, HTTP tiles, DTED, GeoTIFF/COG, SVG,
+  OGC SE, GPX, KML, MIL-STD-2525, GeoJSON, MapLibre, GeoPackage, and MBTiles standards surfaces,
+  including writers and conformance evidence where expert completeness requires them.
+- Workspace, AWT, Vaadin, architecture, native, and performance cards cover persistence,
+  accessibility/rendering, browser parity, compatibility governance, platform evidence, and
+  statistically defensible benchmarks.
+- Proposed work does not broaden current support statements. Every task must freeze exact editions,
+  conformance classes, limits, diagnostics, security/resource policy, and independent evidence before
+  its module can claim the broader profile.
+- [G19-999](tasks/modules/G19-999-external-expert-feature-completeness-closeout.md) requires external
+  specialist review and a fresh full evidence run; it is the only project-wide completeness closeout.
+- See the [G19 detailed review](design/G19-module-feature-completeness-review.md) and the
+  [module-organized G19 task set](tasks/modules/README.md).

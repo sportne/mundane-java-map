@@ -12,6 +12,7 @@
  *
  * <p>Toolkit and format implementations use explicit caller-owned registries and factories. This
  * package performs no reflection, classpath scanning, automatic provider discovery, or AWT
- * conversion.
+ * conversion. The module's current, target, and excluded public capability profile is recorded in
+ * {@code CAPABILITIES.md}.
  */
 package io.github.mundanej.map.api;

@@ -14,5 +14,8 @@
  * does not discover application providers. {@link io.github.mundanej.map.awt.AwtRasterDecoders}
  * does intentionally query the JDK Image I/O registry, accepting only the bounded {@code
  * java.desktop} PNG and JPEG providers documented by that factory.
+ *
+ * <p>The module's current, target, approximation, accessibility, print, and exclusion profile is
+ * recorded in {@code CAPABILITIES.md}.
  */
 package io.github.mundanej.map.awt;

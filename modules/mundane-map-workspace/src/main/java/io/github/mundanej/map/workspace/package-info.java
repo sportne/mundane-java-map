@@ -35,5 +35,11 @@
  * silently fall back to a non-atomic move, create parent directories, preserve input formatting, or
  * provide migration, backup, locking, file watching, or durability beyond the completed atomic name
  * replacement.
+ *
+ * <p>The approved G19 target is a project-native, non-standard canonical XML v2 format plus a
+ * custom portable {@code .mmapz} package carrying the same manifest and explicitly embedded
+ * resource sets. Its module capability matrix tracks complete committed map state, migrations,
+ * extensions, integrity, authority, locking, recovery, and lifecycle while excluding OGC context
+ * formats, secrets, live interaction state, built-in signing, and encryption.
  */
 package io.github.mundanej.map.workspace;

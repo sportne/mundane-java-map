@@ -67,6 +67,7 @@ design task; there are no empty speculative design files.
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | Complete |
 | G17 | [Project hardening](design/G17-project-hardening.md) | Complete |
 | G18 | [Vaadin browser frontend](design/G18-vaadin-browser-frontend.md) | G18-001 through G18-060 complete; G18-061 proposed |
+| G19 | [Module feature-completeness review](design/G19-module-feature-completeness-review.md) | 175 module-organized cards proposed; capability decisions, matrices, and decomposition complete |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
 organizational only unless the same change explicitly records a new decision and task trace update.
