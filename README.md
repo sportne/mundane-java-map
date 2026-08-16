@@ -66,6 +66,14 @@ For documentation-only feedback, `./gradlew javadocAll --console=plain` generate
 Javadocs for every module, example, and hand-authored build-support source set. The normal gate also
 runs exhaustive public/protected declaration checks and the same Javadoc aggregate.
 
+Because the project has not yet published its first release, every published artifact has a reviewed
+`PROVISIONAL` public/protected API signature manifest under `verification/api-baselines`; those
+manifests explicitly use `UNPUBLISHED` provenance and cannot masquerade as Maven releases. The
+architecture gate compares every current artifact with its checksum-verified snapshot, enforces the
+pre/post-1.0 version policy, validates narrowly scoped expiring exception declarations, and pins the
+build-only Revapi Java analyzer graph. After first publication, each provisional manifest must be
+replaced atomically by the exact release coordinate and JAR/POM/Gradle-metadata digests.
+
 Every Java project with executable production instructions enforces at least 80% JaCoCo
 instruction coverage both for its aggregate bundle and for every hand-authored production source
 file. Its normal `test` task produces XML at

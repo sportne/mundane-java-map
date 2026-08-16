@@ -6,17 +6,18 @@ consistency and release-policy evidence. It is a non-published support module; i
 decisions for applications or become a production dependency.
 
 The released checks strongly enforce dependency/category/native/JDK-only boundaries and selected workflow,
-manifest and documentation rules. G19 completion adds verified-release API baselines, version policy and
-honest JPMS/module-path contracts without weakening classpath, native or optional-adapter behavior.
+manifest and documentation rules. G19-190 adds reviewed pre-publication API baselines, a pinned
+released-JAR comparison engine, and version policy. G19 completion still adds honest JPMS/module-path
+contracts without weakening classpath, native or optional-adapter behavior.
 
 ## Governance matrix
 
 | Surface | Released profile | Approved completion target | Card |
 | --- | --- | --- | --- |
 | Project graph | Central category/release/native/published inventory plus runtime-edge checks | One authoritative artifact/module graph covering projects, scopes, optionality and published identity | G19-191, G19-192 |
-| Public API compatibility | Compile/tests/Javadocs; no prior-release signature comparison | Verified released baselines, strict binary/source reports and reviewed change declarations | G19-190 |
-| Comparison engine | Project-specific structural checks only | Pinned build-only Revapi Java analysis plus focused stricter Java-language rules | G19-190 |
-| Version semantics | Project version exists; no mechanically enforced change policy | Patch compatibility before 1.0; reviewed pre-1.0 minor breaks; conventional SemVer at/after 1.0 | G19-190, G19-192 |
+| Public API compatibility | Checksum-verified provisional public/protected snapshots for all 19 pre-publication artifacts, with exact release-manifest transition rules | Verified released baselines, strict binary/source reports and reviewed change declarations | G19-190 |
+| Comparison engine | Pinned checksum/license-governed build-only Revapi 0.15.1/Java 0.28.4 plus deterministic signature and strict language-shape checks | Pinned build-only Revapi Java analysis plus focused stricter Java-language rules | G19-190 |
+| Version semantics | Mechanical pre/post-1.0 minimum-bump rules and exact expiring exception declarations | Patch compatibility before 1.0; reviewed pre-1.0 minor breaks; conventional SemVer at/after 1.0 | G19-190, G19-192 |
 | JPMS identity | No module descriptors or stable automatic-module-name policy | Explicit descriptors for module-path-clean published graphs; stable automatic modules with consumer tests otherwise | G19-191 |
 | Encapsulation | Java packages and Gradle dependency boundaries | Exact exports/requires/uses/provides/qualified opens, split-package/service checks and no false strong-module claim | G19-191 |
 | Release evidence | Publication/offline/native/check lanes | Baseline provenance, reproducible reports, migration notes, version enforcement and publication-consumer matrices | G19-192 |

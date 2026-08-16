@@ -1,6 +1,6 @@
 # G19-190 — Released API baselines and SemVer governance
 
-Status: Proposed
+Status: Complete
 Depends on: G19-001, G19-002
 Gate: G19
 Type: HITL
@@ -47,3 +47,11 @@ Run architecture, offline repository and publication dry-run checks, then qualit
 ## Notes
 
 HITL checkpoint: approve Revapi graph/configuration, strict classification, baseline provenance and SemVer policy.
+
+Approved by the maintainer's 2026-08-16 directive to execute the selected tasks. The completed
+profile pins and checksum/license-governs Revapi 0.15.1 and Revapi Java 0.28.4 as test-only inputs,
+records deterministic `PROVISIONAL`/`UNPUBLISHED` signatures for all 19 published artifacts, and
+mechanically rejects inventory drift, checksum substitution, insufficient version bumps, blanket or
+expired exceptions, and the named strict Java-shape incompatibilities. Synthetic old/new Java 21
+JARs freeze the analyzer's source/binary classifications. Exact release JAR/POM/Gradle-metadata
+provenance replaces—not silently advances—the provisional form after first publication.

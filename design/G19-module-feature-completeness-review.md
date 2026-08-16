@@ -414,9 +414,9 @@ Cards: existing G18-061 plus G19-180 through G19-189.
 
 ### `mundane-map-architecture-tests`
 
-The module strongly enforces the current dependency and forbidden-API graph, but it does not govern
-semantic-version compatibility, JPMS descriptors, or accidental public binary/source surface drift
-against the last released baseline.
+The module strongly enforces the dependency and forbidden-API graph. G19-190 additionally governs
+semantic-version compatibility and accidental public binary/source surface drift; JPMS descriptors
+remain assigned to G19-191.
 
 The approved JPMS policy is hybrid and evidence-based. Published modules with a module-path-clean complete
 runtime graph receive explicit minimal descriptors; adapters with pinned dependencies that still require
@@ -437,7 +437,9 @@ automatic compatibility exception.
 
 Each artifact's checked-in manifest names one immutable compatible released coordinate plus digest and
 POM/module provenance; connected and offline builds resolve/stage those exact bytes, never dynamic latest or
-the current build. A reviewed deterministic signature snapshot exists only before a first publication, and
+the current build. Because no artifact has yet been publicly released, G19-190 records a reviewed
+deterministic signature snapshot for each published artifact with explicit `PROVISIONAL`/`UNPUBLISHED`
+provenance. Such a snapshot exists only before a first publication, and
 the release workflow advances baselines after publication/consumer verification. The strict source policy
 treats enum/sealed exhaustiveness, record shape, overload ambiguity, generics, checked exceptions, nullness,
 annotations/constants, services and module exports as governed rather than relying on linkage alone.

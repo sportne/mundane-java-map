@@ -1,9 +1,16 @@
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.SetProperty
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
 
@@ -13,6 +20,7 @@ plugins {
 
 def inventory = gradle.ext.mapProjectInventory
 def productionInventory = inventory.findAll { it.category != 'SUPPORT' }
+def publishedInventory = inventory.findAll { it.published }
 def level1Inventory = productionInventory.findAll { it.releaseLevel == 1 }
 def nativeSmokeProject = project(':modules:mundane-map-native-tests')
 def performanceProject = project(':modules:mundane-map-performance-tests')
@@ -23,10 +31,125 @@ sourceSets {
 
 configurations.architectureFixturesImplementation.extendsFrom(configurations.testImplementation)
 
+configurations {
+    revapiAnalysis {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = true
+    }
+}
+
 dependencies {
+    revapiAnalysis libs.revapi.core
+    revapiAnalysis libs.revapi.java
+    testImplementation files(configurations.revapiAnalysis)
     productionInventory.each { entry ->
         testImplementation project(entry.path)
     }
+}
+
+def revapiProfile = rootProject.file('verification/G19-190-revapi-artifacts.tsv')
+
+@DisableCachingByDefault(because = 'Writes an explicitly reviewed dependency profile')
+abstract class WriteArtifactProfile extends DefaultTask {
+    @Input
+    abstract Property<Boolean> getApproved()
+
+    @Input
+    abstract ListProperty<String> getCoordinates()
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract ConfigurableFileCollection getArtifacts()
+
+    @OutputFile
+    abstract org.gradle.api.file.RegularFileProperty getProfile()
+
+    @TaskAction
+    void writeProfile() {
+        if (!approved.get()) {
+            throw new GradleException(
+            'writeRevapiProfile requires -Pmap.approveRevapiProfile=true')
+        }
+        profile.get().asFile.text = profileRows(coordinates.get(), artifacts.files).join('\n') + '\n'
+    }
+
+    static List<String> profileRows(List<String> coordinates, Set<File> artifacts) {
+        Map<String, String> coordinateByFile = coordinates.collectEntries { row ->
+            String[] fields = row.split('\t', -1)
+            [(fields[1]): fields[0]]
+        }
+        List<String> rows = ['coordinate\tfile\tsha256']
+        artifacts.sort { it.name }.each { artifact ->
+            String coordinate = coordinateByFile.get(artifact.name)
+            if (coordinate == null) {
+                throw new GradleException('Missing coordinate for ' + artifact.name)
+            }
+            rows.add(coordinate + '\t' + artifact.name + '\t'
+                    + java.security.MessageDigest.getInstance('SHA-256')
+                    .digest(artifact.bytes).encodeHex().toString())
+        }
+        rows.sort { left, right ->
+            left.startsWith('coordinate\t') ? -1
+                    : right.startsWith('coordinate\t') ? 1 : left <=> right
+        }
+        rows
+    }
+}
+
+@DisableCachingByDefault(because = 'Verifies an explicitly reviewed dependency profile')
+abstract class VerifyArtifactProfile extends DefaultTask {
+    @Input
+    abstract ListProperty<String> getCoordinates()
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract ConfigurableFileCollection getArtifacts()
+
+    @InputFile
+    @PathSensitive(PathSensitivity.NONE)
+    abstract org.gradle.api.file.RegularFileProperty getProfile()
+
+    @TaskAction
+    void verifyProfile() {
+        List<String> actual = WriteArtifactProfile.profileRows(coordinates.get(), artifacts.files)
+        List<String> expected = profile.get().asFile.readLines()
+        if (actual != expected) {
+            throw new GradleException(
+            'Revapi artifact profile changed; review licenses, checksums, and '
+            + 'synthetic classifications before updating '
+            + profile.get().asFile)
+        }
+    }
+}
+
+def revapiArtifacts = configurations.revapiAnalysis.incoming.artifactView { }.artifacts
+def revapiCoordinates = revapiArtifacts.resolvedArtifacts.map { artifacts ->
+    artifacts.collect { artifact ->
+        def identifier = artifact.id.componentIdentifier
+        if (!(identifier instanceof ModuleComponentIdentifier)) {
+            throw new GradleException('Revapi profile contains a non-module artifact: ' + identifier)
+        }
+        "${identifier.group}:${identifier.module}:${identifier.version}\t${artifact.file.name}"
+    }.sort()
+}
+
+tasks.register('writeRevapiProfile', WriteArtifactProfile) {
+    group = 'build setup'
+    description = 'Writes the reviewed exact Revapi artifact profile when explicitly approved.'
+    approved = providers.gradleProperty('map.approveRevapiProfile')
+            .map { it.toBoolean() }.orElse(false)
+    coordinates = revapiCoordinates
+    artifacts.from revapiArtifacts.artifactFiles
+    profile = revapiProfile
+}
+
+def verifyRevapiProfile = tasks.register('verifyRevapiProfile', VerifyArtifactProfile) {
+    group = 'verification'
+    description = 'Verifies the exact reviewed Revapi graph and artifact checksums.'
+    coordinates = revapiCoordinates
+    artifacts.from revapiArtifacts.artifactFiles
+    profile = revapiProfile
 }
 
 @DisableCachingByDefault(because = 'Resolves and verifies production runtime classpaths')
@@ -227,6 +350,14 @@ def moduleDescriptors = productionInventory.collect { entry ->
         entry.allowedRuntimeProjects.join(','),
     ].join('\t')
 }.join('\n')
+def apiBaselineModules = publishedInventory.collect { entry ->
+    def targetProject = project(entry.path)
+    [
+        targetProject.name,
+        targetProject.layout.buildDirectory.dir('classes/java/main').get().asFile.absolutePath,
+    ].join('\t')
+}.join('\n')
+def apiBaselineRoot = rootProject.layout.projectDirectory.dir('verification/api-baselines')
 def rootTaskContainer = rootProject.tasks
 def documentedTaskProjects = inventory.collect { entry -> project(entry.path) }
 def configuredTaskInventory = providers.provider {
@@ -239,6 +370,7 @@ def configuredTaskInventory = providers.provider {
 }
 
 tasks.named('test') {
+    dependsOn verifyRevapiProfile
     dependsOn verifyRuntimeArchitecture
     dependsOn tasks.named(sourceSets.architectureFixtures.classesTaskName)
     dependsOn productionInventory.collect { entry ->
@@ -274,7 +406,14 @@ tasks.named('test') {
     inputs.file(rootProject.file('.github/workflows/offline-repository.yml'))
     inputs.file(rootProject.file('.github/workflows/sqlite-adapter-evidence.yml'))
     inputs.file(rootProject.file('verification/G17-002-verification-manifest.tsv'))
+    inputs.dir(apiBaselineRoot)
+    inputs.file(rootProject.file('verification/api-compatibility-exceptions.tsv'))
     systemProperty 'map.architecture.modules', moduleDescriptors
+    systemProperty 'map.apiBaseline.modules', apiBaselineModules
+    systemProperty 'map.apiBaseline.root', apiBaselineRoot.asFile.absolutePath
+    systemProperty 'map.apiExceptions.file',
+            rootProject.file('verification/api-compatibility-exceptions.tsv').absolutePath
+    systemProperty 'map.project.version', rootProject.version.toString()
     systemProperty 'map.architecture.supportProjects',
             inventory.findAll { it.category == 'SUPPORT' }
             .collect { it.path }
@@ -319,6 +458,21 @@ tasks.named('test') {
             rootProject.file('.github/workflows/sqlite-adapter-evidence.yml').absolutePath
 }
 
+tasks.register('writeProvisionalApiBaselines', JavaExec) {
+    group = 'build setup'
+    description = 'Writes reviewed deterministic pre-publication API signature baselines.'
+    dependsOn tasks.named(sourceSets.test.classesTaskName)
+    dependsOn publishedInventory.collect { entry -> project(entry.path).tasks.named('classes') }
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.github.mundanej.map.architecture.ApiSignatureSnapshots'
+    systemProperty 'map.approveApiBaseline',
+            providers.gradleProperty('map.approveApiBaseline').getOrElse('false')
+    systemProperty 'map.apiBaseline.modules', apiBaselineModules
+    systemProperty 'map.apiBaseline.root', apiBaselineRoot.asFile.absolutePath
+    systemProperty 'map.project.version', rootProject.version.toString()
+    outputs.dir apiBaselineRoot
+}
+
 gradle.projectsEvaluated {
     tasks.named('test') {
         systemProperty 'map.documentation.tasks', configuredTaskInventory.get()
@@ -327,6 +481,7 @@ gradle.projectsEvaluated {
 
 tasks.named('check') {
     dependsOn verifyNativeConfiguration
+    dependsOn verifyRevapiProfile
 }
 
 description = 'Architecture and dependency-boundary tests.'

@@ -2,6 +2,8 @@
 vaadin-flow = "25.2.4"
 junit = "6.0.3"
 archunit = "1.4.2"
+revapi = "0.15.1"
+revapiJava = "0.28.4"
 jacoco = "0.8.14"
 spotlessPlugin = "8.5.1"
 spotbugs = "4.9.8"
@@ -19,6 +21,8 @@ junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+revapi-core = { module = "org.revapi:revapi", version.ref = "revapi" }
+revapi-java = { module = "org.revapi:revapi-java", version.ref = "revapiJava" }
 errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
 jackson-core = { module = "tools.jackson.core:jackson-core", version.ref = "jacksonCore" }
 xerial-sqlite = { module = "org.xerial:sqlite-jdbc", version.ref = "xerialSqlite" }
