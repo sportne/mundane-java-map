@@ -10,7 +10,7 @@ released profile.
 
 | Module | Proposed cards | Principal gap |
 | --- | ---: | --- |
-| [`mundane-map-api`](mundane-map-api/) | 2 | Dimensional/heterogeneous geometry and richer neutral portrayal/attributes |
+| `mundane-map-api` | 0 | Complete: [dimensional geometry](../closed/G19-001-ordinate-aware-geometry-and-heterogeneous-collections.md) and [advanced portrayal](../closed/G19-002-advanced-portrayal-and-structured-attributes.md) |
 | [`mundane-map-core`](mundane-map-core/) | 5 | Common CRS, topology, reprojection, labels, and tile matrices |
 | [`mundane-map-awt`](mundane-map-awt/) | 2 | Advanced rendering plus accessible/printable Swing behavior |
 | [`mundane-map-io-shapefile`](mundane-map-io-shapefile/) | 7 | Complete reading and transactional new-dataset export |

@@ -449,7 +449,7 @@ staged-consumer, and isolated offline-frontend closeout task.
 ### G19 — Module-by-module expert completeness
 
 G19 converts a source-level review of all 22 current Gradle projects plus five approved planned
-adapters into 175 proposed cards. Cards are
+adapters into 175 cards, two of which are complete. Cards are
 organized by owning module in the [G19 module task index](modules/README.md); the cross-module
 findings, named standards baselines, and meaning of “feature complete” are recorded in the
 [G19 detailed review](../design/G19-module-feature-completeness-review.md).
@@ -460,9 +460,9 @@ diagnostics, add independent interoperability evidence, and update the public su
 when complete. G19-999 is the sole project-wide closeout and requires independent subject-matter
 review after all module cards and G18-061 are complete.
 
-| Module | Proposed task cards |
+| Module | Task cards |
 | --- | --- |
-| `mundane-map-api` | [G19-001 — Ordinate-aware geometry and heterogeneous collections](modules/mundane-map-api/G19-001-ordinate-aware-geometry-and-heterogeneous-collections.md); [G19-002 — Advanced portrayal and structured attributes](modules/mundane-map-api/G19-002-advanced-portrayal-and-structured-attributes.md) |
+| `mundane-map-api` | [G19-001 — Ordinate-aware geometry and heterogeneous collections](closed/G19-001-ordinate-aware-geometry-and-heterogeneous-collections.md); [G19-002 — Advanced portrayal and structured attributes](closed/G19-002-advanced-portrayal-and-structured-attributes.md) |
 | `mundane-map-core` | [G19-010 — Common CRS catalog and WKT2 coordinate operations](modules/mundane-map-core/G19-010-common-crs-catalog-and-wkt2-operations.md); [G19-011 — Dimensional geometry validity and topology](modules/mundane-map-core/G19-011-dimensional-geometry-validity-and-topology.md); [G19-012 — Raster reprojection and warping](modules/mundane-map-core/G19-012-raster-reprojection-and-warping.md); [G19-013 — Line and polygon cartographic labels](modules/mundane-map-core/G19-013-line-and-polygon-cartographic-labels.md); [G19-014 — OGC tile-matrix-set algorithms](modules/mundane-map-core/G19-014-ogc-tile-matrix-set-algorithms.md) |
 | `mundane-map-awt` | [G19-020 — Advanced portrayal and dimensional rendering](modules/mundane-map-awt/G19-020-advanced-portrayal-and-dimensional-rendering.md); [G19-021 — Swing accessibility and deterministic print output](modules/mundane-map-awt/G19-021-swing-accessibility-and-deterministic-print-output.md) |
 | `mundane-map-io-shapefile` | [G19-030 — Z and M shape families](modules/mundane-map-io-shapefile/G19-030-z-and-m-shape-families.md); [G19-031 — MultiPatch and shape-record closeout](modules/mundane-map-io-shapefile/G19-031-multipatch-and-shape-record-closeout.md); [G19-032 — dBASE field, value, memo, and encoding interoperability](modules/mundane-map-io-shapefile/G19-032-dbase-field-value-and-encoding-interoperability.md); [G19-033 — PRJ CRS and sidecar resolution](modules/mundane-map-io-shapefile/G19-033-prj-crs-and-sidecar-resolution.md); [G19-034 — SHP/SHX new-dataset encoder](modules/mundane-map-io-shapefile/G19-034-shp-shx-new-dataset-encoder.md); [G19-035 — DBF/CPG/PRJ new-dataset encoder](modules/mundane-map-io-shapefile/G19-035-dbf-cpg-prj-new-dataset-encoder.md); [G19-036 — Transactional Shapefile export closeout](modules/mundane-map-io-shapefile/G19-036-transactional-shapefile-export-closeout.md) |

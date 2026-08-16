@@ -1,6 +1,6 @@
 # G19-002 — Advanced portrayal and structured attributes
 
-Status: Completed
+Status: Complete
 Depends on: G19-001
 Gate: G19
 Type: HITL

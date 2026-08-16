@@ -1,6 +1,6 @@
 # G19-001 — Ordinate-aware geometry and heterogeneous collections
 
-Status: Completed
+Status: Complete
 Depends on: G18-061
 Gate: G19
 Type: AFK
