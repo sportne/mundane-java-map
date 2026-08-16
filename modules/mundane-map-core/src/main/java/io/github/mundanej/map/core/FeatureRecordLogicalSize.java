@@ -2,8 +2,11 @@ package io.github.mundanej.map.core;
 
 import io.github.mundanej.map.api.AttributeBytes;
 import io.github.mundanej.map.api.AttributeNull;
+import io.github.mundanej.map.api.DimensionalGeometry;
+import io.github.mundanej.map.api.EmptyGeometry;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.GeometryCollection;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
@@ -23,8 +26,7 @@ final class FeatureRecordLogicalSize {
 
     static long bytes(
             FeatureRecord record, int retainedReferenceSlots, Runnable cancellationCheckpoint) {
-        long coordinateCount = coordinateCount(record.geometry());
-        long payload = Math.multiplyExact(coordinateCount, 16);
+        long payload = coordinateBytes(record.geometry());
         payload = Math.addExact(payload, Math.multiplyExact(offsetCount(record.geometry()), 4));
         payload = Math.addExact(payload, Math.multiplyExact((long) retainedReferenceSlots, 8));
         payload =
@@ -47,7 +49,32 @@ final class FeatureRecordLogicalSize {
             case MultiPointGeometry points -> points.coordinates().size();
             case MultiLineStringGeometry lines -> lines.coordinates().size();
             case MultiPolygonGeometry polygons -> polygons.coordinates().size();
+            case DimensionalGeometry dimensional -> dimensional.coordinates().size();
+            case EmptyGeometry ignored -> 0;
+            case GeometryCollection collection -> {
+                long count = 0;
+                for (Geometry child : collection.geometries()) {
+                    count = Math.addExact(count, coordinateCount(child));
+                }
+                yield count;
+            }
         };
+    }
+
+    private static long coordinateBytes(Geometry geometry) {
+        if (geometry instanceof DimensionalGeometry dimensional) {
+            return Math.multiplyExact(
+                    dimensional.coordinates().size(),
+                    Math.multiplyExact(dimensional.dimension().stride(), 8L));
+        }
+        if (geometry instanceof GeometryCollection collection) {
+            long total = 0;
+            for (Geometry child : collection.geometries()) {
+                total = Math.addExact(total, coordinateBytes(child));
+            }
+            return total;
+        }
+        return Math.multiplyExact(coordinateCount(geometry), 16);
     }
 
     private static long polygonCoordinateCount(PolygonGeometry polygon) {
@@ -65,12 +92,33 @@ final class FeatureRecordLogicalSize {
                     Math.addExact(
                             Math.addExact((long) polygons.ringCount(), polygons.polygonCount()),
                             2L);
+            case DimensionalGeometry dimensional ->
+                    Math.addExact(
+                            dimensional.partOffsets().length,
+                            dimensional.polygonPartOffsets().length);
+            case GeometryCollection collection -> {
+                long count = 0;
+                for (Geometry child : collection.geometries()) {
+                    count = Math.addExact(count, offsetCount(child));
+                }
+                yield count;
+            }
             default -> 0L;
         };
     }
 
     private static long geometryReferenceSlots(Geometry geometry) {
-        return geometry instanceof PolygonGeometry polygon ? polygon.holes().size() : 0;
+        if (geometry instanceof PolygonGeometry polygon) {
+            return polygon.holes().size();
+        }
+        if (geometry instanceof GeometryCollection collection) {
+            long slots = collection.geometries().size();
+            for (Geometry child : collection.geometries()) {
+                slots = Math.addExact(slots, geometryReferenceSlots(child));
+            }
+            return slots;
+        }
+        return 0;
     }
 
     private static long attributePayload(

@@ -4,9 +4,12 @@ import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.DiagnosticLocation;
 import io.github.mundanej.map.api.DiagnosticReport;
 import io.github.mundanej.map.api.DiagnosticSeverity;
+import io.github.mundanej.map.api.DimensionalGeometry;
+import io.github.mundanej.map.api.EmptyGeometry;
 import io.github.mundanej.map.api.FeatureQueryLimits;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.GeometryCollection;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
@@ -162,6 +165,15 @@ public final class FeatureQueryAccounting {
                     case MultiPointGeometry points -> points.coordinates().size();
                     case MultiLineStringGeometry lines -> lines.coordinates().size();
                     case MultiPolygonGeometry polygons -> polygons.coordinates().size();
+                    case DimensionalGeometry dimensional -> dimensional.coordinates().size();
+                    case EmptyGeometry ignored -> 0;
+                    case GeometryCollection collection -> {
+                        long nested = 0;
+                        for (Geometry child : collection.geometries()) {
+                            nested = Math.addExact(nested, coordinateCount(child, cancellation));
+                        }
+                        yield nested;
+                    }
                 };
         for (long checked = 4096; checked <= count; checked += 4096) {
             checkCancellation(cancellation);

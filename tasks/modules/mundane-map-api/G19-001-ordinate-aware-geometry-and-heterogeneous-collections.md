@@ -1,6 +1,6 @@
 # G19-001 — Ordinate-aware geometry and heterogeneous collections
 
-Status: Proposed
+Status: Completed
 Depends on: G18-061
 Gate: G19
 Type: AFK
@@ -50,3 +50,6 @@ Run `./gradlew :modules:mundane-map-api:check :modules:mundane-map-core:check --
 ## Notes
 
 Freeze the model before format adapters implement their dependent cards.
+
+Completed with additive packed dimensional sequences, typed empty values, bounded heterogeneous
+collections, deterministic traversal, stable geometry diagnostics, and named x/y down-projection.

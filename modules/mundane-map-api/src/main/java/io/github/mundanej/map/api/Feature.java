@@ -66,25 +66,16 @@ public record Feature(
     }
 
     private static SymbolRole expectedRole(Geometry geometry) {
-        if (geometry instanceof PointGeometry) {
-            return SymbolRole.MARKER;
-        }
-        if (geometry instanceof LineStringGeometry) {
-            return SymbolRole.LINE;
-        }
-        if (geometry instanceof PolygonGeometry) {
-            return SymbolRole.FILL;
-        }
-        if (geometry instanceof MultiPointGeometry) {
-            return SymbolRole.MARKER;
-        }
-        if (geometry instanceof MultiLineStringGeometry) {
-            return SymbolRole.LINE;
-        }
-        if (geometry instanceof MultiPolygonGeometry) {
-            return SymbolRole.FILL;
-        }
-        throw new IllegalArgumentException("Unsupported geometry type");
+        return switch (geometry.kind()) {
+            case POINT, MULTI_POINT -> SymbolRole.MARKER;
+            case LINE_STRING, MULTI_LINE_STRING -> SymbolRole.LINE;
+            case POLYGON, MULTI_POLYGON -> SymbolRole.FILL;
+            case GEOMETRY_COLLECTION ->
+                    throw new GeometryException(
+                            GeometryException.KIND_UNSUPPORTED,
+                            "A heterogeneous collection requires per-member portrayal",
+                            Map.of("consumer", "Feature", "kind", geometry.kind().name()));
+        };
     }
 
     private static SymbolException roleMismatch(
@@ -100,24 +91,6 @@ public record Feature(
     }
 
     private static String geometryKind(Geometry geometry) {
-        if (geometry instanceof PointGeometry) {
-            return "POINT";
-        }
-        if (geometry instanceof LineStringGeometry) {
-            return "LINE_STRING";
-        }
-        if (geometry instanceof PolygonGeometry) {
-            return "POLYGON";
-        }
-        if (geometry instanceof MultiPointGeometry) {
-            return "MULTI_POINT";
-        }
-        if (geometry instanceof MultiLineStringGeometry) {
-            return "MULTI_LINE_STRING";
-        }
-        if (geometry instanceof MultiPolygonGeometry) {
-            return "MULTI_POLYGON";
-        }
-        return "UNSUPPORTED";
+        return geometry.kind().name();
     }
 }

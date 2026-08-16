@@ -1,15 +1,22 @@
 package io.github.mundanej.map.api;
 
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.Optional;
 
-/** An immutable packed sequence of {@code x, y} coordinate pairs. */
+/** An immutable packed sequence of positions in one explicit dimensional model. */
 public final class CoordinateSequence {
+    private final GeometryDimension dimension;
     private final double[] ordinates;
     private final Envelope envelope;
 
-    private CoordinateSequence(double[] ordinates) {
-        if (ordinates.length < 2 || ordinates.length % 2 != 0) {
-            throw new IllegalArgumentException("A coordinate sequence requires complete x/y pairs");
+    private CoordinateSequence(
+            GeometryDimension dimension, double[] ordinates, boolean emptyAllowed) {
+        this.dimension = Objects.requireNonNull(dimension, "dimension");
+        if ((!emptyAllowed && ordinates.length == 0)
+                || ordinates.length % dimension.stride() != 0) {
+            throw new IllegalArgumentException(
+                    "A coordinate sequence requires complete positions for its dimension");
         }
         this.ordinates = ordinates.clone();
 
@@ -17,9 +24,15 @@ public final class CoordinateSequence {
         double minY = Double.POSITIVE_INFINITY;
         double maxX = Double.NEGATIVE_INFINITY;
         double maxY = Double.NEGATIVE_INFINITY;
-        for (int index = 0; index < this.ordinates.length; index += 2) {
+        for (int index = 0; index < this.ordinates.length; index += dimension.stride()) {
             double x = this.ordinates[index];
             double y = this.ordinates[index + 1];
+            for (int ordinate = 0; ordinate < dimension.stride(); ordinate++) {
+                if (!Double.isFinite(this.ordinates[index + ordinate])) {
+                    throw new IllegalArgumentException(
+                            "Coordinate sequence ordinates must be finite");
+                }
+            }
             if (!Double.isFinite(x) || !Double.isFinite(y)) {
                 throw new IllegalArgumentException("Coordinate sequence ordinates must be finite");
             }
@@ -28,7 +41,7 @@ public final class CoordinateSequence {
             maxX = Math.max(maxX, x);
             maxY = Math.max(maxY, y);
         }
-        envelope = new Envelope(minX, minY, maxX, maxY);
+        envelope = this.ordinates.length == 0 ? null : new Envelope(minX, minY, maxX, maxY);
     }
 
     /**
@@ -38,7 +51,46 @@ public final class CoordinateSequence {
      * @return immutable non-empty sequence
      */
     public static CoordinateSequence of(double... ordinates) {
-        return new CoordinateSequence(ordinates);
+        return new CoordinateSequence(GeometryDimension.XY, ordinates, false);
+    }
+
+    /**
+     * Creates a coordinate sequence from positions packed for an explicit model.
+     *
+     * @param dimension dimensional model
+     * @param ordinates finite packed ordinates; the array is copied
+     * @return immutable non-empty sequence
+     */
+    public static CoordinateSequence of(GeometryDimension dimension, double... ordinates) {
+        return new CoordinateSequence(dimension, ordinates, false);
+    }
+
+    /**
+     * Creates an empty coordinate sequence retaining an explicit model.
+     *
+     * @param dimension dimensional model
+     * @return immutable empty sequence
+     */
+    public static CoordinateSequence empty(GeometryDimension dimension) {
+        return new CoordinateSequence(dimension, new double[0], true);
+    }
+
+    /**
+     * Returns the dimensional model.
+     *
+     * @return coordinate dimension
+     */
+    public GeometryDimension dimension() {
+        return dimension;
+    }
+
+    /**
+     * Returns whether the sequence contains no positions.
+     *
+     * @return whether empty
+     */
+    public boolean isEmpty() {
+        return ordinates.length == 0;
     }
 
     /**
@@ -47,7 +99,7 @@ public final class CoordinateSequence {
      * @return coordinate count
      */
     public int size() {
-        return ordinates.length / 2;
+        return ordinates.length / dimension.stride();
     }
 
     /**
@@ -58,7 +110,7 @@ public final class CoordinateSequence {
      */
     public double x(int index) {
         checkIndex(index);
-        return ordinates[index * 2];
+        return ordinates[index * dimension.stride()];
     }
 
     /**
@@ -69,7 +121,31 @@ public final class CoordinateSequence {
      */
     public double y(int index) {
         checkIndex(index);
-        return ordinates[index * 2 + 1];
+        return ordinates[index * dimension.stride() + 1];
+    }
+
+    /**
+     * Returns the z ordinate at the specified coordinate index.
+     *
+     * @param index zero-based coordinate index
+     * @return z ordinate
+     * @throws GeometryException when the dimensional model has no z ordinate
+     */
+    public double z(int index) {
+        checkIndex(index);
+        return ordinates[index * dimension.stride() + dimension.zOffset()];
+    }
+
+    /**
+     * Returns the m ordinate at the specified coordinate index.
+     *
+     * @param index zero-based coordinate index
+     * @return m ordinate
+     * @throws GeometryException when the dimensional model has no m ordinate
+     */
+    public double m(int index) {
+        checkIndex(index);
+        return ordinates[index * dimension.stride() + dimension.mOffset()];
     }
 
     /**
@@ -88,7 +164,19 @@ public final class CoordinateSequence {
      * @return immutable coordinate-space envelope
      */
     public Envelope envelope() {
+        if (envelope == null) {
+            throw GeometryException.emptyEnvelope(GeometryKind.POINT);
+        }
         return envelope;
+    }
+
+    /**
+     * Returns the precomputed x/y bounds when positions exist.
+     *
+     * @return optional bounds
+     */
+    public Optional<Envelope> bounds() {
+        return Optional.ofNullable(envelope);
     }
 
     /**
@@ -97,8 +185,17 @@ public final class CoordinateSequence {
      * @return whether the sequence is closed
      */
     public boolean isClosed() {
+        if (isEmpty()) {
+            return false;
+        }
         int last = size() - 1;
-        return Double.compare(x(0), x(last)) == 0 && Double.compare(y(0), y(last)) == 0;
+        int stride = dimension.stride();
+        for (int ordinate = 0; ordinate < stride; ordinate++) {
+            if (Double.compare(ordinates[ordinate], ordinates[last * stride + ordinate]) != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -119,16 +216,21 @@ public final class CoordinateSequence {
     @Override
     public boolean equals(Object other) {
         return other instanceof CoordinateSequence sequence
+                && dimension == sequence.dimension
                 && Arrays.equals(ordinates, sequence.ordinates);
     }
 
     @Override
     public int hashCode() {
-        return Arrays.hashCode(ordinates);
+        return 31 * dimension.hashCode() + Arrays.hashCode(ordinates);
     }
 
     @Override
     public String toString() {
-        return "CoordinateSequence" + Arrays.toString(ordinates);
+        return "CoordinateSequence[dimension="
+                + dimension
+                + ", ordinates="
+                + Arrays.toString(ordinates)
+                + "]";
     }
 }

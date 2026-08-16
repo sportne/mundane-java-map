@@ -17,18 +17,23 @@ public enum PortrayalGeometryType {
      * @param geometry immutable supported geometry
      * @return normalized category
      * @throws IllegalArgumentException if an argument violates the documented constraints
+     * @throws GeometryException when a heterogeneous collection has no singular category
      */
     public static PortrayalGeometryType fromGeometry(Geometry geometry) {
         Objects.requireNonNull(geometry, "geometry");
-        if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
-            return POINT;
-        }
-        if (geometry instanceof LineStringGeometry || geometry instanceof MultiLineStringGeometry) {
-            return LINE_STRING;
-        }
-        if (geometry instanceof PolygonGeometry || geometry instanceof MultiPolygonGeometry) {
-            return POLYGON;
-        }
-        throw new IllegalArgumentException("unsupported geometry");
+        return switch (geometry.kind()) {
+            case POINT, MULTI_POINT -> POINT;
+            case LINE_STRING, MULTI_LINE_STRING -> LINE_STRING;
+            case POLYGON, MULTI_POLYGON -> POLYGON;
+            case GEOMETRY_COLLECTION ->
+                    throw new GeometryException(
+                            GeometryException.KIND_UNSUPPORTED,
+                            "A heterogeneous collection has no singular portrayal category",
+                            java.util.Map.of(
+                                    "consumer",
+                                    "PortrayalGeometryType",
+                                    "kind",
+                                    geometry.kind().name()));
+        };
     }
 }

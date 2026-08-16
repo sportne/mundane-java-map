@@ -3,9 +3,13 @@ package io.github.mundanej.map.core;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
 import io.github.mundanej.map.api.CrsException;
+import io.github.mundanej.map.api.DimensionalGeometry;
+import io.github.mundanej.map.api.EmptyGeometry;
 import io.github.mundanej.map.api.FeatureEditProblem;
 import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.GeometryCollection;
+import io.github.mundanej.map.api.GeometryKind;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
@@ -139,6 +143,80 @@ public final class FeatureSnapper {
                         }
                     }
                 }
+                case DimensionalGeometry dimensional ->
+                        visitDimensional(layer, feature, base, dimensional);
+                case EmptyGeometry ignored -> {
+                    // Typed emptiness contributes no snap targets.
+                }
+                case GeometryCollection collection -> {
+                    for (int component = 0;
+                            component < collection.geometries().size();
+                            component++) {
+                        visitGeometry(
+                                layer,
+                                new SnapFeature(
+                                        feature.featureId(),
+                                        collection.geometries().get(component)),
+                                base.withGeometry(component, 0, 0));
+                    }
+                }
+            }
+        }
+
+        private void visitDimensional(
+                SnapReferenceLayer layer,
+                SnapFeature feature,
+                Location base,
+                DimensionalGeometry geometry) {
+            GeometryKind kind = geometry.kind();
+            switch (kind) {
+                case POINT ->
+                        visitPoint(layer, feature, base, geometry.coordinates().coordinate(0));
+                case MULTI_POINT -> {
+                    for (int component = 0;
+                            component < geometry.coordinates().size();
+                            component++) {
+                        visitPoint(
+                                layer,
+                                feature,
+                                base.withGeometry(component, 0, 0),
+                                geometry.coordinates().coordinate(component));
+                    }
+                }
+                case LINE_STRING, MULTI_LINE_STRING -> {
+                    int[] offsets = geometry.partOffsets();
+                    for (int component = 0; component + 1 < offsets.length; component++) {
+                        visitPackedSequence(
+                                layer,
+                                feature,
+                                base.withGeometry(component, 0, 0),
+                                geometry.coordinates(),
+                                offsets[component],
+                                offsets[component + 1],
+                                false);
+                    }
+                }
+                case POLYGON, MULTI_POLYGON -> {
+                    int[] rings = geometry.partOffsets();
+                    int[] polygons = geometry.polygonPartOffsets();
+                    for (int component = 0; component + 1 < polygons.length; component++) {
+                        int startRing = polygons[component];
+                        int endRing = polygons[component + 1];
+                        for (int ring = startRing; ring < endRing; ring++) {
+                            visitPackedSequence(
+                                    layer,
+                                    feature,
+                                    base.withGeometry(component, ring - startRing, 0),
+                                    geometry.coordinates(),
+                                    rings[ring],
+                                    rings[ring + 1],
+                                    true);
+                        }
+                    }
+                }
+                case GEOMETRY_COLLECTION ->
+                        throw new IllegalArgumentException(
+                                "A dimensional primitive cannot be a geometry collection");
             }
         }
 

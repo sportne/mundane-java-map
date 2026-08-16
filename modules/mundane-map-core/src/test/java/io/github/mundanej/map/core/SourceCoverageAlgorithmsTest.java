@@ -11,8 +11,13 @@ import io.github.mundanej.map.api.AttributeValueConversion;
 import io.github.mundanej.map.api.CompositeSymbol;
 import io.github.mundanej.map.api.Coordinate;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.DimensionalGeometry;
+import io.github.mundanej.map.api.EmptyGeometry;
 import io.github.mundanej.map.api.Envelope;
 import io.github.mundanej.map.api.FeatureRecord;
+import io.github.mundanej.map.api.GeometryCollection;
+import io.github.mundanej.map.api.GeometryDimension;
+import io.github.mundanej.map.api.GeometryKind;
 import io.github.mundanej.map.api.HatchPattern;
 import io.github.mundanej.map.api.MarkerPlacement;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
@@ -148,7 +153,24 @@ class SourceCoverageAlgorithmsTest {
                         polygon,
                         new MultiPointGeometry(line),
                         MultiLineStringGeometry.ofParts(List.of(line)),
-                        MultiPolygonGeometry.ofPolygons(List.of(polygon)));
+                        MultiPolygonGeometry.ofPolygons(List.of(polygon)),
+                        DimensionalGeometry.multiLineString(
+                                CoordinateSequence.of(GeometryDimension.XYZ, 0, 0, 1, 1, 1, 2),
+                                new int[] {0, 2}),
+                        DimensionalGeometry.multiPolygon(
+                                CoordinateSequence.of(
+                                        GeometryDimension.XYM, 0, 0, 1, 2, 0, 2, 0, 2, 3, 0, 0, 1),
+                                new int[] {0, 4},
+                                new int[] {0, 1},
+                                io.github.mundanej.map.api.GeometryLimits.DEFAULT),
+                        GeometryCollection.of(
+                                List.of(
+                                        new EmptyGeometry(
+                                                GeometryKind.POINT, GeometryDimension.XYZM),
+                                        DimensionalGeometry.point(
+                                                CoordinateSequence.of(
+                                                        GeometryDimension.XYZM, 1, 2, 3, 4)),
+                                        polygon)));
         for (var geometry : geometries) {
             assertTrue(FeatureRecordLogicalSize.bytes(record(geometry, Map.of()), 0) > 0);
         }

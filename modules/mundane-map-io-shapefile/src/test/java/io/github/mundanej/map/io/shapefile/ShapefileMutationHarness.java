@@ -673,6 +673,12 @@ final class ShapefileMutationHarness {
                 }
                 yield count;
             }
+            default ->
+                    throw new AssertionError(
+                            "Unsupported Shapefile geometry family: "
+                                    + geometry.kind()
+                                    + ": "
+                                    + descriptor);
         };
     }
 
