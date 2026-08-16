@@ -7,6 +7,7 @@ plugins {
 def browserLaneRequested = gradle.startParameter.taskNames.any { taskName ->
     taskName == 'vaadinBrowserTest' || taskName.endsWith(':vaadinBrowserTest')
 }
+boolean offlineFrontendMode = providers.gradleProperty('map.offlineFrontend').isPresent()
 
 sourceSets {
     vaadinBrowserTest {
@@ -164,7 +165,7 @@ application {
 
 vaadin {
     productionMode = browserLaneRequested || providers.gradleProperty('vaadin.productionMode').isPresent()
-    runNpmInstall = !browserLaneRequested
+    runNpmInstall = !browserLaneRequested && !offlineFrontendMode
     reactEnable = false
     npmExcludeWebComponents = true
     pnpmEnable = false

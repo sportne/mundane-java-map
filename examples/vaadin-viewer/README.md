@@ -24,9 +24,10 @@ not allow Flow to download Node implicitly. From the repository root:
 ```
 
 Then open `http://127.0.0.1:8080/`. The initial frontend preparation needs the exact npm inputs
-frozen by the G18 dependency profile. Until G18-061 extends the repository's offline assembly to
-frontend inputs, a download-disabled build must use a separately and explicitly primed npm cache
-for the committed lockfile. A modern keyboard-accessible desktop or mobile browser is required.
+frozen by the G18 dependency profile. `offlineRepositoryVerification` prepares the committed lock,
+copies its exact `node_modules` and Node/npm installation into a clean isolated home, disables
+network fallbacks, and builds this production frontend before running the complete normal gate. A
+modern keyboard-accessible desktop or mobile browser is required.
 
 ## Explicit browser evidence lane
 

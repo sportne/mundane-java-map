@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import org.gradle.api.DefaultTask;
@@ -46,6 +47,24 @@ public abstract class OfflineBuildVerification extends DefaultTask {
     public abstract DirectoryProperty getRepositoryDirectory();
 
     /**
+     * Provides the frozen frontend installation prepared from the committed lockfile.
+     *
+     * @return prepared frontend modules
+     */
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract DirectoryProperty getFrontendModulesDirectory();
+
+    /**
+     * Provides the exact Node.js installation used by the Flow production build.
+     *
+     * @return prepared Node.js installation
+     */
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract DirectoryProperty getNodeInstallationDirectory();
+
+    /**
      * Provides the ordinary Gradle home from which only the verified wrapper is copied.
      *
      * @return ordinary Gradle home
@@ -83,32 +102,68 @@ public abstract class OfflineBuildVerification extends DefaultTask {
         deleteTree(scratch);
         Path project = scratch.resolve("project");
         Path isolatedHome = scratch.resolve("gradle-home");
+        Path isolatedUserHome = scratch.resolve("user-home");
         copyProject(getSourceDirectory().get().getAsFile().toPath(), project);
+        copyTree(
+                getFrontendModulesDirectory().get().getAsFile().toPath(),
+                project.resolve("examples/vaadin-viewer/node_modules"));
+        copyTree(
+                getNodeInstallationDirectory().get().getAsFile().toPath(),
+                isolatedUserHome.resolve(".vaadin/node-v24.14.0"));
         copyWrapper(getGradleUserHome().get().getAsFile().toPath(), isolatedHome, project);
 
+        runBuild(
+                project,
+                isolatedHome,
+                isolatedUserHome,
+                List.of(
+                        ":examples:vaadin-viewer:vaadinBuildFrontend",
+                        "-Pvaadin.productionMode",
+                        "-Pmap.offlineFrontend"),
+                "production frontend");
+        runBuild(
+                project,
+                isolatedHome,
+                isolatedUserHome,
+                List.of("qualityGate"),
+                "quality");
+    }
+
+    private void runBuild(
+            Path project,
+            Path isolatedHome,
+            Path isolatedUserHome,
+            List<String> requestedArguments,
+            String description)
+            throws Exception {
+        List<String> command = new java.util.ArrayList<>();
+        command.add("bash");
+        command.add(project.resolve("gradlew").toString());
+        command.addAll(requestedArguments);
+        command.add("--console=plain");
+        command.add("--offline");
+        command.add("--no-daemon");
+        command.add(
+                "-Pmap.offlineRepo="
+                        + getRepositoryDirectory().get().getAsFile().getAbsolutePath());
+        command.add("-Dorg.gradle.java.installations.auto-download=false");
+        command.add("-Dorg.gradle.java.installations.auto-detect=false");
+        command.add(
+                "-Dorg.gradle.java.installations.paths="
+                        + getJava21Home().get()
+                        + ","
+                        + getJavaHome().get());
         var process =
-                new ProcessBuilder(
-                                "bash",
-                                project.resolve("gradlew").toString(),
-                                "qualityGate",
-                                "--console=plain",
-                                "--offline",
-                                "--no-daemon",
-                                "-Pmap.offlineRepo="
-                                        + getRepositoryDirectory()
-                                                .get()
-                                                .getAsFile()
-                                                .getAbsolutePath(),
-                                "-Dorg.gradle.java.installations.auto-download=false",
-                                "-Dorg.gradle.java.installations.auto-detect=false",
-                                "-Dorg.gradle.java.installations.paths="
-                                        + getJava21Home().get()
-                                        + ","
-                                        + getJavaHome().get())
+                new ProcessBuilder(command)
                         .directory(project.toFile())
                         .redirectErrorStream(true);
         process.environment().put("GRADLE_USER_HOME", isolatedHome.toString());
+        process.environment().put("HOME", isolatedUserHome.toString());
         process.environment().put("JAVA_HOME", getJavaHome().get());
+        process.environment().put("npm_config_offline", "true");
+        process.environment().put("npm_config_audit", "false");
+        process.environment().put("npm_config_fund", "false");
+        process.environment().put("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1");
         Process child = process.start();
         ByteArrayOutputStream capture = new ByteArrayOutputStream();
         Thread reader = Thread.ofVirtual().start(() -> transfer(child, capture));
@@ -120,7 +175,7 @@ public abstract class OfflineBuildVerification extends DefaultTask {
         String output = capture.toString(StandardCharsets.UTF_8);
         if (!finished || child.exitValue() != 0 || !output.contains("BUILD SUCCESSFUL")) {
             throw new GradleException(
-                    "Isolated offline quality build failed:\n" + tail(output));
+                    "Isolated offline " + description + " build failed:\n" + tail(output));
         }
     }
 
@@ -147,7 +202,10 @@ public abstract class OfflineBuildVerification extends DefaultTask {
     private static boolean excluded(Path relative) {
         for (Path segment : relative) {
             String name = segment.toString();
-            if (name.equals(".git") || name.equals(".gradle") || name.equals("build")) {
+            if (name.equals(".git")
+                    || name.equals(".gradle")
+                    || name.equals("build")
+                    || name.equals("node_modules")) {
                 return true;
             }
         }

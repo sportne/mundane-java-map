@@ -17,9 +17,9 @@ archived there.
 - `Complete`: every acceptance criterion is implemented, required validation has passed, and the
   result is supported by current source and test evidence.
 
-G0 through G17 are complete from current source and test evidence. G18 is complete through its
-browser-evidence slice, G18-060; publication and offline-frontend closeout remain proposed in
-G18-061. G19 is a proposed expert feature-completeness expansion organized by owning module. Later
+G0 through G18 are complete from current source and test evidence, including G18 publication,
+staged-consumer, browser, and isolated offline-frontend closeout. G19 is a proposed expert
+feature-completeness expansion organized by owning module. Later
 tasks remain governed by their own dependencies and evidence; a task is never archived merely
 because implementation exists.
 
@@ -423,8 +423,7 @@ G18 uses Vaadin Flow's open component integration but explicitly excludes Vaadin
 commercial artifacts, remote basemaps, and another browser map engine. The implemented renderer is
 a project-authored Canvas custom element packaged with one optional adapter.
 
-G18-001 through G18-060 are complete and archived. G18-061 remains proposed as the sole publication,
-staged-consumer, and isolated offline-frontend closeout task.
+G18-001 through G18-061 are complete and archived.
 
 | Task | Status | Type | Depends on | Outcome |
 | --- | --- | --- | --- | --- |
@@ -442,7 +441,7 @@ staged-consumer, and isolated offline-frontend closeout task.
 | [G18-051 — Vaadin viewer source workflows](closed/G18-051-vaadin-viewer-source-workflows.md) | Complete | AFK | G18-050, G11-034 | Added bounded caller-selected and fixture feature, raster/elevation, and workspace workflows with coordinated ownership, visibility, wrap, and cleanup. |
 | [G18-052 — Vaadin viewer upload and export closeout](closed/G18-052-vaadin-viewer-upload-export-closeout.md) | Complete | HITL | G18-051 | Added guarded multipart uploads, expiring canonical SVG downloads, live status delivery, production instructions, and complete viewer cleanup review. |
 | [G18-060 — Vaadin browser hardening and evidence](closed/G18-060-vaadin-browser-hardening-and-evidence.md) | Complete | HITL | G18-052 | Added pinned Chromium/Firefox production-mode automation with rendering, hostile-client, accessibility, lifecycle, resource, and bounded-performance evidence. |
-| [G18-061 — Vaadin publication and offline closeout](G18-061-vaadin-publication-and-offline-closeout.md) | Proposed | HITL | G18-060 | Stage and consume the adapter, prove offline Maven/frontend builds, and approve exact support and simplicity wording. |
+| [G18-061 — Vaadin publication and offline closeout](closed/G18-061-vaadin-publication-and-offline-closeout.md) | Complete | HITL | G18-060 | Staged and consumed the adapter, proved isolated offline Maven/frontend builds, and approved exact support and simplicity wording. |
 
 ## Feature completeness
 

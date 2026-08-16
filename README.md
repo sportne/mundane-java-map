@@ -14,6 +14,9 @@ first Level 1 `0.x` release; role-specific marker, line, and fill symbols are it
 - Java 21 for consumers and compilation. A Java 17 or newer runtime can launch Gradle, which selects
   a Java 21 compiler toolchain.
 - GraalVM Java 21 with `native-image` only for the separate Native Image smoke lane.
+- The optional Vaadin production frontend uses the pinned Vaadin 25.2.4 toolchain and Node.js
+  24.14.0/npm 11.9.0. Node is a build input, not a runtime dependency of API, core, AWT, or format
+  modules.
 
 ## Published modules
 
@@ -94,8 +97,9 @@ raster evidence, a corpus, profiling, publication staging, or a native toolchain
 interpolation invariants rather than byte-identical whole images. `performanceQuick` is a
 noncanonical iteration lane; only `performanceEvidence` produces canonical performance evidence.
 The opt-in `liveTrackEvidence` task runs one explicitly selected 10k, 100k, or 1m profile and is not
-part of the normal gate. The offline lane verifies the complete normal gate from one isolated
-Maven-layout repository. GitHub Actions separately runs the Java 21 quality and Java 25 test jobs, rendering,
+part of the normal gate. The offline lane prepares the committed frontend lock, then verifies the
+Vaadin production bundle and complete normal gate from copied sources, a clean Gradle home, exact
+Node/npm inputs, and one isolated Maven-layout repository. GitHub Actions separately runs the Java 21 quality and Java 25 test jobs, rendering,
 Shapefile/DTED corpus and performance jobs, a Linux x86-64 Native Image job, isolated offline
 repository verification, and the exact glibc/musl SQLite-adapter platform matrix. These specialized
 lanes remain separate because they require cold homes, corpus data, external tools, containers,
@@ -111,6 +115,17 @@ bounded server-local or per-session uploaded shapefile/GeoTIFF/workspace data, e
 wrap, selection, measurement, point editing, and route-scoped canonical SVG downloads. Its own
 README records the exact limits, production build and browser-evidence commands, and
 security/deployment exclusions; this example does not extend the Level 1 runtime support claim.
+
+`publicationDryRun consumerSmoke` verifies the adapter POM, Gradle metadata, binary, sources,
+Javadocs, license, checksums, bundled frontend module, exact Flow runtime graph, and a Java 21
+downstream `MundaneMap` layer/selection workflow using staged artifacts only. The real loopback
+viewport and pointer-selection workflow remains in the separately installed browser lane.
+
+The Vaadin adapter is JVM/browser-only and is not included in Native Image claims. It uses no
+commercial Vaadin artifact, TestBench, Vaadin Map, CDN, third-party browser map engine, or ambient
+map-data service. Upgrading Vaadin, Flow, Node, npm, or the frontend lock requires a reviewed
+dependency/license/checksum inventory plus publication, offline frontend, and browser evidence; a
+version bump alone does not broaden support.
 
 The Java 21 CI job owns the complete `qualityGate`, including formatting, Checkstyle, SpotBugs,
 coverage reporting and thresholds, architecture rules, and Javadocs. The Java 25 job runs

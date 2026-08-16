@@ -332,9 +332,10 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                 contract.packageRoot(),
                 license,
                 true,
-                contract.exactBinaryEntries());
-        verifyArchive(sources, contract.packageRoot(), license, true, Set.of());
-        verifyArchive(javadoc, contract.packageRoot(), license, false, Set.of());
+                contract.exactBinaryEntries(),
+                contract.requiredBinaryEntries());
+        verifyArchive(sources, contract.packageRoot(), license, true, Set.of(), Set.of());
+        verifyArchive(javadoc, contract.packageRoot(), license, false, Set.of(), Set.of());
         for (Path payload : payloads) {
             verifySha256(payload);
             manifest.add(
@@ -409,7 +410,8 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
             String packageRoot,
             Path license,
             boolean requirePackageRoot,
-            Set<String> exactEntries)
+            Set<String> exactEntries,
+            Set<String> requiredEntries)
             throws IOException {
         byte[] expectedLicense = Files.readAllBytes(license);
         try (var zip = new ZipFile(archive.toFile())) {
@@ -444,6 +446,14 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                                 + exactEntries
                                 + ", found "
                                 + actualEntries);
+            }
+            for (String requiredEntry : requiredEntries) {
+                require(
+                        zip.getEntry(requiredEntry) != null,
+                        "Missing required publication resource "
+                                + requiredEntry
+                                + " in "
+                                + archive);
             }
         }
     }
@@ -573,7 +583,7 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
         for (String row : rows) {
             String[] fields = row.split("\\|", -1);
             require(
-                    fields.length >= 5 && fields.length <= 8,
+                    fields.length >= 5 && fields.length <= 9,
                     "Invalid publication contract row: " + row);
             Contract previous =
                     result.put(
@@ -585,7 +595,8 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
                                     fields[4],
                                     fields.length >= 6 ? set(fields[5]) : Set.of(),
                                     fields.length >= 7 ? set(fields[6]) : Set.of(),
-                                    fields.length == 8 ? set(fields[7]) : Set.of()));
+                                    fields.length >= 8 ? set(fields[7]) : Set.of(),
+                                    fields.length == 9 ? set(fields[8]) : Set.of()));
             require(previous == null, "Duplicate publication contract: " + fields[0]);
         }
         return result;
@@ -623,5 +634,6 @@ public abstract class VerifyPublicationRepository extends DefaultTask {
             String packageRoot,
             Set<String> exactBinaryEntries,
             Set<String> externalCompileDependencies,
-            Set<String> managedImports) {}
+            Set<String> managedImports,
+            Set<String> requiredBinaryEntries) {}
 }

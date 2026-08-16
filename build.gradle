@@ -193,7 +193,7 @@ def publicationContract = [
     'mundane-map-api||||io/github/mundanej/map/api/',
     'mundane-map-core|mundane-map-api|||io/github/mundanej/map/core/',
     'mundane-map-awt|mundane-map-api,mundane-map-core|||io/github/mundanej/map/awt/',
-    'mundane-map-vaadin|mundane-map-api,mundane-map-core|||io/github/mundanej/map/vaadin/||com.vaadin:flow-server:25.2.4|com.vaadin:vaadin-bom:25.2.3',
+    'mundane-map-vaadin|mundane-map-api,mundane-map-core|||io/github/mundanej/map/vaadin/||com.vaadin:flow-server:25.2.4|com.vaadin:vaadin-bom:25.2.3|META-INF/frontend/mundane-map-canvas.js',
     'mundane-map-io-shapefile|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/shapefile/',
     'mundane-map-io-image|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/image/',
     'mundane-map-io-http-tiles|mundane-map-api,mundane-map-io-image|mundane-map-core||io/github/mundanej/map/io/http/tiles/',
@@ -384,12 +384,40 @@ def assembleOfflineRepository = tasks.register(
     outputDirectory = layout.buildDirectory.dir('offline-repository/maven')
 }
 
+def preparedFrontendModules = layout.projectDirectory.dir(
+        'examples/vaadin-viewer/node_modules')
+def preparedNodeInstallation = layout.dir(providers.provider {
+    new File(System.getProperty('user.home'), '.vaadin/node-v24.14.0')
+})
+def prepareOfflineFrontendInputs = tasks.register('prepareOfflineFrontendInputs', Exec) {
+    group = 'build setup'
+    description = 'Prepares the exact locked Node and npm inputs for isolated offline verification.'
+    executable new File(gradle.gradleHomeDir, 'bin/gradle')
+    args '-p', layout.projectDirectory.asFile.absolutePath,
+            ':examples:vaadin-viewer:vaadinPrepareFrontend', '--console=plain', '--no-daemon'
+    inputs.files layout.projectDirectory.file('examples/vaadin-viewer/package.json'),
+            layout.projectDirectory.file('examples/vaadin-viewer/package-lock.json'),
+            layout.projectDirectory.file('verification/G18-001-frontend-profile.json'),
+            layout.projectDirectory.file('verification/G18-001-frontend-build-inventory.tsv')
+    outputs.dir preparedFrontendModules
+    outputs.dir preparedNodeInstallation
+    environment.remove('HTTP_PROXY')
+    environment.remove('HTTPS_PROXY')
+    environment.remove('NO_PROXY')
+    environment.remove('http_proxy')
+    environment.remove('https_proxy')
+    environment.remove('no_proxy')
+}
+
 tasks.register('offlineRepositoryVerification', OfflineBuildVerification) {
     group = 'verification'
     description = 'Runs qualityGate from copied sources, a clean Gradle home, and one repository.'
     dependsOn assembleOfflineRepository
     sourceDirectory = layout.projectDirectory
     repositoryDirectory = assembleOfflineRepository.flatMap { it.outputDirectory }
+    dependsOn prepareOfflineFrontendInputs
+    frontendModulesDirectory = preparedFrontendModules
+    nodeInstallationDirectory = preparedNodeInstallation
     gradleUserHome = layout.dir(providers.provider { gradle.gradleUserHomeDir })
     javaHome = System.getProperty('java.home')
     java21Home = java21Launcher.map { it.metadata.installationPath.asFile.absolutePath }
@@ -408,8 +436,19 @@ def stageConsumerExternalDependencies = tasks.register('stageConsumerExternalDep
     dependsOn tasks.named('publicationDryRun'), assembleOfflineRepository,
             cleanConsumerExternalDependencies
     from(assembleOfflineRepository.flatMap { it.outputDirectory }) {
+        include 'com/vaadin/flow-server/25.2.4/**'
+        include 'com/vaadin/flow-push/25.2.4/**'
+        include 'com/vaadin/vaadin-bom/25.2.3/**'
+        include 'com/vaadin/external/atmosphere/atmosphere-runtime/3.0.5.slf4jvaadin1/**'
+        include 'com/vaadin/external/gentyref/1.2.0.vaadin1/**'
+        include 'com/fasterxml/jackson/core/jackson-annotations/2.21/**'
+        include 'com/fasterxml/jackson/core/jackson-annotations/2.22/**'
         include 'tools/jackson/core/jackson-core/3.1.5/**'
+        include 'tools/jackson/core/jackson-databind/3.1.5/**'
         include 'tools/jackson/jackson-bom/3.1.5/**'
+        include 'org/jsoup/jsoup/1.22.2/**'
+        include 'org/jspecify/jspecify/1.0.0/**'
+        include 'org/slf4j/slf4j-api/2.0.18/**'
         include 'org/xerial/sqlite-jdbc/3.53.2.0/sqlite-jdbc-3.53.2.0-without-natives.jar*'
         include 'org/xerial/sqlite-jdbc/3.53.2.0/sqlite-jdbc-3.53.2.0-natives-linux.jar*'
     }

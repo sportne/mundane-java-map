@@ -58,7 +58,7 @@ automated conformance from manual/device evidence.
 | Host theming | Internal custom-element styling and example CSS | Small stable CSS-part/token plus Java theme-variant contract for component chrome and accessibility states; no portrayal override | G19-181 |
 | Localization | Fixed implementation/example English text | Caller-supplied Java message provider, default English catalog, explicit locale and locale-neutral diagnostic codes | G19-181 |
 | Current-view raster capture | Unsupported | Bounded browser-native PNG convenience capture; explicitly non-authoritative and non-reproducible | G19-187 |
-| Publication/offline | Proposed G18-061 closeout | Reproducible published adapter and isolated offline Maven/frontend consumption; no ambient CDN or package installation | G18-061 |
+| Publication/offline | Staged binary/source/Javadocs/resource inventories, exact Flow graph, Java 21 consumer, and isolated offline production frontend/normal gate | Reproducible published adapter and isolated offline Maven/frontend consumption; no ambient CDN or package installation | G18-061 |
 
 ## Browser contract
 

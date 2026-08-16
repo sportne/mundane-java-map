@@ -3,8 +3,7 @@
 ## Status and objective
 
 This document is the approved implementation profile for a reusable browser map component and a
-runnable Vaadin example. G18-001 through G18-060 are implemented and complete; G18-061 remains the
-proposed publication and isolated offline-frontend closeout. The profile records the user's decision
+runnable Vaadin example. G18-001 through G18-061 are implemented and complete. The profile records the user's decision
 that a commercial map component is unacceptable. G18 therefore uses Vaadin Flow's open
 component-integration surface but does not use Vaadin Map, Vaadin TestBench, or another commercial
 Vaadin artifact.
@@ -339,10 +338,23 @@ interaction invariants rather than whole-canvas pixel hashes. A bounded browser 
 records scene sizes, transferred bytes, query/paint latency, frame responsiveness, and retained
 memory without establishing portable wall-clock thresholds.
 
-Publication closeout stages the adapter, verifies its JAR frontend resources and POM dependency
-surface, and runs a standalone Java 21 Vaadin consumer from staged Maven artifacts. Offline
-verification must account for both Maven and frontend inputs without weakening the repository's
-isolated-resolution policy.
+Publication closeout stages the adapter and mechanically verifies binary, sources, Javadocs,
+license, checksums, Gradle metadata, POM dependency surface, and its bundled frontend resource. A
+standalone Java 21 consumer resolves staged project artifacts only and exercises a real
+`MundaneMap` feature/selection lifecycle against the exact Flow runtime graph. The separately
+installed browser lane remains the authority for the loopback viewport and pointer workflow.
+
+Offline verification first prepares the committed frontend lock with the pinned Node.js 24.14.0
+and npm 11.9.0 build toolchain. It then copies those exact inputs and the isolated Maven repository
+into a clean home and runs both the production frontend build and complete normal gate with Gradle,
+npm, browser, and proxy network fallbacks disabled. Node/npm are build inputs only; no CDN or
+package installation is part of runtime support.
+
+The simplicity closeout retains the private scene protocol and current dependency direction. It
+does not add a public web renderer SPI, general web-component contract, server image renderer,
+third-party browser map engine, or Vaadin/browser dependency to neutral modules. Vaadin, Flow,
+Node, npm, or frontend-lock upgrades require a reviewed dependency/license/checksum inventory and
+renewed publication, offline frontend, and browser evidence.
 
 ## Task graph and ownership
 

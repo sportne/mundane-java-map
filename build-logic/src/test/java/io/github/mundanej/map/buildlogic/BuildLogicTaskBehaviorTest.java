@@ -57,6 +57,10 @@ class BuildLogicTaskBehaviorTest {
                 projectSource.resolve("gradlew"),
                 "#!/usr/bin/env bash\nprintf 'BUILD SUCCESSFUL\\n'\n");
         Path repository = Files.createDirectory(temporaryDirectory.resolve("repository"));
+        Path frontendModules = Files.createDirectories(temporaryDirectory.resolve("frontend"));
+        Files.writeString(frontendModules.resolve("module.js"), "frontend");
+        Path nodeInstallation = Files.createDirectories(temporaryDirectory.resolve("node"));
+        Files.writeString(nodeInstallation.resolve("node"), "node");
         Path gradleHome = Files.createDirectory(temporaryDirectory.resolve("gradle-home"));
         Path wrapper =
                 Files.createDirectories(
@@ -70,6 +74,8 @@ class BuildLogicTaskBehaviorTest {
                 task("offline", OfflineBuildVerification.class);
         task.getSourceDirectory().set(projectSource.toFile());
         task.getRepositoryDirectory().set(repository.toFile());
+        task.getFrontendModulesDirectory().set(frontendModules.toFile());
+        task.getNodeInstallationDirectory().set(nodeInstallation.toFile());
         task.getGradleUserHome().set(gradleHome.toFile());
         task.getScratchDirectory().set(scratch.toFile());
         task.getJavaHome().set(System.getProperty("java.home"));
@@ -80,6 +86,14 @@ class BuildLogicTaskBehaviorTest {
         assertEquals("kept", Files.readString(scratch.resolve("project/kept.txt")));
         assertFalse(Files.exists(scratch.resolve("project/.git")));
         assertFalse(Files.exists(scratch.resolve("project/build")));
+        assertEquals(
+                "frontend",
+                Files.readString(
+                        scratch.resolve(
+                                "project/examples/vaadin-viewer/node_modules/module.js")));
+        assertEquals(
+                "node",
+                Files.readString(scratch.resolve("user-home/.vaadin/node-v24.14.0/node")));
         assertFalse(Files.exists(scratch.resolve("stale.txt")));
 
         Files.writeString(

@@ -66,7 +66,7 @@ design task; there are no empty speculative design files.
 | G15 | [Live-track stress and IOU tracking](design/G15-live-track-stress-and-iou-tracking.md) | G15-001 through G15-008 and holistic closeout approved |
 | G16 | [Dateline and continuous world wrap](design/G16-dateline-and-continuous-world-wrap.md) | Complete |
 | G17 | [Project hardening](design/G17-project-hardening.md) | Complete |
-| G18 | [Vaadin browser frontend](design/G18-vaadin-browser-frontend.md) | G18-001 through G18-060 complete; G18-061 proposed |
+| G18 | [Vaadin browser frontend](design/G18-vaadin-browser-frontend.md) | Complete |
 | G19 | [Module feature-completeness review](design/G19-module-feature-completeness-review.md) | 175 module-organized cards proposed; capability decisions, matrices, and decomposition complete |
 
 The linked files are authoritative for their detailed contracts. Moving text between these files is
@@ -105,14 +105,16 @@ repeats G15 Natural Earth/tracks, adds bounded point/vector query/rendering, dat
 interaction/editing, compatible global rasters, and closeout evidence. It does not approve automatic
 wrap inference, topology repair, a globe, external dependencies, or vertical/polar wrapping.
 
-Browser-frontend implementation record (2026-08-13): G18-001 through G18-060 complete the approved
+Browser-frontend implementation record (2026-08-16): G18-001 through G18-061 complete the approved
 non-native optional Vaadin Flow adapter, project-authored bundled Canvas custom element, runnable
 Spring Boot/Vaadin example, bounded vector/source/portrayal, interaction/editing,
 raster/elevation/wrap behavior, and open Playwright evidence. The implementation excludes Vaadin Map,
-TestBench, commercial artifacts, remote basemaps, and another browser map engine. G18-061 remains
-proposed for publication and isolated offline-frontend closeout. The private scene protocol does not
-become a public renderer SPI or leak Vaadin/browser types into API, core, format, workspace, or AWT
-modules.
+TestBench, commercial artifacts, remote basemaps, and another browser map engine. Publication now
+checks binary/source/Javadocs/resource inventories and the exact Flow runtime graph; a staged Java 21
+consumer exercises the component, while isolated offline verification builds the production frontend
+and full normal gate from copied locked Maven and Node/npm inputs. The private scene protocol does
+not become a public renderer SPI or leak Vaadin/browser types into API, core, format, workspace, or
+AWT modules. The adapter remains JVM/browser-only and outside Native Image support.
 
 ## Decisions
 
@@ -321,4 +323,4 @@ Implementation tasks remain Proposed until their code, tests, and task-specific 
 | G18-051 | Representative feature, raster/elevation, and workspace viewer workflows | Approved |
 | G18-052 | Guarded uploads, SVG download, production instructions, and complete viewer review | Approved |
 | G18-060 | Separate open Playwright Chromium/Firefox lane, hostile-client, tolerant rendering, accessibility, lifecycle, and performance evidence | Approved |
-| G18-061 | Published adapter resources/metadata, staged consumer, isolated offline frontend build, support wording, and simplicity closeout | Draft |
+| G18-061 | Published adapter resources/metadata, staged consumer, isolated offline frontend build, support wording, and simplicity closeout | Approved |

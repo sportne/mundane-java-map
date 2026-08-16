@@ -1,6 +1,6 @@
 # G18-061 — Vaadin publication and offline closeout
 
-Status: Proposed
+Status: Complete
 Depends on: G18-060
 Gate: G18
 Type: HITL
@@ -73,3 +73,8 @@ git diff --check
 HITL checkpoint: **Vaadin adapter dependency/license, staged consumer, offline frontend, browser
 support wording, and G18 simplicity closeout approval**.
 
+Approved by the maintainer's 2026-08-16 directive to execute the selected tasks. Closeout evidence
+mechanically inventories the staged adapter and exact Flow runtime graph, exercises the staged Java
+21 component lifecycle, builds the production frontend and normal gate in a clean offline home from
+copied locked Maven/Node/npm inputs, and retains the existing private-protocol, dependency-direction,
+commercial-exclusion, and non-native boundaries.

@@ -811,8 +811,8 @@ unchanged.
 
 ### G18 — Open-source Vaadin browser component
 
-- G18-001 through G18-060 are complete. G18-061 remains proposed as the publication, staged-consumer,
-  and isolated offline-frontend closeout.
+- G18-001 through G18-061 are complete, including publication, staged-consumer, browser, and
+  isolated offline-frontend evidence.
 - The implemented optional, JVM/browser-only `mundane-map-vaadin` adapter uses Vaadin Flow for
   application/component plumbing and a project-authored bundled Canvas custom element for map
   drawing and local gestures.
@@ -828,10 +828,11 @@ unchanged.
 - A separate open-source Playwright Chromium/Firefox lane verifies real browser behavior,
   tolerant rendering, hostile client/resource cases, accessibility, lifecycle, and
   environment-labelled performance evidence. Normal `qualityGate` must not download browsers.
-- G18-061 must finish staged Maven consumption and the isolated offline Maven/frontend build. G18
-  remains non-native and makes no production map-data, authentication, cloud, cross-platform pixel,
-  or portable latency/FPS claim.
-- The completed sequence through G18-060 is G18-001, G18-010, G18-011, G18-020, G18-021, G18-022;
+- The publication closeout verifies staged Java 21 consumption, the exact Flow runtime graph and
+  bundled frontend resource, and a production frontend plus the normal gate in an isolated offline
+  build with copied locked Node/npm inputs. G18 remains non-native and makes no production map-data,
+  authentication, cloud, cross-platform pixel, or portable latency/FPS claim.
+- The completed sequence through G18-061 is G18-001, G18-010, G18-011, G18-020, G18-021, G18-022;
   interaction/editing and raster/elevation/wrap then form two logical branches that converge through
   G18-050 to G18-052. G18-060 owns browser evidence and G18-061 owns publication/offline closeout.
 - See the [G18 detailed design](design/G18-vaadin-browser-frontend.md) and the

@@ -14,6 +14,7 @@ import io.github.mundanej.map.api.FeatureQuery;
 import io.github.mundanej.map.api.FeatureRecord;
 import io.github.mundanej.map.api.FeatureSource;
 import io.github.mundanej.map.api.FeatureSourceLimits;
+import io.github.mundanej.map.api.FeatureSelection;
 import io.github.mundanej.map.api.FixedSymbolSelector;
 import io.github.mundanej.map.api.ElevationSource;
 import io.github.mundanej.map.api.PointGeometry;
@@ -106,6 +107,7 @@ import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolException;
 import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolId;
 import io.github.mundanej.map.symbology.milstd2525.MilitarySymbolPalette;
 import io.github.mundanej.map.symbology.milstd2525.MilitarySymbols;
+import io.github.mundanej.map.vaadin.MundaneMap;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -137,6 +139,7 @@ public final class MundaneMapConsumerSmoke {
         renderSeStyle(registry, renderers);
         renderMapLibreStyle(registry, renderers);
         renderExplicitWorldWrap(registry, renderers);
+        testVaadinAdapter();
         Path directory = Files.createTempDirectory("mundane-map-consumer-");
         try {
             testSvg(directory);
@@ -159,6 +162,43 @@ public final class MundaneMapConsumerSmoke {
         }
         require(!Files.exists(directory), "consumer temporary directory leaked");
         System.out.println("mundane-map consumer smoke: OK");
+    }
+
+    private static void testVaadinAdapter() throws IOException {
+        require(
+                MundaneMap.class
+                                .getClassLoader()
+                                .getResource("META-INF/frontend/mundane-map-canvas.js")
+                        != null,
+                "published Vaadin frontend resource is absent");
+        Feature feature =
+                new Feature(
+                        "published-point",
+                        "Published point",
+                        new PointGeometry(new Coordinate(5, 5)),
+                        Map.of("source", "staged-artifact"),
+                        BuiltInMarkers.filledScreen(
+                                BuiltInMarker.CIRCLE, Rgba.rgb(36, 112, 196), 12, 1));
+        MundaneMap map = new MundaneMap();
+        try {
+            map.setSnapshotLayers(
+                    List.of(
+                            new InMemoryLayer(
+                                    "published-layer", "Published layer", List.of(feature))));
+            List<FeatureSelection> selections = new java.util.ArrayList<>();
+            map.addMapSelectionListener(
+                    event -> event.current().ifPresent(selections::add));
+            FeatureSelection selection =
+                    new FeatureSelection("published-layer", "published-point");
+            map.setSelection(selection);
+            require(map.selection().orElseThrow().equals(selection), "Vaadin selection changed");
+            require(selections.equals(List.of(selection)), "Vaadin selection listener changed");
+            require(
+                    map.snapshotLayers().getFirst().features().getFirst().equals(feature),
+                    "Vaadin staged feature changed");
+        } finally {
+            map.close();
+        }
     }
 
     private static void testSvg(Path directory) throws IOException {
