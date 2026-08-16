@@ -11,7 +11,7 @@ released profile.
 | Module | Proposed cards | Principal gap |
 | --- | ---: | --- |
 | `mundane-map-api` | 0 | Complete: [dimensional geometry](../closed/G19-001-ordinate-aware-geometry-and-heterogeneous-collections.md) and [advanced portrayal](../closed/G19-002-advanced-portrayal-and-structured-attributes.md) |
-| [`mundane-map-core`](mundane-map-core/) | 4 | Common CRS, reprojection, labels, and tile matrices; [bounded dimensional topology is complete](../closed/G19-011-dimensional-geometry-validity-and-topology.md) |
+| [`mundane-map-core`](mundane-map-core/) | 3 | Reprojection, labels, and tile matrices; [common CRS/WKT2](../closed/G19-010-common-crs-catalog-and-wkt2-operations.md) and [bounded dimensional topology](../closed/G19-011-dimensional-geometry-validity-and-topology.md) are complete |
 | [`mundane-map-awt`](mundane-map-awt/) | 2 | Advanced rendering plus accessible/printable Swing behavior |
 | [`mundane-map-io-shapefile`](mundane-map-io-shapefile/) | 7 | Complete reading and transactional new-dataset export |
 | [`mundane-map-io-image`](mundane-map-io-image/) | 5 | Static PNG 3 and common JPEG decode interoperability |

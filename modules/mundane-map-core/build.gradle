@@ -9,3 +9,35 @@ dependencies {
 
 description = 'JDK-only viewport, projection, layer, and geometry support.'
 
+def commonCrsCatalog = layout.projectDirectory.file('src/catalog/common-crs-catalog.tsv')
+
+tasks.register('verifyCommonCrsCatalog') {
+    group = 'verification'
+    description = 'Verifies the reviewed EPSG-derived common CRS catalog source checksum.'
+    inputs.file(commonCrsCatalog)
+    doLast {
+        String actual = java.security.MessageDigest.getInstance('SHA-256')
+                .digest(commonCrsCatalog.asFile.bytes)
+                .encodeHex()
+                .toString()
+        String expected = 'f91b37010154184f80b845f101839f71780d248311d112a27ae7fb5d8a38afe9'
+        if (actual != expected) {
+            throw new GradleException(
+            'Common CRS catalog checksum changed; regenerate and review provenance first')
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyCommonCrsCatalog')
+}
+
+tasks.register('crsCorpus', Test) {
+    group = 'verification'
+    description = 'Runs the bounded WKT2 and common-CRS interoperability corpus.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    filter {
+        includeTestsMatching 'io.github.mundanej.map.core.Wkt2AndCommonCrsTest'
+    }
+}

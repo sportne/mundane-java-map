@@ -1,0 +1,18 @@
+# profile-version=G19-010-v1
+# source=IOGP EPSG Geodetic Parameter Dataset v12.054 (2026-03-18)
+# source-url=https://epsg.org/whatsnew.html
+# terms-url=https://epsg.org/terms-of-use.html
+# notice=Contains an attributed, modified subset of EPSG data; supplied as-is under the EPSG Dataset Terms of Use.
+# identifier	kind	name	datum-or-base	method-or-axis-profile
+EPSG:4326	GEOGRAPHIC	WGS 84	World Geodetic System 1984	latitude,longitude degree
+EPSG:3857	PROJECTED	WGS 84 / Pseudo-Mercator	EPSG:4326	Popular Visualisation Pseudo Mercator
+EPSG:3395	PROJECTED	WGS 84 / World Mercator	EPSG:4326	Mercator (variant A)
+EPSG:32618	PROJECTED	WGS 84 / UTM zone 18N	EPSG:4326	Transverse Mercator
+EPSG:32633	PROJECTED	WGS 84 / UTM zone 33N	EPSG:4326	Transverse Mercator
+EPSG:4269	GEOGRAPHIC	NAD83	North American Datum 1983	latitude,longitude degree
+EPSG:26915	PROJECTED	NAD83 / UTM zone 15N	EPSG:4269	Transverse Mercator
+EPSG:4277	GEOGRAPHIC	OSGB36	OSGB36	latitude,longitude degree
+EPSG:27700	PROJECTED	OSGB36 / British National Grid	EPSG:4277	Transverse Mercator
+EPSG:5703	VERTICAL	NAVD88 height	North American Vertical Datum 1988	up metre
+EPSG:4979	GEOGRAPHIC	WGS 84	World Geodetic System 1984	latitude,longitude,height
+PROFILE:NAD83+NAVD88	COMPOUND	NAD83 + NAVD88 height	EPSG:4269,EPSG:5703	metadata-only

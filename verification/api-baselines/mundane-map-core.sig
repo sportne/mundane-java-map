@@ -6,6 +6,28 @@ public final class io.github.mundanej.map.core.BuiltInMarkers {
   public static io.github.mundanej.map.api.VectorMarkerSymbol filledScreen(io.github.mundanej.map.api.BuiltInMarker, io.github.mundanej.map.api.Rgba, double, double);
     descriptor: (Lio/github/mundanej/map/api/BuiltInMarker;Lio/github/mundanej/map/api/Rgba;DD)Lio/github/mundanej/map/api/VectorMarkerSymbol;
 }
+public final class io.github.mundanej.map.core.CommonCrsCatalog {
+  public static final java.lang.String SOURCE_SHA256 = "f91b37010154184f80b845f101839f71780d248311d112a27ae7fb5d8a38afe9";
+    descriptor: Ljava/lang/String;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_3395;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_32618;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_32633;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_4269;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_26915;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_4277;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static final io.github.mundanej.map.api.CrsDefinition EPSG_27700;
+    descriptor: Lio/github/mundanej/map/api/CrsDefinition;
+  public static java.util.List<java.lang.String> identifiers();
+    descriptor: ()Ljava/util/List;
+  public static io.github.mundanej.map.api.WktCrsDefinition wktDefinition(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/api/WktCrsDefinition;
+}
 public final class io.github.mundanej.map.core.CrsDefinitions {
   public static final io.github.mundanej.map.api.CrsDefinition EPSG_4326;
     descriptor: Lio/github/mundanej/map/api/CrsDefinition;
@@ -33,7 +55,11 @@ public final class io.github.mundanej.map.core.CrsRegistry {
     descriptor: ()Lio/github/mundanej/map/core/CrsRegistry$Builder;
   public static io.github.mundanej.map.core.CrsRegistry$Builder builderWithLevel1();
     descriptor: ()Lio/github/mundanej/map/core/CrsRegistry$Builder;
+  public static io.github.mundanej.map.core.CrsRegistry$Builder builderWithCommon();
+    descriptor: ()Lio/github/mundanej/map/core/CrsRegistry$Builder;
   public static io.github.mundanej.map.core.CrsRegistry level1();
+    descriptor: ()Lio/github/mundanej/map/core/CrsRegistry;
+  public static io.github.mundanej.map.core.CrsRegistry common();
     descriptor: ()Lio/github/mundanej/map/core/CrsRegistry;
   public io.github.mundanej.map.api.CrsDefinition resolve(java.lang.String);
     descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/api/CrsDefinition;
@@ -956,6 +982,36 @@ public final class io.github.mundanej.map.core.WebMercatorProjection implements 
   public io.github.mundanej.map.api.Envelope unprojectEnvelope(io.github.mundanej.map.api.Envelope);
     descriptor: (Lio/github/mundanej/map/api/Envelope;)Lio/github/mundanej/map/api/Envelope;
 }
+public final class io.github.mundanej.map.core.Wkt2 {
+  public static final int MAXIMUM_CHARACTERS = 16384;
+    descriptor: I
+  public static final int MAXIMUM_DEPTH = 32;
+    descriptor: I
+  public static final int MAXIMUM_VALUES = 4096;
+    descriptor: I
+  public static io.github.mundanej.map.api.WktCrsDefinition parse(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/api/WktCrsDefinition;
+  public static java.lang.String write(io.github.mundanej.map.api.WktCrsDefinition);
+    descriptor: (Lio/github/mundanej/map/api/WktCrsDefinition;)Ljava/lang/String;
+}
+public final class io.github.mundanej.map.core.WktCoordinateOperation {
+  public static final java.lang.String MERCATOR_VARIANT_A = "Mercator (variant A)";
+    descriptor: Ljava/lang/String;
+  public static final java.lang.String TRANSVERSE_MERCATOR = "Transverse Mercator";
+    descriptor: Ljava/lang/String;
+  public static final int MAXIMUM_BATCH_COORDINATES = 1000000;
+    descriptor: I
+  public static io.github.mundanej.map.core.WktCoordinateOperation between(io.github.mundanej.map.api.WktCrsDefinition, io.github.mundanej.map.api.WktCrsDefinition);
+    descriptor: (Lio/github/mundanej/map/api/WktCrsDefinition;Lio/github/mundanej/map/api/WktCrsDefinition;)Lio/github/mundanej/map/core/WktCoordinateOperation;
+  public io.github.mundanej.map.api.WktCrsDefinition source();
+    descriptor: ()Lio/github/mundanej/map/api/WktCrsDefinition;
+  public io.github.mundanej.map.api.WktCrsDefinition target();
+    descriptor: ()Lio/github/mundanej/map/api/WktCrsDefinition;
+  public io.github.mundanej.map.api.Coordinate transform(io.github.mundanej.map.api.Coordinate);
+    descriptor: (Lio/github/mundanej/map/api/Coordinate;)Lio/github/mundanej/map/api/Coordinate;
+  public java.util.List<io.github.mundanej.map.api.Coordinate> transformAll(java.util.List<io.github.mundanej.map.api.Coordinate>);
+    descriptor: (Ljava/util/List;)Ljava/util/List;
+}
 public final class io.github.mundanej.map.core.WrappedX extends java.lang.Record {
   public io.github.mundanej.map.core.WrappedX(double, long);
     descriptor: (DJ)V
@@ -971,9 +1027,10 @@ public final class io.github.mundanej.map.core.WrappedX extends java.lang.Record
     descriptor: ()J
 }
 SHAPE io.github.mundanej.map.core.BuiltInMarkers sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:filledScreen[io.github.mundanej.map.api.BuiltInMarker, io.github.mundanej.map.api.Rgba, double, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], method:path[io.github.mundanej.map.api.BuiltInMarker] throws=[] annotations=[] parameterAnnotations=[[]], method:viewBox[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.CommonCrsCatalog sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:EPSG_26915[], field:EPSG_27700[], field:EPSG_32618[], field:EPSG_32633[], field:EPSG_3395[], field:EPSG_4269[], field:EPSG_4277[], field:SOURCE_SHA256[], method:identifiers[] throws=[] annotations=[] parameterAnnotations=[], method:wktDefinition[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.CrsDefinitions sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:EPSG_3857[], field:EPSG_4326[]]
 SHAPE io.github.mundanej.map.core.CrsOperation sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:sourceCrs[] throws=[] annotations=[] parameterAnnotations=[], method:sourceDomain[] throws=[] annotations=[] parameterAnnotations=[], method:targetCrs[] throws=[] annotations=[] parameterAnnotations=[], method:targetDomain[] throws=[] annotations=[] parameterAnnotations=[], method:transformEnvelopeStrict[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:transformQueryEnvelope[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:transform[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]
-SHAPE io.github.mundanej.map.core.CrsRegistry sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:builderWithLevel1[] throws=[] annotations=[] parameterAnnotations=[], method:builder[] throws=[] annotations=[] parameterAnnotations=[], method:level1[] throws=[] annotations=[] parameterAnnotations=[], method:operationFromMetadata[java.util.Optional<io.github.mundanej.map.api.CrsMetadata>, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:operation[io.github.mundanej.map.api.CrsDefinition, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:resolve[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]]]
+SHAPE io.github.mundanej.map.core.CrsRegistry sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:builderWithCommon[] throws=[] annotations=[] parameterAnnotations=[], method:builderWithLevel1[] throws=[] annotations=[] parameterAnnotations=[], method:builder[] throws=[] annotations=[] parameterAnnotations=[], method:common[] throws=[] annotations=[] parameterAnnotations=[], method:level1[] throws=[] annotations=[] parameterAnnotations=[], method:operationFromMetadata[java.util.Optional<io.github.mundanej.map.api.CrsMetadata>, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:operation[io.github.mundanej.map.api.CrsDefinition, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:resolve[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.CrsRegistry$Builder sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:build[] throws=[] annotations=[] parameterAnnotations=[], method:registerDefinition[io.github.mundanej.map.api.CrsDefinition, java.util.List<java.lang.String>] throws=[] annotations=[] parameterAnnotations=[[], []], method:registerProjection[io.github.mundanej.map.api.Projection] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.DistanceStrategies sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:GREAT_CIRCLE_RADIUS_METRES[], method:epsg4326GreatCircle[io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[]], method:planarMetres[io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[]], method:requireCoordinateCrs[io.github.mundanej.map.api.DistanceStrategy, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []]]
 SHAPE io.github.mundanej.map.core.ElevationQueries sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:query[io.github.mundanej.map.api.ElevationSource, io.github.mundanej.map.api.CrsDefinition, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.api.ElevationQueryMode] throws=[] annotations=[] parameterAnnotations=[[], [], [], []]]
@@ -1038,4 +1095,6 @@ SHAPE io.github.mundanej.map.core.SnapQuery sealed=false permits=[] record=[] en
 SHAPE io.github.mundanej.map.core.SymbolTransforms sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:markerAtScreenBearing[io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.MarkerPlacement, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.core.MapScreenBasis, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], []], method:marker[io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.MarkerPlacement, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.core.MapScreenBasis] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], method:screenLength[io.github.mundanej.map.api.SymbolLength, io.github.mundanej.map.core.MapScreenBasis] throws=[] annotations=[] parameterAnnotations=[[], []]]
 SHAPE io.github.mundanej.map.core.SyntheticRasterSource sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:close[] throws=[] annotations=[] parameterAnnotations=[], method:isClosed[] throws=[] annotations=[] parameterAnnotations=[], method:limits[] throws=[] annotations=[] parameterAnnotations=[], method:metadata[] throws=[] annotations=[] parameterAnnotations=[], method:open[io.github.mundanej.map.api.SourceIdentity, int, int, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.CrsMetadata] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], []], method:open[io.github.mundanej.map.api.SourceIdentity, int, int, java.util.Optional<io.github.mundanej.map.api.Envelope>, java.util.Optional<io.github.mundanej.map.api.CrsMetadata>, io.github.mundanej.map.api.RasterSourceLimits] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], []], method:openingDiagnostics[] throws=[] annotations=[] parameterAnnotations=[], method:read[io.github.mundanej.map.api.RasterRequest, io.github.mundanej.map.api.CancellationToken] throws=[] annotations=[] parameterAnnotations=[[], []]]
 SHAPE io.github.mundanej.map.core.WebMercatorProjection sealed=false permits=[] record=[] enum=[] annotations=[] members=[constructor:[] throws=[] annotations=[] parameterAnnotations=[], field:MAX_LATITUDE[], field:WORLD_LIMIT[], method:projectEnvelope[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:project[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]], method:sourceCrs[] throws=[] annotations=[] parameterAnnotations=[], method:sourceDomain[] throws=[] annotations=[] parameterAnnotations=[], method:targetCrs[] throws=[] annotations=[] parameterAnnotations=[], method:targetDomain[] throws=[] annotations=[] parameterAnnotations=[], method:unprojectEnvelope[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:unproject[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]
+SHAPE io.github.mundanej.map.core.Wkt2 sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:MAXIMUM_CHARACTERS[], field:MAXIMUM_DEPTH[], field:MAXIMUM_VALUES[], method:parse[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:write[io.github.mundanej.map.api.WktCrsDefinition] throws=[] annotations=[] parameterAnnotations=[[]]]
+SHAPE io.github.mundanej.map.core.WktCoordinateOperation sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:MAXIMUM_BATCH_COORDINATES[], field:MERCATOR_VARIANT_A[], field:TRANSVERSE_MERCATOR[], method:between[io.github.mundanej.map.api.WktCrsDefinition, io.github.mundanej.map.api.WktCrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:source[] throws=[] annotations=[] parameterAnnotations=[], method:target[] throws=[] annotations=[] parameterAnnotations=[], method:transformAll[java.util.List<io.github.mundanej.map.api.Coordinate>] throws=[] annotations=[] parameterAnnotations=[[]], method:transform[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.WrappedX sealed=false permits=[] record=[canonicalX:double[], copyIndex:long[]] enum=[] annotations=[] members=[constructor:[double, long] throws=[] annotations=[] parameterAnnotations=[[], []], method:canonicalX[] throws=[] annotations=[] parameterAnnotations=[], method:copyIndex[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]

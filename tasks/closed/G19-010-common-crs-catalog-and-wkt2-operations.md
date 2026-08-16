@@ -1,6 +1,6 @@
 # G19-010 — Common CRS catalog and WKT2 coordinate operations
 
-Status: Proposed
+Status: Complete
 Depends on: G19-001
 Gate: G19
 Type: HITL
@@ -49,3 +49,11 @@ Run `./gradlew :modules:mundane-map-core:check --console=plain`, the CRS corpus 
 ## Notes
 
 HITL checkpoint: a maintainer approves the pinned profile, external evidence, and any licensed corpus or manual review named by this card before completion.
+
+The maintainer's 2026-08-16 directive to execute this selected card approved the frozen WKT2:2019
+profile, EPSG v12.054 attributed subset, EPSG Dataset Terms notice, reviewed adapter-style fixtures,
+and numeric tolerances recorded in `verification/G19-010-common-crs-profile.md`.
+
+Completed 2026-08-16 with a checksum-locked common catalog, bounded canonical WKT2 semantic model,
+native axis/unit conversion, exact pure-Java Mercator variant A and Transverse Mercator operations,
+metadata-only vertical/compound retention, stable failures, and a dedicated CRS corpus lane.

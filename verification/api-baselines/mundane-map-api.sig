@@ -436,6 +436,24 @@ public final class io.github.mundanej.map.api.CrsAxis extends java.lang.Record {
   public io.github.mundanej.map.api.CrsUnit unit();
     descriptor: ()Lio/github/mundanej/map/api/CrsUnit;
 }
+public final class io.github.mundanej.map.api.CrsAxisDirection extends java.lang.Enum<io.github.mundanej.map.api.CrsAxisDirection> {
+  public static final io.github.mundanej.map.api.CrsAxisDirection EAST;
+    descriptor: Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static final io.github.mundanej.map.api.CrsAxisDirection WEST;
+    descriptor: Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static final io.github.mundanej.map.api.CrsAxisDirection NORTH;
+    descriptor: Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static final io.github.mundanej.map.api.CrsAxisDirection SOUTH;
+    descriptor: Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static final io.github.mundanej.map.api.CrsAxisDirection UP;
+    descriptor: Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static final io.github.mundanej.map.api.CrsAxisDirection DOWN;
+    descriptor: Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static io.github.mundanej.map.api.CrsAxisDirection[] values();
+    descriptor: ()[Lio/github/mundanej/map/api/CrsAxisDirection;
+  public static io.github.mundanej.map.api.CrsAxisDirection valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/api/CrsAxisDirection;
+}
 public final class io.github.mundanej.map.api.CrsAxisMeaning extends java.lang.Enum<io.github.mundanej.map.api.CrsAxisMeaning> {
   public static final io.github.mundanej.map.api.CrsAxisMeaning LONGITUDE;
     descriptor: Lio/github/mundanej/map/api/CrsAxisMeaning;
@@ -469,6 +487,24 @@ public final class io.github.mundanej.map.api.CrsDefinition extends java.lang.Re
     descriptor: ()Lio/github/mundanej/map/api/CrsAxis;
   public io.github.mundanej.map.api.Envelope coordinateDomain();
     descriptor: ()Lio/github/mundanej/map/api/Envelope;
+}
+public final class io.github.mundanej.map.api.CrsEllipsoid extends java.lang.Record {
+  public io.github.mundanej.map.api.CrsEllipsoid(java.lang.String, double, double);
+    descriptor: (Ljava/lang/String;DD)V
+  public double flattening();
+    descriptor: ()D
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String name();
+    descriptor: ()Ljava/lang/String;
+  public double semiMajorAxis();
+    descriptor: ()D
+  public double inverseFlattening();
+    descriptor: ()D
 }
 public final class io.github.mundanej.map.api.CrsException extends java.lang.RuntimeException {
   public io.github.mundanej.map.api.CrsException(io.github.mundanej.map.api.CrsProblem);
@@ -4166,6 +4202,72 @@ public final class io.github.mundanej.map.api.VectorPathCommand extends java.lan
   public int arity();
     descriptor: ()I
 }
+public final class io.github.mundanej.map.api.WktCrsAxis extends java.lang.Record {
+  public io.github.mundanej.map.api.WktCrsAxis(java.lang.String, java.lang.String, io.github.mundanej.map.api.CrsAxisDirection, int, java.lang.String, double);
+    descriptor: (Ljava/lang/String;Ljava/lang/String;Lio/github/mundanej/map/api/CrsAxisDirection;ILjava/lang/String;D)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String name();
+    descriptor: ()Ljava/lang/String;
+  public java.lang.String abbreviation();
+    descriptor: ()Ljava/lang/String;
+  public io.github.mundanej.map.api.CrsAxisDirection direction();
+    descriptor: ()Lio/github/mundanej/map/api/CrsAxisDirection;
+  public int order();
+    descriptor: ()I
+  public java.lang.String unitName();
+    descriptor: ()Ljava/lang/String;
+  public double unitToSi();
+    descriptor: ()D
+}
+public final class io.github.mundanej.map.api.WktCrsDefinition extends java.lang.Record {
+  public io.github.mundanej.map.api.WktCrsDefinition(java.lang.String, io.github.mundanej.map.api.WktCrsKind, java.util.Optional<java.lang.String>, java.util.Optional<java.lang.String>, java.util.Optional<io.github.mundanej.map.api.CrsEllipsoid>, java.util.List<io.github.mundanej.map.api.WktCrsAxis>, java.util.Optional<java.lang.String>, java.util.Optional<java.lang.String>, java.util.Map<java.lang.String, java.lang.Double>, java.util.List<io.github.mundanej.map.api.WktCrsDefinition>);
+    descriptor: (Ljava/lang/String;Lio/github/mundanej/map/api/WktCrsKind;Ljava/util/Optional;Ljava/util/Optional;Ljava/util/Optional;Ljava/util/List;Ljava/util/Optional;Ljava/util/Optional;Ljava/util/Map;Ljava/util/List;)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String name();
+    descriptor: ()Ljava/lang/String;
+  public io.github.mundanej.map.api.WktCrsKind kind();
+    descriptor: ()Lio/github/mundanej/map/api/WktCrsKind;
+  public java.util.Optional<java.lang.String> identifier();
+    descriptor: ()Ljava/util/Optional;
+  public java.util.Optional<java.lang.String> datumName();
+    descriptor: ()Ljava/util/Optional;
+  public java.util.Optional<io.github.mundanej.map.api.CrsEllipsoid> ellipsoid();
+    descriptor: ()Ljava/util/Optional;
+  public java.util.List<io.github.mundanej.map.api.WktCrsAxis> axes();
+    descriptor: ()Ljava/util/List;
+  public java.util.Optional<java.lang.String> baseIdentifier();
+    descriptor: ()Ljava/util/Optional;
+  public java.util.Optional<java.lang.String> operationMethod();
+    descriptor: ()Ljava/util/Optional;
+  public java.util.Map<java.lang.String, java.lang.Double> parameters();
+    descriptor: ()Ljava/util/Map;
+  public java.util.List<io.github.mundanej.map.api.WktCrsDefinition> components();
+    descriptor: ()Ljava/util/List;
+}
+public final class io.github.mundanej.map.api.WktCrsKind extends java.lang.Enum<io.github.mundanej.map.api.WktCrsKind> {
+  public static final io.github.mundanej.map.api.WktCrsKind GEOGRAPHIC;
+    descriptor: Lio/github/mundanej/map/api/WktCrsKind;
+  public static final io.github.mundanej.map.api.WktCrsKind PROJECTED;
+    descriptor: Lio/github/mundanej/map/api/WktCrsKind;
+  public static final io.github.mundanej.map.api.WktCrsKind VERTICAL;
+    descriptor: Lio/github/mundanej/map/api/WktCrsKind;
+  public static final io.github.mundanej.map.api.WktCrsKind COMPOUND;
+    descriptor: Lio/github/mundanej/map/api/WktCrsKind;
+  public static io.github.mundanej.map.api.WktCrsKind[] values();
+    descriptor: ()[Lio/github/mundanej/map/api/WktCrsKind;
+  public static io.github.mundanej.map.api.WktCrsKind valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/api/WktCrsKind;
+}
 SHAPE io.github.mundanej.map.api.AdvancedFillSymbol sealed=false permits=[] record=[color:java.util.Optional<io.github.mundanej.map.api.Rgba>[], graphicFill:java.util.Optional<io.github.mundanej.map.api.GraphicPaint>[], outline:java.util.Optional<io.github.mundanej.map.api.AdvancedStroke>[], opacity:double[]] enum=[] annotations=[] members=[constructor:[java.util.Optional<io.github.mundanej.map.api.Rgba>, java.util.Optional<io.github.mundanej.map.api.GraphicPaint>, java.util.Optional<io.github.mundanej.map.api.AdvancedStroke>, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], field:RENDERER_KEY[], method:color[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:graphicFill[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:opacity[] throws=[] annotations=[] parameterAnnotations=[], method:outline[] throws=[] annotations=[] parameterAnnotations=[], method:rendererKey[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.AdvancedLineSymbol sealed=false permits=[] record=[stroke:io.github.mundanej.map.api.AdvancedStroke[], opacity:double[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.api.AdvancedStroke, double] throws=[] annotations=[] parameterAnnotations=[[], []], field:RENDERER_KEY[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:opacity[] throws=[] annotations=[] parameterAnnotations=[], method:rendererKey[] throws=[] annotations=[] parameterAnnotations=[], method:stroke[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.AdvancedStroke sealed=false permits=[] record=[color:io.github.mundanej.map.api.Rgba[], width:io.github.mundanej.map.api.SymbolLength[], cap:io.github.mundanej.map.api.AdvancedStroke$Cap[], join:io.github.mundanej.map.api.AdvancedStroke$Join[], dashArray:java.util.List<java.lang.Double>[], dashOffset:double[], perpendicularOffset:double[], graphicStroke:java.util.Optional<io.github.mundanej.map.api.GraphicPaint>[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.api.Rgba, io.github.mundanej.map.api.SymbolLength, io.github.mundanej.map.api.AdvancedStroke$Cap, io.github.mundanej.map.api.AdvancedStroke$Join, java.util.List<java.lang.Double>, double, double, java.util.Optional<io.github.mundanej.map.api.GraphicPaint>] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], [], []], method:cap[] throws=[] annotations=[] parameterAnnotations=[], method:color[] throws=[] annotations=[] parameterAnnotations=[], method:dashArray[] throws=[] annotations=[] parameterAnnotations=[], method:dashOffset[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:graphicStroke[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:join[] throws=[] annotations=[] parameterAnnotations=[], method:perpendicularOffset[] throws=[] annotations=[] parameterAnnotations=[], method:solid[io.github.mundanej.map.api.Rgba, io.github.mundanej.map.api.SymbolLength] throws=[] annotations=[] parameterAnnotations=[[], []], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:width[] throws=[] annotations=[] parameterAnnotations=[]]
@@ -4194,8 +4296,10 @@ SHAPE io.github.mundanej.map.api.Coordinate sealed=false permits=[] record=[x:do
 SHAPE io.github.mundanej.map.api.CoordinateSequence sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:bounds[] throws=[] annotations=[] parameterAnnotations=[], method:coordinate[int] throws=[] annotations=[] parameterAnnotations=[[]], method:dimension[] throws=[] annotations=[] parameterAnnotations=[], method:empty[io.github.mundanej.map.api.GeometryDimension] throws=[] annotations=[] parameterAnnotations=[[]], method:envelope[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:isClosed[] throws=[] annotations=[] parameterAnnotations=[], method:isEmpty[] throws=[] annotations=[] parameterAnnotations=[], method:m[int] throws=[] annotations=[] parameterAnnotations=[[]], method:of[double[]] throws=[] annotations=[] parameterAnnotations=[[]], method:of[io.github.mundanej.map.api.GeometryDimension, double[]] throws=[] annotations=[] parameterAnnotations=[[], []], method:size[] throws=[] annotations=[] parameterAnnotations=[], method:toArray[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:x[int] throws=[] annotations=[] parameterAnnotations=[[]], method:y[int] throws=[] annotations=[] parameterAnnotations=[[]], method:z[int] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.api.CreateFeature sealed=false permits=[] record=[feature:io.github.mundanej.map.api.FeatureRecord[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.api.FeatureRecord] throws=[] annotations=[] parameterAnnotations=[[]], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:featureId[] throws=[] annotations=[] parameterAnnotations=[], method:feature[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.CrsAxis sealed=false permits=[] record=[meaning:io.github.mundanej.map.api.CrsAxisMeaning[], unit:io.github.mundanej.map.api.CrsUnit[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.api.CrsAxisMeaning, io.github.mundanej.map.api.CrsUnit] throws=[] annotations=[] parameterAnnotations=[[], []], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:meaning[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:unit[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.api.CrsAxisDirection sealed=false permits=[] record=[] enum=[EAST, WEST, NORTH, SOUTH, UP, DOWN] annotations=[] members=[field:DOWN[], field:EAST[], field:NORTH[], field:SOUTH[], field:UP[], field:WEST[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.CrsAxisMeaning sealed=false permits=[] record=[] enum=[LONGITUDE, LATITUDE, EASTING, NORTHING] annotations=[] members=[field:EASTING[], field:LATITUDE[], field:LONGITUDE[], field:NORTHING[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.CrsDefinition sealed=false permits=[] record=[canonicalIdentifier:java.lang.String[], kind:io.github.mundanej.map.api.CrsKind[], xAxis:io.github.mundanej.map.api.CrsAxis[], yAxis:io.github.mundanej.map.api.CrsAxis[], coordinateDomain:io.github.mundanej.map.api.Envelope[]] enum=[] annotations=[] members=[constructor:[java.lang.String, io.github.mundanej.map.api.CrsKind, io.github.mundanej.map.api.CrsAxis, io.github.mundanej.map.api.CrsAxis, io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], []], method:canonicalIdentifier[] throws=[] annotations=[] parameterAnnotations=[], method:coordinateDomain[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:kind[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:xAxis[] throws=[] annotations=[] parameterAnnotations=[], method:yAxis[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.api.CrsEllipsoid sealed=false permits=[] record=[name:java.lang.String[], semiMajorAxis:double[], inverseFlattening:double[]] enum=[] annotations=[] members=[constructor:[java.lang.String, double, double] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:flattening[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:inverseFlattening[] throws=[] annotations=[] parameterAnnotations=[], method:name[] throws=[] annotations=[] parameterAnnotations=[], method:semiMajorAxis[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.CrsException sealed=false permits=[] record=[] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.api.CrsProblem] throws=[] annotations=[] parameterAnnotations=[[]], method:problem[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.CrsKind sealed=false permits=[] record=[] enum=[GEOGRAPHIC, PROJECTED, UNKNOWN] annotations=[] members=[field:GEOGRAPHIC[], field:PROJECTED[], field:UNKNOWN[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.CrsMetadata sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:DECLARED_IDENTIFIER_LIMIT[], field:RETAINED_DEFINITION_LIMIT[], method:canonicalIdentifier[] throws=[] annotations=[] parameterAnnotations=[], method:declaredIdentifier[] throws=[] annotations=[] parameterAnnotations=[], method:definition[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:kind[] throws=[] annotations=[] parameterAnnotations=[], method:recognized[io.github.mundanej.map.api.CrsDefinition, java.util.Optional<java.lang.String>, java.util.Optional<java.lang.String>] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:retainedDefinition[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:unknown[java.util.Optional<java.lang.String>, java.util.Optional<java.lang.String>] throws=[] annotations=[] parameterAnnotations=[[], []]]
@@ -4420,3 +4524,6 @@ SHAPE io.github.mundanej.map.api.VectorMarkerSymbol sealed=false permits=[] reco
 SHAPE io.github.mundanej.map.api.VectorPath sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:builder[] throws=[] annotations=[] parameterAnnotations=[], method:commandAt[int] throws=[] annotations=[] parameterAnnotations=[[]], method:commandCount[] throws=[] annotations=[] parameterAnnotations=[], method:coordinateEnvelope[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:of[io.github.mundanej.map.api.VectorPathCommand[], double[]] throws=[] annotations=[] parameterAnnotations=[[], []], method:ordinateAt[int] throws=[] annotations=[] parameterAnnotations=[[]], method:ordinateCount[] throws=[] annotations=[] parameterAnnotations=[], method:toCommandArray[] throws=[] annotations=[] parameterAnnotations=[], method:toOrdinateArray[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.api.VectorPath$Builder sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:build[] throws=[] annotations=[] parameterAnnotations=[], method:close[] throws=[] annotations=[] parameterAnnotations=[], method:cubicTo[double, double, double, double, double, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], []], method:lineTo[double, double] throws=[] annotations=[] parameterAnnotations=[[], []], method:moveTo[double, double] throws=[] annotations=[] parameterAnnotations=[[], []], method:quadraticTo[double, double, double, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], []]]
 SHAPE io.github.mundanej.map.api.VectorPathCommand sealed=false permits=[] record=[] enum=[MOVE_TO, LINE_TO, QUADRATIC_TO, CUBIC_TO, CLOSE] annotations=[] members=[field:CLOSE[], field:CUBIC_TO[], field:LINE_TO[], field:MOVE_TO[], field:QUADRATIC_TO[], method:arity[] throws=[] annotations=[] parameterAnnotations=[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.api.WktCrsAxis sealed=false permits=[] record=[name:java.lang.String[], abbreviation:java.lang.String[], direction:io.github.mundanej.map.api.CrsAxisDirection[], order:int[], unitName:java.lang.String[], unitToSi:double[]] enum=[] annotations=[] members=[constructor:[java.lang.String, java.lang.String, io.github.mundanej.map.api.CrsAxisDirection, int, java.lang.String, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], []], method:abbreviation[] throws=[] annotations=[] parameterAnnotations=[], method:direction[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:name[] throws=[] annotations=[] parameterAnnotations=[], method:order[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:unitName[] throws=[] annotations=[] parameterAnnotations=[], method:unitToSi[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.api.WktCrsDefinition sealed=false permits=[] record=[name:java.lang.String[], kind:io.github.mundanej.map.api.WktCrsKind[], identifier:java.util.Optional<java.lang.String>[], datumName:java.util.Optional<java.lang.String>[], ellipsoid:java.util.Optional<io.github.mundanej.map.api.CrsEllipsoid>[], axes:java.util.List<io.github.mundanej.map.api.WktCrsAxis>[], baseIdentifier:java.util.Optional<java.lang.String>[], operationMethod:java.util.Optional<java.lang.String>[], parameters:java.util.Map<java.lang.String, java.lang.Double>[], components:java.util.List<io.github.mundanej.map.api.WktCrsDefinition>[]] enum=[] annotations=[] members=[constructor:[java.lang.String, io.github.mundanej.map.api.WktCrsKind, java.util.Optional<java.lang.String>, java.util.Optional<java.lang.String>, java.util.Optional<io.github.mundanej.map.api.CrsEllipsoid>, java.util.List<io.github.mundanej.map.api.WktCrsAxis>, java.util.Optional<java.lang.String>, java.util.Optional<java.lang.String>, java.util.Map<java.lang.String, java.lang.Double>, java.util.List<io.github.mundanej.map.api.WktCrsDefinition>] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], [], [], [], []], method:axes[] throws=[] annotations=[] parameterAnnotations=[], method:baseIdentifier[] throws=[] annotations=[] parameterAnnotations=[], method:components[] throws=[] annotations=[] parameterAnnotations=[], method:datumName[] throws=[] annotations=[] parameterAnnotations=[], method:ellipsoid[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:identifier[] throws=[] annotations=[] parameterAnnotations=[], method:kind[] throws=[] annotations=[] parameterAnnotations=[], method:name[] throws=[] annotations=[] parameterAnnotations=[], method:operationMethod[] throws=[] annotations=[] parameterAnnotations=[], method:parameters[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.api.WktCrsKind sealed=false permits=[] record=[] enum=[GEOGRAPHIC, PROJECTED, VERTICAL, COMPOUND] annotations=[] members=[field:COMPOUND[], field:GEOGRAPHIC[], field:PROJECTED[], field:VERTICAL[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]

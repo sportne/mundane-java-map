@@ -16,6 +16,7 @@ to downstream modules.
 | Raster portrayal | Raster/elevation source and basic elevation-style contracts | Neutral band selection, color map, channel/composite, opacity, nodata/mask portrayal concepts required by supported adapters | No codec, Java2D image, GPU texture, or format-library type in public contracts |
 | Interaction | Toolkit-neutral pointer/tool/selection/edit/measurement contracts | Extended only as required to consume new geometry/portrayal without toolkit leakage | No browser, Swing, native-event, or transport-specific public model |
 | Sources and ownership | Bounded feature/raster/elevation source and cursor/read lifecycles | Preserve exact close/cancel/borrowed/owned semantics across added dimensional values | No implicit provider discovery, background authority, or unbounded materialization |
+| CRS semantics | Immutable bounded WKT2 CRS kind, datum, ellipsoid, native axis/order/unit, operation-parameter, and compound-component values | Complete for the pinned core WKT2 profile | No parser, authority database, projection algorithm, or format-specific CRS node in the API |
 | Diagnostics | Stable structured codes/severity/location/ordered bounded context | Stable failures for dimensional, structured-value, expression, and portrayal limits/conversion | Human message/cause text remains non-contractual and source values are not leaked |
 
 ## Cross-cutting invariants
@@ -31,6 +32,6 @@ to downstream modules.
 
 ## Completion rule
 
-G19-001 and G19-002 complete this matrix only after every target value is publicly documented,
-prospectively bounded, hostile-input tested, native-compatible, and consumed by renderers/adapters
+G19-001, G19-002, and the G19-010 CRS semantic values complete this matrix. Every target value is
+publicly documented, prospectively bounded, hostile-input tested, native-compatible, and consumed
 through explicit accept/approximate/reject behavior.

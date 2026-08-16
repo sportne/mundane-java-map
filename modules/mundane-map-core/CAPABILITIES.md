@@ -7,8 +7,8 @@ formats, perform network discovery, render with AWT/browser APIs, or acquire ext
 
 | Area | Current profile | G19 target | Explicit boundary |
 | --- | --- | --- | --- |
-| CRS registry | Explicit EPSG:4326/EPSG:3857 definitions and operations | Reproducibly generated, provenance-pinned common geographic/projected/vertical/compound CRS catalog | Not the complete live EPSG database; no runtime scanning/database/network lookup |
-| CRS syntax/operations | Narrow identifier/operation profile | Pinned bounded WKT2 grammar, axes, units, datums and named pure-Java projection methods with preserved unsupported vertical/compound metadata | No network grid downloads, JNI PROJ, or approximate unsupported datum operations |
+| CRS registry | Checksum-locked common geographic/projected/vertical/compound metadata catalog plus exact direct operations for WGS 84 World Mercator/UTM, NAD83 UTM, and OSGB36 British National Grid | Complete for the pinned G19-010 catalog | Not the complete live EPSG database; no runtime scanning/database/network lookup |
+| CRS syntax/operations | Bounded WKT2:2019 geographic/projected/vertical/compound parser and canonical writer; native axes/units; ellipsoidal Mercator variant A and Transverse Mercator in pure Java | Complete for the pinned G19-010 operation profile | Pseudo-Mercator is metadata-only here; no grids, chaining, JNI PROJ, or approximate datum operations |
 | Geometry dimensions | Packed transforms and envelope clipping preserve Z/M and typed empty/collection structure; snapping and screen hits use x/y without mutating source ordinates; editing retains geometry exactly; seam splitting accepts empty/packed XY and stably rejects Z/M or collections | Complete for the current bounded transform/clip/snap/edit/hit/query profile | XY-only results and seam splitting require the documented conversion boundary; no silent ordinate loss |
 | Validity/topology | Bounded x/y Simple Features validity, boundary-inclusive intersection, axis-aligned envelope overlay, deterministic first-failure diagnostics, and explicit canonical duplicate/orientation repair | Complete for current render, query, ingestion, and editing workflows | Exact arithmetic profile; no arbitrary overlay suite, tolerance-based near-point merging, or heuristic automatic repair |
 | Raster reprojection | Identity/narrow affine placement | Inverse-mapped bounded window/tile warping with nearest, bilinear, and one frozen higher-quality resampler for imagery/elevation | No GPU/JNI acceleration, implicit grid acquisition, or partial publication on failure |
@@ -46,8 +46,23 @@ formats, perform network discovery, render with AWT/browser APIs, or acquire ext
   raised before a partial result is observable. The independent integer-coordinate reference corpus
   uses exact x/y comparisons; the profile intentionally has no hidden epsilon.
 
+## Common CRS and WKT2 profile
+
+- `CommonCrsCatalog` retains reviewed WGS 84, NAD83, OSGB36, NAVD88, 3D WGS 84, and one compound
+  profile in deterministic source order. `CrsRegistry.common()` adds only exact same-datum direct
+  operations; it never treats NAD83, OSGB36, and WGS 84 as interchangeable.
+- `Wkt2` accepts only the documented WKT2:2019 roots and semantic nodes, with limits of 16,384
+  characters, depth 32, and 4,096 values. The writer is canonical and round-trips retained metadata.
+- Native WKT axis order, positive direction, angular/linear units, projection parameters, and library
+  longitude/latitude presentation are independent. A batch is capped at 1,000,000 coordinates and
+  publishes no partial result.
+- Vertical and compound definitions round-trip as metadata. Unsupported methods, grid operations,
+  3D operations, datum changes, and implicit operation chaining fail before transformation.
+- The exact provenance, numeric tolerance, supported matrix, and fixture policy are recorded in
+  `verification/G19-010-common-crs-profile.md`.
+
 ## Completion rule
 
-G19-010 and G19-012 through G19-014 complete this matrix only after the exact WKT2/CRS/projection,
-resampling, label-placement, and TileMatrixSet profiles are frozen and
+G19-012 through G19-014 complete this matrix only after the exact resampling, label-placement, and
+TileMatrixSet profiles are frozen and
 covered by authoritative, hostile, boundary, cancellation, differential, and cross-adapter evidence.

@@ -52,12 +52,30 @@ public final class CrsRegistry {
     }
 
     /**
+     * Returns a builder with Level 1 plus the pinned common geographic/projected catalog.
+     *
+     * @return new single-use common-catalog builder
+     */
+    public static Builder builderWithCommon() {
+        return CommonCrsCatalog.registerInto(builderWithLevel1());
+    }
+
+    /**
      * Returns a fresh immutable Level 1 registry.
      *
      * @return isolated registry containing EPSG:4326, EPSG:3857, and their direct operation
      */
     public static CrsRegistry level1() {
         return builderWithLevel1().build();
+    }
+
+    /**
+     * Returns a fresh immutable common registry.
+     *
+     * @return isolated registry containing the pinned definitions and exact direct operations
+     */
+    public static CrsRegistry common() {
+        return builderWithCommon().build();
     }
 
     /**

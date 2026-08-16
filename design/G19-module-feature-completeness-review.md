@@ -65,8 +65,9 @@ Cards: G19-001 and G19-002.
 
 ### `mundane-map-core`
 
-Core recognizes only EPSG:4326 and EPSG:3857 operations, has no WKT2/axis-aware common-CRS catalog,
-and cannot reproject raster grids. G19-011 has closed the current dimensional geometry/topology gap
+G19-010 has closed the common-CRS gap with a checksum-locked metadata catalog, bounded WKT2:2019
+round trips, native axis/unit handling, and exact same-datum Mercator/Transverse Mercator operations.
+Core still cannot reproject raster grids. G19-011 has closed the current dimensional geometry/topology gap
 with bounded transforms, envelope overlay, Simple Features validity/intersection, and explicit
 canonical repair; its exact-arithmetic profile and remaining seam-splitting conversion boundary are
 recorded in `modules/mundane-map-core/CAPABILITIES.md`. Label placement is point-only and tile
