@@ -1,6 +1,6 @@
 # G19-011 — Dimensional geometry validity and topology
 
-Status: Proposed
+Status: Complete
 Depends on: G19-001
 Gate: G19
 Type: AFK
@@ -48,3 +48,16 @@ Run `./gradlew :modules:mundane-map-core:check --console=plain`, relevant corpus
 ## Notes
 
 No additional human checkpoint is required beyond normal code review.
+
+Completed on 2026-08-16. Core now provides packed, dimension-preserving x/y transforms and closed
+envelope clipping, bounded Simple Features validity and intersection, stable first-failure/limit
+diagnostics, and explicit duplicate-position/ring-orientation canonical repair. Typed empties and
+collection order are preserved where an operation produces geometry; Z/M is retained or linearly
+interpolated and excluded from x/y topology. Snapping, editing, screen hits, and seam splitting now
+document their dimensional boundaries; seam splitting preserves typed emptiness, accepts packed XY,
+and stably rejects Z/M and collections rather than losing ordinates.
+
+Evidence includes the dimension/empty/collection and legacy-family matrix, analytically independent
+tabular OGC-style fixtures with exact integer-coordinate expectations, deterministic rectangle fuzz,
+adversarial prospective-limit failures, existing XY regressions, the core check/static-analysis gate,
+the quick performance lane, the full quality gate, and whitespace verification.

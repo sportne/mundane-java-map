@@ -2,7 +2,11 @@ package io.github.mundanej.map.core;
 
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.DimensionalGeometry;
+import io.github.mundanej.map.api.EmptyGeometry;
 import io.github.mundanej.map.api.Geometry;
+import io.github.mundanej.map.api.GeometryCollection;
+import io.github.mundanej.map.api.GeometryDimension;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPointGeometry;
@@ -33,7 +37,11 @@ public final class GeographicSeamSplitter {
      *
      * <p>Adjacent longitudes follow the shortest delta in {@code [-180, 180)}. Each fragment keeps
      * canonical longitude ordinates and declares the signed world offset that reconstructs its
-     * continuous position. Exact half-period ties therefore travel westward.
+     * continuous position. Exact half-period ties therefore travel westward. Typed empty values are
+     * returned unchanged. Packed x/y dimensional wrappers are accepted and normalized to the
+     * equivalent legacy x/y family. Z/M inputs and heterogeneous collections fail atomically with a
+     * stable unsupported-profile diagnostic; callers must explicitly transform, split members, or
+     * down-project them first.
      *
      * @param geometry immutable canonical two-dimensional geometry
      * @param cancellation operation token checked during bounded work
@@ -46,6 +54,18 @@ public final class GeographicSeamSplitter {
         Objects.requireNonNull(cancellation, "cancellation");
         if (cancellation.isCancellationRequested()) {
             throw cancelled();
+        }
+        if (geometry instanceof EmptyGeometry) {
+            return new Result(List.of(new Fragment(geometry, 0L)), 0);
+        }
+        if (geometry instanceof GeometryCollection) {
+            throw geometryFailure("unsupportedCollection");
+        }
+        if (geometry.dimension() != GeometryDimension.XY) {
+            throw geometryFailure("unsupportedDimension");
+        }
+        if (geometry instanceof DimensionalGeometry dimensional) {
+            return split(toLegacyXy(dimensional), cancellation);
         }
         Work work = new Work(cancellation);
         if (geometry instanceof PointGeometry || geometry instanceof MultiPointGeometry) {
@@ -89,6 +109,32 @@ public final class GeographicSeamSplitter {
             work.addPolygon(new PolygonGeometry(exterior, holes));
         }
         return completed(work.polygonResult(), cancellation);
+    }
+
+    private static Geometry toLegacyXy(DimensionalGeometry geometry) {
+        CoordinateSequence coordinates = geometry.coordinates();
+        return switch (geometry.kind()) {
+            case POINT -> new PointGeometry(coordinates.coordinate(0));
+            case LINE_STRING -> new LineStringGeometry(coordinates);
+            case POLYGON -> {
+                int[] rings = geometry.partOffsets();
+                CoordinateSequence exterior = slice(coordinates, rings[0], rings[1]);
+                List<CoordinateSequence> holes = new ArrayList<>();
+                for (int ring = 1; ring + 1 < rings.length; ring++) {
+                    holes.add(slice(coordinates, rings[ring], rings[ring + 1]));
+                }
+                yield new PolygonGeometry(exterior, holes);
+            }
+            case MULTI_POINT -> new MultiPointGeometry(coordinates);
+            case MULTI_LINE_STRING ->
+                    MultiLineStringGeometry.of(coordinates, geometry.partOffsets());
+            case MULTI_POLYGON ->
+                    MultiPolygonGeometry.of(
+                            coordinates, geometry.partOffsets(), geometry.polygonPartOffsets());
+            case GEOMETRY_COLLECTION ->
+                    throw new IllegalArgumentException(
+                            "A dimensional primitive cannot be a geometry collection");
+        };
     }
 
     /**

@@ -230,9 +230,133 @@ public final class io.github.mundanej.map.core.GeographicSeamSplitter$Result ext
   public int insertedCrossings();
     descriptor: ()I
 }
+public final class io.github.mundanej.map.core.GeometryCanonicalRepair {
+  public static io.github.mundanej.map.api.Geometry repair(io.github.mundanej.map.api.Geometry, java.util.Collection<io.github.mundanej.map.core.GeometryCanonicalRepair$Defect>);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Ljava/util/Collection;)Lio/github/mundanej/map/api/Geometry;
+  public static io.github.mundanej.map.api.Geometry repair(io.github.mundanej.map.api.Geometry, java.util.Collection<io.github.mundanej.map.core.GeometryCanonicalRepair$Defect>, io.github.mundanej.map.core.GeometryTopologyLimits);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Ljava/util/Collection;Lio/github/mundanej/map/core/GeometryTopologyLimits;)Lio/github/mundanej/map/api/Geometry;
+}
+public final class io.github.mundanej.map.core.GeometryCanonicalRepair$Defect extends java.lang.Enum<io.github.mundanej.map.core.GeometryCanonicalRepair$Defect> {
+  public static final io.github.mundanej.map.core.GeometryCanonicalRepair$Defect DUPLICATE_RING_POSITIONS;
+    descriptor: Lio/github/mundanej/map/core/GeometryCanonicalRepair$Defect;
+  public static final io.github.mundanej.map.core.GeometryCanonicalRepair$Defect RING_ORIENTATION;
+    descriptor: Lio/github/mundanej/map/core/GeometryCanonicalRepair$Defect;
+  public static io.github.mundanej.map.core.GeometryCanonicalRepair$Defect[] values();
+    descriptor: ()[Lio/github/mundanej/map/core/GeometryCanonicalRepair$Defect;
+  public static io.github.mundanej.map.core.GeometryCanonicalRepair$Defect valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/GeometryCanonicalRepair$Defect;
+}
 public final class io.github.mundanej.map.core.GeometryDownProjection {
   public static io.github.mundanej.map.api.Geometry toXy(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.OrdinateLossPolicy);
     descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/api/OrdinateLossPolicy;)Lio/github/mundanej/map/api/Geometry;
+}
+public final class io.github.mundanej.map.core.GeometryEnvelopeClipper {
+  public static io.github.mundanej.map.api.Geometry clip(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Envelope);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/api/Envelope;)Lio/github/mundanej/map/api/Geometry;
+  public static io.github.mundanej.map.api.Geometry clip(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.core.GeometryTopologyLimits);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/api/Envelope;Lio/github/mundanej/map/core/GeometryTopologyLimits;)Lio/github/mundanej/map/api/Geometry;
+}
+public final class io.github.mundanej.map.core.GeometryPredicates {
+  public static boolean intersects(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Geometry);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/api/Geometry;)Z
+  public static boolean intersects(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTopologyLimits);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/core/GeometryTopologyLimits;)Z
+}
+public final class io.github.mundanej.map.core.GeometryTopologyException extends java.lang.RuntimeException {
+  public static final java.lang.String COORDINATE_LIMIT = "geometry.topology.coordinateLimit";
+    descriptor: Ljava/lang/String;
+  public static final java.lang.String COMPARISON_LIMIT = "geometry.topology.comparisonLimit";
+    descriptor: Ljava/lang/String;
+  public static final java.lang.String OUTPUT_LIMIT = "geometry.topology.outputLimit";
+    descriptor: Ljava/lang/String;
+  public java.lang.String code();
+    descriptor: ()Ljava/lang/String;
+  public java.util.Map<java.lang.String, java.lang.String> context();
+    descriptor: ()Ljava/util/Map;
+}
+public final class io.github.mundanej.map.core.GeometryTopologyLimits extends java.lang.Record {
+  public static final io.github.mundanej.map.core.GeometryTopologyLimits DEFAULT;
+    descriptor: Lio/github/mundanej/map/core/GeometryTopologyLimits;
+  public io.github.mundanej.map.core.GeometryTopologyLimits(int, long, int);
+    descriptor: (IJI)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public int maxCoordinates();
+    descriptor: ()I
+  public long maxSegmentComparisons();
+    descriptor: ()J
+  public int maxOutputCoordinates();
+    descriptor: ()I
+}
+public final class io.github.mundanej.map.core.GeometryTransforms {
+  public static io.github.mundanej.map.api.Geometry mapXy(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTransforms$XyTransform);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/core/GeometryTransforms$XyTransform;)Lio/github/mundanej/map/api/Geometry;
+  public static io.github.mundanej.map.api.Geometry mapXy(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTransforms$XyTransform, io.github.mundanej.map.core.GeometryTopologyLimits);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/core/GeometryTransforms$XyTransform;Lio/github/mundanej/map/core/GeometryTopologyLimits;)Lio/github/mundanej/map/api/Geometry;
+}
+public interface io.github.mundanej.map.core.GeometryTransforms$XyTransform {
+  public abstract io.github.mundanej.map.api.Coordinate transform(io.github.mundanej.map.api.Coordinate);
+    descriptor: (Lio/github/mundanej/map/api/Coordinate;)Lio/github/mundanej/map/api/Coordinate;
+}
+public final class io.github.mundanej.map.core.GeometryValidity {
+  public static io.github.mundanej.map.core.GeometryValidity$Result check(io.github.mundanej.map.api.Geometry);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;)Lio/github/mundanej/map/core/GeometryValidity$Result;
+  public static io.github.mundanej.map.core.GeometryValidity$Result check(io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTopologyLimits);
+    descriptor: (Lio/github/mundanej/map/api/Geometry;Lio/github/mundanej/map/core/GeometryTopologyLimits;)Lio/github/mundanej/map/core/GeometryValidity$Result;
+}
+public final class io.github.mundanej.map.core.GeometryValidity$Issue extends java.lang.Record {
+  public io.github.mundanej.map.core.GeometryValidity$Issue(io.github.mundanej.map.core.GeometryValidity$Reason, java.lang.String, java.util.Optional<io.github.mundanej.map.api.Coordinate>);
+    descriptor: (Lio/github/mundanej/map/core/GeometryValidity$Reason;Ljava/lang/String;Ljava/util/Optional;)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public io.github.mundanej.map.core.GeometryValidity$Reason reason();
+    descriptor: ()Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public java.lang.String geometryPath();
+    descriptor: ()Ljava/lang/String;
+  public java.util.Optional<io.github.mundanej.map.api.Coordinate> location();
+    descriptor: ()Ljava/util/Optional;
+}
+public final class io.github.mundanej.map.core.GeometryValidity$Reason extends java.lang.Enum<io.github.mundanej.map.core.GeometryValidity$Reason> {
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason TOO_FEW_DISTINCT_POSITIONS;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason RING_NOT_CLOSED;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason ZERO_AREA_RING;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason RING_SELF_INTERSECTION;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason HOLE_OUTSIDE_SHELL;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason RING_INTERSECTION;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static final io.github.mundanej.map.core.GeometryValidity$Reason POLYGON_INTERIOR_OVERLAP;
+    descriptor: Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static io.github.mundanej.map.core.GeometryValidity$Reason[] values();
+    descriptor: ()[Lio/github/mundanej/map/core/GeometryValidity$Reason;
+  public static io.github.mundanej.map.core.GeometryValidity$Reason valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/GeometryValidity$Reason;
+}
+public final class io.github.mundanej.map.core.GeometryValidity$Result extends java.lang.Record {
+  public io.github.mundanej.map.core.GeometryValidity$Result(java.util.Optional<io.github.mundanej.map.core.GeometryValidity$Issue>);
+    descriptor: (Ljava/util/Optional;)V
+  public boolean isValid();
+    descriptor: ()Z
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.util.Optional<io.github.mundanej.map.core.GeometryValidity$Issue> issue();
+    descriptor: ()Ljava/util/Optional;
 }
 public final class io.github.mundanej.map.core.GreedyPointLabelPlacement {
   public static final int MAXIMUM_REQUESTS = 4096;
@@ -864,7 +988,19 @@ SHAPE io.github.mundanej.map.core.GeographicSeamSplitter sealed=false permits=[]
 SHAPE io.github.mundanej.map.core.GeographicSeamSplitter$Fragment sealed=false permits=[] record=[geometry:io.github.mundanej.map.api.Geometry[], worldOffset:long[], retainsLogicalStart:boolean[], retainsLogicalEnd:boolean[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.api.Geometry, long, boolean, boolean] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], constructor:[io.github.mundanej.map.api.Geometry, long] throws=[] annotations=[] parameterAnnotations=[[], []], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:geometry[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:retainsLogicalEnd[] throws=[] annotations=[] parameterAnnotations=[], method:retainsLogicalStart[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:worldOffset[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.GeographicSeamSplitter$GeographicSeamException sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:code[] throws=[] annotations=[] parameterAnnotations=[], method:context[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.GeographicSeamSplitter$Result sealed=false permits=[] record=[fragments:java.util.List<io.github.mundanej.map.core.GeographicSeamSplitter$Fragment>[], insertedCrossings:int[]] enum=[] annotations=[] members=[constructor:[java.util.List<io.github.mundanej.map.core.GeographicSeamSplitter$Fragment>, int] throws=[] annotations=[] parameterAnnotations=[[], []], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:fragments[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:insertedCrossings[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.GeometryCanonicalRepair sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:repair[io.github.mundanej.map.api.Geometry, java.util.Collection<io.github.mundanej.map.core.GeometryCanonicalRepair$Defect>, io.github.mundanej.map.core.GeometryTopologyLimits] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:repair[io.github.mundanej.map.api.Geometry, java.util.Collection<io.github.mundanej.map.core.GeometryCanonicalRepair$Defect>] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.GeometryCanonicalRepair$Defect sealed=false permits=[] record=[] enum=[DUPLICATE_RING_POSITIONS, RING_ORIENTATION] annotations=[] members=[field:DUPLICATE_RING_POSITIONS[], field:RING_ORIENTATION[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.GeometryDownProjection sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:toXy[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.OrdinateLossPolicy] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.GeometryEnvelopeClipper sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:clip[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.core.GeometryTopologyLimits] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:clip[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.GeometryPredicates sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:intersects[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTopologyLimits] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:intersects[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.api.Geometry] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.GeometryTopologyException sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:COMPARISON_LIMIT[], field:COORDINATE_LIMIT[], field:OUTPUT_LIMIT[], method:code[] throws=[] annotations=[] parameterAnnotations=[], method:context[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.GeometryTopologyLimits sealed=false permits=[] record=[maxCoordinates:int[], maxSegmentComparisons:long[], maxOutputCoordinates:int[]] enum=[] annotations=[] members=[constructor:[int, long, int] throws=[] annotations=[] parameterAnnotations=[[], [], []], field:DEFAULT[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:maxCoordinates[] throws=[] annotations=[] parameterAnnotations=[], method:maxOutputCoordinates[] throws=[] annotations=[] parameterAnnotations=[], method:maxSegmentComparisons[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.GeometryTransforms sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:mapXy[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTransforms$XyTransform, io.github.mundanej.map.core.GeometryTopologyLimits] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:mapXy[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTransforms$XyTransform] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.GeometryTransforms$XyTransform sealed=false permits=[] record=[] enum=[] annotations=[@java.lang.FunctionalInterface()] members=[method:transform[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]
+SHAPE io.github.mundanej.map.core.GeometryValidity sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:check[io.github.mundanej.map.api.Geometry, io.github.mundanej.map.core.GeometryTopologyLimits] throws=[] annotations=[] parameterAnnotations=[[], []], method:check[io.github.mundanej.map.api.Geometry] throws=[] annotations=[] parameterAnnotations=[[]]]
+SHAPE io.github.mundanej.map.core.GeometryValidity$Issue sealed=false permits=[] record=[reason:io.github.mundanej.map.core.GeometryValidity$Reason[], geometryPath:java.lang.String[], location:java.util.Optional<io.github.mundanej.map.api.Coordinate>[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.core.GeometryValidity$Reason, java.lang.String, java.util.Optional<io.github.mundanej.map.api.Coordinate>] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:geometryPath[] throws=[] annotations=[] parameterAnnotations=[], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:location[] throws=[] annotations=[] parameterAnnotations=[], method:reason[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.GeometryValidity$Reason sealed=false permits=[] record=[] enum=[TOO_FEW_DISTINCT_POSITIONS, RING_NOT_CLOSED, ZERO_AREA_RING, RING_SELF_INTERSECTION, HOLE_OUTSIDE_SHELL, RING_INTERSECTION, POLYGON_INTERIOR_OVERLAP] annotations=[] members=[field:HOLE_OUTSIDE_SHELL[], field:POLYGON_INTERIOR_OVERLAP[], field:RING_INTERSECTION[], field:RING_NOT_CLOSED[], field:RING_SELF_INTERSECTION[], field:TOO_FEW_DISTINCT_POSITIONS[], field:ZERO_AREA_RING[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.GeometryValidity$Result sealed=false permits=[] record=[issue:java.util.Optional<io.github.mundanej.map.core.GeometryValidity$Issue>[]] enum=[] annotations=[] members=[constructor:[java.util.Optional<io.github.mundanej.map.core.GeometryValidity$Issue>] throws=[] annotations=[] parameterAnnotations=[[]], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:isValid[] throws=[] annotations=[] parameterAnnotations=[], method:issue[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.GreedyPointLabelPlacement sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:MAXIMUM_CANDIDATES[], field:MAXIMUM_COLLISION_COMPARISONS[], field:MAXIMUM_REQUESTS[], method:place[io.github.mundanej.map.api.ScreenBox, java.util.List<io.github.mundanej.map.core.PointLabelPlacementRequest>] throws=[] annotations=[] parameterAnnotations=[[], []]]
 SHAPE io.github.mundanej.map.core.HatchLayouts sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:candidateSegmentCount[io.github.mundanej.map.api.HatchPattern, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.Coordinate, double, double, java.lang.String] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], []], method:cover[io.github.mundanej.map.api.HatchPattern, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.Coordinate, double, double, int, java.lang.String] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], []]]
 SHAPE io.github.mundanej.map.core.HatchSegments sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:segmentCount[] throws=[] annotations=[] parameterAnnotations=[], method:toArray[] throws=[] annotations=[] parameterAnnotations=[], method:x1[int] throws=[] annotations=[] parameterAnnotations=[[]], method:x2[int] throws=[] annotations=[] parameterAnnotations=[[]], method:y1[int] throws=[] annotations=[] parameterAnnotations=[[]], method:y2[int] throws=[] annotations=[] parameterAnnotations=[[]]]

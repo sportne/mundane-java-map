@@ -842,9 +842,11 @@ unchanged.
 
 ### G19 — Module-by-module standards and domain completion
 
-- G19-001, G19-002, and G19-190 are complete. The API now carries ordinate-aware geometry and
-  advanced portrayal values, while architecture tests govern every published API with reviewed
-  provisional pre-publication signatures, pinned Revapi classifications, and two-phase SemVer rules.
+- G19-001, G19-002, G19-011, and G19-190 are complete. The API now carries ordinate-aware geometry
+  and advanced portrayal values; core provides bounded dimension-preserving transforms/clipping,
+  Simple Features validity/intersection, and explicit canonical repair; architecture tests govern
+  every published API with reviewed provisional pre-publication signatures, pinned Revapi
+  classifications, and two-phase SemVer rules.
 - G19 reviews every Gradle project against its declared domain and the current primary standards,
   with particular attention to formats and protocols that intentionally implement subsets today.
 - The review found foundational gaps in dimensional/collection geometry, structured portrayal,

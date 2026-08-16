@@ -6,6 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import io.github.mundanej.map.api.CancellationToken;
 import io.github.mundanej.map.api.CoordinateSequence;
+import io.github.mundanej.map.api.DimensionalGeometry;
+import io.github.mundanej.map.api.EmptyGeometry;
+import io.github.mundanej.map.api.GeometryDimension;
+import io.github.mundanej.map.api.GeometryKind;
 import io.github.mundanej.map.api.LineStringGeometry;
 import io.github.mundanej.map.api.MultiLineStringGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
@@ -15,6 +19,37 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class GeographicSeamSplitterTest {
+    @Test
+    void typedEmptyAndPackedXyPropagateWhileUnsupportedProfilesFailStably() {
+        EmptyGeometry empty = new EmptyGeometry(GeometryKind.LINE_STRING, GeometryDimension.XYZ);
+        GeographicSeamSplitter.Result emptyResult =
+                GeographicSeamSplitter.split(empty, CancellationToken.none());
+        assertEquals(empty, emptyResult.fragments().getFirst().geometry());
+
+        DimensionalGeometry packed =
+                DimensionalGeometry.lineString(CoordinateSequence.of(170, 0, -170, 0));
+        GeographicSeamSplitter.Result packedResult =
+                GeographicSeamSplitter.split(packed, CancellationToken.none());
+        assertEquals(2, packedResult.fragments().size());
+
+        GeographicSeamSplitter.GeographicSeamException dimensionalFailure =
+                assertThrows(
+                        GeographicSeamSplitter.GeographicSeamException.class,
+                        () ->
+                                GeographicSeamSplitter.split(
+                                        DimensionalGeometry.lineString(
+                                                CoordinateSequence.of(
+                                                        GeometryDimension.XYZ,
+                                                        170,
+                                                        0,
+                                                        1,
+                                                        -170,
+                                                        0,
+                                                        2)),
+                                        CancellationToken.none()));
+        assertEquals("unsupportedDimension", dimensionalFailure.context().get("reason"));
+    }
+
     @Test
     void eastboundLineSplitsIntoCanonicalAdjacentWorldFragments() {
         GeographicSeamSplitter.Result result =

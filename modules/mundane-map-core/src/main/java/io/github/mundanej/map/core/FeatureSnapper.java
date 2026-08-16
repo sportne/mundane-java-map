@@ -25,7 +25,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** Stateless bounded linear resolver for explicit same-CRS snap references. */
+/**
+ * Stateless bounded linear resolver for explicit same-CRS snap references.
+ *
+ * <p>Typed empties contribute no target. Dimensional and nested collection references participate
+ * in encounter order using x/y only; Z and M remain on the immutable source geometry and the snap
+ * result is the existing two-dimensional {@code Coordinate} contract.
+ */
 public final class FeatureSnapper {
     /** Resolves one query without retaining an index or reference snapshot. */
     public FeatureSnapper() {}

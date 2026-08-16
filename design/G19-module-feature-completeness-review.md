@@ -66,10 +66,13 @@ Cards: G19-001 and G19-002.
 ### `mundane-map-core`
 
 Core recognizes only EPSG:4326 and EPSG:3857 operations, has no WKT2/axis-aware common-CRS catalog,
-does not provide general geometry validity/topology or dimensional preservation, and cannot reproject
-raster grids. Label placement is point-only and tile calculations are Web-Mercator XYZ-specific rather
-than an OGC tile-matrix-set model. The authoritative algorithm profile and its explicit pure-Java,
-bounded, no-network boundaries are recorded in `modules/mundane-map-core/CAPABILITIES.md`.
+and cannot reproject raster grids. G19-011 has closed the current dimensional geometry/topology gap
+with bounded transforms, envelope overlay, Simple Features validity/intersection, and explicit
+canonical repair; its exact-arithmetic profile and remaining seam-splitting conversion boundary are
+recorded in `modules/mundane-map-core/CAPABILITIES.md`. Label placement is point-only and tile
+calculations are Web-Mercator XYZ-specific rather than an OGC tile-matrix-set model. The authoritative
+algorithm profile and its explicit pure-Java, bounded, no-network boundaries are recorded in that
+capability file.
 
 Cards: G19-010 through G19-014.
 

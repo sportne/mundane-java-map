@@ -1,0 +1,9 @@
+# Analytically evaluated OGC Simple Features examples; x/y tolerance is exact for integer fixtures.
+# id	operation	expected
+valid-square	validity	true
+bow-tie	validity	false
+outside-hole	validity	false
+overlapping-multipolygon	validity	false
+crossing-lines	intersects	true
+point-in-hole	intersects	false
+disjoint-polygons	intersects	false

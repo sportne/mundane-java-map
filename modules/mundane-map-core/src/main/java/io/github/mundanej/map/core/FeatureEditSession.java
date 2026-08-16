@@ -28,7 +28,9 @@ import java.util.Optional;
  * Owner-thread in-memory feature-edit session with atomic immutable snapshot publication.
  *
  * <p>The session owns ordinary bounded state only. It does not own a source, binding, path,
- * executor, or closeable resource.
+ * executor, or closeable resource. Geometry values, including typed empties, Z/M positions, and
+ * nested collections, are retained exactly as supplied through apply, undo, redo, and snapshot
+ * publication; the session does not project, validate, repair, or otherwise rewrite them.
  */
 public final class FeatureEditSession {
     private final Thread ownerThread;

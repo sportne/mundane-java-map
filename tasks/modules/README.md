@@ -11,7 +11,7 @@ released profile.
 | Module | Proposed cards | Principal gap |
 | --- | ---: | --- |
 | `mundane-map-api` | 0 | Complete: [dimensional geometry](../closed/G19-001-ordinate-aware-geometry-and-heterogeneous-collections.md) and [advanced portrayal](../closed/G19-002-advanced-portrayal-and-structured-attributes.md) |
-| [`mundane-map-core`](mundane-map-core/) | 5 | Common CRS, topology, reprojection, labels, and tile matrices |
+| [`mundane-map-core`](mundane-map-core/) | 4 | Common CRS, reprojection, labels, and tile matrices; [bounded dimensional topology is complete](../closed/G19-011-dimensional-geometry-validity-and-topology.md) |
 | [`mundane-map-awt`](mundane-map-awt/) | 2 | Advanced rendering plus accessible/printable Swing behavior |
 | [`mundane-map-io-shapefile`](mundane-map-io-shapefile/) | 7 | Complete reading and transactional new-dataset export |
 | [`mundane-map-io-image`](mundane-map-io-image/) | 5 | Static PNG 3 and common JPEG decode interoperability |
@@ -34,7 +34,7 @@ released profile.
 | [`mundane-map-io-mbtiles-xerial`](mundane-map-io-mbtiles-xerial/) | 10 | MBTiles 1.3, recognized schemas, MVT/UTFGrid, builders, CRUD/rewrite, and conformance |
 | [`mundane-map-workspace`](mundane-map-workspace/) | 10 | Versioned complete state, portable packaging, integrity, recovery, and lifecycle |
 | [`mundane-map-vaadin`](mundane-map-vaadin/) | 10 | Browser/accessibility/mobile parity, scalable transport/cache, Canvas/worker/WebGPU, and closeout |
-| [`mundane-map-architecture-tests`](mundane-map-architecture-tests/) | 3 | Released API/SemVer, JPMS identities/consumers, and release governance |
+| [`mundane-map-architecture-tests`](mundane-map-architecture-tests/) | 2 | JPMS identities/consumers and release governance; [released API/SemVer governance is complete](../closed/G19-190-released-api-baselines-and-semver-governance.md) |
 | [`mundane-map-native-tests`](mundane-map-native-tests/) | 5 | Host/toolchain matrix, closed-world closure, corpus parity, platform services, and release evidence |
 | [`mundane-map-performance-tests`](mundane-map-performance-tests/) | 5 | JMH methodology, correctness, workload coverage, integration evidence, and evidence governance |
 

@@ -4,7 +4,12 @@ import io.github.mundanej.map.api.CoordinateSequence;
 import java.util.List;
 import java.util.Objects;
 
-/** Stateless, allocation-free screen-geometry hit predicates. */
+/**
+ * Stateless, allocation-free screen-geometry hit predicates.
+ *
+ * <p>Coordinate-sequence predicates use x/y only, ignore retained Z/M ordinates, and return false
+ * for empty sequences. They never alter the supplied packed values.
+ */
 public final class ScreenGeometryHits {
     private ScreenGeometryHits() {}
 
