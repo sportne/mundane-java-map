@@ -15,5 +15,7 @@ public enum AttributeType {
     /** Calendar date without a time or time zone. */
     DATE,
     /** Opaque immutable bytes. */
-    BINARY
+    BINARY,
+    /** Bounded immutable nested arrays and string-keyed objects. */
+    STRUCTURED
 }

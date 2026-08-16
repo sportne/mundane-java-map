@@ -28,6 +28,7 @@ import io.github.mundanej.map.api.PolygonGeometry;
 import io.github.mundanej.map.api.Rgba;
 import io.github.mundanej.map.api.SolidFillSymbol;
 import io.github.mundanej.map.api.SolidLineSymbol;
+import io.github.mundanej.map.api.StructuredAttributeValue;
 import io.github.mundanej.map.api.SymbolAnchor;
 import io.github.mundanej.map.api.SymbolLength;
 import io.github.mundanej.map.api.SymbolRotationMode;
@@ -130,6 +131,7 @@ class SourceCoverageAlgorithmsTest {
         attributes.put("double", 1.5);
         attributes.put("date", LocalDate.of(2026, 7, 26));
         attributes.put("decimal", new BigDecimal("-257"));
+        attributes.put("structured", StructuredAttributeValue.of(Map.of("items", List.of(1, 2))));
         AtomicInteger checkpoints = new AtomicInteger();
         for (int index = 0; index < 4_088; index++) {
             attributes.put("padding" + index, 1L);

@@ -1,6 +1,6 @@
 # G19-002 — Advanced portrayal and structured attributes
 
-Status: Proposed
+Status: Completed
 Depends on: G19-001
 Gate: G19
 Type: HITL
@@ -49,3 +49,8 @@ Run `./gradlew :modules:mundane-map-api:check :modules:mundane-map-core:check --
 ## Notes
 
 Human review freezes the neutral model before format-specific mappings become compatibility promises.
+
+Completed with bounded structured attributes and expressions; advanced cap, join, dash, offset,
+graphic paint, text placement, halo, raster band, and color-map values; and an explicit renderer
+accept/approximate/reject capability contract. Existing scalar attributes and simple symbols remain
+unchanged.

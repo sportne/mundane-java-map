@@ -6,10 +6,13 @@
  * <p>Public values are immutable and defensively copy mutable arrays and collections. Geometry
  * coordinates use packed x/y, x/y/z, x/y/m, or x/y/z/m order in their declared CRS. Empty values
  * retain kind and dimension; nested heterogeneous collections have explicit size and depth limits.
- * Logical screen coordinates use x-right/y-down units independent of device scale. Sources,
- * cursors, and raster reads document their ownership, close, cancellation, and limit behavior at
- * the declaring type. Stable diagnostic codes, severity, location, and ordered context are
- * contractual; message and cause text are for humans and debugging.
+ * Attributes may use the original scalar values or explicitly bounded structured arrays and
+ * objects. Advanced portrayal values expose cap, join, dash, offset, graphic paint, text, raster
+ * band/color-map, and neutral expression contracts without embedding a format-specific AST. Logical
+ * screen coordinates use x-right/y-down units independent of device scale. Sources, cursors, and
+ * raster reads document their ownership, close, cancellation, and limit behavior at the declaring
+ * type. Stable diagnostic codes, severity, location, and ordered context are contractual; message
+ * and cause text are for humans and debugging.
  *
  * <p>Toolkit and format implementations use explicit caller-owned registries and factories. This
  * package performs no reflection, classpath scanning, automatic provider discovery, or AWT

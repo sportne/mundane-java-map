@@ -34,6 +34,7 @@ public record AttributeField(String name, AttributeType type, boolean nullable) 
             case DECIMAL -> value instanceof java.math.BigDecimal;
             case DATE -> value instanceof java.time.LocalDate;
             case BINARY -> value instanceof AttributeBytes;
+            case STRUCTURED -> value instanceof StructuredAttributeValue;
         };
     }
 }

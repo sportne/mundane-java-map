@@ -41,6 +41,14 @@ public final class AttributeValues {
      */
     public static Object canonicalizeValue(Object value) {
         Objects.requireNonNull(value, "attribute value");
+        if (value instanceof StructuredAttributeValue) {
+            return value;
+        }
+        return canonicalizeScalar(value);
+    }
+
+    static Object canonicalizeScalar(Object value) {
+        Objects.requireNonNull(value, "attribute value");
         if (value instanceof String
                 || value instanceof Boolean
                 || value instanceof Long

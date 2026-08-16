@@ -12,6 +12,7 @@ import io.github.mundanej.map.api.MultiPointGeometry;
 import io.github.mundanej.map.api.MultiPolygonGeometry;
 import io.github.mundanej.map.api.PointGeometry;
 import io.github.mundanej.map.api.PolygonGeometry;
+import io.github.mundanej.map.api.StructuredAttributeValue;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
@@ -143,6 +144,7 @@ final class FeatureRecordLogicalSize {
                                                 1,
                                                 (decimal.unscaledValue().abs().bitLength() + 7L)
                                                         / 8L);
+                        case StructuredAttributeValue structured -> structured.logicalSizeBytes();
                         default ->
                                 throw new IllegalArgumentException("Non-canonical attribute value");
                     };
