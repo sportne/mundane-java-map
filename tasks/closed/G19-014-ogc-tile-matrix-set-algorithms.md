@@ -1,6 +1,6 @@
 # G19-014 — OGC tile-matrix-set algorithms
 
-Status: Proposed
+Status: Complete
 Depends on: G19-010
 Gate: G19
 Type: AFK
@@ -47,3 +47,9 @@ Run `./gradlew :modules:mundane-map-core:check --console=plain`, then
 ## Notes
 
 No additional human checkpoint is required beyond normal code review.
+
+Completed 2026-08-16 with a bounded encoding-independent OGC TileMatrixSet 2.0 value model,
+coordinate/envelope/scale/coverage algorithms, explicit seam traversal, variable-width rows,
+WebMercatorQuad and WorldCRS84Quad constructors, exact legacy XYZ bounds, stable diagnostics, and
+HTTP XYZ plus GeoPackage interoperability fixtures. The frozen evidence and limits are recorded in
+`verification/G19-014-tile-matrix-profile.md`.

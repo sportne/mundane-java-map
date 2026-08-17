@@ -71,7 +71,8 @@ Core still cannot reproject raster grids. G19-011 has closed the current dimensi
 with bounded transforms, envelope overlay, Simple Features validity/intersection, and explicit
 canonical repair; its exact-arithmetic profile and remaining seam-splitting conversion boundary are
 recorded in `modules/mundane-map-core/CAPABILITIES.md`. Label placement is point-only and tile
-calculations are Web-Mercator XYZ-specific rather than an OGC tile-matrix-set model. The authoritative
+calculations now use the G19-014 bounded OGC TileMatrixSet 2.0 model with explicit axes, origins,
+scale, row convention, variable widths, clipping, and legacy XYZ adapters. The authoritative
 algorithm profile and its explicit pure-Java, bounded, no-network boundaries are recorded in that
 capability file.
 

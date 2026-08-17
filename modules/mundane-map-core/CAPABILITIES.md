@@ -13,7 +13,7 @@ formats, perform network discovery, render with AWT/browser APIs, or acquire ext
 | Validity/topology | Bounded x/y Simple Features validity, boundary-inclusive intersection, axis-aligned envelope overlay, deterministic first-failure diagnostics, and explicit canonical duplicate/orientation repair | Complete for current render, query, ingestion, and editing workflows | Exact arithmetic profile; no arbitrary overlay suite, tolerance-based near-point merging, or heuristic automatic repair |
 | Raster reprojection | Identity/narrow affine placement | Inverse-mapped bounded window/tile warping with nearest, bilinear, and one frozen higher-quality resampler for imagery/elevation | No GPU/JNI acceleration, implicit grid acquisition, or partial publication on failure |
 | Labels | Deterministic point-label candidates/collision | Line-following/repeated/upright labels and polygon/interior/multipart placement with wrap and collision parity | Text shaping remains an injected renderer capability, not a core font engine |
-| Tile matrices | Web-Mercator XYZ convenience algorithms | OGC TileMatrixSet 2.0-independent value/algorithm profile: axes/origins, scale, non-square tiles, bottom/top conventions, variable widths | No WMTS/OGC API document parsing or service discovery |
+| Tile matrices | Bounded encoding-independent OGC TileMatrixSet 2.0 model and algorithms: axes/origins, scale selection, non-square tiles, top/bottom row conventions, variable widths, clipping, seam coverage, plus exact XYZ adapters | Complete for the pinned G19-014 algorithm profile | No WMTS/OGC API document parsing, service discovery, implicit CRS inference, or implicit longitude wrapping |
 | Spatial/query/edit services | Packed indexes, bounded query accounting, snapping, edits, measurement and wrap | Preserve bounds and deterministic semantics for dimensional/topological/profile expansion | No implicit threads, providers, storage ownership, or toolkit event model |
 
 ## Algorithm contract
@@ -61,8 +61,25 @@ formats, perform network discovery, render with AWT/browser APIs, or acquire ext
 - The exact provenance, numeric tolerance, supported matrix, and fixture policy are recorded in
   `verification/G19-010-common-crs-profile.md`.
 
+## Tile matrix profile
+
+- `TileMatrixSet` and `TileMatrix` retain exact CRS, ordered axes, bounding box, point and corner of
+  origin, scale denominator, cell size, tile/matrix dimensions, and OGC variable-width row bands.
+  Definitions are immutable, scale-ordered, and capped at 64 matrices, 4,294,967,296 rows/columns,
+  65,536 cells per tile axis, and 1,024 coalesced row bands per matrix.
+- `TileMatrixAlgorithms` converts coordinates and tile envelopes, clips ordinary coverage, and
+  enumerates row-major addresses atomically. The default result cap is 100,000 tiles and the hard
+  cap is 1,000,000; stable failures precede publication.
+- Shared tile boundaries use half-open coverage selection while a point on the set maximum maps to
+  the final row/column. Horizontal seam traversal is explicit and accepts two longitude parts; an
+  ordinary envelope never wraps implicitly.
+- `CommonTileMatrixSets` reproduces OGC WebMercatorQuad and WorldCRS84Quad through level 24. Its
+  legacy XYZ adapter retains zoom 0–22 and the existing coordinate arithmetic exactly.
+- The frozen evidence, numeric rules, and interoperability boundary are recorded in
+  `verification/G19-014-tile-matrix-profile.md`.
+
 ## Completion rule
 
-G19-012 through G19-014 complete this matrix only after the exact resampling, label-placement, and
-TileMatrixSet profiles are frozen and
+G19-012 and G19-013 complete this matrix only after the exact resampling and label-placement profiles
+are frozen and
 covered by authoritative, hostile, boundary, cancellation, differential, and cross-adapter evidence.

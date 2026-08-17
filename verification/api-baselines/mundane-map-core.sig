@@ -28,6 +28,20 @@ public final class io.github.mundanej.map.core.CommonCrsCatalog {
   public static io.github.mundanej.map.api.WktCrsDefinition wktDefinition(java.lang.String);
     descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/api/WktCrsDefinition;
 }
+public final class io.github.mundanej.map.core.CommonTileMatrixSets {
+  public static final int MAXIMUM_COMMON_QUAD_LEVEL = 24;
+    descriptor: I
+  public static final int MAXIMUM_LEGACY_XYZ_LEVEL = 22;
+    descriptor: I
+  public static io.github.mundanej.map.core.TileMatrixSet webMercatorQuad(int);
+    descriptor: (I)Lio/github/mundanej/map/core/TileMatrixSet;
+  public static io.github.mundanej.map.core.TileMatrixSet worldCrs84Quad(int);
+    descriptor: (I)Lio/github/mundanej/map/core/TileMatrixSet;
+  public static io.github.mundanej.map.core.TileMatrixSet legacyXyz();
+    descriptor: ()Lio/github/mundanej/map/core/TileMatrixSet;
+  public static io.github.mundanej.map.api.Envelope xyzEnvelope(int, long, long);
+    descriptor: (IJJ)Lio/github/mundanej/map/api/Envelope;
+}
 public final class io.github.mundanej.map.core.CrsDefinitions {
   public static final io.github.mundanej.map.api.CrsDefinition EPSG_4326;
     descriptor: Lio/github/mundanej/map/api/CrsDefinition;
@@ -958,6 +972,214 @@ public final class io.github.mundanej.map.core.SyntheticRasterSource implements 
   public void close();
     descriptor: ()V
 }
+public final class io.github.mundanej.map.core.TileCoverage extends java.lang.Record {
+  public io.github.mundanej.map.core.TileCoverage(io.github.mundanej.map.core.TileCoverageStatus, java.util.List<io.github.mundanej.map.api.Envelope>, java.util.List<io.github.mundanej.map.core.TileMatrixIndex>);
+    descriptor: (Lio/github/mundanej/map/core/TileCoverageStatus;Ljava/util/List;Ljava/util/List;)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public io.github.mundanej.map.core.TileCoverageStatus status();
+    descriptor: ()Lio/github/mundanej/map/core/TileCoverageStatus;
+  public java.util.List<io.github.mundanej.map.api.Envelope> intersections();
+    descriptor: ()Ljava/util/List;
+  public java.util.List<io.github.mundanej.map.core.TileMatrixIndex> tiles();
+    descriptor: ()Ljava/util/List;
+}
+public final class io.github.mundanej.map.core.TileCoverageLimits extends java.lang.Record {
+  public static final int HARD_MAXIMUM_TILES = 1000000;
+    descriptor: I
+  public io.github.mundanej.map.core.TileCoverageLimits(int);
+    descriptor: (I)V
+  public static io.github.mundanej.map.core.TileCoverageLimits defaults();
+    descriptor: ()Lio/github/mundanej/map/core/TileCoverageLimits;
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public int maximumTiles();
+    descriptor: ()I
+}
+public final class io.github.mundanej.map.core.TileCoverageStatus extends java.lang.Enum<io.github.mundanej.map.core.TileCoverageStatus> {
+  public static final io.github.mundanej.map.core.TileCoverageStatus OUTSIDE;
+    descriptor: Lio/github/mundanej/map/core/TileCoverageStatus;
+  public static final io.github.mundanej.map.core.TileCoverageStatus COMPLETE;
+    descriptor: Lio/github/mundanej/map/core/TileCoverageStatus;
+  public static final io.github.mundanej.map.core.TileCoverageStatus CLIPPED;
+    descriptor: Lio/github/mundanej/map/core/TileCoverageStatus;
+  public static io.github.mundanej.map.core.TileCoverageStatus[] values();
+    descriptor: ()[Lio/github/mundanej/map/core/TileCoverageStatus;
+  public static io.github.mundanej.map.core.TileCoverageStatus valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/TileCoverageStatus;
+}
+public final class io.github.mundanej.map.core.TileMatrix extends java.lang.Record {
+  public static final int MAXIMUM_TILE_SIZE = 65536;
+    descriptor: I
+  public static final long MAXIMUM_MATRIX_DIMENSION = 4294967296l;
+    descriptor: J
+  public static final int MAXIMUM_VARIABLE_WIDTHS = 1024;
+    descriptor: I
+  public io.github.mundanej.map.core.TileMatrix(java.lang.String, double, double, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.core.TileMatrixCorner, int, int, long, long, java.util.List<io.github.mundanej.map.core.VariableMatrixWidth>);
+    descriptor: (Ljava/lang/String;DDLio/github/mundanej/map/api/Coordinate;Lio/github/mundanej/map/core/TileMatrixCorner;IIJJLjava/util/List;)V
+  public int coalesce(long);
+    descriptor: (J)I
+  public long columnCount(long);
+    descriptor: (J)J
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String identifier();
+    descriptor: ()Ljava/lang/String;
+  public double scaleDenominator();
+    descriptor: ()D
+  public double cellSize();
+    descriptor: ()D
+  public io.github.mundanej.map.api.Coordinate pointOfOrigin();
+    descriptor: ()Lio/github/mundanej/map/api/Coordinate;
+  public io.github.mundanej.map.core.TileMatrixCorner cornerOfOrigin();
+    descriptor: ()Lio/github/mundanej/map/core/TileMatrixCorner;
+  public int tileWidth();
+    descriptor: ()I
+  public int tileHeight();
+    descriptor: ()I
+  public long matrixWidth();
+    descriptor: ()J
+  public long matrixHeight();
+    descriptor: ()J
+  public java.util.List<io.github.mundanej.map.core.VariableMatrixWidth> variableMatrixWidths();
+    descriptor: ()Ljava/util/List;
+}
+public final class io.github.mundanej.map.core.TileMatrixAlgorithms {
+  public static io.github.mundanej.map.api.Envelope matrixEnvelope(io.github.mundanej.map.core.TileMatrixSet, java.lang.String);
+    descriptor: (Lio/github/mundanej/map/core/TileMatrixSet;Ljava/lang/String;)Lio/github/mundanej/map/api/Envelope;
+  public static io.github.mundanej.map.core.TileMatrixIndex tileAt(io.github.mundanej.map.core.TileMatrixSet, java.lang.String, io.github.mundanej.map.api.Coordinate);
+    descriptor: (Lio/github/mundanej/map/core/TileMatrixSet;Ljava/lang/String;Lio/github/mundanej/map/api/Coordinate;)Lio/github/mundanej/map/core/TileMatrixIndex;
+  public static io.github.mundanej.map.api.Envelope tileEnvelope(io.github.mundanej.map.core.TileMatrixSet, io.github.mundanej.map.core.TileMatrixIndex);
+    descriptor: (Lio/github/mundanej/map/core/TileMatrixSet;Lio/github/mundanej/map/core/TileMatrixIndex;)Lio/github/mundanej/map/api/Envelope;
+  public static io.github.mundanej.map.core.TileCoverage coverage(io.github.mundanej.map.core.TileMatrixSet, java.lang.String, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.core.TileCoverageLimits);
+    descriptor: (Lio/github/mundanej/map/core/TileMatrixSet;Ljava/lang/String;Lio/github/mundanej/map/api/Envelope;Lio/github/mundanej/map/core/TileCoverageLimits;)Lio/github/mundanej/map/core/TileCoverage;
+  public static io.github.mundanej.map.core.TileCoverage coverageAcrossHorizontalSeam(io.github.mundanej.map.core.TileMatrixSet, java.lang.String, double, double, double, double, io.github.mundanej.map.core.TileCoverageLimits);
+    descriptor: (Lio/github/mundanej/map/core/TileMatrixSet;Ljava/lang/String;DDDDLio/github/mundanej/map/core/TileCoverageLimits;)Lio/github/mundanej/map/core/TileCoverage;
+}
+public final class io.github.mundanej.map.core.TileMatrixAxisOrder extends java.lang.Enum<io.github.mundanej.map.core.TileMatrixAxisOrder> {
+  public static final io.github.mundanej.map.core.TileMatrixAxisOrder XY;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixAxisOrder;
+  public static final io.github.mundanej.map.core.TileMatrixAxisOrder YX;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixAxisOrder;
+  public static io.github.mundanej.map.core.TileMatrixAxisOrder[] values();
+    descriptor: ()[Lio/github/mundanej/map/core/TileMatrixAxisOrder;
+  public static io.github.mundanej.map.core.TileMatrixAxisOrder valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/TileMatrixAxisOrder;
+}
+public final class io.github.mundanej.map.core.TileMatrixCorner extends java.lang.Enum<io.github.mundanej.map.core.TileMatrixCorner> {
+  public static final io.github.mundanej.map.core.TileMatrixCorner TOP_LEFT;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixCorner;
+  public static final io.github.mundanej.map.core.TileMatrixCorner BOTTOM_LEFT;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixCorner;
+  public static io.github.mundanej.map.core.TileMatrixCorner[] values();
+    descriptor: ()[Lio/github/mundanej/map/core/TileMatrixCorner;
+  public static io.github.mundanej.map.core.TileMatrixCorner valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/TileMatrixCorner;
+}
+public final class io.github.mundanej.map.core.TileMatrixException extends java.lang.RuntimeException {
+  public io.github.mundanej.map.core.TileMatrixException(io.github.mundanej.map.core.TileMatrixProblem);
+    descriptor: (Lio/github/mundanej/map/core/TileMatrixProblem;)V
+  public io.github.mundanej.map.core.TileMatrixProblem problem();
+    descriptor: ()Lio/github/mundanej/map/core/TileMatrixProblem;
+}
+public final class io.github.mundanej.map.core.TileMatrixIndex extends java.lang.Record {
+  public io.github.mundanej.map.core.TileMatrixIndex(java.lang.String, long, long);
+    descriptor: (Ljava/lang/String;JJ)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String matrixIdentifier();
+    descriptor: ()Ljava/lang/String;
+  public long row();
+    descriptor: ()J
+  public long column();
+    descriptor: ()J
+}
+public final class io.github.mundanej.map.core.TileMatrixProblem extends java.lang.Record {
+  public io.github.mundanej.map.core.TileMatrixProblem(java.lang.String, java.util.Map<java.lang.String, java.lang.String>);
+    descriptor: (Ljava/lang/String;Ljava/util/Map;)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String code();
+    descriptor: ()Ljava/lang/String;
+  public java.util.Map<java.lang.String, java.lang.String> context();
+    descriptor: ()Ljava/util/Map;
+}
+public final class io.github.mundanej.map.core.TileMatrixSelectionPolicy extends java.lang.Enum<io.github.mundanej.map.core.TileMatrixSelectionPolicy> {
+  public static final io.github.mundanej.map.core.TileMatrixSelectionPolicy NEAREST;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixSelectionPolicy;
+  public static final io.github.mundanej.map.core.TileMatrixSelectionPolicy COARSER_OR_EQUAL;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixSelectionPolicy;
+  public static final io.github.mundanej.map.core.TileMatrixSelectionPolicy FINER_OR_EQUAL;
+    descriptor: Lio/github/mundanej/map/core/TileMatrixSelectionPolicy;
+  public static io.github.mundanej.map.core.TileMatrixSelectionPolicy[] values();
+    descriptor: ()[Lio/github/mundanej/map/core/TileMatrixSelectionPolicy;
+  public static io.github.mundanej.map.core.TileMatrixSelectionPolicy valueOf(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/TileMatrixSelectionPolicy;
+}
+public final class io.github.mundanej.map.core.TileMatrixSet extends java.lang.Record {
+  public static final int MAXIMUM_MATRICES = 64;
+    descriptor: I
+  public io.github.mundanej.map.core.TileMatrixSet(java.lang.String, io.github.mundanej.map.api.CrsDefinition, io.github.mundanej.map.core.TileMatrixAxisOrder, io.github.mundanej.map.api.Envelope, java.util.List<io.github.mundanej.map.core.TileMatrix>);
+    descriptor: (Ljava/lang/String;Lio/github/mundanej/map/api/CrsDefinition;Lio/github/mundanej/map/core/TileMatrixAxisOrder;Lio/github/mundanej/map/api/Envelope;Ljava/util/List;)V
+  public io.github.mundanej.map.core.TileMatrix matrix(java.lang.String);
+    descriptor: (Ljava/lang/String;)Lio/github/mundanej/map/core/TileMatrix;
+  public io.github.mundanej.map.core.TileMatrix select(double, io.github.mundanej.map.core.TileMatrixSelectionPolicy);
+    descriptor: (DLio/github/mundanej/map/core/TileMatrixSelectionPolicy;)Lio/github/mundanej/map/core/TileMatrix;
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public java.lang.String identifier();
+    descriptor: ()Ljava/lang/String;
+  public io.github.mundanej.map.api.CrsDefinition crs();
+    descriptor: ()Lio/github/mundanej/map/api/CrsDefinition;
+  public io.github.mundanej.map.core.TileMatrixAxisOrder orderedAxes();
+    descriptor: ()Lio/github/mundanej/map/core/TileMatrixAxisOrder;
+  public io.github.mundanej.map.api.Envelope boundingBox();
+    descriptor: ()Lio/github/mundanej/map/api/Envelope;
+  public java.util.List<io.github.mundanej.map.core.TileMatrix> tileMatrices();
+    descriptor: ()Ljava/util/List;
+}
+public final class io.github.mundanej.map.core.VariableMatrixWidth extends java.lang.Record {
+  public static final int MAXIMUM_COALESCE = 1048576;
+    descriptor: I
+  public io.github.mundanej.map.core.VariableMatrixWidth(int, long, long);
+    descriptor: (IJJ)V
+  public final java.lang.String toString();
+    descriptor: ()Ljava/lang/String;
+  public final int hashCode();
+    descriptor: ()I
+  public final boolean equals(java.lang.Object);
+    descriptor: (Ljava/lang/Object;)Z
+  public int coalesce();
+    descriptor: ()I
+  public long minimumTileRow();
+    descriptor: ()J
+  public long maximumTileRow();
+    descriptor: ()J
+}
 public final class io.github.mundanej.map.core.WebMercatorProjection implements io.github.mundanej.map.api.Projection {
   public static final double MAX_LATITUDE = 85.0511287798066d;
     descriptor: D
@@ -1028,6 +1250,7 @@ public final class io.github.mundanej.map.core.WrappedX extends java.lang.Record
 }
 SHAPE io.github.mundanej.map.core.BuiltInMarkers sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:filledScreen[io.github.mundanej.map.api.BuiltInMarker, io.github.mundanej.map.api.Rgba, double, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], method:path[io.github.mundanej.map.api.BuiltInMarker] throws=[] annotations=[] parameterAnnotations=[[]], method:viewBox[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.CommonCrsCatalog sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:EPSG_26915[], field:EPSG_27700[], field:EPSG_32618[], field:EPSG_32633[], field:EPSG_3395[], field:EPSG_4269[], field:EPSG_4277[], field:SOURCE_SHA256[], method:identifiers[] throws=[] annotations=[] parameterAnnotations=[], method:wktDefinition[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]]]
+SHAPE io.github.mundanej.map.core.CommonTileMatrixSets sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:MAXIMUM_COMMON_QUAD_LEVEL[], field:MAXIMUM_LEGACY_XYZ_LEVEL[], method:legacyXyz[] throws=[] annotations=[] parameterAnnotations=[], method:webMercatorQuad[int] throws=[] annotations=[] parameterAnnotations=[[]], method:worldCrs84Quad[int] throws=[] annotations=[] parameterAnnotations=[[]], method:xyzEnvelope[int, long, long] throws=[] annotations=[] parameterAnnotations=[[], [], []]]
 SHAPE io.github.mundanej.map.core.CrsDefinitions sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:EPSG_3857[], field:EPSG_4326[]]
 SHAPE io.github.mundanej.map.core.CrsOperation sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:sourceCrs[] throws=[] annotations=[] parameterAnnotations=[], method:sourceDomain[] throws=[] annotations=[] parameterAnnotations=[], method:targetCrs[] throws=[] annotations=[] parameterAnnotations=[], method:targetDomain[] throws=[] annotations=[] parameterAnnotations=[], method:transformEnvelopeStrict[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:transformQueryEnvelope[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:transform[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.CrsRegistry sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:builderWithCommon[] throws=[] annotations=[] parameterAnnotations=[], method:builderWithLevel1[] throws=[] annotations=[] parameterAnnotations=[], method:builder[] throws=[] annotations=[] parameterAnnotations=[], method:common[] throws=[] annotations=[] parameterAnnotations=[], method:level1[] throws=[] annotations=[] parameterAnnotations=[], method:operationFromMetadata[java.util.Optional<io.github.mundanej.map.api.CrsMetadata>, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:operation[io.github.mundanej.map.api.CrsDefinition, io.github.mundanej.map.api.CrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:resolve[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]]]
@@ -1094,6 +1317,19 @@ SHAPE io.github.mundanej.map.core.ScreenGeometryOptimizer sealed=false permits=[
 SHAPE io.github.mundanej.map.core.SnapQuery sealed=false permits=[] record=[] enum=[] annotations=[] members=[constructor:[double, double, double, io.github.mundanej.map.core.CrsOperation, io.github.mundanej.map.core.CrsOperation, io.github.mundanej.map.core.MapViewport, io.github.mundanej.map.api.SnapReferenceSet, java.util.Set<io.github.mundanej.map.api.FeatureSelection>, io.github.mundanej.map.api.SnapLimits, io.github.mundanej.map.api.CancellationToken] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], [], [], [], []], constructor:[double, double, double, io.github.mundanej.map.core.CrsOperation, io.github.mundanej.map.core.CrsOperation, io.github.mundanej.map.core.MapViewport, java.util.Optional<io.github.mundanej.map.core.HorizontalWrap>, java.util.Set<java.lang.String>, io.github.mundanej.map.api.SnapReferenceSet, java.util.Set<io.github.mundanej.map.api.FeatureSelection>, io.github.mundanej.map.api.SnapLimits, io.github.mundanej.map.api.CancellationToken] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], [], [], [], [], [], []], method:cancellation[] throws=[] annotations=[] parameterAnnotations=[], method:coordinatesToDisplay[] throws=[] annotations=[] parameterAnnotations=[], method:displayToCoordinates[] throws=[] annotations=[] parameterAnnotations=[], method:exclusions[] throws=[] annotations=[] parameterAnnotations=[], method:horizontalWrap[] throws=[] annotations=[] parameterAnnotations=[], method:limits[] throws=[] annotations=[] parameterAnnotations=[], method:references[] throws=[] annotations=[] parameterAnnotations=[], method:repeatingLayerIds[] throws=[] annotations=[] parameterAnnotations=[], method:repeatsLayer[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:screenX[] throws=[] annotations=[] parameterAnnotations=[], method:screenY[] throws=[] annotations=[] parameterAnnotations=[], method:tolerancePixels[] throws=[] annotations=[] parameterAnnotations=[], method:viewport[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.SymbolTransforms sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:markerAtScreenBearing[io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.MarkerPlacement, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.core.MapScreenBasis, double] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], []], method:marker[io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.MarkerPlacement, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.core.MapScreenBasis] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], method:screenLength[io.github.mundanej.map.api.SymbolLength, io.github.mundanej.map.core.MapScreenBasis] throws=[] annotations=[] parameterAnnotations=[[], []]]
 SHAPE io.github.mundanej.map.core.SyntheticRasterSource sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:close[] throws=[] annotations=[] parameterAnnotations=[], method:isClosed[] throws=[] annotations=[] parameterAnnotations=[], method:limits[] throws=[] annotations=[] parameterAnnotations=[], method:metadata[] throws=[] annotations=[] parameterAnnotations=[], method:open[io.github.mundanej.map.api.SourceIdentity, int, int, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.api.CrsMetadata] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], []], method:open[io.github.mundanej.map.api.SourceIdentity, int, int, java.util.Optional<io.github.mundanej.map.api.Envelope>, java.util.Optional<io.github.mundanej.map.api.CrsMetadata>, io.github.mundanej.map.api.RasterSourceLimits] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], []], method:openingDiagnostics[] throws=[] annotations=[] parameterAnnotations=[], method:read[io.github.mundanej.map.api.RasterRequest, io.github.mundanej.map.api.CancellationToken] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.TileCoverage sealed=false permits=[] record=[status:io.github.mundanej.map.core.TileCoverageStatus[], intersections:java.util.List<io.github.mundanej.map.api.Envelope>[], tiles:java.util.List<io.github.mundanej.map.core.TileMatrixIndex>[]] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.core.TileCoverageStatus, java.util.List<io.github.mundanej.map.api.Envelope>, java.util.List<io.github.mundanej.map.core.TileMatrixIndex>] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:intersections[] throws=[] annotations=[] parameterAnnotations=[], method:status[] throws=[] annotations=[] parameterAnnotations=[], method:tiles[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileCoverageLimits sealed=false permits=[] record=[maximumTiles:int[]] enum=[] annotations=[] members=[constructor:[int] throws=[] annotations=[] parameterAnnotations=[[]], field:HARD_MAXIMUM_TILES[], method:defaults[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:maximumTiles[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileCoverageStatus sealed=false permits=[] record=[] enum=[OUTSIDE, COMPLETE, CLIPPED] annotations=[] members=[field:CLIPPED[], field:COMPLETE[], field:OUTSIDE[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrix sealed=false permits=[] record=[identifier:java.lang.String[], scaleDenominator:double[], cellSize:double[], pointOfOrigin:io.github.mundanej.map.api.Coordinate[], cornerOfOrigin:io.github.mundanej.map.core.TileMatrixCorner[], tileWidth:int[], tileHeight:int[], matrixWidth:long[], matrixHeight:long[], variableMatrixWidths:java.util.List<io.github.mundanej.map.core.VariableMatrixWidth>[]] enum=[] annotations=[] members=[constructor:[java.lang.String, double, double, io.github.mundanej.map.api.Coordinate, io.github.mundanej.map.core.TileMatrixCorner, int, int, long, long, java.util.List<io.github.mundanej.map.core.VariableMatrixWidth>] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], [], [], [], []], field:MAXIMUM_MATRIX_DIMENSION[], field:MAXIMUM_TILE_SIZE[], field:MAXIMUM_VARIABLE_WIDTHS[], method:cellSize[] throws=[] annotations=[] parameterAnnotations=[], method:coalesce[long] throws=[] annotations=[] parameterAnnotations=[[]], method:columnCount[long] throws=[] annotations=[] parameterAnnotations=[[]], method:cornerOfOrigin[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:identifier[] throws=[] annotations=[] parameterAnnotations=[], method:matrixHeight[] throws=[] annotations=[] parameterAnnotations=[], method:matrixWidth[] throws=[] annotations=[] parameterAnnotations=[], method:pointOfOrigin[] throws=[] annotations=[] parameterAnnotations=[], method:scaleDenominator[] throws=[] annotations=[] parameterAnnotations=[], method:tileHeight[] throws=[] annotations=[] parameterAnnotations=[], method:tileWidth[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[], method:variableMatrixWidths[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixAlgorithms sealed=false permits=[] record=[] enum=[] annotations=[] members=[method:coverageAcrossHorizontalSeam[io.github.mundanej.map.core.TileMatrixSet, java.lang.String, double, double, double, double, io.github.mundanej.map.core.TileCoverageLimits] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], [], [], []], method:coverage[io.github.mundanej.map.core.TileMatrixSet, java.lang.String, io.github.mundanej.map.api.Envelope, io.github.mundanej.map.core.TileCoverageLimits] throws=[] annotations=[] parameterAnnotations=[[], [], [], []], method:matrixEnvelope[io.github.mundanej.map.core.TileMatrixSet, java.lang.String] throws=[] annotations=[] parameterAnnotations=[[], []], method:tileAt[io.github.mundanej.map.core.TileMatrixSet, java.lang.String, io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:tileEnvelope[io.github.mundanej.map.core.TileMatrixSet, io.github.mundanej.map.core.TileMatrixIndex] throws=[] annotations=[] parameterAnnotations=[[], []]]
+SHAPE io.github.mundanej.map.core.TileMatrixAxisOrder sealed=false permits=[] record=[] enum=[XY, YX] annotations=[] members=[field:XY[], field:YX[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixCorner sealed=false permits=[] record=[] enum=[TOP_LEFT, BOTTOM_LEFT] annotations=[] members=[field:BOTTOM_LEFT[], field:TOP_LEFT[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixException sealed=false permits=[] record=[] enum=[] annotations=[] members=[constructor:[io.github.mundanej.map.core.TileMatrixProblem] throws=[] annotations=[] parameterAnnotations=[[]], method:problem[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixIndex sealed=false permits=[] record=[matrixIdentifier:java.lang.String[], row:long[], column:long[]] enum=[] annotations=[] members=[constructor:[java.lang.String, long, long] throws=[] annotations=[] parameterAnnotations=[[], [], []], method:column[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:matrixIdentifier[] throws=[] annotations=[] parameterAnnotations=[], method:row[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixProblem sealed=false permits=[] record=[code:java.lang.String[], context:java.util.Map<java.lang.String, java.lang.String>[]] enum=[] annotations=[] members=[constructor:[java.lang.String, java.util.Map<java.lang.String, java.lang.String>] throws=[] annotations=[] parameterAnnotations=[[], []], method:code[] throws=[] annotations=[] parameterAnnotations=[], method:context[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixSelectionPolicy sealed=false permits=[] record=[] enum=[NEAREST, COARSER_OR_EQUAL, FINER_OR_EQUAL] annotations=[] members=[field:COARSER_OR_EQUAL[], field:FINER_OR_EQUAL[], field:NEAREST[], method:valueOf[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:values[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.TileMatrixSet sealed=false permits=[] record=[identifier:java.lang.String[], crs:io.github.mundanej.map.api.CrsDefinition[], orderedAxes:io.github.mundanej.map.core.TileMatrixAxisOrder[], boundingBox:io.github.mundanej.map.api.Envelope[], tileMatrices:java.util.List<io.github.mundanej.map.core.TileMatrix>[]] enum=[] annotations=[] members=[constructor:[java.lang.String, io.github.mundanej.map.api.CrsDefinition, io.github.mundanej.map.core.TileMatrixAxisOrder, io.github.mundanej.map.api.Envelope, java.util.List<io.github.mundanej.map.core.TileMatrix>] throws=[] annotations=[] parameterAnnotations=[[], [], [], [], []], field:MAXIMUM_MATRICES[], method:boundingBox[] throws=[] annotations=[] parameterAnnotations=[], method:crs[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:identifier[] throws=[] annotations=[] parameterAnnotations=[], method:matrix[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:orderedAxes[] throws=[] annotations=[] parameterAnnotations=[], method:select[double, io.github.mundanej.map.core.TileMatrixSelectionPolicy] throws=[] annotations=[] parameterAnnotations=[[], []], method:tileMatrices[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
+SHAPE io.github.mundanej.map.core.VariableMatrixWidth sealed=false permits=[] record=[coalesce:int[], minimumTileRow:long[], maximumTileRow:long[]] enum=[] annotations=[] members=[constructor:[int, long, long] throws=[] annotations=[] parameterAnnotations=[[], [], []], field:MAXIMUM_COALESCE[], method:coalesce[] throws=[] annotations=[] parameterAnnotations=[], method:equals[java.lang.Object] throws=[] annotations=[] parameterAnnotations=[[]], method:hashCode[] throws=[] annotations=[] parameterAnnotations=[], method:maximumTileRow[] throws=[] annotations=[] parameterAnnotations=[], method:minimumTileRow[] throws=[] annotations=[] parameterAnnotations=[], method:toString[] throws=[] annotations=[] parameterAnnotations=[]]
 SHAPE io.github.mundanej.map.core.WebMercatorProjection sealed=false permits=[] record=[] enum=[] annotations=[] members=[constructor:[] throws=[] annotations=[] parameterAnnotations=[], field:MAX_LATITUDE[], field:WORLD_LIMIT[], method:projectEnvelope[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:project[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]], method:sourceCrs[] throws=[] annotations=[] parameterAnnotations=[], method:sourceDomain[] throws=[] annotations=[] parameterAnnotations=[], method:targetCrs[] throws=[] annotations=[] parameterAnnotations=[], method:targetDomain[] throws=[] annotations=[] parameterAnnotations=[], method:unprojectEnvelope[io.github.mundanej.map.api.Envelope] throws=[] annotations=[] parameterAnnotations=[[]], method:unproject[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.Wkt2 sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:MAXIMUM_CHARACTERS[], field:MAXIMUM_DEPTH[], field:MAXIMUM_VALUES[], method:parse[java.lang.String] throws=[] annotations=[] parameterAnnotations=[[]], method:write[io.github.mundanej.map.api.WktCrsDefinition] throws=[] annotations=[] parameterAnnotations=[[]]]
 SHAPE io.github.mundanej.map.core.WktCoordinateOperation sealed=false permits=[] record=[] enum=[] annotations=[] members=[field:MAXIMUM_BATCH_COORDINATES[], field:MERCATOR_VARIANT_A[], field:TRANSVERSE_MERCATOR[], method:between[io.github.mundanej.map.api.WktCrsDefinition, io.github.mundanej.map.api.WktCrsDefinition] throws=[] annotations=[] parameterAnnotations=[[], []], method:source[] throws=[] annotations=[] parameterAnnotations=[], method:target[] throws=[] annotations=[] parameterAnnotations=[], method:transformAll[java.util.List<io.github.mundanej.map.api.Coordinate>] throws=[] annotations=[] parameterAnnotations=[[]], method:transform[io.github.mundanej.map.api.Coordinate] throws=[] annotations=[] parameterAnnotations=[[]]]

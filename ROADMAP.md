@@ -842,16 +842,17 @@ unchanged.
 
 ### G19 — Module-by-module standards and domain completion
 
-- G19-001, G19-002, G19-010, G19-011, and G19-190 are complete. The API now carries ordinate-aware geometry
+- G19-001, G19-002, G19-010, G19-011, G19-014, and G19-190 are complete. The API now carries ordinate-aware geometry
   and advanced portrayal values; core provides bounded dimension-preserving transforms/clipping,
   Simple Features validity/intersection, explicit canonical repair, and a pinned common-CRS/WKT2
-  profile with exact same-datum operations; architecture tests govern
+  profile with exact same-datum operations, plus a bounded OGC TileMatrixSet 2.0 model with exact
+  WebMercatorQuad/WorldCRS84Quad and legacy XYZ behavior; architecture tests govern
   every published API with reviewed provisional pre-publication signatures, pinned Revapi
   classifications, and two-phase SemVer rules.
 - G19 reviews every Gradle project against its declared domain and the current primary standards,
   with particular attention to formats and protocols that intentionally implement subsets today.
 - The review found foundational gaps in dimensional/collection geometry, structured portrayal,
-  raster warping, labels, and tile matrices. Format cards build on
+  raster warping and labels. Format cards build on
   those foundations rather than adding private parallel models.
 - Adapter cards account for the remaining Shapefile, PNG/JPEG, optional static WebP, HTTP tiles, DTED, GeoTIFF/COG, SVG,
   OGC SE, GPX, KML, MIL-STD-2525, GeoJSON, MapLibre, GeoPackage, and MBTiles standards surfaces,
