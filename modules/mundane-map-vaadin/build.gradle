@@ -36,7 +36,7 @@ def vaadinRuntime = configurations.runtimeClasspath.incoming.artifactView {
 
 def expectedVaadinBomChecksum = providers.gradleProperty('map.offlineRepo').isPresent()
         // assembleOfflineRepository writes a deterministic dependency-only BOM POM.
-        ? '361760e57b449f0315924579a35a0d8728b7c4887b103ad2df5a96c170370749'
+        ? '6d1cfbb7305e1e32ec9513cb50706ae7a269ddcd9985f27512f2838b1976c7d6'
         : '5180af32975d24c7d338c63d4261f4b0aa4b920e39682dc9ee083e745eb27ac9'
 
 def verifyVaadinDependency = tasks.register('verifyVaadinDependency') {
