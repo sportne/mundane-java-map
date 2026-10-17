@@ -32,7 +32,7 @@ final class NativeWorkflowPolicy {
         requireCount(workflow, "    timeout-minutes: 30\n", 1, "30 minute timeout", violations);
         requireCount(
                 workflow,
-                "      - uses: graalvm/setup-graalvm@v1\n",
+                "      - uses: graalvm/setup-graalvm@v1.6.7\n",
                 1,
                 "one GraalVM setup action",
                 violations);
