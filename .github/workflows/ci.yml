@@ -13,42 +13,42 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
       - name: Install Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5.0.2
       - name: Run quality gate
         run: ./gradlew -Pmap.testJavaVersion=21 qualityGate --console=plain
 
   test-java-25:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
       - name: Install Java 21 compiler toolchain
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5.0.2
       - name: Run tests on Java 25
         run: ./gradlew -Pmap.testJavaVersion=25 supportedJdkTests --console=plain
 
   render-regression:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5.0.2
       - name: Run rendering regression lane
         run: ./gradlew renderRegression --console=plain
 
@@ -57,12 +57,12 @@ jobs:
     env:
       GRADLE_USER_HOME: /tmp/shapefile-corpus-gradle-home
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5.0.2
       - name: Create empty corpus Gradle home
         run: |
           rm -rf "$GRADLE_USER_HOME"
@@ -77,12 +77,12 @@ jobs:
     env:
       GRADLE_USER_HOME: /tmp/dted-corpus-gradle-home
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5.0.2
       - name: Create empty corpus Gradle home
         run: |
           rm -rf "$GRADLE_USER_HOME"
@@ -95,12 +95,12 @@ jobs:
   performance-evidence:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5.0.2
       - name: Prime performance dependencies
         run: ./gradlew primePerformanceEvidenceDependencies --console=plain
       - name: Run performance evidence offline

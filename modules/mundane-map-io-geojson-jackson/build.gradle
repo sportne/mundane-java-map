@@ -13,7 +13,7 @@ dependencies {
     api project(':modules:mundane-map-api')
     implementation project(':modules:mundane-map-core')
     implementation libs.jackson.core
-    add(jacksonProvenance.name, 'tools.jackson.core:jackson-core:3.1.5@pom')
+    add(jacksonProvenance.name, 'tools.jackson.core:jackson-core:3.1.7@pom')
 }
 
 dependencyLocking {
@@ -31,7 +31,7 @@ def verifyJacksonDependency = tasks.register('verifyJacksonDependency') {
     doLast {
         def runtimeFiles = jacksonRuntime.files
         if (runtimeFiles.size() != 1
-                || runtimeFiles.iterator().next().name != 'jackson-core-3.1.5.jar') {
+                || runtimeFiles.iterator().next().name != 'jackson-core-3.1.7.jar') {
             throw new GradleException("Unexpected Jackson runtime artifacts: ${runtimeFiles*.name}")
         }
         def pomFiles = jacksonProvenance.files
@@ -48,12 +48,12 @@ def verifyJacksonDependency = tasks.register('verifyJacksonDependency') {
             }
             digest.digest().encodeHex().toString()
         }
-        def expectedJar = '9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2'
+        def expectedJar = '7608c367fd8a92666d28711519599543c180298259963184ce04d2947a8f71e7'
         def expectedPoms = [
             // Maven Central provenance POM.
-            'd05c1f9f436866306d26b8f482ce49507d2a5f5e0816e3a07f35096b9f83e1ba',
+            '94b0996a916055c908e95afb84fa286f3db38170dc40677246724906c27d9553',
             // Deterministic dependency-only POM produced by assembleOfflineRepository.
-            '66c69e101da792141869b08c4dbfd369c359d17ffaed57f5d7e9eba2b1c8ec0c'
+            'ac675601286eda6d55555c255e4980fc6ad14f3c6f864a27f35f4811fda11094'
         ] as Set
         if (sha256(runtimeFiles.iterator().next()) != expectedJar
                 || !expectedPoms.contains(sha256(pomFiles.iterator().next()))) {

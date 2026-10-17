@@ -11,7 +11,7 @@ readable. Mutation is limited to exact recognized writable layouts; another vali
 read-only and can be transactionally rewritten into a canonical project layout on explicit request.
 
 The module uses the repository's pinned Xerial SQLite JDBC graph and directly constructed Jackson Core
-3.1.5 parsers/generators for bounded JSON. Neither dependency leaks through public project contracts.
+3.1.7 parsers/generators for bounded JSON. Neither dependency leaks through public project contracts.
 WebP decoding is available only when the separate optional AWT WebP adapter is registered. The root
 README describes released behavior; target rows become release claims only as their G19 cards close.
 

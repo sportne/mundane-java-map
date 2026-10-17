@@ -13,6 +13,8 @@ dependencies {
     api project(':modules:mundane-map-api')
     api project(':modules:mundane-map-core')
     api platform('com.vaadin:vaadin-bom:25.2.3')
+    // Keep Flow's JSON parser on the patched, approved Jackson line.
+    api platform("tools.jackson:jackson-bom:${libs.versions.jacksonCore.get()}")
     api libs.vaadin.flow.server
     compileOnly 'jakarta.servlet:jakarta.servlet-api:6.1.0'
     testImplementation project(':modules:mundane-map-io-se')
@@ -34,7 +36,7 @@ def vaadinRuntime = configurations.runtimeClasspath.incoming.artifactView {
 
 def expectedVaadinBomChecksum = providers.gradleProperty('map.offlineRepo').isPresent()
         // assembleOfflineRepository writes a deterministic dependency-only BOM POM.
-        ? '361760e57b449f0315924579a35a0d8728b7c4887b103ad2df5a96c170370749'
+        ? '6d1cfbb7305e1e32ec9513cb50706ae7a269ddcd9985f27512f2838b1976c7d6'
         : '5180af32975d24c7d338c63d4261f4b0aa4b920e39682dc9ee083e745eb27ac9'
 
 def verifyVaadinDependency = tasks.register('verifyVaadinDependency') {
@@ -53,10 +55,10 @@ def verifyVaadinDependency = tasks.register('verifyVaadinDependency') {
             '7fbb7aaa015944f08c0fcf394e4e4e6854ee5a4714c10835adab8d0e4c15c46a',
             'jackson-annotations-2.22.jar':
             '21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0',
-            'jackson-core-3.1.5.jar':
-            '9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2',
-            'jackson-databind-3.1.5.jar':
-            '3a2338d996fd3056791df8d335fa9ba8a62a706ed4245ecf81b3e583df37d08a',
+            'jackson-core-3.1.7.jar':
+            '7608c367fd8a92666d28711519599543c180298259963184ce04d2947a8f71e7',
+            'jackson-databind-3.1.7.jar':
+            '48c781de87e2016e1f0d973748a27130f11643e7ac080173f40e2d9669d84be3',
             'jsoup-1.22.2.jar':
             '596785996d3c6df16f544c232d10a9a1d88783b2a4740cf5251cb616f2be704d',
             'jspecify-1.0.0.jar':

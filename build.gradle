@@ -204,8 +204,8 @@ def publicationContract = [
     'mundane-map-io-gpx|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/gpx/',
     'mundane-map-io-kml|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/kml/',
     "mundane-map-symbology-milstd2525|mundane-map-api|||io/github/mundanej/map/symbology/milstd2525/|${milStd2525BinaryEntries}",
-    'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
-    'mundane-map-io-maplibre-style-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/maplibre/style/',
+    'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.7|io/github/mundanej/map/io/geojson/',
+    'mundane-map-io-maplibre-style-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.7|io/github/mundanej/map/io/maplibre/style/',
     'mundane-map-io-geopackage-xerial|mundane-map-api|mundane-map-core,mundane-map-io-image|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/geopackage/',
     'mundane-map-io-mbtiles-xerial|mundane-map-api|mundane-map-core,mundane-map-io-image|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/mbtiles/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'
@@ -389,18 +389,25 @@ def preparedFrontendModules = layout.projectDirectory.dir(
 def preparedNodeInstallation = layout.dir(providers.provider {
     new File(System.getProperty('user.home'), '.vaadin/node-v24.14.0')
 })
+// npm may reinstall locked packages after source preparation. Preserve only its package
+// cache, so the isolated build can verify package integrity without the network or credentials.
+def preparedNpmCache = layout.dir(providers.provider {
+    new File(System.getProperty('user.home'), '.npm/_cacache')
+})
 def prepareOfflineFrontendInputs = tasks.register('prepareOfflineFrontendInputs', Exec) {
     group = 'build setup'
-    description = 'Prepares the exact locked Node and npm inputs for isolated offline verification.'
+    description = 'Builds the frontend online to prime exact locked Node and npm inputs.'
     executable new File(gradle.gradleHomeDir, 'bin/gradle')
     args '-p', layout.projectDirectory.asFile.absolutePath,
-            ':examples:vaadin-viewer:vaadinPrepareFrontend', '--console=plain', '--no-daemon'
+            ':examples:vaadin-viewer:vaadinBuildFrontend', '-Pvaadin.productionMode',
+            '--console=plain', '--no-daemon'
     inputs.files layout.projectDirectory.file('examples/vaadin-viewer/package.json'),
             layout.projectDirectory.file('examples/vaadin-viewer/package-lock.json'),
             layout.projectDirectory.file('verification/G18-001-frontend-profile.json'),
             layout.projectDirectory.file('verification/G18-001-frontend-build-inventory.tsv')
     outputs.dir preparedFrontendModules
     outputs.dir preparedNodeInstallation
+    outputs.dir preparedNpmCache
     environment.remove('HTTP_PROXY')
     environment.remove('HTTPS_PROXY')
     environment.remove('NO_PROXY')
@@ -418,6 +425,7 @@ tasks.register('offlineRepositoryVerification', OfflineBuildVerification) {
     dependsOn prepareOfflineFrontendInputs
     frontendModulesDirectory = preparedFrontendModules
     nodeInstallationDirectory = preparedNodeInstallation
+    npmCacheDirectory = preparedNpmCache
     gradleUserHome = layout.dir(providers.provider { gradle.gradleUserHomeDir })
     javaHome = System.getProperty('java.home')
     java21Home = java21Launcher.map { it.metadata.installationPath.asFile.absolutePath }
@@ -443,9 +451,9 @@ def stageConsumerExternalDependencies = tasks.register('stageConsumerExternalDep
         include 'com/vaadin/external/gentyref/1.2.0.vaadin1/**'
         include 'com/fasterxml/jackson/core/jackson-annotations/2.21/**'
         include 'com/fasterxml/jackson/core/jackson-annotations/2.22/**'
-        include 'tools/jackson/core/jackson-core/3.1.5/**'
-        include 'tools/jackson/core/jackson-databind/3.1.5/**'
-        include 'tools/jackson/jackson-bom/3.1.5/**'
+        include 'tools/jackson/core/jackson-core/3.1.7/**'
+        include 'tools/jackson/core/jackson-databind/3.1.7/**'
+        include 'tools/jackson/jackson-bom/3.1.7/**'
         include 'org/jsoup/jsoup/1.22.2/**'
         include 'org/jspecify/jspecify/1.0.0/**'
         include 'org/slf4j/slf4j-api/2.0.18/**'

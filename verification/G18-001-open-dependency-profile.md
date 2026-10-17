@@ -17,8 +17,8 @@ commercial kit, or browser map engine is accepted.
 | `com.vaadin:flow-push:25.2.4` | `ca44d7d4a27e819708643c65ecfc133c12afeefbe679a6d4f6a312543b26c48b` | Apache-2.0 | Flow transport classes and bundled push client; G18 does not use push for animation frames |
 | `com.vaadin.external.atmosphere:atmosphere-runtime:3.0.5.slf4jvaadin1` | `4dfa763a8c284bff0e1577969f98d976fdc76ad8876094a5c43d94baada41d98` | Apache-2.0 / CDDL-1.0 dual notice | Transitive Flow transport runtime |
 | `com.vaadin.external:gentyref:1.2.0.vaadin1` | `7fbb7aaa015944f08c0fcf394e4e4e6854ee5a4714c10835adab8d0e4c15c46a` | Apache-2.0 | Generic-type reflection helper used by Flow |
-| `tools.jackson.core:jackson-core:3.1.5` | `9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2` | Apache-2.0 | Flow protocol parsing/generation internals; not part of the map protocol API |
-| `tools.jackson.core:jackson-databind:3.1.5` | `3a2338d996fd3056791df8d335fa9ba8a62a706ed4245ecf81b3e583df37d08a` | Apache-2.0 | Flow internal value binding; private scene values remain closed and validated |
+| `tools.jackson.core:jackson-core:3.1.7` | `7608c367fd8a92666d28711519599543c180298259963184ce04d2947a8f71e7` | Apache-2.0 | Flow protocol parsing/generation internals; not part of the map protocol API |
+| `tools.jackson.core:jackson-databind:3.1.7` | `48c781de87e2016e1f0d973748a27130f11643e7ac080173f40e2d9669d84be3` | Apache-2.0 | Flow internal value binding; private scene values remain closed and validated |
 | `com.fasterxml.jackson.core:jackson-annotations:2.22` | `21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0` | Apache-2.0 | Compatibility annotations used by Flow |
 | `org.jsoup:jsoup:1.22.2` | `596785996d3c6df16f544c232d10a9a1d88783b2a4740cf5251cb616f2be704d` | MIT | Flow server-side HTML handling; never parses source attributes as HTML |
 | `org.jspecify:jspecify:1.0.0` | `1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab` | Apache-2.0 | Nullness annotations |
@@ -26,8 +26,8 @@ commercial kit, or browser map engine is accepted.
 
 The dependency-management-only artifacts are `com.vaadin:vaadin-bom:25.2.3` (POM SHA-256
 `5180af32975d24c7d338c63d4261f4b0aa4b920e39682dc9ee083e745eb27ac9`, Apache-2.0) and
-`tools.jackson:jackson-bom:3.1.5` (POM SHA-256
-`14fdbdcbb6a6023cadbffaadc878d66c5cf94f51c8162b9ffefc257e742412f4`, Apache-2.0). Provided servlet, annotation, OSGi, and Vaadin license
+`tools.jackson:jackson-bom:3.1.7` (POM SHA-256
+`26c28ddf86ee17de2da550e0e8e88a14ed22370c880d813c88618df5f67e27ff`, Apache-2.0). Provided servlet, annotation, OSGi, and Vaadin license
 checker dependencies are not in the published adapter runtime graph; the consuming application
 supplies its servlet container.
 
@@ -116,3 +116,13 @@ unsupported-symbol cases were reviewed against the approved protocol limits and 
 precedence in the design. G18-010 through G18-061 retain the published dependency graph and ownership
 order. The maintainer's 2026-08-08 instruction to complete G18-001 through G18-031 records approval
 of this HITL profile.
+
+## October 2026 Jackson security maintenance
+
+Jackson Core and its aligned BOM/Databind move from 3.1.5 to 3.1.7 for
+[GHSA-7hhh-6rmp-j9qf](https://github.com/advisories/GHSA-7hhh-6rmp-j9qf) and
+[GHSA-p6pp-m3f8-5c89](https://github.com/advisories/GHSA-p6pp-m3f8-5c89).
+The version catalog, locked graphs, Maven Central artifact checksums, offline POM
+checksum and consumer inventory remain explicit. Historical G10 evidence records
+the original 3.1.5 selection; this maintenance supersedes that version pin without
+changing the optional-adapter boundary.
