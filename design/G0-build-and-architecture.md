@@ -52,6 +52,12 @@ invalid-path, and missing-coordinate tests remain in the normal gate. This remov
 provisioning `qualityGate` plus second offline `qualityGate` cycle while retaining the stronger clean
 consumer proof.
 
+For the optional Vaadin frontend, preparation first builds production assets online.
+The isolated build receives the locked frontend modules, pinned Node installation,
+and npm's content-addressed package cache, but no npm user configuration or credentials.
+Its Java user home and npm cache are explicitly isolated, and npm remains offline.
+This permits integrity-checked reinstallations without falling back to an ambient cache.
+
 ### Normal quality gate
 
 The normal verification graph is intentionally small and mirrors ordinary CI:

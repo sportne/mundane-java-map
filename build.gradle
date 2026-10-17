@@ -389,18 +389,25 @@ def preparedFrontendModules = layout.projectDirectory.dir(
 def preparedNodeInstallation = layout.dir(providers.provider {
     new File(System.getProperty('user.home'), '.vaadin/node-v24.14.0')
 })
+// npm may reinstall locked packages after source preparation. Preserve only its package
+// cache, so the isolated build can verify package integrity without the network or credentials.
+def preparedNpmCache = layout.dir(providers.provider {
+    new File(System.getProperty('user.home'), '.npm/_cacache')
+})
 def prepareOfflineFrontendInputs = tasks.register('prepareOfflineFrontendInputs', Exec) {
     group = 'build setup'
-    description = 'Prepares the exact locked Node and npm inputs for isolated offline verification.'
+    description = 'Builds the frontend online to prime exact locked Node and npm inputs.'
     executable new File(gradle.gradleHomeDir, 'bin/gradle')
     args '-p', layout.projectDirectory.asFile.absolutePath,
-            ':examples:vaadin-viewer:vaadinPrepareFrontend', '--console=plain', '--no-daemon'
+            ':examples:vaadin-viewer:vaadinBuildFrontend', '-Pvaadin.productionMode',
+            '--console=plain', '--no-daemon'
     inputs.files layout.projectDirectory.file('examples/vaadin-viewer/package.json'),
             layout.projectDirectory.file('examples/vaadin-viewer/package-lock.json'),
             layout.projectDirectory.file('verification/G18-001-frontend-profile.json'),
             layout.projectDirectory.file('verification/G18-001-frontend-build-inventory.tsv')
     outputs.dir preparedFrontendModules
     outputs.dir preparedNodeInstallation
+    outputs.dir preparedNpmCache
     environment.remove('HTTP_PROXY')
     environment.remove('HTTPS_PROXY')
     environment.remove('NO_PROXY')
@@ -418,6 +425,7 @@ tasks.register('offlineRepositoryVerification', OfflineBuildVerification) {
     dependsOn prepareOfflineFrontendInputs
     frontendModulesDirectory = preparedFrontendModules
     nodeInstallationDirectory = preparedNodeInstallation
+    npmCacheDirectory = preparedNpmCache
     gradleUserHome = layout.dir(providers.provider { gradle.gradleUserHomeDir })
     javaHome = System.getProperty('java.home')
     java21Home = java21Launcher.map { it.metadata.installationPath.asFile.absolutePath }

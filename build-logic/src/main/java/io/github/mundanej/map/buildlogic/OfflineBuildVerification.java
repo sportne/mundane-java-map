@@ -65,6 +65,15 @@ public abstract class OfflineBuildVerification extends DefaultTask {
     public abstract DirectoryProperty getNodeInstallationDirectory();
 
     /**
+     * Provides npm's content-addressed cache populated by the online frontend build.
+     *
+     * @return package cache, excluding user configuration and credentials
+     */
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract DirectoryProperty getNpmCacheDirectory();
+
+    /**
      * Provides the ordinary Gradle home from which only the verified wrapper is copied.
      *
      * @return ordinary Gradle home
@@ -110,6 +119,9 @@ public abstract class OfflineBuildVerification extends DefaultTask {
         copyTree(
                 getNodeInstallationDirectory().get().getAsFile().toPath(),
                 isolatedUserHome.resolve(".vaadin/node-v24.14.0"));
+        copyTree(
+                getNpmCacheDirectory().get().getAsFile().toPath(),
+                isolatedUserHome.resolve(".npm/_cacache"));
         copyWrapper(getGradleUserHome().get().getAsFile().toPath(), isolatedHome, project);
 
         runBuild(
@@ -143,6 +155,7 @@ public abstract class OfflineBuildVerification extends DefaultTask {
         command.add("--console=plain");
         command.add("--offline");
         command.add("--no-daemon");
+        command.add("-Duser.home=" + isolatedUserHome);
         command.add(
                 "-Pmap.offlineRepo="
                         + getRepositoryDirectory().get().getAsFile().getAbsolutePath());
@@ -160,6 +173,7 @@ public abstract class OfflineBuildVerification extends DefaultTask {
         process.environment().put("GRADLE_USER_HOME", isolatedHome.toString());
         process.environment().put("HOME", isolatedUserHome.toString());
         process.environment().put("JAVA_HOME", getJavaHome().get());
+        process.environment().put("npm_config_cache", isolatedUserHome.resolve(".npm").toString());
         process.environment().put("npm_config_offline", "true");
         process.environment().put("npm_config_audit", "false");
         process.environment().put("npm_config_fund", "false");
