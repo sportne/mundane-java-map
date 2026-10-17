@@ -28,7 +28,7 @@ The working module is the optional, published
 mundane-map-io-maplibre-style-jackson
  ├─ mundane-map-api
  ├─ mundane-map-core
- └─ tools.jackson.core:jackson-core:3.1.5
+ └─ tools.jackson.core:jackson-core:3.1.7
 ```
 
 It is AWT-free. Jackson is an implementation detail: no Jackson type appears in a public or
@@ -38,7 +38,7 @@ use databind, service loading, classpath scanning, reflection, or Jackson's opti
 providers.
 
 The Jackson jar is pinned to SHA-256
-`9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2`. The Maven Central POM
+`7608c367fd8a92666d28711519599543c180298259963184ce04d2947a8f71e7`. The Maven Central POM
 and the deterministic offline POM use the already approved G10-025 checksum allowlist. The adapter
 ships the Apache-2.0 Jackson notice plus the upstream MIT notices for FastDoubleParser and Schubfach
 and uses dependency locking

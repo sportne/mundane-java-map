@@ -204,8 +204,8 @@ def publicationContract = [
     'mundane-map-io-gpx|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/gpx/',
     'mundane-map-io-kml|mundane-map-api|mundane-map-core||io/github/mundanej/map/io/kml/',
     "mundane-map-symbology-milstd2525|mundane-map-api|||io/github/mundanej/map/symbology/milstd2525/|${milStd2525BinaryEntries}",
-    'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/geojson/',
-    'mundane-map-io-maplibre-style-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.5|io/github/mundanej/map/io/maplibre/style/',
+    'mundane-map-io-geojson-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.7|io/github/mundanej/map/io/geojson/',
+    'mundane-map-io-maplibre-style-jackson|mundane-map-api|mundane-map-core|tools.jackson.core:jackson-core:3.1.7|io/github/mundanej/map/io/maplibre/style/',
     'mundane-map-io-geopackage-xerial|mundane-map-api|mundane-map-core,mundane-map-io-image|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/geopackage/',
     'mundane-map-io-mbtiles-xerial|mundane-map-api|mundane-map-core,mundane-map-io-image|org.xerial:sqlite-jdbc:3.53.2.0@without-natives,org.xerial:sqlite-jdbc:3.53.2.0@natives-linux|io/github/mundanej/map/io/mbtiles/',
     'mundane-map-workspace|mundane-map-api,mundane-map-core|||io/github/mundanej/map/workspace/'
@@ -451,9 +451,9 @@ def stageConsumerExternalDependencies = tasks.register('stageConsumerExternalDep
         include 'com/vaadin/external/gentyref/1.2.0.vaadin1/**'
         include 'com/fasterxml/jackson/core/jackson-annotations/2.21/**'
         include 'com/fasterxml/jackson/core/jackson-annotations/2.22/**'
-        include 'tools/jackson/core/jackson-core/3.1.5/**'
-        include 'tools/jackson/core/jackson-databind/3.1.5/**'
-        include 'tools/jackson/jackson-bom/3.1.5/**'
+        include 'tools/jackson/core/jackson-core/3.1.7/**'
+        include 'tools/jackson/core/jackson-databind/3.1.7/**'
+        include 'tools/jackson/jackson-bom/3.1.7/**'
         include 'org/jsoup/jsoup/1.22.2/**'
         include 'org/jspecify/jspecify/1.0.0/**'
         include 'org/slf4j/slf4j-api/2.0.18/**'

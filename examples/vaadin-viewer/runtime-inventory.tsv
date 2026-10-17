@@ -40,8 +40,8 @@ production	io.micrometer:micrometer-observation:1.17.0	micrometer-observation-1.
 production	io.micrometer:micrometer-commons:1.17.0	micrometer-commons-1.17.0.jar	03919dc71e2417ec4b5c254c4ba924963c972e124190f73cdcb68ed51c6eede6	Apache-2.0
 production	org.jspecify:jspecify:1.0.0	jspecify-1.0.0.jar	1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab	Apache-2.0
 production	jakarta.validation:jakarta.validation-api:3.1.1	jakarta.validation-api-3.1.1.jar	63ce00156388c365f3ac1be71fcfaf114682fc0c452020b5df6e7ec236e142ab	EPL-2.0 OR GPL-2.0-with-classpath-exception
-production	tools.jackson.core:jackson-databind:3.1.5	jackson-databind-3.1.5.jar	3a2338d996fd3056791df8d335fa9ba8a62a706ed4245ecf81b3e583df37d08a	Apache-2.0
-production	tools.jackson.core:jackson-core:3.1.5	jackson-core-3.1.5.jar	9431b7fa2673bbb618c11d865fe15e13222fd182a214ff998cb7e56afd8f35d2	Apache-2.0
+production	tools.jackson.core:jackson-databind:3.1.7	jackson-databind-3.1.7.jar	48c781de87e2016e1f0d973748a27130f11643e7ac080173f40e2d9669d84be3	Apache-2.0
+production	tools.jackson.core:jackson-core:3.1.7	jackson-core-3.1.7.jar	7608c367fd8a92666d28711519599543c180298259963184ce04d2947a8f71e7	Apache-2.0
 production	org.apache.tomcat.embed:tomcat-embed-websocket:11.0.24	tomcat-embed-websocket-11.0.24.jar	825160101f0da4a10e19b5730c2ae2f99f8c2c7a7211ac05562726c5e97ab91e	Apache-2.0
 production	ch.qos.logback:logback-core:1.5.35	logback-core-1.5.35.jar	d8c38ea6871eefccf769f83e1afd07280e29fa0d1dd281092a77eb77c880ace6	EPL-1.0 OR LGPL-2.1
 production	com.fasterxml.jackson.core:jackson-annotations:2.22	jackson-annotations-2.22.jar	21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0	Apache-2.0
